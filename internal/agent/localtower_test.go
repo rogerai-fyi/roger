@@ -178,10 +178,10 @@ func TestUnstreamLocalToleratesNullBody(t *testing.T) {
 	})
 }
 
-func TestServeLocalTowerAnnouncesItsNodeIDForAttach(t *testing.T) {
-	// The operator needs the node's tower client id to run `roger tower attach --key <id>`, and
-	// the node is the only place that key hash is derivable from - so serving MUST print it, with
-	// the exact command that consumes it. Without this the documented attach flow cannot be followed.
+func TestServeLocalTowerAsksNobodyToCopyItsKey(t *testing.T) {
+	// features/join/surfaces.feature: no screen asks the user to carry a key between machines. A
+	// station a Tower already attached serves without printing its key (the invite is the way in;
+	// an unattached station is told so, below).
 	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
 	nodeID := protocol.UserIDFromPubkey(hexOf(pub))
 	quiet := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -193,8 +193,8 @@ func TestServeLocalTowerAnnouncesItsNodeIDForAttach(t *testing.T) {
 	var out bytes.Buffer
 	_ = ServeLocalTower(ctx, Config{Broker: quiet.URL, Upstream: "http://127.0.0.1:1"}, priv, &out)
 	s := out.String()
-	require.Contains(t, s, nodeID, "the node prints its own tower client id so the operator can attach it")
-	require.Contains(t, s, "roger tower attach", "and prints the exact command that consumes it")
+	require.NotContains(t, s, nodeID, "an attached station does not print its key")
+	require.NotContains(t, s, "--key", "nor ask anyone to copy it")
 }
 
 func TestIDFromPrivFollowsTheCanonicalRule(t *testing.T) {
@@ -239,7 +239,10 @@ func TestServeLocalTowerReportsAnUnattachedStationAndBacksOff(t *testing.T) {
 
 	s := out.String()
 	require.Contains(t, s, "the Tower at "+refusing.URL+" has not attached this station")
-	require.Contains(t, s, "roger tower attach --station <name> --key "+protocol.UserIDFromPubkey(hexOf(pub))+" --models m")
+	require.Contains(t, s, "ask its owner for a station invite (roger tower invite --station), then run here: roger join <invite>",
+		"the unattached station is told the simple way in")
+	require.NotContains(t, s, "--key", "it asks nobody to copy a key")
+	require.Contains(t, s, "a Tower older than invites attaches this station's key: "+protocol.UserIDFromPubkey(hexOf(pub)))
 	require.Equal(t, 1, strings.Count(s, "has not attached this station"), "said once, not on every poll")
 
 	mu.Lock()

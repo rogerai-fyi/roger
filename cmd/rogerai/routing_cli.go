@@ -836,7 +836,27 @@ func cmdUse(cfg config, args []string) error {
 			return src
 		}
 	}
-	return client.Use(cfg.Broker, cfg.User, t.model, opt)
+	err = client.Use(cfg.Broker, cfg.User, t.model, opt)
+	if err != nil && cfg.lan.LAN {
+		err = withNotAdmittedHints(err, lanDial(cfg).Towers)
+	}
+	return err
+}
+
+// withNotAdmittedHints adds, to a LAN refusal, the simple way into each configured Tower that has
+// not let this machine in yet (features/join/surfaces.feature): the Tower may serve the band once
+// this machine joins.
+func withNotAdmittedHints(err error, towers []client.LANTowerStatus) error {
+	msg := err.Error()
+	for _, t := range towers {
+		if t.State == client.LANTowerNotAdmitted && t.Detail != "" && !strings.Contains(msg, t.Detail) {
+			msg += "\n" + t.Addr + ": " + t.Detail
+		}
+	}
+	if msg == err.Error() {
+		return err
+	}
+	return errors.New(msg)
 }
 
 // useAccountKey resolves the account key a session relays with: --key's (- reads it from

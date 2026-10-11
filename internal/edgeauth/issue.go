@@ -9,8 +9,10 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"rogerai.fm/roger/v6/internal/towercore/cert"
 )
@@ -80,6 +82,18 @@ type Response struct {
 	// (used, expired, or never minted), so the joiner can say which "no proof" it was. It is a
 	// hint for the message only: a missing proof is refused whatever it says.
 	ProofStatus string `json:"root_proof_status,omitempty"`
+	// Edge is the name the owner gave this Edge's authority, so a joiner can say which Edge it
+	// joined. It is for display only (EdgeLabel); nothing is decided on it.
+	Edge string `json:"edge,omitempty"`
+}
+
+// EdgeLabel is an answer's Edge name as a joiner may show it: up to 64 printable characters, or
+// nothing at all.
+func EdgeLabel(name string) string {
+	if name == "" || len(name) > 64 || strings.IndexFunc(name, func(r rune) bool { return !unicode.IsPrint(r) }) >= 0 {
+		return ""
+	}
+	return name
 }
 
 // ProofNone is the ProofStatus of an answer from an authority that proves roots, for a join it held

@@ -115,3 +115,19 @@ func TestAnExpiredBearerCodeAdmitsNobody(t *testing.T) {
 	_, err = local.Issue(req)
 	require.ErrorIs(t, err, edgeauth.ErrUnknownMachine)
 }
+
+// features/join/surfaces.feature: "joined the Edge home as <name>". The authority's answer names its
+// Edge, so the joiner can say which one it joined; the name is display only, cleaned and bounded.
+func TestAnAnswerNamesItsEdge(t *testing.T) {
+	local, err := edgeauth.Designate(t.TempDir(), "home")
+	require.NoError(t, err)
+	code, err := local.MintBearerCode()
+	require.NoError(t, err)
+	resp, err := local.Issue(bearerReq(t, local, code))
+	require.NoError(t, err)
+	require.Equal(t, "home", resp.Edge)
+
+	require.Equal(t, "home", edgeauth.EdgeLabel("home"))
+	require.Equal(t, "", edgeauth.EdgeLabel("ho\x1b[31mme"), "a name with control characters is not shown")
+	require.Equal(t, "", edgeauth.EdgeLabel(string(make([]byte, 65))), "an overlong name is not shown")
+}

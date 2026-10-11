@@ -26,8 +26,14 @@ import (
 // with `roger edge invite`. It returns the invite and the authority.
 func ownerEdgeInvite(t *testing.T) (string, *edgeauth.Local) {
 	t.Helper()
+	return ownerEdgeInviteNamed(t, "shed")
+}
+
+// ownerEdgeInviteNamed is ownerEdgeInvite with the authority named name.
+func ownerEdgeInviteNamed(t *testing.T, name string) (string, *edgeauth.Local) {
+	t.Helper()
 	offline(t)
-	_, code := edgeRun(t, "edge", "authority", "local", "shed")
+	_, code := edgeRun(t, "edge", "authority", "local", name)
 	require.Equal(t, 0, code)
 	local, ok, err := edgeauth.OpenLocal(edgeAuthDir())
 	require.NoError(t, err)

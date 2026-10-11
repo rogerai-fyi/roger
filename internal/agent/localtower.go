@@ -54,12 +54,9 @@ func ServeLocalTower(ctx context.Context, cfg Config, priv ed25519.PrivateKey, o
 		_, tc, _ := lanmode.Route(cfg.Broker, execClient)
 		cfg.Broker, pollClient, towerClient = routed, pc, tc
 	}
-	// The node's own tower client id is derivable ONLY from its node key - so print it, with the
-	// exact command that consumes it. An operator cannot attach a station whose key hash they
-	// cannot see. (`roger account` shows it too, so the id is learnable before the plane is up.)
+	// The station's key is shown only to a Tower that has not attached it, after the invite (the
+	// simple way in, features/join/surfaces.feature), for a Tower older than invites.
 	nodeID := idFromPriv(priv)
-	fmt.Fprintf(out, "this node's id: %s\n", nodeID)
-	fmt.Fprintf(out, "  the Tower operator attaches it with: roger tower attach --station <name> --key %s --models <models>\n", nodeID)
 	fmt.Fprintf(out, "serving the local network's stations at %s (polling for work)\n", cfg.Broker)
 	var lastPollErrLog time.Time
 	failures, toldUnattached := 0, false
@@ -77,8 +74,8 @@ func ServeLocalTower(ctx context.Context, cfg Config, priv ed25519.PrivateKey, o
 			// The Tower is reachable but has not attached this station: say so ONCE, with the
 			// exact command that fixes it, instead of a generic poll error every minute.
 			if !toldUnattached {
-				fmt.Fprintf(out, "the Tower at %s has not attached this station: its operator runs roger tower attach --station <name> --key %s --models %s\n",
-					cfg.Broker, nodeID, cfg.Model)
+				fmt.Fprintf(out, "the Tower at %s has not attached this station yet: ask its owner for a station invite (roger tower invite --station), then run here: roger join <invite>\n"+
+					"  (a Tower older than invites attaches this station's key: %s)\n", cfg.Broker, nodeID)
 				toldUnattached = true
 			}
 		default:

@@ -302,6 +302,7 @@ func (l *Local) Issue(r Request) (Response, error) {
 	if err != nil {
 		return Response{}, err
 	}
+	resp.Edge = l.where
 	return resp, nil
 }
 
@@ -643,6 +644,7 @@ func (l *Local) Claim(c ClaimRequest, now time.Time) (Response, error) {
 			Account: l.Account(),
 			Cert:    EncodeCert(leaf),
 			Root:    EncodeCert(l.auth.Root()),
+			Edge:    l.where,
 		}
 		// The adopt's code is spent with the grant, in this same locked step.
 		return l.prove(&resp, nodeJoin(c.NodeID), c.Nonce)

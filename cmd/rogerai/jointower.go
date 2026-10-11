@@ -65,7 +65,7 @@ func joinTower(cfg config, in joininvite.Invite, pos, flags []string) error {
 		}
 		lastErr = err
 	}
-	return fmt.Errorf("can't reach %s (%v)\nis roger tower serve running there, and is this machine on its network?", strings.Join(in.Addrs, " or "), lastErr)
+	return fmt.Errorf("can't reach %s (%v)\nis roger tower serve running there? Check this machine is on its network", strings.Join(in.Addrs, " or "), lastErr)
 }
 
 // joinRefusal is the Tower's own answer refusing the join.

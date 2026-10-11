@@ -116,7 +116,11 @@ func edgeEnrollCmd(cfg config, args []string, joined bool) error {
 		return nil
 	}
 	if joined {
-		fmt.Printf("joined the Edge %s as %s\n", res.Authority, edge.SelfLabel(res.Name, edgeStationName()))
+		edgeName := res.Edge
+		if edgeName == "" {
+			edgeName = res.Authority
+		}
+		fmt.Printf("joined the Edge %s as %s\n", edgeName, edge.SelfLabel(res.Name, edgeStationName()))
 	} else {
 		fmt.Println(edgeEnrolledLine(res, edgeStationName()))
 	}
@@ -157,6 +161,7 @@ type edgeEnrollResult struct {
 	NodeID          string
 	Name            string
 	Authority       string // the descriptor's human name, for "rooted at ..."
+	Edge            string // the name the owner gave the Edge, from its verified answer ("" if none)
 	AlreadyEnrolled bool
 	NotAfter        time.Time
 	// TrustWarning is a non-fatal note (e.g. the revocation list could not be refreshed at enroll
@@ -350,7 +355,9 @@ func edgeEnrollBegin(cfg config, name, endpoint, account string, tr edgeJoinTrus
 
 	h := &edgeHeldJoin{id: id, resp: resp, nonce: req.Nonce, where: edgeAuthorityLabel(endpoint), received: edgeNow()}
 	h.finish = func() (edgeEnrollResult, error) {
-		return edgeEnrollFinish(res, st, id, priv, pub, name, endpoint, local, isAuthority, now, replacing, held, enrolled, heldRoot)
+		r, err := edgeEnrollFinish(res, st, id, priv, pub, name, endpoint, local, isAuthority, now, replacing, held, enrolled, heldRoot)
+		r.Edge = edgeauth.EdgeLabel(resp.Edge) // the Edge's own name, from the answer just verified
+		return r, err
 	}
 	if !needProof {
 		h.verified = true
@@ -388,7 +395,9 @@ func edgeEnrollBegin(cfg config, name, endpoint, account string, tr edgeJoinTrus
 		}
 	}
 	h.finish = func() (edgeEnrollResult, error) {
-		return edgeEnrollFinish(res, st, id, priv, pub, name, endpoint, local, isAuthority, now, replacing, held, enrolled, heldRoot)
+		r, err := edgeEnrollFinish(res, st, id, priv, pub, name, endpoint, local, isAuthority, now, replacing, held, enrolled, heldRoot)
+		r.Edge = edgeauth.EdgeLabel(resp.Edge) // the Edge's own name, from the answer just verified
+		return r, err
 	}
 	return res, h, nil
 }

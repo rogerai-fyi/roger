@@ -56,6 +56,8 @@ type joinInviteBDD struct {
 	edgeCode int
 	// stationInvID is the station invite a station joined with, to read its outcome.
 	stationInvID string
+	// lastShare is what the last runShare printed.
+	lastShare string
 }
 
 var joinLineRE = regexp.MustCompile(`roger join (roger://join\?\S+)`)
@@ -148,6 +150,7 @@ func (s *joinInviteBDD) runShare(model string) error {
 	c.lan.LAN, c.lan.Source = true, lanmode.SrcFlag
 	var err error
 	out := captureStdout(s.t, func() { err = cmdShare(c, []string{model, "--upstream", "http://127.0.0.1:1/v1"}) })
+	s.lastShare = out
 	if err != nil {
 		return fmt.Errorf("share: %v\n%s", err, out)
 	}
