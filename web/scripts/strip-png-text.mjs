@@ -7,7 +7,8 @@
 // byte-identical and the pixels never change (test/png-metadata.test.mjs checks dist; the
 // pixel hash of every master was compared before and after the first run).
 //
-//   node scripts/strip-png-text.mjs [file.png ...]     default: every PNG under src/assets
+//   node scripts/strip-png-text.mjs [file.png ...]     default: every PNG under src/assets, plus
+//                                                        the social cards at the root of src
 //
 // derive-webp.mjs runs this over the masters before it derives the WebP copies, so a new
 // plate never ships its recipe even when the stripper is forgotten.
@@ -47,7 +48,9 @@ export function stripFiles(files, log = () => {}) {
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
-  const files = process.argv.length > 2 ? process.argv.slice(2) : walkPngs(join(WEB, "src", "assets"));
+  // every PNG the site ships: the assets tree, and the social cards at the root of src
+  const files = process.argv.length > 2 ? process.argv.slice(2)
+    : [...walkPngs(join(WEB, "src", "assets")), ...readdirSync(join(WEB, "src")).filter((n) => /\.png$/i.test(n)).map((n) => join(WEB, "src", n))];
   const n = stripFiles(files, (m) => console.log(m));
   console.log(`${files.length} png(s), ${n} stripped`);
 }

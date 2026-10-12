@@ -12,13 +12,15 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
-const DIST = path.join(WEB, "dist", "assets");
+const DIST = path.join(WEB, "dist");
 
 before(() => execFileSync("node", ["build.mjs"], { cwd: WEB }));
 
+// every PNG the site ships: the assets tree and the social cards at the site root
 function walk(dir) {
   return readdirSync(dir).flatMap((n) => { const p = path.join(dir, n); return statSync(p).isDirectory() ? walk(p) : p.endsWith(".png") ? [p] : []; });
 }
+const shipped = () => [...walk(path.join(DIST, "assets")), ...readdirSync(DIST).filter((n) => n.endsWith(".png")).map((n) => path.join(DIST, n))];
 export function textChunks(file) {
   const b = readFileSync(file), out = [];
   assert.equal(b.toString("hex", 0, 8), "89504e470d0a1a0a", `${file}: a PNG signature`);
@@ -31,10 +33,17 @@ export function textChunks(file) {
 }
 
 test("no shipped PNG carries a generator recipe (prompt, workflow or parameters text chunk)", () => {
-  const files = walk(DIST);
-  assert.ok(files.length >= 20, `found ${files.length} PNGs under dist/assets`);
+  const files = shipped();
+  assert.ok(files.length >= 20, `found ${files.length} shipped PNGs`);
+  assert.ok(files.some((f) => path.dirname(f) === DIST), "the root social cards are covered");
   const bad = [];
   for (const f of files) for (const c of textChunks(f)) if (/^(prompt|workflow|parameters)$/i.test(c.keyword)) bad.push(`${path.relative(DIST, f)}: ${c.type} ${c.keyword}`);
+  assert.deepEqual(bad, []);
+});
+
+test("no shipped PNG carries any text chunk at all (timestamps and tool tags included)", () => {
+  const bad = [];
+  for (const f of shipped()) for (const c of textChunks(f)) bad.push(`${path.relative(DIST, f)}: ${c.type} ${c.keyword}`);
   assert.deepEqual(bad, []);
 });
 
@@ -44,4 +53,5 @@ test("the masters are stripped before the WebP copies are derived", () => {
   const strip = readFileSync(path.join(WEB, "scripts", "strip-png-text.mjs"), "utf8");
   assert.match(strip, /tEXt|zTXt|iTXt/, "the stripper names the text chunk types");
   assert.match(strip, /IDAT/, "and leaves the image data alone");
+  assert.match(strip, /src", "assets"[\s\S]*src"\)/, "its default walk covers src/assets and the cards at src root");
 });

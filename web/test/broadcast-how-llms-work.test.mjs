@@ -301,10 +301,13 @@ test("how-llms: the flow strip's arrows share one type rule, so the phone's thir
 
 // FIG. 5: every word has three hand-placed positions (trained, halfway, scattered), and at
 // every stop no two chips overlap. Static geometry: a chip is its text in the mono face at
-// 14px (0.6em per glyph) plus 22px of padding and border, 26px tall; the map is 608x380 on
-// a desktop (the 640px article column less the plate's padding) and 326x407 on a 390 phone.
+// 14px (0.6em per glyph) plus 22px of padding and border, 28px tall; the map is 608x380 on
+// a desktop (the 640px article column less the plate's padding) and 326x407 on a 390 phone;
+// the sizes are the rendered ones (a chip 28px tall, a label 13px), checked in a browser.
+const PHONE_BLOCK = /@media \(max-width: 640px\) \{([\s\S]*?)\n\}/g;
 function mapGeometry(css, phone) {
-  const block = phone ? (css.match(/@media \(max-width: 640px\) \{([\s\S]*?)\n\}/g) || []).join("\n") : css;
+  // the phone block overrides the desktop rules, so each layout reads only its own
+  const block = phone ? (css.match(PHONE_BLOCK) || []).join("\n") : css.replace(PHONE_BLOCK, "");
   const words = ["antenna", "dial", "signal", "over", "roger", "pump", "valve", "bearing", "motor", "bread", "soup", "oven"];
   const vars = (k) => {
     const out = {};
@@ -314,7 +317,7 @@ function mapGeometry(css, phone) {
   };
   return words.map((w, i) => {
     const base = vars(i + 1), over = phone ? { ...mapGeometry(css, false)[i].vars, ...base } : base;
-    return { word: w, vars: over, w: w.length * 0.6 * 14 + 22, h: 26 };
+    return { word: w, vars: over, w: w.length * 0.6 * 14 + 22, h: 28 };
   });
 }
 function overlaps(items, W, H, stop) {
@@ -333,8 +336,26 @@ function overlaps(items, W, H, stop) {
 test("how-llms: FIG. 5 places every word by hand at all three stops, with no two chips overlapping, desktop or phone", () => {
   const css = src("styles/broadcast-how-llms-work.css").replace(/\/\*[\s\S]*?\*\//g, "");
   assert.match(css, /\.llm-mapstage:has\(\.llm-stops > li:nth-child\(2\)\.is-tuned\) \.llm-map__w \{ left: var\(--mx\); top: var\(--my\); \}/, "halfway is its own position, not a midpoint");
-  for (const [items, W, H, where] of [[mapGeometry(css, false), 608, 380, "desktop"], [mapGeometry(css, true), 326, 407, "phone"]])
+  for (const [items, W, H, where, phone] of [[mapGeometry(css, false), 608, 380, "desktop", false], [mapGeometry(css, true), 326, 407, "phone", true]]) {
     for (const stop of ["trained", "halfway", "scattered"]) assert.deepEqual(overlaps(items, W, H, stop), [], `${where}, ${stop}`);
+    // the group labels (RADIO, MACHINES, KITCHEN: mono 11px, anchored top-left) show at the
+    // trained and halfway stops, and no chip may sit over one
+    const block = phone ? (css.match(PHONE_BLOCK) || []).join("\n") : css.replace(PHONE_BLOCK, "");
+    const labels = [["RADIO", "a"], ["MACHINES", "b"], ["KITCHEN", "c"]].map(([name, k]) => {
+      const m = block.match(new RegExp(`\\.llm-map__name--${k} \\{ --x: ([\\d.]+)%; --y: ([\\d.]+)%; \\}`));
+      assert.ok(m, `${where}: ${name} label position`);
+      return { name, l: (Number(m[1]) / 100) * W, t: (Number(m[2]) / 100) * H, w: name.length * 0.6 * 11 + name.length * 1.5, h: 13 };
+    });
+    for (const stop of ["trained", "halfway"]) {
+      const covered = [];
+      for (const it of items) {
+        const x = it.vars[stop === "trained" ? "x" : "mx"], y = it.vars[stop === "trained" ? "y" : "my"];
+        const c = { l: (x / 100) * W - it.w / 2, r: (x / 100) * W + it.w / 2, t: (y / 100) * H - it.h / 2, b: (y / 100) * H + it.h / 2 };
+        for (const L of labels) if (c.l < L.l + L.w && L.l < c.r && c.t < L.t + L.h && L.t < c.b) covered.push(`${it.word} over ${L.name}`);
+      }
+      assert.deepEqual(covered, [], `${where}, ${stop}`);
+    }
+  }
 });
 
 // FIG. 3: scrubbing must not move the page. Every step carries the same parts (a line, four
