@@ -511,6 +511,30 @@ func (s *shortNamesBDD) steps(sc *godog.ScenarioContext) {
 		}
 		return nil
 	})
+	sc.Step(`^roger removes the (Q4_K_M|Q8_0) file(?:, says Q8_0 is also on disk and how to pick it)?$`, func(q string) error {
+		if err := s.has("removed " + smolRepo + ":" + q); err != nil {
+			return err
+		}
+		if _, err := s.r.home.Find(smolRepo + ":" + q); err == nil {
+			return fmt.Errorf("%s is still on disk after rm", q)
+		}
+		if q == "Q4_K_M" {
+			return s.has("also on disk: Q8_0", "--quant Q8_0")
+		}
+		return nil
+	})
+	sc.Step(`^the Q8_0 file of that repository is still on this disk$`, func() error {
+		if _, err := s.r.home.Find(smolRepo + ":Q8_0"); err != nil {
+			return fmt.Errorf("Q8_0 is gone: %v\n%s", err, s.out)
+		}
+		return nil
+	})
+	sc.Step(`^nothing of that name is on this disk$`, func() error {
+		if _, err := s.r.home.Find("smollm2-135m-instruct"); err == nil {
+			return fmt.Errorf("something named smollm2-135m-instruct is still on disk:\n%s", s.out)
+		}
+		return nil
+	})
 	sc.Step(`^both repositories are listed, numbered$`, func() error {
 		return s.has("1) "+smolRepo+":Q4_K_M", "2) other/SmolLM2-135M-Instruct-GGUF:Q4_K_M")
 	})

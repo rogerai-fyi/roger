@@ -275,7 +275,7 @@ func cmdModel(cfg config, args []string) error {
 		if len(a.pos) != 1 {
 			return errors.New("usage: roger model rm <name> [--yes]")
 		}
-		return modelRemove(a.pos[0], a.yes)
+		return modelRemove(a.pos[0], a.quant, a.yes)
 	}
 	return fmt.Errorf("unknown: roger model %s (list, search, files, get, serve, status, stop, rm, idle, budget, runtime)", verb)
 }
@@ -1177,12 +1177,19 @@ func modelSignalStop(s localmodel.Serving) (string, error) {
 	return fmt.Sprintf("asked %s to stop; it had not finished when this was answered.", s.Band), nil
 }
 
-func modelRemove(ref string, yes bool) error {
+func modelRemove(ref, quant string, yes bool) error {
 	h := modelHome()
-	m, err := h.Find(ref)
+	// The same resolution as serve and get (modeldisk.go): two quantisations of one repository
+	// are the rule's pick (--quant names the other), one name from two repositories is the
+	// owner's pick at a terminal, never roger's.
+	p, err := modelOnDisk(h, ref, quant, 0)
 	if err != nil {
 		return err
 	}
+	if p.fetch != "" {
+		return fmt.Errorf("%w: %s is not on this disk, so there is nothing to remove", localmodel.ErrUnknownModel, p.fetch)
+	}
+	m := p.m
 	if _, ok := h.ServingModel(m); ok {
 		return fmt.Errorf("%s is being served right now - `roger model stop` first", m.ID)
 	}
@@ -1197,6 +1204,13 @@ func modelRemove(ref string, yes bool) error {
 		return err
 	}
 	fmt.Fprintf(modelOut, "removed %s, %s back.\n", m.ID, provision.BytesWord(m.Bytes))
+	if p.byRule {
+		how := "--quant " + p.others[0].Quant + " removes that one"
+		if len(p.others) > 1 {
+			how = "--quant <quant> removes another"
+		}
+		fmt.Fprintf(modelOut, "%s (the rule picked %s to remove); %s.\n", diskOthers(p), m.Quant, how)
+	}
 	return nil
 }
 

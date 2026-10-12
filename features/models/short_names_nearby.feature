@@ -579,3 +579,13 @@ Feature: A person can serve a model by the name it already has nearby, or find i
     And no terminal is attached
     When the owner runs "roger model serve smollm2-135m-instruct"
     Then roger refuses, listing both, and serves nothing
+
+  # founder ruling 2026-10-11: same-repo quants on disk are picked by the quant rule (rm too)
+  Scenario: rm of a name with two quantisations on disk takes the same pick, and --quant the other
+    Given "smollm2-135m-instruct" is on this disk at Q4_K_M and at Q8_0 of one repository
+    When the owner runs "roger model rm smollm2-135m-instruct --yes"
+    Then roger removes the Q4_K_M file, says Q8_0 is also on disk and how to pick it
+    And the Q8_0 file of that repository is still on this disk
+    When the owner runs "roger model rm smollm2-135m-instruct --quant Q8_0 --yes"
+    Then roger removes the Q8_0 file
+    And nothing of that name is on this disk
