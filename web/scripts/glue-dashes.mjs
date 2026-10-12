@@ -4,6 +4,9 @@
 // the heading's words and order are unchanged (the text-freeze fixtures compare text).
 // Headings h1-h6 and the broadcasts index titles (.bc-row__title), in page markup only:
 // script, style, pre, textarea and comment regions are passed through untouched.
+// Limitation: a heading that itself contains one of those regions (an inner comment, say)
+// is split around it, so its open and close tags never meet in one piece and that heading
+// is left unglued. No heading on the site does this today; keep comments out of headings.
 const PROTECTED_RE = /(<!--[\s\S]*?-->|<(script|style|pre|textarea)\b[\s\S]*?<\/\2\s*>)/gi;
 const GLUE_RE = /(<(h[1-6])\b[^>]*>)([\s\S]*?)(<\/\2>)|(<span class="bc-row__title">)([^<]*)(<\/span>)/g;
 const glueOne = (s) => s.replace(/([^\s<>]+) - /g, '<span class="nobr">$1 -</span> ');
