@@ -143,3 +143,18 @@ Feature: Request and approve, with a matching phrase
     Given neither machine can reach the internet
     When a client asks and the owner approves
     Then the client joins and nothing contacts Roger Core
+
+  # 2026-10-11 founder test: an admitted client asking again is told it is already a member, with no phrase
+  Scenario: An admitted client asking again is told it is already a member, with no phrase
+    Given laptop-x already joined the Tower by request and approve
+    When laptop-x runs roger join with the Tower's address again
+    Then it prints "already a member of the Tower lab at <address> · nothing to do"
+    And it shows no phrase and never mentions an invite
+    And no request waits on the owner's screen
+
+  # 2026-10-11 founder test: an admitted client asking again is told it is already a member, with no phrase
+  Scenario: An admitted client joining with an invite still says the invite was not used
+    Given laptop-x already joined the Tower by request and approve
+    When laptop-x runs roger join with a fresh client invite
+    Then it prints "already a member of the Tower lab at <address>; the invite was not used"
+    And the invite is still live for another device

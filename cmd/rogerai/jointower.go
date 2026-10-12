@@ -178,13 +178,13 @@ func joinRecord(out io.Writer, addr string, in joininvite.Invite, ans localplane
 		fmt.Fprintln(out, "nothing else to do; it is serving")
 		return nil
 	}
-	where := "the Tower at " + addr
-	if ans.Tower != "" {
-		where = "the Tower " + ans.Tower + " at " + addr
-	}
-	if ans.AlreadyMember {
+	where := towerWhere(addr, ans.Tower)
+	switch {
+	case ans.AlreadyMember && in.Code != "":
 		fmt.Fprintf(out, "already a member of %s; the invite was not used\n", where)
-	} else {
+	case ans.AlreadyMember: // asked by address: there was no invite
+		fmt.Fprintf(out, "already a member of %s · nothing to do\n", where)
+	default:
 		fmt.Fprintf(out, "joined %s\n", where)
 	}
 	if len(ans.Models) > 0 {
@@ -192,6 +192,14 @@ func joinRecord(out io.Writer, addr string, in joininvite.Invite, ans localplane
 	}
 	fmt.Fprintln(out, "try: roger --lan use <band>")
 	return nil
+}
+
+// towerWhere names a Tower in a sentence: by its label when it said one.
+func towerWhere(addr, label string) string {
+	if label != "" {
+		return "the Tower " + label + " at " + addr
+	}
+	return "the Tower at " + addr
 }
 
 // joinStationModels are the models this machine offers as a station (stationoffer.go: roger's own

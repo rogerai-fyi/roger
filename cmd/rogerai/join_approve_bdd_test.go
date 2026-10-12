@@ -35,6 +35,7 @@ import (
 	"rogerai.fm/roger/v6/internal/bddrun"
 	"rogerai.fm/roger/v6/internal/client"
 	"rogerai.fm/roger/v6/internal/coreclient"
+	"rogerai.fm/roger/v6/internal/joininvite"
 	"rogerai.fm/roger/v6/internal/joinsas"
 	"rogerai.fm/roger/v6/internal/localplane"
 	"rogerai.fm/roger/v6/internal/localplane/serve"
@@ -329,6 +330,79 @@ func TestJoinApproveBDD(t *testing.T) {
 				return nil
 			})
 			sc.Step(`^a client asks and the owner approves$`, pairing)
+			// 2026-10-11 founder test: an admitted client asking again is told it is already a member.
+			var againOut string
+			sc.Step(`^laptop-x already joined the Tower by request and approve$`, func() error {
+				if err := pairing(); err != nil {
+					return err
+				}
+				if err := s.last().err; err != nil || !s.admitted() {
+					return fmt.Errorf("the first join did not admit laptop-x: %v\n%s", err, s.last().out)
+				}
+				return nil
+			})
+			sc.Step(`^laptop-x runs roger join with the Tower's address again$`, func() error {
+				// A join that wrongly asks the owner waits for an answer that never comes: bound the
+				// wait so the scenario reports what was printed instead of hanging.
+				pairWaitFor = 2 * time.Second
+				r := s.ask(s.addr, "laptop-x", false)
+				if err := s.finish(r); err != nil {
+					return err
+				}
+				againOut = r.out
+				if r.err != nil {
+					againOut += "error: " + r.err.Error()
+				}
+				return nil
+			})
+			sc.Step(`^laptop-x runs roger join with a fresh client invite$`, func() error {
+				_, code, err := toweradmin.Client{Dir: s.dir}.CreateJoinInvitation(tower.JoinClient, "", nil, 15*time.Minute)
+				if err != nil {
+					return err
+				}
+				in := joininvite.Invite{Kind: joininvite.TowerClient, Addrs: []string{s.addr}, FP: s.fp, Code: code}
+				key := client.LoadOrCreateUserKey()
+				pub := hex.EncodeToString(key.Public().(ed25519.PublicKey))
+				ans, err := joinPost(key, pub, s.addr, in, "client", "laptop-x", nil)
+				if err != nil {
+					return err
+				}
+				var b bytes.Buffer
+				if err := joinRecord(&b, s.addr, in, ans, "laptop-x"); err != nil {
+					return err
+				}
+				againOut = b.String()
+				return nil
+			})
+			sc.Step(`^it prints "([^"]*)"$`, func(want string) error {
+				want = strings.ReplaceAll(want, "<address>", s.addr)
+				if !strings.Contains(againOut, want) {
+					return fmt.Errorf("want %q in:\n%s", want, againOut)
+				}
+				return nil
+			})
+			sc.Step(`^it shows no phrase and never mentions an invite$`, func() error {
+				if strings.Contains(againOut, "phrase") || strings.Contains(againOut, "invite") {
+					return fmt.Errorf("an admitted client asking again saw:\n%s", againOut)
+				}
+				return nil
+			})
+			sc.Step(`^no request waits on the owner's screen$`, func() error {
+				got, err := toweradmin.Client{Dir: s.dir}.PairRequests()
+				if err != nil {
+					return err
+				}
+				if len(got) != 0 {
+					return fmt.Errorf("the owner sees %d request(s) from a client that is already a member", len(got))
+				}
+				return nil
+			})
+			sc.Step(`^the invite is still live for another device$`, func() error {
+				if n := len(toweradmin.Client{Dir: s.dir}.LiveInvitations()); n != 1 {
+					return fmt.Errorf("live invitations: %d, want the unused one", n)
+				}
+				return nil
+			})
 			sc.Step(`^the same client asks to join twice$`, func() error {
 				for i := 0; i < 2; i++ {
 					s.ask(s.addr, "laptop-x", false)
@@ -544,14 +618,15 @@ func TestJoinApproveBDD(t *testing.T) {
 				return nil
 			})
 			sc.Step(`^if nobody acts within 2 minutes it expires$`, func() error {
-				s.ask(s.addr, "phone", false)
+				// Another device (its own key): this runner's own client was just approved, and an
+				// admitted client asking again creates no request (approve.feature:148).
+				if code, body, err := s.rawPair("127.0.0.2", true); err != nil || code != http.StatusOK {
+					return fmt.Errorf("a second device could not ask: %d %s %v", code, body, err)
+				}
 				if _, err := s.waiting(1); err != nil {
 					return err
 				}
 				s.advance(localplane.PairLifetime + time.Second)
-				if err := s.finish(s.last()); err != nil {
-					return err
-				}
 				if reqs, _ := (toweradmin.Client{Dir: s.dir}).PairRequests(); len(reqs) != 0 {
 					return fmt.Errorf("an expired request is still shown: %+v", reqs)
 				}
@@ -669,6 +744,7 @@ func TestJoinApproveBDD(t *testing.T) {
 				approveFeature + ":77", approveFeature + ":83", approveFeature + ":88", approveFeature + ":97",
 				approveFeature + ":102", approveFeature + ":110", approveFeature + ":117", approveFeature + ":123",
 				approveFeature + ":128", approveFeature + ":137", approveFeature + ":142",
+				approveFeature + ":148", approveFeature + ":156",
 				towerIdentityFeature + ":41"}},
 	}
 	if bddrun.Run(suite) != 0 {

@@ -53,6 +53,9 @@ type PairStartAnswer struct {
 	TowerNonce string `json:"tower_nonce"`
 	Tower      string `json:"tower,omitempty"`
 	Seconds    int    `json:"seconds"`
+	// AlreadyMember: the asking key is already admitted, so no request was created and the
+	// owner is not asked (a client asking again is told so, with no phrase).
+	AlreadyMember bool `json:"already_member,omitempty"`
 }
 
 // PairRevealBody reveals the client's nonce.
@@ -154,6 +157,12 @@ func (s *Server) pairStart(w http.ResponseWriter, r *http.Request) {
 	if err := json.Unmarshal(body, &req); err != nil || req.Commit == "" || req.ClientEph == "" ||
 		(req.Kind != "client" && req.Kind != "station") || len(req.Name) > 64 {
 		unauthorized(w)
+		return
+	}
+	// A client whose key is already admitted has nothing to ask: answer that, create no request
+	// and leave the owner's queue alone. Only the asking key's own standing is told.
+	if req.Kind == "client" && s.st != nil && s.st.IsAdmitted(id) {
+		writeJSON(w, http.StatusOK, PairStartAnswer{Tower: s.label, AlreadyMember: true})
 		return
 	}
 	nonceT := joinsas.NewNonce()

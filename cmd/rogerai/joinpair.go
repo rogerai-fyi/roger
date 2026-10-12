@@ -54,6 +54,11 @@ func joinPairAt(out io.Writer, addr, name string, station bool, explicit ...stri
 		}
 		return fmt.Errorf("can't reach %s (nothing answered as a Tower over TLS: %v)\nis roger tower serve running there? Check the address, or ask the owner for an invite", addr, err)
 	}
+	// A Tower this machine already pinned is checked against that pin before anything is sent.
+	pin := loadConfig().LanTowerPins[addr]
+	if pin != "" && pin != fp {
+		return &joinRefusal{msg: client.TowerKeyChanged(addr)}
+	}
 	key, kind, models := client.LoadOrCreateUserKey(), "client", []string(nil)
 	if station {
 		key, kind = agent.NodeKey(), "station"
@@ -69,6 +74,13 @@ func joinPairAt(out io.Writer, addr, name string, station bool, explicit ...stri
 	ans, err := pairWith(out, addr, peer, key, kind, name, models)
 	if err != nil {
 		return err
+	}
+	if ans.AlreadyMember && pin == "" {
+		// Admitted, but this config never pinned the Tower: say so, and pin only through a
+		// path that proves the key (an invite), never on this unconfirmed answer.
+		fmt.Fprintf(out, "already a member of %s · nothing to do\n", towerWhere(addr, ans.Tower))
+		fmt.Fprintln(out, "this machine has not pinned it: to pin it, ask the owner for an invite (roger tower invite), then run: roger join <invite>")
+		return nil
 	}
 	return joinRecord(out, addr, joininvite.Invite{FP: fp}, ans, name)
 }
@@ -119,6 +131,10 @@ func pairWith(out io.Writer, addr string, peer pairPeer, key ed25519.PrivateKey,
 	var start localplane.PairStartAnswer
 	if err := json.Unmarshal(raw, &start); err != nil {
 		return none, fmt.Errorf("%s answered something that is not a join request answer", addr)
+	}
+	if start.AlreadyMember {
+		// Already admitted: no request was created and there is nothing to approve.
+		return localplane.JoinAnswer{Joined: kind, AlreadyMember: true, Tower: start.Tower}, nil
 	}
 	tower := start.Tower
 	if tower == "" {
