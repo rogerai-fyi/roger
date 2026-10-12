@@ -55,6 +55,22 @@ const (
 	// construction. Two seconds is far above a real ack's latency and far below any human
 	// notion of payment delay.
 	settleAckGrace = 2 * time.Second
+	// settleQuietWindow is how long the shutdown drain keeps listening for a receipt from a
+	// handler that was still running when Shutdown returned - an OnComplete goroutine scheduled
+	// but not yet run. Anything that still slips through is in the spool for the next run.
+	settleQuietWindow = 250 * time.Millisecond
+)
+
+// The courier's clocks, as package variables so a test can hold the ack grace open, fire a
+// retry tick on demand, or move "now" past a deadline - the same seam shape as lookupIPFn and
+// the ticker runLink takes. Production never reassigns them. Without them, which branch of the
+// courier a test exercised was the scheduler's choice (the coverage gate measured this package
+// differently on an identical tree), and the retry tick, the ack-grace skip and the deadline
+// abandonment were unreachable in any test that finishes in bounded time.
+var (
+	settleNow    = time.Now
+	settleAfter  = time.After
+	settleTicker = realTicker
 )
 
 // pendingSettle is one receipt awaiting its ride to Core.
@@ -201,8 +217,8 @@ func runHubInBackground(st *tower.State, opt hubOptions, out io.Writer, stop <-c
 	server.OnComplete = func(stationID string, res towerhub.Result) {
 		p := pendingSettle{stationID: stationID, attemptID: res.AttemptID,
 			receipt: res.Receipt, wireIn: int64(res.WireIn), wireOut: int64(len(res.Envelope)),
-			notBefore: time.Now().Add(settleAckGrace),
-			deadline:  time.Now().Add(settleRetryWindow)}
+			notBefore: settleNow().Add(settleAckGrace),
+			deadline:  settleNow().Add(settleRetryWindow)}
 		if perr := spool.put(p); perr != nil {
 			fmt.Fprintf(out, "hub: could not spool settle for %s: %v\n", p.attemptID, perr)
 		}
@@ -237,12 +253,12 @@ func runHubInBackground(st *tower.State, opt hubOptions, out io.Writer, stop <-c
 		retries := map[string]pendingSettle{}
 		// Receipts a previous run of this tower queued but never delivered rejoin the
 		// backlog; the expired ones were already discarded by load.
-		for _, p := range spool.load(time.Now()) {
+		for _, p := range spool.load(settleNow()) {
 			retries[p.attemptID] = p
 			fmt.Fprintf(out, "hub: recovered spooled settle for %s from a previous run\n", p.attemptID)
 		}
-		t := time.NewTicker(settleRetryEvery)
-		defer t.Stop()
+		tick, stopTick := settleTicker(settleRetryEvery)
+		defer stopTick()
 		forward := func(p pendingSettle, final bool) bool {
 			err := towerjoin.SettleEdgeReceipt(st, p.stationID, p.attemptID, p.receipt, p.wireIn, p.wireOut)
 			switch {
@@ -288,25 +304,25 @@ func runHubInBackground(st *tower.State, opt hubOptions, out io.Writer, stop <-c
 			case p := <-settleQ:
 				// The ack grace: wait out the remainder before the first forward, unless we
 				// are shutting down (then the receipt matters more than the corroboration).
-				if wait := time.Until(p.notBefore); wait > 0 {
+				if wait := p.notBefore.Sub(settleNow()); wait > 0 {
 					select {
-					case <-time.After(wait):
+					case <-settleAfter(wait):
 					case <-stop:
 					}
 				}
 				if !forward(p, false) {
 					admit(p)
 				}
-			case <-t.C:
+			case <-tick:
 				drainOverflow()
 				for id, p := range retries {
-					if time.Now().After(p.deadline) {
+					if settleNow().After(p.deadline) {
 						fmt.Fprintf(out, "hub: settle for %s ABANDONED - the settle window closed before Core answered\n", id)
 						spool.drop(id)
 						delete(retries, id)
 						continue
 					}
-					if time.Now().Before(p.notBefore) {
+					if settleNow().Before(p.notBefore) {
 						continue // the ack grace applies on the overflow path too (audit L-D)
 					}
 					if forward(p, false) {
@@ -328,7 +344,7 @@ func runHubInBackground(st *tower.State, opt hubOptions, out io.Writer, stop <-c
 					select {
 					case p := <-settleQ:
 						_ = forward(p, true)
-					case <-time.After(250 * time.Millisecond):
+					case <-settleAfter(settleQuietWindow):
 						break finalDrain
 					}
 				}
