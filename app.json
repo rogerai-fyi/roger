@@ -1,0 +1,15 @@
+{
+  "healthchecks": {
+    "web": [
+      {
+        "type": "startup",
+        "name": "ready",
+        "description": "Dokku only routes traffic to a new release once /ready answers 200 (DB and shared store reachable)",
+        "path": "/ready",
+        "attempts": 10,
+        "wait": 5,
+        "timeout": 5
+      }
+    ]
+  }
+}
