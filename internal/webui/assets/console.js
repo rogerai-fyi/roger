@@ -3224,7 +3224,7 @@
     var trg = el("tr", "is-get");
     var cg = el("td"); cg.colSpan = 8;
     var gb = el("button", "btn primary small", "+ Get a model that fits this machine"); gb.type = "button";
-    gb.onclick = function () { show($("share-getmodel"), true); try { $("models-q").focus(); } catch (_) {} };
+    gb.onclick = function () { show($("share-getmodel"), true); modelsNearby(); };
     cg.appendChild(gb);
     cg.appendChild(el("span", "muted small", "  " + (v.budget > 0 ? fmtBytes(v.budget) + " " + v.pool + " \u00b7 " : "") + "search HuggingFace"));
     trg.appendChild(cg); tb.appendChild(trg);
@@ -3243,6 +3243,55 @@
         d.view.starting = true;
         renderModels(d.view);
       }).catch(function (e) { toast(e.message, "err"); });
+    });
+  }
+
+  // What is served nearby that fits, first (short_names_nearby.feature section 7): the same rows the
+  // terminal suggests, from the same code. The search stays one action away and is never sent here.
+  function modelsNearby() {
+    var tb = $("models-nearby-rows"), note = $("models-nearby-note");
+    if (!tb || !note) return;
+    tb.textContent = ""; note.textContent = "reading what is served nearby\u2026"; show($("models-nearby"), true);
+    apiGet("/api/models/nearby").then(function (nv) {
+      var rows = (nv.fits || []).concat(nv.other || []);
+      if (!rows.length) {
+        note.textContent = "nothing is served nearby (on this machine, by your Edge members or on a pinned Tower) - search the model hub below.";
+        show($("models-nearby-wrap"), false);
+        try { $("models-q").focus(); } catch (_) {}
+        return;
+      }
+      note.textContent = "this machine: " + (nv.budget > 0 ? fmtBytes(nv.budget) + " of " + nv.pool : "cannot say - " + (nv.budget_why || "")) +
+        ". Served nearby, and fits this machine - which file each is, is its source's word.";
+      show($("models-nearby-wrap"), true);
+      (nv.fits || []).forEach(function (r) {
+        var tr = el("tr");
+        tr.appendChild(el("td", "mono", r.name));
+        tr.appendChild(el("td", "mono small", r.repo + ":" + (r.quant || "-")));
+        tr.appendChild(el("td", "num", fmtBytes(r.bytes)));
+        tr.appendChild(el("td", "small", r.short + " \u00b7 " + r.by));
+        var act = el("td"); var b = el("button", "btn small", "get"); b.type = "button";
+        b.onclick = function () { modelsFetchNearby(r); };
+        act.appendChild(b); tr.appendChild(act); tb.appendChild(tr);
+      });
+      (nv.other || []).forEach(function (r) {
+        var tr = el("tr", "muted");
+        tr.appendChild(el("td", "mono", r.name));
+        tr.appendChild(el("td", "mono small", r.repo + ":" + (r.quant || "-")));
+        tr.appendChild(el("td", "num", r.bytes ? fmtBytes(r.bytes) : "-"));
+        var why = el("td", "small", r.why + " \u00b7 " + r.by); why.colSpan = 2;
+        tr.appendChild(why); tb.appendChild(tr);
+      });
+    }).catch(function (e) { note.textContent = e.message; });
+  }
+
+  function modelsFetchNearby(r) {
+    var body = r.ask + "\n\n" + r.repo + "  " + r.file + "  " + fmtBytes(r.bytes) + "\n" + (r.line || "") +
+      "\n\nThe bytes come from the model hub, checked against the digest " + r.by + " reported.";
+    askSafe("Fetch this model?", body, "Fetch").then(function (yes) {
+      if (!yes) return;
+      apiPost("/api/models/fetch-nearby", { confirm: true, name: r.name, repo: r.repo, file: r.file, sha256: r.sha256 }).then(function (d) {
+        toast(d.says || "fetching"); renderModels(d.view);
+      }).catch(function (e) { toast(e.message, "err"); modelsNearby(); });
     });
   }
 

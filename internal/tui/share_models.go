@@ -75,7 +75,14 @@ func (m *model) onShareExtraEnter(e shareExtra) (tea.Model, tea.Cmd) {
 	case extraSettings:
 		return m.onSettingsEnter()
 	}
-	// + get a model: the search and the fit view, inside SHARE, typing at once.
+	// + get a model: what is served nearby that fits, first (short_names_nearby.feature §7), with
+	// the search one key away; a build that cannot read nearby opens on the search, typing at once.
+	if m.hooks.Models.Nearby != nil {
+		nm, cmd := m.enterModels()
+		nm.mdl.pane = modelsNearby
+		nm.status = stDim.Render("SHARE › GET A MODEL - served nearby first; / searches the model hub")
+		return nm, tea.Batch(cmd, nm.modelsLoadNearby())
+	}
 	nm, cmd := m.enterModels()
 	nm.mdl.typing, nm.mdl.query = true, ""
 	nm.status = stDim.Render("SHARE › GET A MODEL - type what you are looking for, ⏎ to search")

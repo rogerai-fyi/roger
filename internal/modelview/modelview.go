@@ -114,6 +114,42 @@ type FileChoice struct {
 	Have       bool   `json:"have"` // already on this disk
 }
 
+// NearbyView is what is served nearby, judged against this machine (features/models/
+// short_names_nearby.feature section 7): the model browser opens on it. Every field is computed by
+// the same code as `roger model serve` with no name, so no surface can suggest differently.
+type NearbyView struct {
+	Budget    int64       `json:"budget"`
+	Pool      string      `json:"pool,omitempty"`
+	BudgetWhy string      `json:"budget_why,omitempty"`
+	Fits      []NearbyRow `json:"fits"`  // served nearby and fits this machine
+	Other     []NearbyRow `json:"other"` // served nearby, but would not fit or cannot be judged (Why)
+}
+
+// NearbyRow is one name served nearby, the exact file it is, and whose word that is.
+type NearbyRow struct {
+	Name   string `json:"name"`
+	Repo   string `json:"repo"`
+	File   string `json:"file"`
+	Quant  string `json:"quant,omitempty"`
+	SHA256 string `json:"sha256"`
+	Bytes  int64  `json:"bytes"`
+	By     string `json:"by"`              // "your Edge member atlas", "a station on the Tower lab (its word)"
+	Fit    string `json:"fit,omitempty"`   // fits | tight | will not fit | unknown
+	Short  string `json:"short,omitempty"` // the verdict for a row
+	Line   string `json:"line,omitempty"`  // the verdict in a sentence
+	Why    string `json:"why,omitempty"`   // why it is not offered here
+	Ask    string `json:"ask"`             // the consent line, word for word as the terminal asks it
+}
+
+// NearbyPick is the exact file the owner said yes to. The fetch re-reads what is nearby and refuses
+// if the name no longer maps to these bytes.
+type NearbyPick struct {
+	Name   string `json:"name"`
+	Repo   string `json:"repo"`
+	File   string `json:"file"`
+	SHA256 string `json:"sha256"`
+}
+
 // Hooks are filled by cmd/rogerai from the code behind `roger model`. A nil hook means this
 // build cannot do that from the console, and the page says so rather than offering it.
 type Hooks struct {
@@ -125,4 +161,7 @@ type Hooks struct {
 	Stop   func(id string) (string, error)                       // "" stops everything roger serves
 	Remove func(id string) (string, error)
 	Set    func(kind, value string) (string, error) // runtime, idle or budget; nil means the CLI alone sets them
+
+	Nearby      func(ctx context.Context) (NearbyView, error) // what is served nearby, judged here
+	FetchNearby func(p NearbyPick) (string, error)            // fetch the exact file a nearby name maps to
 }

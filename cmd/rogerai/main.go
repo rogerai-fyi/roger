@@ -742,7 +742,7 @@ func tuiHooks(cfg config) tui.Hooks {
 	sessionStore := session.NewStore(session.DefaultDir())
 	h := tui.Hooks{
 		// THE SAME `roger model` the CLI and the console run (modelweb.go).
-		Models: modelWebHooks(),
+		Models: modelWebHooks(cfg),
 		// A screen that is open is a request to scan (edgescan.go, scan_on_request.feature).
 		EdgeScan: func(kind string) func() { return edgeScans.Begin(scanKind(kind)) },
 		// ...and the same request carried to a member (edgeservecontrol.go).

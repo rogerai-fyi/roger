@@ -219,8 +219,8 @@ func TestTheModelsPageNeverTreatsIndexTextAsHTMLAndAsksSafely(t *testing.T) {
 	require.NotContains(t, sec, "insertAdjacentHTML")
 	require.NotContains(t, sec, "window.confirm", "a native confirm focuses OK; the page uses its own safe dialog")
 	require.Contains(t, sec, `$("ask-no").focus()`, "Cancel holds the focus, so Enter alone answers No")
-	require.Equal(t, 5, strings.Count(sec, "confirm: true"), "fetch, serve, stop, remove and a serving setting each carry the owner's yes")
-	require.Equal(t, 5, strings.Count(sec, ".then(function (yes) {\n      if (!yes) return;"), "and each is asked first, and stops on a No")
+	require.Equal(t, 6, strings.Count(sec, "confirm: true"), "fetch, a nearby fetch, serve, stop, remove and a serving setting each carry the owner's yes")
+	require.Equal(t, 6, strings.Count(sec, ".then(function (yes) {\n      if (!yes) return;"), "and each is asked first, and stops on a No")
 }
 
 // features/edge/remote_model.feature (@web): a member's model is on its card, and the console asks it

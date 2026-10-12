@@ -82,7 +82,7 @@ func modelFixFor(reason string) string {
 	return ""
 }
 
-func modelWebHooks() webui.ModelHooks {
+func modelWebHooks(cfg config) webui.ModelHooks {
 	return webui.ModelHooks{
 		View:   modelWebView,
 		Search: modelWebSearch,
@@ -92,6 +92,9 @@ func modelWebHooks() webui.ModelHooks {
 		Stop:   modelStopSays,
 		Set:    modelSetSays,
 		Remove: modelWebRemove,
+
+		Nearby:      modelWebNearby(cfg),
+		FetchNearby: modelWebFetchNearby(cfg),
 	}
 }
 

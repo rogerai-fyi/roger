@@ -104,7 +104,7 @@ func startWebConsole(cfg config, ctrl *node.Controller, port string, limits *tui
 		// adopt path, one session ledger. A console with its own would draw a second Edge.
 		Edge: edgeHooksFor(cfg, hooks),
 		// THE SAME `roger model`, from the browser (modelweb.go).
-		Models: modelWebHooks(),
+		Models: modelWebHooks(cfg),
 		// THE SAME LAN DIAL the TUI reads, in LAN mode; nil otherwise.
 		LANDial: consoleLANDial(cfg),
 		// THE SAME owner's join view the TUI's [3] EDGE shows (ownerjoin.go).

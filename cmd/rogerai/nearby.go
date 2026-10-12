@@ -23,6 +23,7 @@ import (
 	"rogerai.fm/roger/v6/internal/client"
 	"rogerai.fm/roger/v6/internal/hfhub"
 	"rogerai.fm/roger/v6/internal/localmodel"
+	"rogerai.fm/roger/v6/internal/modelview"
 	"rogerai.fm/roger/v6/internal/provision"
 	"rogerai.fm/roger/v6/internal/servedfile"
 )
@@ -190,6 +191,11 @@ type nearbyResolved struct {
 
 func (r nearbyResolved) ref() string { return r.mp.File.Repo + ":" + modelDash(r.c.File.Quant) }
 
+// ask is the consent question, word for word on every surface.
+func (r nearbyResolved) ask() string {
+	return fmt.Sprintf("%s; fetch %s?", r.line(), provision.BytesWord(r.c.File.Bytes))
+}
+
 // mapLine is the source's mapping, as the source says it.
 func (r nearbyResolved) mapLine() string {
 	return fmt.Sprintf("%s = %s as served by %s", r.name, r.mp.File.Ref(), r.mp.by())
@@ -301,7 +307,7 @@ func modelFromNearby(ctx context.Context, cfg config, n nearbyName, quant string
 		}
 		var now nearbyName
 		m, err := modelFetchChoice(ctx, r.mp.File.Repo, r.c, r.b, modelFetchAsk{
-			ask:    fmt.Sprintf("%s; fetch %s? [y/N]: ", r.line(), provision.BytesWord(r.c.File.Bytes)),
+			ask:    r.ask() + " [y/N]: ",
 			source: source,
 			before: func() error {
 				var ok bool
@@ -543,12 +549,7 @@ const noTerminalSuggest = "no terminal, so nothing is fetched: roger model serve
 // rule. ok is false when nothing was chosen; nothing is ever fetched without a pick at a terminal.
 func modelSuggest(ctx context.Context, cfg config, a modelArgv) (localmodel.Model, bool, error) {
 	b := modelBudget()
-	var mapped []nearbyName
-	for _, n := range modelNearby(cfg) {
-		for _, mp := range n.Maps {
-			mapped = append(mapped, nearbyName{Name: n.Name, Maps: []nearbyMap{mp}})
-		}
-	}
+	mapped := nearbyMapped(cfg)
 	if !b.Known() {
 		// No guess: each nearby one with what it needs, and the owner decides on their own word.
 		fmt.Fprintf(modelOut, "roger cannot judge what fits this machine: %s\n", b.Why)
@@ -569,20 +570,20 @@ func modelSuggest(ctx context.Context, cfg config, a modelArgv) (localmodel.Mode
 		return localmodel.Model{}, false, nil
 	}
 	if len(mapped) > 0 {
+		sug := nearbySuggestions(ctx, mapped, a.ctx)
 		var fit []nearbyName
 		var fitLines, other []string
-		for _, n := range mapped {
-			line := nearbyResolved{name: n.Name, mp: n.Maps[0]}.mapLine()
-			c, ok := nearbyChoice(ctx, n.Maps[0], a.ctx)
-			switch {
-			case !ok:
-				other = append(other, fmt.Sprintf("  -  %s  cannot be judged: the model hub does not list that file now", line))
-			case c.Verdict.Fit == catalog.FitWontFit:
-				other = append(other, fmt.Sprintf("  -  %s  %s  would not fit here: %s", line, provision.BytesWord(c.File.Bytes), c.Verdict.Line()))
-			default:
-				fit = append(fit, n)
-				fitLines = append(fitLines, fmt.Sprintf("  %d) %s  %s  %s", len(fit), line, provision.BytesWord(c.File.Bytes), c.Verdict.Short()))
+		for _, g := range sug {
+			if g.why != "" {
+				size := ""
+				if g.ok {
+					size = "  " + provision.BytesWord(g.c.File.Bytes)
+				}
+				other = append(other, fmt.Sprintf("  -  %s%s  %s", g.r.mapLine(), size, g.why))
+				continue
 			}
+			fit = append(fit, g.n)
+			fitLines = append(fitLines, fmt.Sprintf("  %d) %s  %s  %s", len(fit), g.r.mapLine(), provision.BytesWord(g.c.File.Bytes), g.c.Verdict.Short()))
 		}
 		if len(fit) > 0 {
 			fmt.Fprintln(modelOut, "served nearby, and fits this machine:")
@@ -646,6 +647,100 @@ func modelSuggest(ctx context.Context, cfg config, a modelArgv) (localmodel.Mode
 		return m, false, nil
 	}
 	return m, err == nil, err
+}
+
+// nearbySuggestion is one nearby mapping judged against this machine: why is "" when it fits.
+type nearbySuggestion struct {
+	n   nearbyName // the name, with this one mapping
+	r   nearbyResolved
+	c   localmodel.Choice
+	ok  bool // the hub lists the file, so c is its judged entry
+	why string
+}
+
+// nearbySuggestions judges every mapping against this machine: the one rule `roger model serve`
+// with no name, the TUI and the console all suggest by.
+func nearbySuggestions(ctx context.Context, mapped []nearbyName, ctxLen int) []nearbySuggestion {
+	out := make([]nearbySuggestion, 0, len(mapped))
+	for _, n := range mapped {
+		g := nearbySuggestion{n: n}
+		g.c, g.ok = nearbyChoice(ctx, n.Maps[0], ctxLen)
+		g.r = nearbyResolved{name: n.Name, mp: n.Maps[0], c: g.c}
+		switch {
+		case !g.ok:
+			g.why = "cannot be judged: the model hub does not list that file now"
+		case g.c.Verdict.Fit == catalog.FitWontFit:
+			g.why = "would not fit here: " + g.c.Verdict.Line()
+		}
+		out = append(out, g)
+	}
+	return out
+}
+
+// nearbyMapped is every mapping served nearby, one name per mapping.
+func nearbyMapped(cfg config) []nearbyName {
+	var out []nearbyName
+	for _, n := range modelNearby(cfg) {
+		for _, mp := range n.Maps {
+			out = append(out, nearbyName{Name: n.Name, Maps: []nearbyMap{mp}})
+		}
+	}
+	return out
+}
+
+// modelWebNearby is the screens' view of what is served nearby, from nearbySuggestions.
+func modelWebNearby(cfg config) func(ctx context.Context) (modelview.NearbyView, error) {
+	return func(ctx context.Context) (modelview.NearbyView, error) {
+		b := modelBudgetNow()
+		nv := modelview.NearbyView{Budget: b.Bytes, Pool: b.Pool, BudgetWhy: b.Why, Fits: []modelview.NearbyRow{}, Other: []modelview.NearbyRow{}}
+		for _, g := range nearbySuggestions(ctx, nearbyMapped(cfg), 0) {
+			f := g.r.mp.File
+			row := modelview.NearbyRow{Name: g.n.Name, Repo: f.Repo, File: f.File, Quant: f.Quant, SHA256: f.SHA256, Bytes: f.Bytes,
+				By: g.r.mp.by(), Why: g.why}
+			if g.ok {
+				row.Quant, row.Bytes, row.Ask = g.c.File.Quant, g.c.File.Bytes, g.r.ask()
+				row.Fit, row.Short, row.Line = g.c.Verdict.Fit.String(), g.c.Verdict.Short(), g.c.Verdict.Line()
+			}
+			if g.why == "" {
+				nv.Fits = append(nv.Fits, row)
+			} else {
+				nv.Other = append(nv.Other, row)
+			}
+		}
+		return nv, nil
+	}
+}
+
+// modelWebFetchNearby fetches, in the background, exactly the file the owner said yes to on a
+// screen: refused when the name no longer maps to it, or when the hub lists other bytes.
+func modelWebFetchNearby(cfg config) func(p modelview.NearbyPick) (string, error) {
+	return func(p modelview.NearbyPick) (string, error) {
+		n, ok := nearbyFind(modelNearby(cfg), p.Name)
+		if !ok || len(n.Maps) == 0 {
+			return "", fmt.Errorf("%s is not served nearby now; nothing was fetched", p.Name)
+		}
+		want := servedfile.File{Repo: p.Repo, File: p.File, SHA256: p.SHA256}
+		for _, mp := range n.Maps {
+			if !mp.File.Same(want) {
+				continue
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+			defer cancel()
+			r, err := nearbyResolve(ctx, nearbyName{Name: n.Name, Maps: []nearbyMap{mp}}, "", 0)
+			if err != nil {
+				return "", err
+			}
+			if r.listed {
+				return "", fmt.Errorf("%s will not fit here; nothing was fetched", r.mapLine())
+			}
+			r.c.File.SHA256 = mp.File.SHA256
+			if err := modelHome().StartFetch(modelHub(), provision.Fetcher{}, mp.File.Repo, r.c.File, modelLicense(ctx, mp.File.Repo), nil); err != nil {
+				return "", err
+			}
+			return "fetching " + r.c.File.Path + " - it keeps going if you leave this screen", nil
+		}
+		return "", fmt.Errorf("%s no longer maps to that file; look again before saying yes", p.Name)
+	}
 }
 
 // nearbyChoice is the hub's ranked entry for the exact file a mapping names, judged here.

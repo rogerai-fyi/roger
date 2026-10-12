@@ -28,6 +28,7 @@ const (
 	modelsDisk   modelsPane = iota // what is on this machine
 	modelsSearch                   // search results from the index
 	modelsRepo                     // one repo's files, judged here
+	modelsNearby                   // what is served nearby, judged here (short_names_nearby.feature §7)
 )
 
 // modelsAsk is a question awaiting y/N. Enter alone is No.
@@ -64,6 +65,7 @@ type modelsState struct {
 	query    string
 	busy     string // what is in flight off the loop ("searching", "judging")
 	results  []modelview.RepoRow
+	nearby   modelview.NearbyView
 	files    modelview.FilesView
 	fitsOnly bool
 	ctx      int
@@ -84,6 +86,10 @@ type (
 	}
 	modelsFilesMsg struct {
 		fv  modelview.FilesView
+		err error
+	}
+	modelsNearbyMsg struct {
+		nv  modelview.NearbyView
 		err error
 	}
 	modelsDidMsg struct {
@@ -151,6 +157,18 @@ func (m model) onModelsMsg(msg tea.Msg) (model, tea.Cmd, bool) {
 			return m, nil, true
 		}
 		m.mdl.results, m.mdl.pane, m.mdl.sel = msg.rows, modelsSearch, 0
+		return m, nil, true
+	case modelsNearbyMsg:
+		m.mdl.busy = ""
+		if msg.err != nil {
+			m.mdl.says, m.mdl.typing = msg.err.Error(), true
+			return m, nil, true
+		}
+		m.mdl.nearby, m.mdl.sel = msg.nv, 0
+		if len(msg.nv.Fits) == 0 && len(msg.nv.Other) == 0 {
+			// Nothing nearby: the search is ready to type into, and nothing is sent until ⏎.
+			m.mdl.typing, m.mdl.query = true, ""
+		}
 		return m, nil, true
 	case modelsFilesMsg:
 		m.mdl.busy = ""
@@ -220,6 +238,8 @@ func (m model) modelsRows() int {
 		return len(m.mdl.results)
 	case modelsRepo:
 		return len(m.modelsFilesVisible())
+	case modelsNearby:
+		return len(m.mdl.nearby.Fits)
 	}
 	return len(m.mdl.view.Models)
 }
@@ -371,9 +391,35 @@ func (m *model) modelsOpenRepo(repo string) tea.Cmd {
 	}
 }
 
+// modelsLoadNearby reads what is served nearby, judged against this machine, off the loop.
+func (m *model) modelsLoadNearby() tea.Cmd {
+	nearby := m.hooks.Models.Nearby
+	m.mdl.busy = "reading what is served nearby"
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+		nv, err := nearby(ctx)
+		return modelsNearbyMsg{nv, err}
+	}
+}
+
 // modelsEnter is the one obvious action on the selected row.
 func (m *model) modelsEnter() tea.Cmd {
 	switch m.mdl.pane {
+	case modelsNearby:
+		if m.mdl.sel >= len(m.mdl.nearby.Fits) {
+			return nil
+		}
+		r, fetch := m.mdl.nearby.Fits[m.mdl.sel], m.hooks.Models.FetchNearby
+		lines := []string{r.Ask, r.Repo + "  " + r.File + "  " + modelsBytes(r.Bytes)}
+		if r.Line != "" {
+			lines = append(lines, r.Line)
+		}
+		lines = append(lines, "the bytes come from the model hub, checked against the digest "+r.By+" reported")
+		pick := modelview.NearbyPick{Name: r.Name, Repo: r.Repo, File: r.File, SHA256: r.SHA256}
+		m.mdl.ask = &modelsAsk{title: "fetch this model?", lines: lines,
+			do: func() tea.Cmd { return modelsDo(func() (string, error) { return fetch(pick) }) }}
+		return nil
 	case modelsSearch:
 		if m.mdl.sel < len(m.mdl.results) {
 			m.mdl.ctx = 0
@@ -550,6 +596,8 @@ func (m model) modelsView(w int) string {
 	}
 	line("")
 	switch s.pane {
+	case modelsNearby:
+		m.modelsNearbyView(w, line)
 	case modelsSearch:
 		m.modelsSearchView(w, line)
 	case modelsRepo:
@@ -609,6 +657,41 @@ func (m model) modelsDiskView(w int, line func(string)) {
 		line("  " + cur + mark + " " + pad(truncVisible(r.ID, idw), idw) + " " + pad(modelsDash(r.Quant), 8) +
 			pad(modelsBytes(r.Bytes), 11) + stDim.Render(check))
 	}
+}
+
+// modelsNearbyView is what is served nearby, the ones that fit first, each with its source, size and
+// verdict; the hub search is one key away and is never sent on its own.
+func (m model) modelsNearbyView(w int, line func(string)) {
+	nv := m.mdl.nearby
+	machine := "cannot say - " + nv.BudgetWhy
+	if nv.Budget > 0 {
+		machine = modelsBytes(nv.Budget) + " of " + nv.Pool
+	}
+	line("  this machine: " + machine)
+	if len(nv.Fits) == 0 && len(nv.Other) == 0 {
+		if m.mdl.busy == "" {
+			line("  " + stDim.Render("nothing is served nearby (on this machine, by your Edge members or on a pinned Tower)"))
+		}
+	} else {
+		line("  " + stKey.Render("NEARBY") + stDim.Render("  served nearby, and fits this machine - which file each is, is its source's word"))
+	}
+	nw := 8
+	for _, r := range append(append([]modelview.NearbyRow{}, nv.Fits...), nv.Other...) {
+		nw = max(nw, len(r.Name))
+	}
+	nw = min(nw, max(8, w/4))
+	for i, r := range nv.Fits {
+		cur := "  "
+		if i == m.mdl.sel {
+			cur = stKey.Render("▸ ")
+		}
+		line("  " + cur + pad(truncVisible(r.Name, nw), nw) + "  " + pad(modelsBytes(r.Bytes), 9) + r.By + " · " + r.Short +
+			stDim.Render(" · "+r.Repo+":"+modelsDash(r.Quant)))
+	}
+	for _, r := range nv.Other {
+		line("  " + stDim.Render("- "+pad(truncVisible(r.Name, nw), nw)+"  "+pad(modelsBytes(r.Bytes), 9)+r.By+" · "+r.Why))
+	}
+	line("  " + stKey.Render("/") + stDim.Render(" search the model hub - nothing is sent until you press ⏎"))
 }
 
 func (m model) modelsSearchView(w int, line func(string)) {
@@ -699,6 +782,8 @@ func (m model) modelsKeys() string {
 		return "↑↓ pick · ⏎ see what fits · / search · esc back"
 	case s.pane == modelsRepo:
 		return "↑↓ pick · ⏎ fetch · f only what fits · +/- context · esc back"
+	case s.pane == modelsNearby:
+		return "↑↓ pick · ⏎ fetch · / search the model hub · esc back"
 	}
 	k := "↑↓ pick · ⏎ serve · x remove · / find one"
 	if s.view.Serving != nil {

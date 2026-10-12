@@ -175,7 +175,7 @@ func TestConsoleServeIsSettledFirstThenHandedOff(t *testing.T) {
 
 func TestConsoleStopAndRemoveKeepTheTerminalsRules(t *testing.T) {
 	r := webRig(t)
-	h := modelWebHooks()
+	h := modelWebHooks(config{})
 	says, err := h.Stop("")
 	require.NoError(t, err)
 	require.Contains(t, says, "nothing is being served")

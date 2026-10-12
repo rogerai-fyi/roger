@@ -17,7 +17,7 @@ import (
 
 func TestModelSettingsAreOneFunctionForEverySurface(t *testing.T) {
 	r := newModelRig(t, 16384)
-	h := modelWebHooks()
+	h := modelWebHooks(config{})
 	v, err := h.View()
 	require.NoError(t, err)
 	require.Equal(t, "auto", v.Settings.Runtime)

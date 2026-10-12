@@ -40,6 +40,8 @@ func (s *Server) modelRoutes() {
 	s.mux.HandleFunc("/api/models/stop", s.action(s.handleModelStop))
 	s.mux.HandleFunc("/api/models/remove", s.action(s.handleModelRemove))
 	s.mux.HandleFunc("/api/models/set", s.auth(s.handleModelSet))
+	s.mux.HandleFunc("/api/models/nearby", s.auth(s.handleModelNearby))
+	s.mux.HandleFunc("/api/models/fetch-nearby", s.action(s.handleModelFetchNearby))
 }
 
 const noModels = "this build cannot manage models from the console - use `roger model`"
@@ -255,6 +257,60 @@ func (s *Server) handleModelSet(w http.ResponseWriter, r *http.Request) {
 	says, err := h.Set(req.Kind, req.Value)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	s.writeModelsSaying(w, says)
+}
+
+// handleModelNearby is what is served nearby, judged here, by the same code as the terminal's
+// suggestions (features/models/short_names_nearby.feature section 7).
+func (s *Server) handleModelNearby(w http.ResponseWriter, r *http.Request) {
+	h := s.opts.Models
+	if h.Nearby == nil {
+		http.Error(w, noModels, http.StatusNotImplemented)
+		return
+	}
+	nv, err := h.Nearby(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	if nv.Fits == nil {
+		nv.Fits = []modelview.NearbyRow{}
+	}
+	if nv.Other == nil {
+		nv.Other = []modelview.NearbyRow{}
+	}
+	writeJSON(w, nv)
+}
+
+// handleModelFetchNearby fetches the exact file a nearby name maps to, after the owner's yes. The
+// hook re-reads what is nearby and refuses a pick that no longer maps to these bytes.
+func (s *Server) handleModelFetchNearby(w http.ResponseWriter, r *http.Request) {
+	h := s.opts.Models
+	if h.FetchNearby == nil {
+		http.Error(w, noModels, http.StatusNotImplemented)
+		return
+	}
+	var req struct {
+		confirmed
+		modelview.NearbyPick
+	}
+	if !decode(r, &req) {
+		http.Error(w, "a pick names the exact file", http.StatusBadRequest)
+		return
+	}
+	if !req.Confirm {
+		http.Error(w, "a fetch needs the owner's yes", http.StatusPreconditionRequired)
+		return
+	}
+	if req.Name == "" || req.Repo == "" || req.File == "" || req.SHA256 == "" {
+		http.Error(w, "a pick names the exact file: name, repo, file and sha256", http.StatusBadRequest)
+		return
+	}
+	says, err := h.FetchNearby(req.NearbyPick)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}
 	s.writeModelsSaying(w, says)

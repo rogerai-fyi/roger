@@ -193,6 +193,15 @@
             <div class="kv"><span>RUNTIME</span><b id="models-runtime">&hellip;</b></div>
             <div class="kv"><span>ON DISK</span><b id="models-disk">&hellip;</b></div>
           </div>
+          <div id="models-nearby" hidden>
+            <p class="muted small" id="models-nearby-note"></p>
+            <div class="table-wrap" id="models-nearby-wrap" hidden>
+              <table class="data-table models-table">
+                <thead><tr><th class="col-model">NEARBY</th><th>FILE</th><th class="num">SIZE</th><th>VERDICT &middot; SOURCE</th><th></th></tr></thead>
+                <tbody id="models-nearby-rows"></tbody>
+              </table>
+            </div>
+          </div>
           <form class="models-search" id="models-search">
             <input class="inp" id="models-q" type="search" maxlength="200" placeholder="qwen3 4b, gemma, smollm&hellip;" aria-label="search models">
             <button class="btn" type="submit">search</button>
