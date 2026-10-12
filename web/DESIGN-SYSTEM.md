@@ -337,8 +337,10 @@ Items never fade. If the page lays the list out as a sideways gallery (it overfl
 width, e.g. a phone snap gallery), scrubbing centres the tuned item and a swipe tunes the
 item that comes to rest in the middle; the list must be `position: relative` (the items'
 offsetParent). It starts on the first item; `data-scrub-start="k"` (zero-based) starts it on
-another (broadcast 016 starts on its last, the payoff), and loading never scrolls the list.
-No-JS: the complete static list, no control.
+another when the list is laid out whole (broadcast 016's training row starts on its last
+step, the payoff). A sideways gallery ignores the attribute: loading never scrolls a gallery,
+it shows its first item, and the needle starts on that item so the two agree (on a phone
+the training row starts on Step 0). No-JS: the complete static list, no control.
 
 ### Range twin
 ```html

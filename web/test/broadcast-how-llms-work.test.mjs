@@ -207,24 +207,43 @@ test("how-llms: the Quick Answer does not claim the model learns only from wrong
   assert.match(qa, /after each round of guesses/);
 });
 
-test("how-llms: the training scrubber starts tuned on Trained (data-scrub-start), without scrolling the gallery", () => {
+test("how-llms: data-scrub-start tunes the start item on a wide list, but a sideways gallery starts on its first item so the needle and the view agree without a scroll", () => {
   const on = (el) => { el.listeners = {}; el.addEventListener = (t, f) => { (el.listeners[t] ||= []).push(f); }; return el; };
   const names = ["Step 0", "Early", "Later", "Much later", "Trained"];
-  const lis = names.map((n) => on({ cls: new Set(), querySelector: (q) => (q === "b" ? { textContent: n } : null) }));
-  lis.forEach((li) => { li.classList = { toggle: (c, v) => (v ? li.cls.add(c) : li.cls.delete(c)) }; });
-  let range = null, scrolled = 0;
-  const make = (start) => on({ getAttribute: (k) => (k === "data-scrub-start" ? start : "Training"), querySelectorAll: () => lis,
-    scrollWidth: 1000, clientWidth: 300, scrollLeft: 0, scrollTo() { scrolled++; }, parentNode: { insertBefore: (el) => { range = el; } } });
-  const run = (start) => {
-    const ol = make(start);
+  const mk = () => {
+    const lis = names.map((n, k) => on({ cls: new Set(), offsetLeft: k * 200, offsetWidth: 180, querySelector: (q) => (q === "b" ? { textContent: n } : null) }));
+    lis.forEach((li) => { li.classList = { toggle: (c, v) => (v ? li.cls.add(c) : li.cls.delete(c)) }; });
+    return lis;
+  };
+  const run = (start, gallery) => {
+    const lis = mk(); let range = null, scrolled = 0;
+    const ol = on({ getAttribute: (k) => (k === "data-scrub-start" ? start : "Training"), querySelectorAll: () => lis,
+      scrollWidth: gallery ? 1000 : 300, clientWidth: 300, scrollLeft: 0, scrollTo() { scrolled++; }, parentNode: { insertBefore: (el) => { range = el; } } });
     const win = { document: { querySelectorAll: (q) => (q === "[data-scrub]" ? [ol] : []),
-      createElement: (tag) => on({ tagName: tag, value: "", setAttribute() {}, style: { setProperty() {} } }) },
+      createElement: (tag) => on({ tagName: tag, value: "", attrs: {}, setAttribute(k, v) { this.attrs[k] = String(v); }, style: { setProperty() {} } }) },
       matchMedia: () => ({ matches: false }), setTimeout: (f) => f(), clearTimeout() {} };
     win.window = win; vm.createContext(win); vm.runInContext(src("js/scrub.js"), win);
-    return lis.findIndex((l) => l.cls.has("is-tuned"));
+    return { tuned: lis.findIndex((l) => l.cls.has("is-tuned")), value: range.value, text: range.attrs["aria-valuetext"], scrolled, left: ol.scrollLeft };
   };
-  assert.equal(run("4"), 4); assert.equal(range.value, "4");
-  assert.equal(run(null), 0, "no attribute: the first item, as before");
-  assert.equal(run("9"), 0, "out of range: the first item");
-  assert.equal(scrolled, 0, "loading never scrolls the gallery");
+  // a wide list (the desktop row): the start item is tuned, named and marked
+  assert.deepEqual(run("4", false), { tuned: 4, value: "4", text: "Trained", scrolled: 0, left: 0 });
+  assert.equal(run(null, false).tuned, 0, "no attribute: the first item, as before");
+  assert.equal(run("9", false).tuned, 0, "out of range: the first item");
+  // a sideways gallery (the phone): it shows its first item on load, so the needle starts there too,
+  // and nothing scrolls it (the homepage rule: loading never scrolls a gallery)
+  assert.deepEqual(run("4", true), { tuned: 0, value: "0", text: "Step 0", scrolled: 0, left: 0 });
+});
+
+test("how-llms: the flow strip's arrows share one type rule, so the phone's third arrow is set like the others", () => {
+  const css = src("styles/broadcast-how-llms-work.css").replace(/\/\*[\s\S]*?\*\//g, "");
+  const esc = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const rule = (sel) => [...css.matchAll(new RegExp("(?:^|[}\\n])\\s*" + esc(sel) + "\\s*\\{([^}]*)\\}", "g"))].map((m) => m[1]);
+  const shared = rule(".llm-flow__steps > li:not(:last-child)::after");
+  const typed = shared.filter((b) => /font-family:/.test(b) && /font-size:/.test(b) && /color:/.test(b));
+  assert.equal(typed.length, 1, "one rule, covering every card but the last, sets the arrow's face, size and ink");
+  assert.doesNotMatch(typed[0], /content:/, "it carries no direction: the layout rules set the arrow glyph and place it");
+  for (const b of [...rule(".llm-flow__steps > li:not(:last-child, :nth-child(3))::after"), ...shared.filter((b) => b !== typed[0])]) {
+    assert.doesNotMatch(b, /font-family:|font-size:|(?:^|[^-])color:/, `a layout rule sets no type: ${b.trim().slice(0, 60)}`);
+    assert.match(b, /content:/, "a layout rule sets the glyph");
+  }
 });
