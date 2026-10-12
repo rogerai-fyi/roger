@@ -601,11 +601,17 @@ func TestModelUsageAndFlagMistakesAreSaidPlainly(t *testing.T) {
 		{[]string{"serve", "x", "--port=-1"}, "positive number"},
 		{[]string{"serve", "x", "--colour", "red"}, "positive number"},
 		{[]string{"serve", "x", "--colour=3"}, "unknown flag --colour"},
-		{[]string{"serve", "nothing-here"}, "no model by that name"},
 	} {
 		_, err := r.run(t, c.args...)
 		require.ErrorContains(t, err, c.want, "%v", c.args)
 	}
+	// superseded 2026-10-11 by founder ruling (short names nearby): a name that is not on this disk
+	// is no longer an error; it is looked up nearby, then on the model hub, and nothing is fetched
+	// without a yes (features/models/short_names_nearby.feature section 4).
+	out, err := r.run(t, "serve", "nothing-here")
+	require.NoError(t, err)
+	require.Contains(t, out, "nothing-here is not served nearby; looking it up on the model hub")
+	require.Contains(t, out, "not fetched. Nothing changed.")
 }
 
 func TestModelProgressIsBytesRateAndTimeNeverABareFraction(t *testing.T) {

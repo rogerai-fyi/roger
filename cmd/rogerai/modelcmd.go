@@ -109,6 +109,7 @@ type modelArgv struct {
 	yes    bool
 	detach bool
 	add    bool   // serve beside what is on the air, rather than switching (local_models.feature §5)
+	hub    bool   // skip every nearby source and look the name up on the model hub (short_names_nearby.feature §4)
 	on     string // a member of the Edge: the same command, on that machine (remote_model.feature)
 }
 
@@ -126,6 +127,10 @@ func parseModelArgv(args []string) (modelArgv, error) {
 		}
 		if s == "--add" {
 			a.add = true
+			continue
+		}
+		if s == "--hub" {
+			a.hub = true
 			continue
 		}
 		if !strings.HasPrefix(s, "--") {
@@ -189,7 +194,7 @@ func cmdModel(cfg config, args []string) error {
 		if len(a.pos) != 1 {
 			return errors.New("usage: roger model get <owner/repo>[:QUANT] [--ctx N] [--yes]")
 		}
-		_, err := modelGet(ctx, a.pos[0], a.ctx, a.yes)
+		_, err := modelResolve(ctx, cfg, a.pos[0], a)
 		if errors.Is(err, errModelDeclined) {
 			return nil // the owner said no, which is an answer, not a failure
 		}
@@ -198,7 +203,7 @@ func cmdModel(cfg config, args []string) error {
 		if len(a.pos) != 1 {
 			return errors.New("usage: roger model serve <name | owner/repo[:QUANT] | file.gguf> [--ctx N] [--port N] [--detach] [--add]")
 		}
-		return modelServe(ctx, a)
+		return modelServe(ctx, cfg, a)
 	case "status":
 		return modelStatus()
 	case "idle":
@@ -383,21 +388,44 @@ func modelGet(ctx context.Context, ref string, ctxLen int, yes bool) (localmodel
 			return localmodel.Model{}, fmt.Errorf("nothing in %s fits this machine comfortably - `roger model files %s` shows each, and naming one fetches it anyway", repo, repo)
 		}
 		c = cs[i]
-	} else {
-		files := make([]hfhub.File, len(cs))
-		for i := range cs {
-			files[i] = cs[i].File
-		}
-		f, err := localmodel.Pick(files, want)
-		if err != nil {
-			return localmodel.Model{}, err
-		}
-		for _, x := range cs {
-			if x.File.Path == f.Path {
-				c = x
-			}
+	} else if c, err = modelPickQuant(cs, want); err != nil {
+		return localmodel.Model{}, err
+	}
+	return modelFetchChoice(ctx, repo, c, b, modelFetchAsk{
+		ask:    "fetch it? [y/N]: ",
+		source: "source: HuggingFace - the author's word, checked against the digest the index publishes",
+	}, yes)
+}
+
+// modelPickQuant is the one file of a ranked repository that want names.
+func modelPickQuant(cs []localmodel.Choice, want string) (localmodel.Choice, error) {
+	files := make([]hfhub.File, len(cs))
+	for i := range cs {
+		files[i] = cs[i].File
+	}
+	f, err := localmodel.Pick(files, want)
+	if err != nil {
+		return localmodel.Choice{}, err
+	}
+	for _, x := range cs {
+		if x.File.Path == f.Path {
+			return x, nil
 		}
 	}
+	return localmodel.Choice{}, fmt.Errorf("no servable file %q here", want) // unreachable: Pick returns one of files
+}
+
+// modelFetchAsk is how one fetch is put to the owner: the question, whose word the file is, and a
+// last check that runs after the yes and before any byte moves (a mapping that changed meanwhile).
+type modelFetchAsk struct {
+	ask    string
+	source string
+	before func() error
+}
+
+// modelFetchChoice says everything about one file - the fit, the sum, the licence, whose word it
+// is, the room it needs - asks, and fetches it verified against c.File.SHA256.
+func modelFetchChoice(ctx context.Context, repo string, c localmodel.Choice, b localmodel.Budget, how modelFetchAsk, yes bool) (localmodel.Model, error) {
 	license := modelLicense(ctx, repo)
 	modelBudgetLine(b)
 	fmt.Fprintf(modelOut, "%s  %s  %s\n", repo, c.File.Path, provision.BytesWord(c.File.Bytes))
@@ -406,7 +434,7 @@ func modelGet(ctx context.Context, ref string, ctxLen int, yes bool) (localmodel
 		fmt.Fprintf(modelOut, "  %s\n", s)
 	}
 	fmt.Fprintf(modelOut, "  licence: %s (as its author published it; roger records it and does not referee it)\n", modelDash(license))
-	fmt.Fprintln(modelOut, "  source: HuggingFace - the author's word, checked against the digest the index publishes")
+	fmt.Fprintf(modelOut, "  %s\n", how.source)
 	plan, err := modelHome().RoomFor(c.File.Bytes)
 	if err != nil {
 		return localmodel.Model{}, err
@@ -414,14 +442,25 @@ func modelGet(ctx context.Context, ref string, ctxLen int, yes bool) (localmodel
 	if line := localmodel.RoomLine(plan); line != "" {
 		fmt.Fprintf(modelOut, "  %s\n", line)
 	}
+	fetcher := modelFetcher()
+	if fetcher.FreeSpace != nil {
+		if free, ok := fetcher.FreeSpace(modelHome().Models()); ok {
+			fmt.Fprintf(modelOut, "  free on this disk: %s\n", provision.BytesWord(free))
+		}
+	}
 	if !yes {
-		fmt.Fprint(modelOut, "fetch it? [y/N]: ")
+		fmt.Fprint(modelOut, how.ask)
 		if !edgeConfirmed() {
 			fmt.Fprintln(modelOut, "not fetched. Nothing changed.")
 			return localmodel.Model{}, errModelDeclined
 		}
 	}
-	m, err := modelHome().Fetch(ctx, modelHub(), *modelFetcher(), repo, c.File, license)
+	if how.before != nil {
+		if err := how.before(); err != nil {
+			return localmodel.Model{}, err
+		}
+	}
+	m, err := modelHome().Fetch(ctx, modelHub(), *fetcher, repo, c.File, license)
 	modelProgressDone()
 	if errors.Is(err, localmodel.ErrBusy) {
 		if j, ok := modelHome().Job(); ok {
@@ -452,9 +491,11 @@ func modelLicense(ctx context.Context, repo string) string {
 	return ""
 }
 
-// modelResolve turns what the owner typed into a model on this disk: a path, a name roger knows,
-// or a repository it fetches first (with the same consent as `get`).
-func modelResolve(ctx context.Context, ref string, ctxLen int, yes bool) (localmodel.Model, error) {
+// modelResolve turns what the owner typed into a model on this disk, in this order
+// (short_names_nearby.feature §4): a path; a hub reference, the author's word; a name on this disk;
+// a name served nearby, shown before anything is fetched; a hub lookup the owner picks from.
+// --hub skips the nearby sources.
+func modelResolve(ctx context.Context, cfg config, ref string, a modelArgv) (localmodel.Model, error) {
 	if strings.HasSuffix(strings.ToLower(ref), ".gguf") {
 		if _, err := os.Stat(ref); err == nil {
 			return localmodel.FromPath(ref)
@@ -462,15 +503,24 @@ func modelResolve(ctx context.Context, ref string, ctxLen int, yes bool) (localm
 	}
 	h := modelHome()
 	m, err := h.Find(ref)
-	if err == nil || !errors.Is(err, localmodel.ErrUnknownModel) || !strings.Contains(ref, "/") {
+	if err == nil || !errors.Is(err, localmodel.ErrUnknownModel) {
 		return m, err
 	}
-	fmt.Fprintf(modelOut, "%s is not on this machine yet.\n", ref)
-	return modelGet(ctx, ref, ctxLen, yes)
+	if strings.Contains(ref, "/") {
+		fmt.Fprintf(modelOut, "%s is not on this machine yet.\n", ref)
+		return modelGet(ctx, ref, a.ctx, a.yes)
+	}
+	name, quant, _ := strings.Cut(ref, ":")
+	if !a.hub {
+		if n, ok := nearbyFind(modelNearby(cfg), name); ok && len(n.Maps) > 0 {
+			return modelFromNearby(ctx, cfg, n, quant, a.ctx, a.yes)
+		}
+	}
+	return modelHubLookup(ctx, name, a.ctx, a.yes)
 }
 
-func modelServe(ctx context.Context, a modelArgv) error {
-	m, err := modelResolve(ctx, a.pos[0], a.ctx, a.yes)
+func modelServe(ctx context.Context, cfg config, a modelArgv) error {
+	m, err := modelResolve(ctx, cfg, a.pos[0], a)
 	if err != nil {
 		if errors.Is(err, errModelDeclined) {
 			return nil
