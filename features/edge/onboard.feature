@@ -290,7 +290,8 @@ Feature: A machine is set up onto its Edge through an interactive, game-like wiz
     When they run "roger edge setup --help"
     Then it describes setting up this machine's Edge interactively
     When they run "roger edge" with nothing set up
-    Then the output points at "roger edge setup" as well as the individual commands
+    # corrected 2026-10-11 (founder-approved simple empty Edge, empty_edge_simple.feature §7)
+    Then the output points at "roger edge setup" and "roger join <invite or address>"
 
   @cli
   Scenario: roger edge setup starts a new Edge end to end

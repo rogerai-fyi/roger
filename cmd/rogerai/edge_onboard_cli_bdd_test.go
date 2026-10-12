@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"rogerai.fm/roger/v6/internal/bddrun"
+	"rogerai.fm/roger/v6/internal/look"
 	"strings"
 	"testing"
 
@@ -110,9 +111,6 @@ func (s *onboardCLIBDD) describesInteractive() error {
 func (s *onboardCLIBDD) pointsAtSetup() error {
 	return s.has("roger edge setup")
 }
-func (s *onboardCLIBDD) namesIndividualCommands() error {
-	return s.has("roger edge enroll", "roger edge scan")
-}
 func (s *onboardCLIBDD) designatedAndEnrolled() error {
 	// The real proof: this machine is now the local authority and enrolled. Read it back
 	// through the same status the CLI reads.
@@ -185,11 +183,11 @@ func TestOnboardFeatureCLI(t *testing.T) {
 			sc.Step(`^they run "roger edge setup"$`, func() error { return st.run("roger edge setup") })
 
 			sc.Step(`^it describes setting up this machine's Edge interactively$`, st.describesInteractive)
-			sc.Step(`^the output points at "roger edge setup" as well as the individual commands$`, func() error {
+			sc.Step(`^the output points at "roger edge setup" and "roger join <invite or address>"$`, func() error {
 				if err := st.pointsAtSetup(); err != nil {
 					return err
 				}
-				return st.namesIndividualCommands()
+				return st.has(look.EmptyEdgeCLIJoin)
 			})
 			sc.Step(`^this machine is designated the authority and enrolled$`, st.designatedAndEnrolled)
 			sc.Step(`^it prints how another machine joins$`, st.printsHowToJoin)

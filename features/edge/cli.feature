@@ -75,12 +75,14 @@ Feature: roger edge is one command tree over the owner's fleet, whichever path r
   # 2. LIST
   # =========================================================================
 
+  # corrected 2026-10-11 (founder-approved simple empty Edge, empty_edge_simple.feature §7): a machine
+  # in no Edge says "your Edge: not set up yet" and names roger edge setup / roger join; exit 0 is unchanged.
   Scenario: an empty Edge is a success, not a failure
     Given an Edge with only this machine
     When the owner runs "roger edge list"
     Then it exits 0
-    And it says this machine is the only node
-    And it names the action that would add another
+    And it says your Edge is not set up yet
+    And it names the two ways in: roger edge setup and roger join
 
   Scenario: the fleet lists name, kind, capabilities, transport and last seen
     Given nodes of several kinds and capabilities

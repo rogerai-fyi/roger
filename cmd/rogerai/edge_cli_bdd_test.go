@@ -30,6 +30,7 @@ import (
 	"os"
 	"path/filepath"
 	"rogerai.fm/roger/v6/internal/bddrun"
+	"rogerai.fm/roger/v6/internal/look"
 	"strconv"
 	"strings"
 	"sync"
@@ -675,15 +676,14 @@ func (s *edgeCLIBDD) namesTheValidSubcommands() error {
 
 func (s *edgeCLIBDD) saysItTakesNoArguments() error { return s.has("takes no arguments") }
 
-func (s *edgeCLIBDD) saysThisMachineIsTheOnlyNode() error {
-	return s.has("this machine is the only node")
-}
+// A machine in no Edge (empty_edge_simple.feature §7, 2026-10-11): the head line and the two ways in.
+func (s *edgeCLIBDD) saysNotSetUpYet() error { return s.has(look.EmptyEdgeCLIHead) }
 
-func (s *edgeCLIBDD) namesTheActionThatAdds() error {
-	if err := s.has("roger edge scan"); err != nil {
+func (s *edgeCLIBDD) namesTheTwoWaysIn() error {
+	if err := s.has(look.EmptyEdgeCLIStart); err != nil {
 		return err
 	}
-	return s.has("roger edge adopt")
+	return s.has(look.EmptyEdgeCLIJoin)
 }
 
 // eachRowCarriesTheColumns checks the fleet listing carries, for a real node, every
@@ -1208,8 +1208,8 @@ func TestEdgeCLIFeature(t *testing.T) {
 			sc.Then(`^it exits (\d+)$`, st.exits)
 			sc.Then(`^it names the valid subcommands$`, st.namesTheValidSubcommands)
 			sc.Then(`^it says the command takes no arguments$`, st.saysItTakesNoArguments)
-			sc.Then(`^it says this machine is the only node$`, st.saysThisMachineIsTheOnlyNode)
-			sc.Then(`^it names the action that would add another$`, st.namesTheActionThatAdds)
+			sc.Then(`^it says your Edge is not set up yet$`, st.saysNotSetUpYet)
+			sc.Then(`^it names the two ways in: roger edge setup and roger join$`, st.namesTheTwoWaysIn)
 			sc.Then(`^each row carries the name, the kind, the verified capabilities, the transport in use and how long ago the node was seen$`,
 				st.eachRowCarriesTheColumns)
 			sc.Then(`^that capability is shown as claimed, distinctly from a verified one$`,
