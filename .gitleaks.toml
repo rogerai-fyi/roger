@@ -23,6 +23,21 @@ description = "Audited false positives (see header). Verified: no real secret co
 # generated coverage/ report or web/dist/ build output) could mask a real secret bundled
 # into generated output, so every suppression here is a precise, audited string.
 regexes = [
+  # --- Audited 2026-10-11 (all on unmerged feature branches; each verified a non-secret) ---
+  # Edge root-proof GOLDEN VECTORS (internal/edgeauth/testdata/root_proof_vectors.json): keys
+  # derived from published one-time test codes by an independent Python reference; test data.
+  '''b6f3e4472e65660b01bbc93eeb85a1b606fe90ce21c3a054d76e2d944a1dfafd''',
+  '''53b58aa2e060c61a0fec8de497259a79ddc4202a3fc8d34649c0c2a9fb7fd723''',
+  '''50817702c74e01aad884a60683f7be2fec11005ef338e76013ab69a802609f61''',
+  '''061877fecb0509cbe4fc3dcbeb9cc1ea592dc41462543b5a7681a498574bc53b''',
+  # Fake key in a fake HTTP response (cmd/rogerai/keys_test.go).
+  '''rog-key_s3cret''',
+  # GGUF metadata field NAME, not a value (internal/detect/ggufshape_test.go).
+  '''qwen3\.vocab_size''',
+  # Environment variable NAME with an empty value (cmd/rogerai/routing_flags_bdd_test.go).
+  '''ROGERAI_CONSUMER_DEFAULT_MAX_PRICE_OUT=''',
+  # Redaction test input (internal/edge/logtail_test.go): the test asserts it gets redacted.
+  '''abc123def456''',
   # PUBLIC GitHub OAuth client id - public by design (see cmd/rogerai/main.go defaultGitHubClientID).
   '''Ov23liQE7Z6ITMbeJoF3''',
   # Historical fake Stripe test fixture (the current code uses sk_live_not_a_real_key, which
