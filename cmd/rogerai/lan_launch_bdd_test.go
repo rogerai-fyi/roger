@@ -238,6 +238,7 @@ func (s *lanLaunchBDD) oldReaderRewrites() error {
 func (s *lanLaunchBDD) modeKeyPresent() error { return s.configRecords("lan") }
 
 func (s *lanLaunchBDD) statusLine(line string) error {
+	line = strings.ReplaceAll(line, "<the broker>", os.Getenv("ROGER_BROKER"))
 	if !strings.Contains(s.out, line) {
 		return fmt.Errorf("no line %q in:\n%s", line, s.out)
 	}
@@ -328,6 +329,14 @@ func TestLANLaunchBDD(t *testing.T) {
 			sc.Step(`^a field-preserving older-version reader rewrites the config$`, s.oldReaderRewrites)
 			sc.Step(`^the mode key is still present$`, s.modeKeyPresent)
 			sc.Step(`^the output has a line reading "([^"]*)"$`, s.statusLine)
+			sc.Step(`^the broker line carries no LAN note$`, func() error {
+				for _, l := range strings.Split(s.out, "\n") {
+					if strings.HasPrefix(l, "broker: ") && strings.Contains(l, "LAN") {
+						return fmt.Errorf("the default mode's broker line mentions LAN mode: %q", l)
+					}
+				}
+				return nil
+			})
 			sc.Step(`^it lists the local sources it will use: Towers, Edge members, this machine$`, s.listsSources)
 			sc.Step(`^the JSON has "mode" equal to "([^"]*)" and "mode_source" equal to "([^"]*)"$`, s.statusJSON)
 			sc.Step(`^the first line printed names LAN mode and how to turn it off$`, s.firstLineNames)

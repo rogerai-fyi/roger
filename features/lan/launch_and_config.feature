@@ -202,3 +202,25 @@ Feature: LAN mode is one switch, set by flag, environment or config, and reporte
     And the header does not change until the TUI is restarted
     # One answer per process. A session that silently switched to the market mid-conversation
     # would send the next prompt somewhere the owner did not choose.
+
+  # 2026-10-11 founder test: in LAN mode the broker line says what the broker is still used for
+  @cli
+  Scenario: `roger status` in LAN mode says the broker is not used for bands or inference
+    Given the config has mode "lan"
+    When they run "roger status"
+    Then the output has a line reading "broker: <the broker> (not used for bands or inference in LAN mode; still used for login, your account, remote control and context capsules)"
+
+  # 2026-10-11 founder test: in LAN mode the broker line says what the broker is still used for
+  @cli
+  Scenario: `roger status` in edge-only mode says the same about the broker
+    Given the config has mode "lan-edge-only"
+    When they run "roger status"
+    Then the output has a line reading "broker: <the broker> (not used for bands or inference in LAN mode; still used for login, your account, remote control and context capsules)"
+
+  # 2026-10-11 founder test: in LAN mode the broker line says what the broker is still used for
+  @cli
+  Scenario: `roger status` in the default mode shows the broker plainly
+    Given the config has no mode set
+    When they run "roger status"
+    Then the output has a line reading "broker: <the broker>"
+    And the broker line carries no LAN note

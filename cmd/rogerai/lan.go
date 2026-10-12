@@ -203,6 +203,12 @@ func cmdStatus(cfg config, args []string) error {
 		fmt.Printf("mode: default (from %s)\n", src)
 		fmt.Printf("edge preference: %s\n", edgePreferOf(cfg))
 	}
+	if cfg.lan.LAN {
+		// Honest about the broker in LAN mode: it is not where bands or turns come from, but a
+		// few account features still reach it.
+		fmt.Printf("broker: %s (not used for bands or inference in LAN mode; still used for login, your account, remote control and context capsules)\n", cfg.Broker)
+		return nil
+	}
 	fmt.Printf("broker: %s\n", cfg.Broker)
 	return nil
 }
