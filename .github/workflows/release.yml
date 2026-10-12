@@ -51,6 +51,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.26'
+          check-latest: true   # take the newest 1.26 patch (security fixes), not the runner's cached one
           cache: true
       - name: reachable vulnerability gate
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...
@@ -75,6 +76,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.26'
+          check-latest: true   # take the newest 1.26 patch (security fixes), not the runner's cached one
       - name: release (goreleaser)
         uses: goreleaser/goreleaser-action@v6
         with:
