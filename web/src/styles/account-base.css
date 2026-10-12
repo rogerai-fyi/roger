@@ -148,10 +148,11 @@ body.auth {
 
 /* Account footer sub-nav (accountnav.html): links joined by a CSS-drawn " - " so
    dropping the current page's link never leaves a dangling separator. The combinator
-   ignores intervening whitespace text nodes, so it works across the include output. */
-/* white-space: pre keeps the separator's leading space once each link is an inline-block
-   (below): a line box drops its leading space, and "Dashboard- Console" is not the look. */
-.acctsubnav a + a::before { content: " - "; color: var(--ink-400); white-space: pre; }
+   ignores intervening whitespace text nodes, so it works across the include output; that
+   whitespace (one newline per link in the partial) IS the space before the separator,
+   and it collapses at the start of a wrapped row, where a space drawn inside the
+   inline-block link (below) would not. */
+.acctsubnav a + a::before { content: "- "; color: var(--ink-400); }
 /* A row of nothing but links is not running text, so the target-size rule holds each link to
    the --hit-min floor: an inline-block padded out to it (look unchanged: same ink, same face,
    same separator), on 24px rows, so no link's area reaches the row above or below. The touch
