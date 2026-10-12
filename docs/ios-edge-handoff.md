@@ -279,11 +279,17 @@ clipboard. QR scanning: `AVCaptureMetadataOutput` with `.qr`, feeding the same p
 made QR a later UX slice for the CLI; on the phone a scan is the natural input, so build it if it
 fits the session. Mark the Linux-side `edge invite` output as the source.
 
-**Golden vectors:** there is no `rogerai-edge-join/v1` vector file yet. Generate one on the Linux
-box before the Mac session, the same way the root-proof vectors were made (Python `hashlib`,
-independent of Go), covering 3 rows of (code, nonce, root_fp, user_key, node_id, node_key, key,
-join_proof), and cross-check with `go test ./internal/edgeauth -run Bearer`. Put it beside the
-root-proof vectors. This is a Linux-side task; note it as open below.
+**Golden vectors:** `/home/luis/rogerai-wt/simple-join/internal/edgeauth/testdata/join_proof_vectors.json`,
+beside the root-proof vectors, computed independently of Go by
+`/home/luis/rogerai-wt/simple-join/internal/edgeauth/testdata/gen_join_proof_vectors.py` (Python
+`hashlib` only; re-run it to regenerate). Nine rows: a normal join, the two boundary codes, a
+different root, node key and user key, the same proof on a new nonce (a replay), a code typed with
+confusables, and one row marked `verifies: false`: a correct root-proof-domain computation over
+the join fields, which must NEVER verify as a join proof. Each row carries the stretched `key` as
+well as the `join_proof`, so a Swift port can tell a PBKDF2 slip from an HMAC slip. The Go side
+pins every row byte for byte, both directions of the cross-domain refusal, and the
+`sha256:`-prefix strip (`go test ./internal/edgeauth -run Join`); the Swift port must do the same
+against the same file.
 
 **Pass:**
 
@@ -551,8 +557,9 @@ rm -rf /tmp/rbk/phone-auth
 
 **Gaps the Mac session should expect:**
 
-- No `rogerai-edge-join/v1` golden vectors exist yet (ask d). Generate them on Linux first; until
-  then the join-proof code is checked only by a live join.
+- The `rogerai-edge-join/v1` golden vectors (ask d) exist now at
+  `/home/luis/rogerai-wt/simple-join/internal/edgeauth/testdata/join_proof_vectors.json`; port the
+  Swift check against them before any live join, the same way as the root-proof vectors.
 - Option A's hub cannot dial the phone (podman boundary): only push presence is exercised there.
   Use option B for anything that needs the authority to reach the phone.
 - The D9 "older joiner" warning prints for every allow until decision 3 adds a signal.
