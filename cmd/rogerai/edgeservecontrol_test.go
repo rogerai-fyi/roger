@@ -6,7 +6,9 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"os"
@@ -562,4 +564,32 @@ func TestARemoteFetchThatWouldEvictIsRefused(t *testing.T) {
 	require.NotEqual(t, "Tiny-Q4_K_M.gguf", j.File, "nothing was fetched")
 	_, err = r.home.Find("acme/Tiny-GGUF:Q8_0")
 	require.NoError(t, err, "and nothing was removed")
+}
+
+// features/models/short_names_nearby.feature: a member told to serve a nearby name fetches only that
+// exact file. A pinned digest the model hub's file does not have is refused before a byte moves.
+func TestAMemberFetchesOnlyTheExactFileItsDigestPins(t *testing.T) {
+	r := newServeRig(t, 16384)
+	cfg := turnOn(t)
+	task := func(sha string) json.RawMessage {
+		b, _ := json.Marshal(edge.ModelTask{Action: edge.ModelServe, Model: "acme/Tiny-GGUF:Q4_K_M", SHA256: sha})
+		return b
+	}
+	_, refused := edgeModelRun(cfg, "n_desk", "desk", task(strings.Repeat("0f", 32)), time.Now())
+	require.Contains(t, refused, "the model hub's Tiny-Q4_K_M.gguf is not the file you were told to serve")
+	require.Contains(t, refused, strings.Repeat("0f", 6))
+	_, ok := r.home.Job()
+	require.False(t, ok, "nothing was fetched")
+
+	sum := sha256.Sum256(r.files["Tiny-Q4_K_M.gguf"])
+	res, refused := edgeModelRun(cfg, "n_desk", "desk", task(hex.EncodeToString(sum[:])), time.Now())
+	require.Empty(t, refused)
+	require.Contains(t, res.Says, "fetching Tiny-Q4_K_M.gguf")
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) && len(r.spawned) == 0 {
+		time.Sleep(20 * time.Millisecond)
+	}
+	// Now on its disk: the same id under another digest is still not the file it was told to serve.
+	_, refused = edgeModelRun(cfg, "n_desk", "desk", task(strings.Repeat("0f", 32)), time.Now())
+	require.Contains(t, refused, "acme/Tiny-GGUF:Q4_K_M on this machine is not the file you were told to serve")
 }

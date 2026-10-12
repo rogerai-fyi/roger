@@ -39,6 +39,9 @@ type ModelTask struct {
 	Action ModelAction `json:"action"`
 	Model  string      `json:"model,omitempty"`
 	Ctx    int         `json:"ctx,omitempty"`
+	// SHA256 pins the exact file an exact owner/repo:QUANT id names (short_names_nearby.feature):
+	// the member fetches that file only if the model hub's listing has these bytes.
+	SHA256 string `json:"sha256,omitempty"`
 }
 
 // ModelResult is what the member answers: what it did, in words, and what it serves and fetches now.
@@ -100,8 +103,18 @@ func ParseModelTask(raw json.RawMessage) (ModelTask, string) {
 	if t.Ctx < 0 || t.Ctx > 1<<21 {
 		return t, "that context length is not one a model can be served at"
 	}
+	if t.SHA256 != "" {
+		if !pinnedDigest.MatchString(t.SHA256) {
+			return t, "a pinned file is named by a sha256 digest: 64 lower-case hex characters"
+		}
+		if _, _, ok := ExactIndexID(t.Model); !ok {
+			return t, "a pinned digest goes with an exact owner/repo:QUANT id, never a name"
+		}
+	}
 	return t, ""
 }
+
+var pinnedDigest = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 // MaxHave bounds the model ids a member reports, so a disk full of files cannot bloat every beat.
 const MaxHave = 32

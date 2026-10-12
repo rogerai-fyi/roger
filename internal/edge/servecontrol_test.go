@@ -185,3 +185,18 @@ func TestAMembersCardSaysItsBuildAndMeasuredSpeed(t *testing.T) {
 	require.LessOrEqual(t, len(c.Build), 200)
 	require.Zero(t, c.TokPerSec, "an impossible speed is dropped")
 }
+
+// features/models/short_names_nearby.feature "a member told to serve a nearby name receives the
+// exact file, never the name": the wire may pin the file's digest, and only as a digest.
+func TestTheWireMayPinTheExactFilesDigest(t *testing.T) {
+	sha := strings.Repeat("0f", 32)
+	got, refused := edge.ParseModelTask([]byte(`{"action":"serve","model":"Qwen/Qwen3-8B-GGUF:Q4_K_M","sha256":"` + sha + `"}`))
+	require.Empty(t, refused)
+	require.Equal(t, edge.ModelTask{Action: edge.ModelServe, Model: "Qwen/Qwen3-8B-GGUF:Q4_K_M", SHA256: sha}, got)
+	for _, bad := range []string{"abc", strings.Repeat("0F", 32), strings.Repeat("0f", 33), "http://evil/x"} {
+		_, refused := edge.ParseModelTask([]byte(`{"action":"serve","model":"Qwen/Qwen3-8B-GGUF:Q4_K_M","sha256":"` + bad + `"}`))
+		require.Contains(t, refused, "a sha256 digest", bad)
+	}
+	_, refused = edge.ParseModelTask([]byte(`{"action":"serve","model":"qwen3-8b","sha256":"` + sha + `"}`))
+	require.Contains(t, refused, "a pinned digest goes with an exact owner/repo:QUANT")
+}

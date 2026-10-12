@@ -189,6 +189,10 @@ func edgeModelServe(task edge.ModelTask) (string, string) {
 	}
 	for _, m := range all {
 		if m.ID == task.Model {
+			if task.SHA256 != "" && m.SHA256 != task.SHA256 {
+				return "", fmt.Sprintf("%s on this machine is not the file you were told to serve: it is sha256 %s, you were told %s",
+					m.ID, modelDash(provision.ShortDigest(m.SHA256)), provision.ShortDigest(task.SHA256))
+			}
 			// Over the Edge there is no owner's word to serve on: a model this machine cannot judge
 			// is refused, exactly as the fetch path refuses one (remote_model.feature: the target decides).
 			if _, err := detect.ReadShape(m.Path); err != nil && !errors.Is(err, detect.ErrNotGenerative) {
@@ -230,6 +234,12 @@ func edgeModelServe(task edge.ModelTask) (string, string) {
 	}
 	if f == nil {
 		return "", fmt.Sprintf("%s has no servable %s file", repo, quant)
+	}
+	if task.SHA256 != "" && f.File.SHA256 != task.SHA256 {
+		// Told which bytes to serve (short_names_nearby.feature): another file under that name is
+		// not it, so nothing moves.
+		return "", fmt.Sprintf("the model hub's %s is not the file you were told to serve: it lists sha256 %s, you were told %s",
+			f.File.Path, provision.ShortDigest(f.File.SHA256), provision.ShortDigest(task.SHA256))
 	}
 	shape, err := hub.ShapeOf(ctx, repo, f.File.Path, f.File.Bytes)
 	if err != nil {

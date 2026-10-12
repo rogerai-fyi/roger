@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"rogerai.fm/roger/v6/internal/catalog"
 	"rogerai.fm/roger/v6/internal/client"
 	"rogerai.fm/roger/v6/internal/hfhub"
 	"rogerai.fm/roger/v6/internal/localmodel"
@@ -177,28 +178,263 @@ func nearbyFind(names []nearbyName, name string) (nearbyName, bool) {
 // errNearbyChanged is a mapping that moved between the owner's yes and the fetch.
 var errNearbyChanged = errors.New("the mapping changed")
 
-// modelFromNearby fetches the file a nearby name maps to, after the owner says yes to exactly it.
-func modelFromNearby(ctx context.Context, cfg config, n nearbyName, quant string, ctxLen int, yes bool) (localmodel.Model, error) {
-	mp := n.Maps[0]
+// nearbyResolved is one nearby name settled to one file of the model hub: the ranked choice, the
+// digest it is checked against, and whose word that digest is.
+type nearbyResolved struct {
+	name   string
+	mp     nearbyMap
+	c      localmodel.Choice
+	b      localmodel.Budget
+	listed bool // the file is not the one the source serves, so its digest is the hub listing's
+}
+
+func (r nearbyResolved) ref() string { return r.mp.File.Repo + ":" + modelDash(r.c.File.Quant) }
+
+// line is the mapping as the owner reads it before saying yes.
+func (r nearbyResolved) line() string {
+	if r.listed {
+		return fmt.Sprintf("%s = %s from the model hub's listing", r.name, r.ref())
+	}
+	return fmt.Sprintf("%s = %s as served by %s", r.name, r.ref(), r.mp.by())
+}
+
+// nearbyPickMap chooses one of a name's mappings: the only one, or the owner's pick by number. Two
+// sources that disagree are never resolved for the owner, and never without a terminal.
+func nearbyPickMap(ctx context.Context, n nearbyName, ctxLen int) (nearbyMap, error) {
+	if len(n.Maps) == 1 {
+		return n.Maps[0], nil
+	}
+	fmt.Fprintf(modelOut, "%s is served nearby as %d different files:\n", n.Name, len(n.Maps))
+	for i, mp := range n.Maps {
+		size, verdict := "", ""
+		if cs, _, err := modelRank(ctx, mp.File.Repo, ctxLen); err == nil {
+			for _, c := range cs {
+				if c.File.Path == mp.File.File {
+					size, verdict = provision.BytesWord(c.File.Bytes), c.Verdict.Short()
+				}
+			}
+		}
+		fmt.Fprintf(modelOut, "  %d) %s  %s  %s  - as served by %s\n", i+1, mp.File.Ref(), modelDash(size), modelDash(verdict), mp.by())
+	}
+	if !edgeIsInteractive() {
+		return nearbyMap{}, fmt.Errorf("%s is served nearby as %d different files and there is no terminal to choose on, so nothing was fetched; name one exactly: roger model serve <owner/repo>:<quant>", n.Name, len(n.Maps))
+	}
+	fmt.Fprintf(modelOut, "pick 1-%d, or n: ", len(n.Maps))
+	i := modelReadPick(len(n.Maps))
+	if i < 0 {
+		fmt.Fprintln(modelOut, "not fetched. Nothing changed.")
+		return nearbyMap{}, errModelDeclined
+	}
+	return n.Maps[i], nil
+}
+
+// nearbyResolve settles a nearby name to one file: the source's own, or the quantisation the owner
+// named, or, when the source's will not fit here, the one the existing rule picks.
+func nearbyResolve(ctx context.Context, n nearbyName, quant string, ctxLen int) (nearbyResolved, error) {
+	mp, err := nearbyPickMap(ctx, n, ctxLen)
+	if err != nil {
+		return nearbyResolved{}, err
+	}
+	r := nearbyResolved{name: n.Name, mp: mp}
 	cs, b, err := modelRank(ctx, mp.File.Repo, ctxLen)
 	if err != nil {
-		return localmodel.Model{}, err
+		return r, fmt.Errorf("%s is %s as served by %s, and the file must come from the model hub: %w", n.Name, mp.File.Ref(), mp.by(), err)
 	}
-	var c localmodel.Choice
-	for _, x := range cs {
-		if x.File.Path == mp.File.File {
-			c = x
+	r.b = b
+	if quant != "" {
+		if r.c, err = modelPickQuant(cs, quant); err != nil {
+			return r, err
+		}
+		r.listed = r.c.File.Path != mp.File.File
+	} else {
+		for _, c := range cs {
+			if c.File.Path == mp.File.File {
+				r.c = c
+			}
+		}
+		if r.c.File.Path == "" {
+			return r, fmt.Errorf("%s says %s is %s, which the model hub does not list in %s", mp.by(), n.Name, mp.File.File, mp.File.Repo)
+		}
+		if r.c.Verdict.Fit == catalog.FitWontFit {
+			fmt.Fprintf(modelOut, "%s's %s will not fit here: %s\n", mp.by(), modelDash(r.c.File.Quant), r.c.Verdict.Line())
+			if s := r.c.Verdict.Sum(); s != "" {
+				fmt.Fprintf(modelOut, "  %s\n", s)
+			}
+			i := localmodel.Suggest(cs)
+			if i < 0 {
+				return r, fmt.Errorf("nothing in %s fits this machine - `roger model files %s` shows each", mp.File.Repo, mp.File.Repo)
+			}
+			r.c, r.listed = cs[i], true
+			fmt.Fprintf(modelOut, "offering %s of the same repository: that file is not the one %s serves, so its digest comes from the model hub's listing\n",
+				modelDash(r.c.File.Quant), mp.by())
 		}
 	}
-	if c.File.Path == "" {
-		return localmodel.Model{}, fmt.Errorf("%s says %s is %s, which the model hub does not list in %s", mp.by(), n.Name, mp.File.File, mp.File.Repo)
+	if !r.listed {
+		if r.c.File.SHA256 != mp.File.SHA256 {
+			return r, fmt.Errorf("%s reported sha256 %s for %s, but the model hub lists %s: not fetched, and never served",
+				mp.by(), mp.File.SHA256, mp.File.File, modelDash(r.c.File.SHA256))
+		}
 	}
-	c.File.SHA256 = mp.File.SHA256
-	ref := mp.File.Repo + ":" + modelDash(c.File.Quant)
-	return modelFetchChoice(ctx, mp.File.Repo, c, b, modelFetchAsk{
-		ask:    fmt.Sprintf("%s = %s as served by %s; fetch %s? [y/N]: ", n.Name, ref, mp.by(), provision.BytesWord(c.File.Bytes)),
-		source: "the bytes come from the model hub, checked against the digest " + mp.by() + " reported",
-	}, yes)
+	return r, nil
+}
+
+// modelFromNearby fetches the file a nearby name maps to, after the owner says yes to exactly it. A
+// mapping that changes between the yes and the fetch is shown and asked again.
+func modelFromNearby(ctx context.Context, cfg config, n nearbyName, quant string, ctxLen int, yes bool) (localmodel.Model, error) {
+	for range 3 {
+		r, err := nearbyResolve(ctx, n, quant, ctxLen)
+		if err != nil {
+			return localmodel.Model{}, err
+		}
+		if m, ok := modelOnDiskBy(r.c.File.SHA256); ok {
+			fmt.Fprintf(modelOut, "%s; it is already on this disk under the same digest, so nothing is fetched\n", r.line())
+			return m, nil
+		}
+		source := "the bytes come from the model hub, checked against the digest " + r.mp.by() + " reported"
+		if r.listed {
+			source = "source: the model hub - its author's word, checked against the digest the listing gave"
+		}
+		var now nearbyName
+		m, err := modelFetchChoice(ctx, r.mp.File.Repo, r.c, r.b, modelFetchAsk{
+			ask:    fmt.Sprintf("%s; fetch %s? [y/N]: ", r.line(), provision.BytesWord(r.c.File.Bytes)),
+			source: source,
+			before: func() error {
+				var ok bool
+				if now, ok = nearbyFind(modelNearby(cfg), n.Name); !ok || len(now.Maps) == 0 {
+					return fmt.Errorf("%s is no longer served nearby; nothing was fetched", n.Name)
+				}
+				for _, mp := range now.Maps {
+					if mp.File.Same(r.mp.File) {
+						return nil
+					}
+				}
+				return errNearbyChanged
+			},
+		}, yes)
+		if errors.Is(err, errNearbyChanged) {
+			fmt.Fprintf(modelOut, "the file %s maps to changed since you said yes: now %s as served by %s; asking again\n",
+				n.Name, now.Maps[0].File.Ref(), now.Maps[0].by())
+			n = now
+			continue
+		}
+		if errors.Is(err, provision.ErrCorrupt) && !r.listed {
+			return m, fmt.Errorf("%w; it was checked against sha256 %s as %s reported, and nothing was served", err, provision.ShortDigest(r.mp.File.SHA256), r.mp.by())
+		}
+		return m, err
+	}
+	return localmodel.Model{}, fmt.Errorf("the file %s maps to keeps changing; nothing was fetched", n.Name)
+}
+
+// modelOnDiskBy is a model on this disk whose verified digest is sha.
+func modelOnDiskBy(sha string) (localmodel.Model, bool) {
+	all, _ := modelHome().List()
+	for _, m := range all {
+		if sha != "" && m.SHA256 == sha {
+			return m, true
+		}
+	}
+	return localmodel.Model{}, false
+}
+
+// nearbyNotes says why a name with no usable mapping goes to the hub: the market never chooses a
+// file, and an older source does not say which file it serves.
+func nearbyNotes(n nearbyName) {
+	if n.Market {
+		fmt.Fprintf(modelOut, "%s is on the market, but a market station never chooses a file, so roger looks the name up instead\n", n.Name)
+	}
+	if len(n.Plain) > 0 {
+		fmt.Fprintf(modelOut, "%s is served by %s, which does not say which file it is\n", n.Name, strings.Join(n.Plain, " and "))
+	}
+}
+
+// nearbyAlso is the note on a model the owner placed by hand: their file keeps its name, and a
+// nearby source serving that name is said, with how to serve that one instead.
+func nearbyAlso(cfg config, m localmodel.Model, name string) {
+	n, ok := nearbyFind(modelNearby(cfg), name)
+	if !ok {
+		return
+	}
+	for _, mp := range n.Maps {
+		fmt.Fprintf(modelOut, "a nearby source also serves a %q: %s as served by %s. roger model serve %s serves that one instead\n",
+			name, mp.File.Ref(), mp.by(), mp.File.Ref())
+	}
+}
+
+// nearbyRepo is the repository a nearby name is served from, for the commands that look at a
+// repository; anything else is passed through as typed.
+func nearbyRepo(ctx context.Context, cfg config, ref string, a modelArgv) (string, error) {
+	if strings.Contains(ref, "/") || a.hub {
+		return ref, nil
+	}
+	n, ok := nearbyFind(modelNearby(cfg), ref)
+	if !ok || len(n.Maps) == 0 {
+		return ref, nil
+	}
+	mp, err := nearbyPickMap(ctx, n, a.ctx)
+	if err != nil {
+		return "", err
+	}
+	fmt.Fprintf(modelOut, "%s is %s as served by %s\n\n", n.Name, mp.File.Ref(), mp.by())
+	return mp.File.Repo, nil
+}
+
+// nearbyForMember settles a nearby name for `--on <node>`: the member is told the exact file and its
+// digest, never the name, and only after the owner says yes to it here. ok is false for anything
+// that is not a nearby name, which goes on as typed (an id on that machine).
+func nearbyForMember(cfg config, a modelArgv) (nearbyResolved, bool, error) {
+	ref := a.pos[0]
+	if strings.Contains(ref, "/") || a.hub {
+		return nearbyResolved{}, false, nil
+	}
+	name, quant, _ := strings.Cut(ref, ":")
+	n, ok := nearbyFind(modelNearby(cfg), name)
+	if !ok || len(n.Maps) == 0 {
+		return nearbyResolved{}, false, nil
+	}
+	ctx := context.Background()
+	r, err := nearbyResolve(ctx, n, quant, a.ctx)
+	if err != nil {
+		return r, false, err
+	}
+	if !a.yes {
+		fmt.Fprintf(modelOut, "%s; tell %s to serve exactly that file? [y/N]: ", r.line(), a.on)
+		if !edgeConfirmed() {
+			fmt.Fprintln(modelOut, "not sent. Nothing changed.")
+			return r, false, errModelDeclined
+		}
+	}
+	return r, true, nil
+}
+
+// modelNearbyList is `roger model nearby`: every name served nearby, its file and whose word it is.
+func modelNearbyList(cfg config) error {
+	names := modelNearby(cfg)
+	if len(names) == 0 {
+		fmt.Fprintln(modelOut, "nothing is served nearby (on this machine, by your Edge members or on a pinned Tower).")
+		fmt.Fprintln(modelOut, "find a model: roger model search <words>, or roger model serve <name> to look a name up on the model hub")
+		return nil
+	}
+	fmt.Fprintln(modelOut, "served nearby - serve one by its name; which file a name is, is its source's word:")
+	w := 8
+	for _, n := range names {
+		w = max(w, len(n.Name))
+	}
+	for _, n := range names {
+		for _, mp := range n.Maps {
+			size := ""
+			if mp.File.Bytes > 0 {
+				size = "  " + provision.BytesWord(mp.File.Bytes)
+			}
+			fmt.Fprintf(modelOut, "  %-*s  %s%s  - %s\n", w, n.Name, mp.File.Ref(), size, mp.by())
+		}
+		if len(n.Plain) > 0 {
+			fmt.Fprintf(modelOut, "  %-*s  served by %s, which does not say which file it is\n", w, n.Name, strings.Join(n.Plain, " and "))
+		}
+		if n.Market && len(n.Maps) == 0 && len(n.Plain) == 0 {
+			fmt.Fprintf(modelOut, "  %-*s  on the market (a name only: serving it looks it up on the model hub)\n", w, n.Name)
+		}
+	}
+	return nil
 }
 
 // modelHubLookup is a name served nowhere nearby, looked up on the model hub because the owner asked

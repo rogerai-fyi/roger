@@ -178,7 +178,10 @@ func cmdModel(cfg config, args []string) error {
 	}
 	ctx := context.Background()
 	if a.on != "" {
-		return modelOnNode(cfg, verb, a)
+		if err := modelOnNode(cfg, verb, a); !errors.Is(err, errModelDeclined) {
+			return err
+		}
+		return nil // the owner said no, which is an answer, not a failure
 	}
 	switch verb {
 	case "list", "ls":
@@ -189,7 +192,13 @@ func cmdModel(cfg config, args []string) error {
 		if len(a.pos) != 1 {
 			return errors.New("usage: roger model files <owner/repo> [--ctx N]")
 		}
-		return modelFiles(ctx, a.pos[0], a.ctx)
+		repo, err := nearbyRepo(ctx, cfg, a.pos[0], a)
+		if err != nil {
+			return err
+		}
+		return modelFiles(ctx, repo, a.ctx)
+	case "nearby":
+		return modelNearbyList(cfg)
 	case "get", "pull":
 		if len(a.pos) != 1 {
 			return errors.New("usage: roger model get <owner/repo>[:QUANT] [--ctx N] [--yes]")
@@ -503,6 +512,9 @@ func modelResolve(ctx context.Context, cfg config, ref string, a modelArgv) (loc
 	}
 	h := modelHome()
 	m, err := h.Find(ref)
+	if err == nil && !m.Verified() && !a.hub && !strings.Contains(ref, "/") {
+		nearbyAlso(cfg, m, ref) // the owner's own file keeps its name; a nearby one is said
+	}
 	if err == nil || !errors.Is(err, localmodel.ErrUnknownModel) {
 		return m, err
 	}
@@ -512,8 +524,11 @@ func modelResolve(ctx context.Context, cfg config, ref string, a modelArgv) (loc
 	}
 	name, quant, _ := strings.Cut(ref, ":")
 	if !a.hub {
-		if n, ok := nearbyFind(modelNearby(cfg), name); ok && len(n.Maps) > 0 {
-			return modelFromNearby(ctx, cfg, n, quant, a.ctx, a.yes)
+		if n, ok := nearbyFind(modelNearby(cfg), name); ok {
+			if len(n.Maps) > 0 {
+				return modelFromNearby(ctx, cfg, n, quant, a.ctx, a.yes)
+			}
+			nearbyNotes(n)
 		}
 	}
 	return modelHubLookup(ctx, name, a.ctx, a.yes)
@@ -1212,6 +1227,14 @@ func modelOnNode(cfg config, verb string, a modelArgv) error {
 			return errors.New("usage: roger model serve <owner/repo:QUANT | id on that machine> --on <node> [--ctx N]")
 		}
 		task.Action, task.Model = edge.ModelServe, a.pos[0]
+		if pinned, ok, err := nearbyForMember(cfg, a); err != nil {
+			return err
+		} else if ok {
+			task.Model, task.SHA256 = pinned.ref(), pinned.mp.File.SHA256
+			if pinned.listed {
+				task.SHA256 = pinned.c.File.SHA256
+			}
+		}
 	case "status", "list", "ls":
 		task.Action = edge.ModelStatus
 	case "stop":
