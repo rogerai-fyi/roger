@@ -441,6 +441,9 @@ func modelNearbyList(cfg config) error {
 		if len(n.Plain) > 0 {
 			fmt.Fprintf(modelOut, "  %-*s  served by %s, which does not say which file it is\n", w, n.Name, strings.Join(n.Plain, " and "))
 		}
+	}
+	// The market's names last: strangers' bands, names only, never a file.
+	for _, n := range names {
 		if n.Market && len(n.Maps) == 0 && len(n.Plain) == 0 {
 			fmt.Fprintf(modelOut, "  %-*s  on the market (a name only: serving it looks it up on the model hub)\n", w, n.Name)
 		}

@@ -64,6 +64,8 @@ func TestNearbyNamesEachSourceAndWhoseWordItIs(t *testing.T) {
 	require.Contains(t, line("smollm2-135m-instruct"), "4.2 KiB")
 	require.Contains(t, line("llama-3.1-8b"), "on the market")
 	require.NotContains(t, out, "evil/Llama-GGUF", "a market station's claim is never shown as a file")
+	require.Greater(t, strings.Index(out, "llama-3.1-8b"), strings.Index(out, "smollm2-135m-instruct"),
+		"what is served nearby comes first; the market's names follow")
 }
 
 func TestNothingNearbySaysSoAndHowToFindAModel(t *testing.T) {
