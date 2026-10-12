@@ -133,11 +133,32 @@ func (h Home) Find(q string) (Model, error) {
 	case 0:
 		return Model{}, fmt.Errorf("%w: %q - `roger model list` shows what is here", ErrUnknownModel, q)
 	}
-	ids := make([]string, len(hits))
-	for i, m := range hits {
+	return Model{}, &Ambiguous{Query: q, Hits: hits}
+}
+
+// Ambiguous is a name that matches more than one model on this disk. Find never picks; a caller
+// that knows a rule for the case (two quantisations of one repository) can.
+type Ambiguous struct {
+	Query string
+	Hits  []Model
+}
+
+func (e *Ambiguous) Error() string {
+	ids := make([]string, len(e.Hits))
+	for i, m := range e.Hits {
 		ids[i] = m.ID
 	}
-	return Model{}, fmt.Errorf("%q matches %d models, name one: %s", q, len(hits), strings.Join(ids, ", "))
+	return fmt.Sprintf("%q matches %d models, name one: %s", e.Query, len(e.Hits), strings.Join(ids, ", "))
+}
+
+// SameRepo reports whether every match is a quantisation of one recorded repository.
+func (e *Ambiguous) SameRepo() bool {
+	for _, m := range e.Hits {
+		if m.Repo == "" || !strings.EqualFold(m.Repo, e.Hits[0].Repo) {
+			return false
+		}
+	}
+	return len(e.Hits) > 0
 }
 
 // Usage is how much disk the models take, which an owner of a board's SD card needs to see.

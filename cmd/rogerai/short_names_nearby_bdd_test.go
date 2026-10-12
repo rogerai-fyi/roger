@@ -170,6 +170,21 @@ func (s *shortNamesBDD) nothingDownloaded() error {
 	return nil
 }
 
+const smolRepo = "bartowski/SmolLM2-135M-Instruct-GGUF"
+
+// smolOnDisk puts SmolLM2 on this disk at the given quantisations, fetched verified the way an
+// owner fetches them; the hub also publishes Q8_0, so a --quant fetch of it can be shown.
+func (s *shortNamesBDD) smolOnDisk(quants ...string) error {
+	s.r.hub.repo(smolRepo).files["SmolLM2-135M-Instruct-Q8_0.gguf"] = &hubFile{body: modelGGUF(6000)}
+	for _, q := range quants {
+		if out, err := s.r.do(s.t, "", "get", smolRepo+":"+q, "--yes"); err != nil {
+			return fmt.Errorf("get %s: %v\n%s", q, err, out)
+		}
+	}
+	s.r.hub.fetched = nil
+	return nil
+}
+
 func (s *shortNamesBDD) noTerminal() error {
 	edgeIsInteractive = func() bool { return false }
 	return nil
@@ -444,6 +459,72 @@ func (s *shortNamesBDD) steps(sc *godog.ScenarioContext) {
 		_, why := edgeModelServe(task)
 		s.err = fmt.Errorf("%s", why)
 		return nil
+	})
+
+	// ---- founder ruling 2026-10-11: same-repo quants on disk are picked by the quant rule --------
+	sc.Step(`^"smollm2-135m-instruct" is on this disk at Q4_K_M and at Q8_0 of one repository$`, func() error {
+		return s.smolOnDisk("Q4_K_M", "Q8_0")
+	})
+	sc.Step(`^"smollm2-135m-instruct" is on this disk at Q4_K_M only$`, func() error { return s.smolOnDisk("Q4_K_M") })
+	sc.Step(`^"smollm2-135m-instruct" is on this disk from two different repositories$`, func() error {
+		s.r.hub.add(&hubRepo{id: "other/SmolLM2-135M-Instruct-GGUF", downloads: 12, license: "apache-2.0", pipeline: "text-generation",
+			files: map[string]*hubFile{"SmolLM2-135M-Instruct-Q4_K_M.gguf": {body: modelGGUF(3100)}}})
+		for _, ref := range []string{smolRepo + ":Q4_K_M", "other/SmolLM2-135M-Instruct-GGUF:Q4_K_M"} {
+			if out, err := s.r.do(s.t, "", "get", ref, "--yes"); err != nil {
+				return fmt.Errorf("get %s: %v\n%s", ref, err, out)
+			}
+		}
+		s.r.hub.fetched = nil
+		return nil
+	})
+	sc.Step(`^the owner runs "(roger model [^"]*)" and picks (\d+)$`, func(line, n string) error {
+		s.answers = n + "\n"
+		return s.run(line)
+	})
+	sc.Step(`^roger serves the (Q4_K_M|Q8_0) file(?:, the one the quantisation rule picks for this machine)?$`, func(q string) error {
+		return s.has(`on the air locally: "smollm2-135m-instruct" - ` + smolRepo + ":" + q)
+	})
+	sc.Step(`^it says it chose Q4_K_M as the best fit here, that Q8_0 is also on disk, and how to pick it$`, func() error {
+		return s.has("using "+smolRepo+":Q4_K_M (best fit here)", "also on disk: Q8_0", "--quant Q8_0")
+	})
+	sc.Step(`^nothing is downloaded from the model hub$`, func() error {
+		for _, f := range []string{"SmolLM2-135M-Instruct-Q4_K_M.gguf", "SmolLM2-135M-Instruct-Q8_0.gguf"} {
+			if s.r.hub.downloaded(f) {
+				return fmt.Errorf("%s was downloaded:\n%s", f, s.out)
+			}
+		}
+		return nil
+	})
+	sc.Step(`^roger says it is already on this machine, naming the file the rule picks and the other quantisation$`, func() error {
+		return s.has("already on this machine: "+smolRepo+":Q4_K_M", "also on disk: Q8_0")
+	})
+	sc.Step(`^roger says "(already on this machine: [^"]*)"$`, func(want string) error { return s.has(want) })
+	sc.Step(`^the command succeeds$`, func() error {
+		if s.err != nil {
+			return fmt.Errorf("it failed: %v\n%s", s.err, s.out)
+		}
+		return nil
+	})
+	sc.Step(`^the Q8_0 file of that repository is fetched and on this disk$`, func() error {
+		if _, err := s.r.home.Find(smolRepo + ":Q8_0"); err != nil {
+			return fmt.Errorf("Q8_0 not on disk: %v\nout: %s\nerr: %v", err, s.out, s.err)
+		}
+		return nil
+	})
+	sc.Step(`^both repositories are listed, numbered$`, func() error {
+		return s.has("1) "+smolRepo+":Q4_K_M", "2) other/SmolLM2-135M-Instruct-GGUF:Q4_K_M")
+	})
+	sc.Step(`^roger serves the file from the second repository listed$`, func() error {
+		return s.has(`on the air locally: "smollm2-135m-instruct" - other/SmolLM2-135M-Instruct-GGUF:Q4_K_M`)
+	})
+	sc.Step(`^roger refuses, listing both, and serves nothing$`, func() error {
+		if s.err == nil {
+			return fmt.Errorf("it did not refuse:\n%s", s.out)
+		}
+		if err := s.has(smolRepo+":Q4_K_M", "other/SmolLM2-135M-Instruct-GGUF:Q4_K_M"); err != nil {
+			return err
+		}
+		return s.hasNot("on the air locally")
 	})
 
 	// ---- what the owner runs -------------------------------------------------------------------
