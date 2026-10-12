@@ -35,7 +35,7 @@ const QUALITY = "82";
 // every PNG master a page shows in an <img> (the social cards, *-og.png, stay PNG only)
 export const MASTERS = [
   "agent-governance-hero", "alt-hero", "alt-tunein", "connect-hero", "gpu-wall-hero",
-  "jev-wave-hero", "llm-works-dials", "llm-works-hero", "llm-works-library", "llm-works-plant", "mtp-hero", "mtp-knowledge-vs-tools", "mtp-nextn-layer", "mtp-nmax-sweep",
+  "jev-wave-hero", "llm-works-advisory", "llm-works-dials", "llm-works-hero", "llm-works-ladder", "llm-works-library", "llm-works-plant", "llm-works-stack", "mtp-hero", "mtp-knowledge-vs-tools", "mtp-nextn-layer", "mtp-nmax-sweep",
   "mtp-quality-vs-speed", "mtp-spill-vs-speedup", "quantization", "router-airwaves-hero",
   "router-exact-failover", "router-three-stage", "share-hero", "share-reach", "tower-hero",
   "vram-hero",

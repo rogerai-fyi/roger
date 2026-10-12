@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- Broadcast 016: how an LLM works, in pictures. Tests: test/broadcast-how-llms-work.test.mjs. -->
+<!-- Broadcast 016: how an LLM works, in pictures. Tests: test/broadcast-how-llms-work.test.mjs, test/voice.test.mjs. -->
 <html lang="en">
 <head>
   <!-- include: head.html title="How LLMs actually work, in pictures." desc="A large language model does one thing: it guesses the next piece of text. How it reads, how it learns from its mistakes, how it becomes an assistant, and why the same trick can learn the language of a machine. Illustrated, in plain words." theme=external og=post ogtype=article ogtitle="How LLMs actually work, in pictures." ogdesc="One trick, repeated: guess the next piece. How a language model reads, learns and gets taught, and why a small one can learn a machine's language. An illustrated field guide." ogurl="https://rogerai.fm/broadcasts-how-llms-work.html" ogimage="https://rogerai.fm/assets/broadcasts/llm-works-og.png" -->
@@ -50,12 +50,15 @@
           <li><a class="toc-tuner__st" href="#s1"><b>§1</b><span class="toc-tuner__name">THE NEXT PIECE</span></a></li>
           <li><a class="toc-tuner__st" href="#s2"><b>§2</b><span class="toc-tuner__name">A MAP OF MEANING</span></a></li>
           <li><a class="toc-tuner__st" href="#s3"><b>§3</b><span class="toc-tuner__name">LOOKING BACK</span></a></li>
-          <li><a class="toc-tuner__st" href="#s4"><b>§4</b><span class="toc-tuner__name">GUESS, CHECK, NUDGE</span></a></li>
-          <li><a class="toc-tuner__st" href="#s5"><b>§5</b><span class="toc-tuner__name">THREE SCHOOLS</span></a></li>
-          <li><a class="toc-tuner__st" href="#s6"><b>§6</b><span class="toc-tuner__name">A MACHINE SPEAKS TOO</span></a></li>
-          <li><a class="toc-tuner__st" href="#s7"><b>§7</b><span class="toc-tuner__name">SMALL, BESIDE THE MACHINE</span></a></li>
-          <li><a class="toc-tuner__st" href="#s8"><b>§8</b><span class="toc-tuner__name">WHAT IT IS NOT</span></a></li>
-          <li><a class="toc-tuner__st" href="#s9"><b>§9</b><span class="toc-tuner__name">FAQ</span></a></li>
+          <li><a class="toc-tuner__st" href="#s4"><b>§4</b><span class="toc-tuner__name">THE STACK</span></a></li>
+          <li><a class="toc-tuner__st" href="#s5"><b>§5</b><span class="toc-tuner__name">GUESS, CHECK, NUDGE</span></a></li>
+          <li><a class="toc-tuner__st" href="#s6"><b>§6</b><span class="toc-tuner__name">THREE SCHOOLS</span></a></li>
+          <li><a class="toc-tuner__st" href="#s7"><b>§7</b><span class="toc-tuner__name">HOW BIG</span></a></li>
+          <li><a class="toc-tuner__st" href="#s8"><b>§8</b><span class="toc-tuner__name">A MACHINE SPEAKS TOO</span></a></li>
+          <li><a class="toc-tuner__st" href="#s9"><b>§9</b><span class="toc-tuner__name">THE SMALL FRONTIER</span></a></li>
+          <li><a class="toc-tuner__st" href="#s10"><b>§10</b><span class="toc-tuner__name">WHAT IT IS NOT</span></a></li>
+          <li><a class="toc-tuner__st" href="#s11"><b>§11</b><span class="toc-tuner__name">GLOSSARY</span></a></li>
+          <li><a class="toc-tuner__st" href="#s12"><b>§12</b><span class="toc-tuner__name">FAQ</span></a></li>
         </ol>
         <span class="toc-tuner__needle" aria-hidden="true"></span>
         </div>
@@ -72,9 +75,9 @@
       <div class="bc-post__body">
 
         <p class="bc-post__lead" data-reveal>
-          Someone asked us the plainest question there is: how do LLMs
-          <em>actually</em> work? The honest answer fits in one sentence and a
-          handful of pictures. Follow one sentence through the machine.
+          A reader asked the plainest question there is: how an LLM
+          <em>actually</em> works. The answer fits in one sentence and a
+          dozen pictures. Follow one sentence through the machine.
         </p>
 
         <figure class="figure figure--plate llm-fig">
@@ -98,37 +101,88 @@
           <h2>What does an LLM actually do?</h2>
           <p>
             One thing. Given the text so far, it scores every piece it knows and
-            picks a likely one. Then it adds that piece and does it again. A whole
+            picks a likely one. It adds that piece and does it again. A whole
             answer is this loop, run a few hundred times.
+          </p>
+          <p>
+            Drag the needle through five steps. The bars rank every candidate
+            for the next piece. At step 4 the model took the third bar: sampling
+            sometimes picks a lower bar, and a setting called temperature says
+            how often.
           </p>
 
           <figure class="figure figure--plate llm-fig">
-            <div class="llm-next" role="img" aria-label="Diagram: the sentence 'The operator keyed the mic and said' with the model's scores for the next piece. roger 41 percent, over 22 percent, hello 12 percent, nothing 6 percent, and a long tail of every other piece. roger wins and joins the sentence.">
-              <p class="llm-next__line" aria-hidden="true"><span class="llm-tok">The</span><span class="llm-tok">operator</span><span class="llm-tok">keyed</span><span class="llm-tok">the</span><span class="llm-tok">mic</span><span class="llm-tok">and</span><span class="llm-tok">said</span><span class="llm-tok llm-tok--new">roger</span></p>
-              <ol class="llm-next__bars" aria-hidden="true">
-                <li class="llm-next__row llm-next__row--win"><span class="llm-next__w">roger</span><span class="llm-next__track"><i class="llm-next__bar llm-p41"></i></span><span class="llm-next__p">41%</span></li>
-                <li class="llm-next__row"><span class="llm-next__w">over</span><span class="llm-next__track"><i class="llm-next__bar llm-p22"></i></span><span class="llm-next__p">22%</span></li>
-                <li class="llm-next__row"><span class="llm-next__w">hello</span><span class="llm-next__track"><i class="llm-next__bar llm-p12"></i></span><span class="llm-next__p">12%</span></li>
-                <li class="llm-next__row"><span class="llm-next__w">nothing</span><span class="llm-next__track"><i class="llm-next__bar llm-p6"></i></span><span class="llm-next__p">6%</span></li>
-                <li class="llm-next__row llm-next__row--tail"><span class="llm-next__w">every other piece</span><span class="llm-next__track"><i class="llm-next__bar llm-p19"></i></span><span class="llm-next__p">19%</span></li>
-              </ol>
-            </div>
-            <figcaption class="fig mono">FIG. 3 &middot; SCORE EVERY NEXT PIECE, PICK ONE, REPEAT. ILLUSTRATIVE NUMBERS.</figcaption>
+            <ol class="llm-gen" data-scrub data-scrub-start="4" aria-label="Writing one sentence, piece by piece">
+              <li>
+                <b>Step 1</b>
+                <p class="llm-gen__line"><span class="llm-tok">The</span><span class="llm-tok">operator</span><span class="llm-tok">keyed</span><span class="llm-tok">the</span><span class="llm-tok">mic</span><span class="llm-tok llm-tok--new">and</span></p>
+                <div class="llm-bars">
+                  <span class="llm-bars__row llm-bars__row--win"><span class="llm-bars__w">and</span><span class="llm-bars__track"><i class="llm-bars__bar llm-p54"></i></span><span class="llm-bars__p">54%</span></span>
+                  <span class="llm-bars__row"><span class="llm-bars__w">then</span><span class="llm-bars__track"><i class="llm-bars__bar llm-p21"></i></span><span class="llm-bars__p">21%</span></span>
+                  <span class="llm-bars__row"><span class="llm-bars__w">into</span><span class="llm-bars__track"><i class="llm-bars__bar llm-p9"></i></span><span class="llm-bars__p">9%</span></span>
+                  <span class="llm-bars__row llm-bars__row--tail"><span class="llm-bars__w">all others</span><span class="llm-bars__track"><i class="llm-bars__bar llm-p16"></i></span><span class="llm-bars__p">16%</span></span>
+                </div>
+              </li>
+              <li>
+                <b>Step 2</b>
+                <p class="llm-gen__line"><span class="llm-tok">The</span><span class="llm-tok">operator</span><span class="llm-tok">keyed</span><span class="llm-tok">the</span><span class="llm-tok">mic</span><span class="llm-tok">and</span><span class="llm-tok llm-tok--new">said</span></p>
+                <div class="llm-bars">
+                  <span class="llm-bars__row llm-bars__row--win"><span class="llm-bars__w">said</span><span class="llm-bars__track"><i class="llm-bars__bar llm-p47"></i></span><span class="llm-bars__p">47%</span></span>
+                  <span class="llm-bars__row"><span class="llm-bars__w">waited</span><span class="llm-bars__track"><i class="llm-bars__bar llm-p18"></i></span><span class="llm-bars__p">18%</span></span>
+                  <span class="llm-bars__row"><span class="llm-bars__w">spoke</span><span class="llm-bars__track"><i class="llm-bars__bar llm-p14"></i></span><span class="llm-bars__p">14%</span></span>
+                  <span class="llm-bars__row llm-bars__row--tail"><span class="llm-bars__w">all others</span><span class="llm-bars__track"><i class="llm-bars__bar llm-p21"></i></span><span class="llm-bars__p">21%</span></span>
+                </div>
+              </li>
+              <li>
+                <b>Step 3</b>
+                <p class="llm-gen__line"><span class="llm-tok">The</span><span class="llm-tok">operator</span><span class="llm-tok">keyed</span><span class="llm-tok">the</span><span class="llm-tok">mic</span><span class="llm-tok">and</span><span class="llm-tok">said</span><span class="llm-tok llm-tok--new">roger</span></p>
+                <div class="llm-bars">
+                  <span class="llm-bars__row llm-bars__row--win"><span class="llm-bars__w">roger</span><span class="llm-bars__track"><i class="llm-bars__bar llm-p41"></i></span><span class="llm-bars__p">41%</span></span>
+                  <span class="llm-bars__row"><span class="llm-bars__w">over</span><span class="llm-bars__track"><i class="llm-bars__bar llm-p22"></i></span><span class="llm-bars__p">22%</span></span>
+                  <span class="llm-bars__row"><span class="llm-bars__w">hello</span><span class="llm-bars__track"><i class="llm-bars__bar llm-p12"></i></span><span class="llm-bars__p">12%</span></span>
+                  <span class="llm-bars__row llm-bars__row--tail"><span class="llm-bars__w">all others</span><span class="llm-bars__track"><i class="llm-bars__bar llm-p25"></i></span><span class="llm-bars__p">25%</span></span>
+                </div>
+              </li>
+              <li>
+                <b>Step 4</b>
+                <p class="llm-gen__line"><span class="llm-tok">The</span><span class="llm-tok">operator</span><span class="llm-tok">keyed</span><span class="llm-tok">the</span><span class="llm-tok">mic</span><span class="llm-tok">and</span><span class="llm-tok">said</span><span class="llm-tok">roger</span><span class="llm-tok llm-tok--new">that</span></p>
+                <div class="llm-bars">
+                  <span class="llm-bars__row"><span class="llm-bars__w">,</span><span class="llm-bars__track"><i class="llm-bars__bar llm-p44"></i></span><span class="llm-bars__p">44%</span></span>
+                  <span class="llm-bars__row"><span class="llm-bars__w">.</span><span class="llm-bars__track"><i class="llm-bars__bar llm-p31"></i></span><span class="llm-bars__p">31%</span></span>
+                  <span class="llm-bars__row llm-bars__row--win"><span class="llm-bars__w">that</span><span class="llm-bars__track"><i class="llm-bars__bar llm-p15"></i></span><span class="llm-bars__p">15%</span></span>
+                  <span class="llm-bars__row llm-bars__row--tail"><span class="llm-bars__w">all others</span><span class="llm-bars__track"><i class="llm-bars__bar llm-p10"></i></span><span class="llm-bars__p">10%</span></span>
+                </div>
+                <small class="llm-gen__note">sampled the third bar</small>
+              </li>
+              <li>
+                <b>Step 5</b>
+                <p class="llm-gen__line"><span class="llm-tok">The</span><span class="llm-tok">operator</span><span class="llm-tok">keyed</span><span class="llm-tok">the</span><span class="llm-tok">mic</span><span class="llm-tok">and</span><span class="llm-tok">said</span><span class="llm-tok">roger</span><span class="llm-tok">that</span><span class="llm-tok llm-tok--new">.</span></p>
+                <div class="llm-bars">
+                  <span class="llm-bars__row llm-bars__row--win"><span class="llm-bars__w">.</span><span class="llm-bars__track"><i class="llm-bars__bar llm-p52"></i></span><span class="llm-bars__p">52%</span></span>
+                  <span class="llm-bars__row"><span class="llm-bars__w">,</span><span class="llm-bars__track"><i class="llm-bars__bar llm-p28"></i></span><span class="llm-bars__p">28%</span></span>
+                  <span class="llm-bars__row"><span class="llm-bars__w">and</span><span class="llm-bars__track"><i class="llm-bars__bar llm-p11"></i></span><span class="llm-bars__p">11%</span></span>
+                  <span class="llm-bars__row llm-bars__row--tail"><span class="llm-bars__w">all others</span><span class="llm-bars__track"><i class="llm-bars__bar llm-p9"></i></span><span class="llm-bars__p">9%</span></span>
+                </div>
+              </li>
+            </ol>
+            <figcaption class="fig mono">FIG. 3 &middot; FIVE STEPS, FIVE PIECES. THE BARS RE-RANK EVERY TIME. ILLUSTRATIVE NUMBERS.</figcaption>
           </figure>
 
           <p>
-            The pieces are called <b>tokens</b>: whole words, parts of words,
-            punctuation. A model knows a fixed set of them, usually tens of
-            thousands to a few hundred thousand.
+            The pieces are <b>tokens</b>: whole words, parts of words, punctuation,
+            fragments of numbers. A model knows a fixed set of them, usually
+            tens of thousands to a few hundred thousand.
           </p>
 
           <figure class="figure figure--plate llm-fig">
-            <div class="llm-pieces" role="img" aria-label="Diagram: words split into tokens. unbelievable becomes un, believ, able. Roger that. becomes Roger, that, and a full stop. 1480 rpm becomes 14, 80 and rpm.">
-              <p class="llm-pieces__word" aria-hidden="true"><span class="llm-tok">un</span><span class="llm-tok">believ</span><span class="llm-tok">able</span></p>
-              <p class="llm-pieces__word" aria-hidden="true"><span class="llm-tok">Roger</span><span class="llm-tok">&nbsp;that</span><span class="llm-tok">.</span></p>
-              <p class="llm-pieces__word" aria-hidden="true"><span class="llm-tok">14</span><span class="llm-tok">80</span><span class="llm-tok">&nbsp;rpm</span></p>
-            </div>
-            <figcaption class="fig mono">FIG. 4 &middot; PIECES, NOT WORDS. ONE WAY A TOKENIZER MIGHT CUT THEM.</figcaption>
+            <ol class="llm-cut" data-scrub aria-label="Five kinds of text, cut into tokens">
+              <li><b>A sentence</b><p class="llm-cut__row"><span class="llm-tok">The</span><span class="llm-tok">&nbsp;operator</span><span class="llm-tok">&nbsp;keyed</span><span class="llm-tok">&nbsp;the</span><span class="llm-tok">&nbsp;mic</span><span class="llm-tok">.</span></p></li>
+              <li><b>A long word</b><p class="llm-cut__row"><span class="llm-tok">un</span><span class="llm-tok">believ</span><span class="llm-tok">able</span></p></li>
+              <li><b>A part number</b><p class="llm-cut__row"><span class="llm-tok">BRG</span><span class="llm-tok">-</span><span class="llm-tok">620</span><span class="llm-tok">5</span><span class="llm-tok">-</span><span class="llm-tok">2</span><span class="llm-tok">RS</span></p></li>
+              <li><b>A log line</b><p class="llm-cut__row"><span class="llm-tok">14</span><span class="llm-tok">:</span><span class="llm-tok">02</span><span class="llm-tok">:</span><span class="llm-tok">11</span><span class="llm-tok">&nbsp;pump</span><span class="llm-tok">_</span><span class="llm-tok">3</span><span class="llm-tok">&nbsp;WARN</span><span class="llm-tok">&nbsp;temp</span><span class="llm-tok">&nbsp;high</span></p></li>
+              <li><b>A sensor reading</b><p class="llm-cut__row"><span class="llm-tok">pump</span><span class="llm-tok">_</span><span class="llm-tok">3</span><span class="llm-tok">&nbsp;temp</span><span class="llm-tok">&nbsp;71</span><span class="llm-tok">.</span><span class="llm-tok">2</span><span class="llm-tok">&nbsp;rpm</span><span class="llm-tok">&nbsp;148</span><span class="llm-tok">0</span><span class="llm-tok">&nbsp;vib</span><span class="llm-tok">&nbsp;0</span><span class="llm-tok">.</span><span class="llm-tok">21</span></p></li>
+            </ol>
+            <figcaption class="fig mono">FIG. 4 &middot; PIECES, NOT WORDS. A WEB TOKENIZER CUTS NUMBERS INTO ODD BITS; SECTION 8 COMES BACK TO THAT.</figcaption>
           </figure>
         </section>
 
@@ -137,33 +191,44 @@
           <span class="bc-sec__no">&sect;2 &middot; A map of meaning</span>
           <h2>How does it know what words mean?</h2>
           <p>
-            Each piece becomes a long list of numbers: a position on a map with
-            thousands of directions. Pieces used in similar places end up near each
+            Each piece becomes a long list of numbers, its <b>embedding</b>: a
+            position on a map with thousands of directions. Pieces used in similar places end up near each
             other. Nobody draws this map. It falls out of predicting the next piece.
+          </p>
+          <p>
+            Drag from untrained to trained and watch the words sort themselves.
+            Point at a word, or tab to it, to light its neighbours.
           </p>
 
           <figure class="figure figure--plate llm-fig">
-            <div class="llm-map" role="img" aria-label="Diagram: a map of word positions. Radio words cluster together: antenna, dial, signal, over, roger. Machine words cluster elsewhere: pump, valve, bearing, motor. Kitchen words form a third group: bread, soup, oven.">
-              <span class="llm-map__zone llm-map__zone--a" aria-hidden="true"></span>
-              <span class="llm-map__zone llm-map__zone--b" aria-hidden="true"></span>
-              <span class="llm-map__zone llm-map__zone--c" aria-hidden="true"></span>
-              <span class="llm-map__name llm-map__name--a" aria-hidden="true">RADIO</span>
-              <span class="llm-map__name llm-map__name--b" aria-hidden="true">MACHINES</span>
-              <span class="llm-map__name llm-map__name--c" aria-hidden="true">KITCHEN</span>
-              <span class="llm-map__w llm-w1" aria-hidden="true">antenna</span>
-              <span class="llm-map__w llm-w2" aria-hidden="true">dial</span>
-              <span class="llm-map__w llm-w3" aria-hidden="true">signal</span>
-              <span class="llm-map__w llm-w4" aria-hidden="true">over</span>
-              <span class="llm-map__w llm-map__w--live llm-w5" aria-hidden="true">roger</span>
-              <span class="llm-map__w llm-w6" aria-hidden="true">pump</span>
-              <span class="llm-map__w llm-w7" aria-hidden="true">valve</span>
-              <span class="llm-map__w llm-w8" aria-hidden="true">bearing</span>
-              <span class="llm-map__w llm-w9" aria-hidden="true">motor</span>
-              <span class="llm-map__w llm-w10" aria-hidden="true">bread</span>
-              <span class="llm-map__w llm-w11" aria-hidden="true">soup</span>
-              <span class="llm-map__w llm-w12" aria-hidden="true">oven</span>
+            <div class="llm-mapstage">
+              <ol class="llm-stops" data-scrub data-scrub-start="2" aria-label="The map, from untrained to trained">
+                <li><b>Untrained</b><span>random positions</span></li>
+                <li><b>Halfway</b><span>groups forming</span></li>
+                <li><b>Trained</b><span>sorted by use</span></li>
+              </ol>
+              <div class="llm-map" role="group" aria-label="A map of word positions. Trained, radio words cluster together: antenna, dial, signal, over, roger. Machine words cluster elsewhere: pump, valve, bearing, motor. Kitchen words form a third group: bread, soup, oven. Untrained, the same words are scattered at random.">
+                <span class="llm-map__zone llm-map__zone--a" aria-hidden="true"></span>
+                <span class="llm-map__zone llm-map__zone--b" aria-hidden="true"></span>
+                <span class="llm-map__zone llm-map__zone--c" aria-hidden="true"></span>
+                <span class="llm-map__name llm-map__name--a" aria-hidden="true">RADIO</span>
+                <span class="llm-map__name llm-map__name--b" aria-hidden="true">MACHINES</span>
+                <span class="llm-map__name llm-map__name--c" aria-hidden="true">KITCHEN</span>
+                <button type="button" class="llm-map__w llm-w1" data-g="a" aria-label="antenna, a radio word">antenna</button>
+                <button type="button" class="llm-map__w llm-w2" data-g="a" aria-label="dial, a radio word">dial</button>
+                <button type="button" class="llm-map__w llm-w3" data-g="a" aria-label="signal, a radio word">signal</button>
+                <button type="button" class="llm-map__w llm-w4" data-g="a" aria-label="over, a radio word">over</button>
+                <button type="button" class="llm-map__w llm-map__w--live llm-w5" data-g="a" aria-label="roger, a radio word">roger</button>
+                <button type="button" class="llm-map__w llm-w6" data-g="b" aria-label="pump, a machine word">pump</button>
+                <button type="button" class="llm-map__w llm-w7" data-g="b" aria-label="valve, a machine word">valve</button>
+                <button type="button" class="llm-map__w llm-w8" data-g="b" aria-label="bearing, a machine word">bearing</button>
+                <button type="button" class="llm-map__w llm-w9" data-g="b" aria-label="motor, a machine word">motor</button>
+                <button type="button" class="llm-map__w llm-w10" data-g="c" aria-label="bread, a kitchen word">bread</button>
+                <button type="button" class="llm-map__w llm-w11" data-g="c" aria-label="soup, a kitchen word">soup</button>
+                <button type="button" class="llm-map__w llm-w12" data-g="c" aria-label="oven, a kitchen word">oven</button>
+              </div>
             </div>
-            <figcaption class="fig mono">FIG. 5 &middot; SCATTERED AT FIRST, SORTED BY USE. A FLAT SKETCH OF A MAP WITH THOUSANDS OF DIRECTIONS.</figcaption>
+            <figcaption class="fig mono">FIG. 5 &middot; SCATTERED, THEN SORTED BY USE. A FLAT SKETCH OF A MAP WITH THOUSANDS OF DIRECTIONS.</figcaption>
           </figure>
         </section>
 
@@ -173,170 +238,345 @@
           <h2>How does it keep track of what you said?</h2>
           <p>
             Before each guess, every piece looks back at the pieces before it and
-            weighs which ones matter right now. This step is called
-            <b>attention</b>, and it is the heart of the transformer. Stack it a
-            few dozen layers deep and the model can follow a thread through pages.
+            weighs which ones matter now. This step is <b>attention</b>, the heart
+            of the transformer. Stacked a few dozen layers deep, it follows a
+            thread through pages.
+          </p>
+          <p>
+            Drag the needle along the sentence. Each word looks back differently.
+            &ldquo;It&rdquo; leans on &ldquo;pump&rdquo;.
           </p>
 
           <figure class="figure figure--plate llm-fig">
-            <div class="llm-attn" role="img" aria-label="Diagram: the sentence 'The pump hummed, then it'. Arcs run from the word it back to every earlier word. The heaviest arc, in red, goes to pump at 62 percent. hummed 18 percent, then 9 percent, The 6 percent, and it itself 5 percent.">
+            <div class="llm-attn" role="group" aria-label="Attention along the sentence 'The pump hummed, then it stopped.' Each word looks back at the words before it. 'pump' looks at 'The'. 'hummed' leans on 'pump' at 70 percent. 'then' leans on 'hummed' at 55 percent. 'it' leans on 'pump' at 62 percent, 'hummed' 18, 'then' 9, 'The' 6, itself 5. 'stopped' leans on 'it' 40 and 'pump' 35. Illustrative weights.">
               <svg class="llm-attn__arcs" viewBox="0 0 100 24" aria-hidden="true">
-                <path class="llm-arc llm-arc--1" pathLength="1" d="M90 24 Q50 -22 10 24"/>
-                <path class="llm-arc llm-arc--3" pathLength="1" d="M90 24 Q70 4 50 24"/>
-                <path class="llm-arc llm-arc--4" pathLength="1" d="M90 24 Q80 14 70 24"/>
-                <path class="llm-arc llm-arc--live" pathLength="1" d="M90 24 Q60 -8 30 24"/>
+                <g class="llm-attn__set llm-attn__set--2">
+                  <path class="llm-arc llm-arc--live" d="M25 24 Q16.7 12 8.3 24"/>
+                </g>
+                <g class="llm-attn__set llm-attn__set--3">
+                  <path class="llm-arc llm-arc--w45" d="M41.7 24 Q25 4 8.3 24"/>
+                  <path class="llm-arc llm-arc--live" d="M41.7 24 Q33.3 12 25 24"/>
+                </g>
+                <g class="llm-attn__set llm-attn__set--4">
+                  <path class="llm-arc llm-arc--w30" d="M58.3 24 Q33.3 -4 8.3 24"/>
+                  <path class="llm-arc llm-arc--w55" d="M58.3 24 Q41.7 4 25 24"/>
+                  <path class="llm-arc llm-arc--live" d="M58.3 24 Q50 12 41.7 24"/>
+                </g>
+                <g class="llm-attn__set llm-attn__set--5">
+                  <path class="llm-arc llm-arc--w30" d="M75 24 Q41.7 -16 8.3 24"/>
+                  <path class="llm-arc llm-arc--w55" d="M75 24 Q58.3 4 41.7 24"/>
+                  <path class="llm-arc llm-arc--w35" d="M75 24 Q66.7 12 58.3 24"/>
+                  <path class="llm-arc llm-arc--live" d="M75 24 Q50 -8 25 24"/>
+                </g>
+                <g class="llm-attn__set llm-attn__set--6">
+                  <path class="llm-arc llm-arc--w30" d="M91.7 24 Q50 -22 8.3 24"/>
+                  <path class="llm-arc llm-arc--w45" d="M91.7 24 Q66.7 -2 41.7 24"/>
+                  <path class="llm-arc llm-arc--w30" d="M91.7 24 Q75 8 58.3 24"/>
+                  <path class="llm-arc llm-arc--w90" d="M91.7 24 Q58.3 -14 25 24"/>
+                  <path class="llm-arc llm-arc--live" d="M91.7 24 Q83.3 12 75 24"/>
+                </g>
               </svg>
-              <ol class="llm-attn__row" aria-hidden="true">
-                <li><span class="llm-tok">The</span><span class="llm-attn__w">6%</span></li>
-                <li><span class="llm-tok llm-tok--live">pump</span><span class="llm-attn__w llm-attn__w--live">62%</span></li>
-                <li><span class="llm-tok">hummed,</span><span class="llm-attn__w">18%</span></li>
-                <li><span class="llm-tok">then</span><span class="llm-attn__w">9%</span></li>
-                <li><span class="llm-tok llm-tok--now">it</span><span class="llm-attn__w">5%</span></li>
+              <ol class="llm-attn__row llm-stops" data-scrub data-scrub-start="4" aria-label="The word that is looking back">
+                <li><b>The</b></li>
+                <li><b>pump</b></li>
+                <li><b>hummed,</b></li>
+                <li><b>then</b></li>
+                <li><b>it</b></li>
+                <li><b>stopped</b></li>
+              </ol>
+              <ol class="llm-attn__wts" aria-hidden="true">
+                <li class="llm-attn__wt llm-attn__wt--1"><span class="is-live">100%</span><span></span><span></span><span></span><span></span><span></span></li>
+                <li class="llm-attn__wt llm-attn__wt--2"><span class="is-live">100%</span><span></span><span></span><span></span><span></span><span></span></li>
+                <li class="llm-attn__wt llm-attn__wt--3"><span>30%</span><span class="is-live">70%</span><span></span><span></span><span></span><span></span></li>
+                <li class="llm-attn__wt llm-attn__wt--4"><span>15%</span><span>30%</span><span class="is-live">55%</span><span></span><span></span><span></span></li>
+                <li class="llm-attn__wt llm-attn__wt--5"><span>6%</span><span class="is-live">62%</span><span>18%</span><span>9%</span><span>5%</span><span></span></li>
+                <li class="llm-attn__wt llm-attn__wt--6"><span>4%</span><span>35%</span><span>15%</span><span>6%</span><span class="is-live">40%</span><span></span></li>
               </ol>
             </div>
-            <figcaption class="fig mono">FIG. 6 &middot; &ldquo;IT&rdquo; LOOKS BACK AND LEANS ON &ldquo;PUMP&rdquo;. ILLUSTRATIVE WEIGHTS.</figcaption>
+            <figcaption class="fig mono">FIG. 6 &middot; EACH WORD LOOKS BACK. THE HEAVIEST ARC IS RED. ILLUSTRATIVE WEIGHTS.</figcaption>
           </figure>
         </section>
 
-        <!-- §4 training -->
+        <!-- §4 the stack -->
         <section class="bc-sec" id="s4" data-reveal>
-          <span class="bc-sec__no">&sect;4 &middot; Guess, check, nudge</span>
+          <span class="bc-sec__no">&sect;4 &middot; The stack</span>
+          <h2>Why are there so many layers?</h2>
+          <p>
+            One round of looking back is shallow. A model stacks dozens of them,
+            and each layer reads what the one below it wrote. Low layers settle
+            spelling and grammar. Higher layers hold facts and plan the answer.
+          </p>
+
+          <figure class="figure figure--plate">
+            <img src="assets/broadcasts/llm-works-stack.webp" srcset="assets/broadcasts/llm-works-stack-800.webp 800w, assets/broadcasts/llm-works-stack.webp 1600w" sizes="(max-width: 1000px) 100vw, 960px" width="1600" height="896"
+                 alt="A vintage engraving of an open equipment rack holding six identical radio chassis stacked one above another, each with a row of glass tubes and a plain front panel. One wire runs up through every chassis to a small red lamp at the top." loading="lazy" decoding="async" />
+            <figcaption class="fig mono">FIG. 7 &middot; THE SAME CIRCUIT, STACKED. THE SIGNAL CLIMBS THROUGH ALL OF IT BEFORE A GUESS.</figcaption>
+          </figure>
+
+          <figure class="figure figure--plate llm-fig">
+            <div class="llm-stack-fig" role="img" aria-label="Diagram: four layers drawn as plates in a stack, with the signal rising through them. Bottom: pieces, spelling and word shapes. Then phrases, which words go together. Then facts, pump goes with bearing, rpm with load. Top: the answer, what to say next. Illustrative.">
+            <ol class="llm-stack" aria-hidden="true">
+              <li><b>The answer</b><small>what to say next</small></li>
+              <li><b>Facts</b><small>pump goes with bearing, rpm with load</small></li>
+              <li><b>Phrases</b><small>which words belong together</small></li>
+              <li><b>Pieces</b><small>spelling and word shapes</small></li>
+            </ol>
+            </div>
+            <figcaption class="fig mono">FIG. 8 &middot; WHAT GETS SHARPER AT EACH LEVEL. A SKETCH; REAL LAYERS MIX THESE JOBS.</figcaption>
+          </figure>
+        </section>
+
+        <!-- §5 training -->
+        <section class="bc-sec" id="s5" data-reveal>
+          <span class="bc-sec__no">&sect;5 &middot; Guess, check, nudge</span>
           <h2>How does an LLM get trained?</h2>
           <p>
             A new model is billions of settings set at random, so its first guesses
             are static. Show it a real sentence with the next piece hidden. Let it
-            guess, measure how wrong it was, and nudge every setting a hair toward
-            less wrong. Repeat over trillions of pieces.
+            guess, measure the miss (the <b>loss</b>), and nudge every setting a
+            hair toward less wrong. Repeat over trillions of pieces.
           </p>
 
           <figure class="figure figure--plate">
             <img src="assets/broadcasts/llm-works-dials.webp" srcset="assets/broadcasts/llm-works-dials-800.webp 800w, assets/broadcasts/llm-works-dials.webp 1600w" sizes="(max-width: 1000px) 100vw, 960px" width="1600" height="896"
                  alt="A vintage engraving of a steel instrument panel with rows of small knobs on either side of one large meter. One red needle leans toward the low, left end of the scale; a grey pointer stands upright beside it." loading="lazy" decoding="async" />
-            <figcaption class="fig mono">FIG. 7 &middot; PICTURE BILLIONS OF THESE KNOBS, EACH NUDGED A HAIR AFTER EVERY GUESS.</figcaption>
+            <figcaption class="fig mono">FIG. 9 &middot; PICTURE BILLIONS OF THESE KNOBS, EACH NUDGED A HAIR AFTER EVERY ROUND.</figcaption>
           </figure>
 
           <p>
-            Drag the needle through training. The error falls, and the static
-            clears into a signal.
+            Drag the needle through training. The error falls, the static clears,
+            and the same sentence comes out right. The lower curve is a small
+            model on one machine&rsquo;s readings: a narrow stream, learned faster
+            and closer to the floor.
           </p>
 
           <figure class="figure figure--plate llm-fig">
-            <ol class="llm-train scroll-box" data-scrub data-scrub-start="4" aria-label="Training, from the first step to a trained model">
-              <li>
-                <b>Step 0</b>
-                <svg class="llm-train__wave" viewBox="0 0 200 40" aria-hidden="true"><path d="M0,21.1 L4,22.9 L8,29.2 L12,6.8 L16,32.4 L20,17.6 L24,6.2 L28,31.4 L32,18.1 L36,17.1 L40,35.2 L44,25.7 L48,16.3 L52,23.8 L56,15.3 L60,31.7 L64,28.5 L68,31.4 L72,18.7 L76,5.4 L80,15.0 L84,9.4 L88,21.3 L92,11.0 L96,31.1 L100,26.3 L104,15.7 L108,14.9 L112,24.5 L116,34.8 L120,29.3 L124,30.6 L128,27.7 L132,11.0 L136,28.4 L140,7.0 L144,6.6 L148,31.0 L152,21.3 L156,18.2 L160,32.9 L164,21.7 L168,8.1 L172,32.8 L176,18.9 L180,33.6 L184,20.0 L188,10.3 L192,30.6 L196,35.6 L200,32.5"/></svg>
-                <span class="llm-train__guess">&hellip;said <q>kq#v</q></span>
-                <span class="llm-train__err llm-e5" aria-hidden="true"></span>
-                <span class="llm-train__label">Pure static</span>
-              </li>
-              <li>
-                <b>Early</b>
-                <svg class="llm-train__wave" viewBox="0 0 200 40" aria-hidden="true"><path d="M0,19.2 L4,28.2 L8,25.1 L12,15.3 L16,5.9 L20,16.7 L24,18.1 L28,14.5 L32,27.9 L36,19.6 L40,30.0 L44,22.2 L48,15.6 L52,34.5 L56,23.3 L60,20.9 L64,28.7 L68,24.2 L72,7.1 L76,5.5 L80,22.9 L84,10.4 L88,5.8 L92,21.9 L96,15.7 L100,29.6 L104,24.8 L108,20.0 L112,22.9 L116,19.5 L120,33.7 L124,27.3 L128,14.9 L132,18.9 L136,19.7 L140,19.0 L144,5.3 L148,13.3 L152,24.9 L156,9.3 L160,20.5 L164,20.1 L168,26.7 L172,23.7 L176,27.7 L180,33.7 L184,22.5 L188,33.1 L192,17.6 L196,31.9 L200,14.1"/></svg>
-                <span class="llm-train__guess">&hellip;said <q>the the the</q></span>
-                <span class="llm-train__err llm-e4" aria-hidden="true"></span>
-                <span class="llm-train__label">Common pieces</span>
-              </li>
-              <li>
-                <b>Later</b>
-                <svg class="llm-train__wave" viewBox="0 0 200 40" aria-hidden="true"><path d="M0,16.3 L4,17.0 L8,11.9 L12,15.6 L16,9.0 L20,13.1 L24,16.9 L28,10.5 L32,20.2 L36,23.6 L40,20.5 L44,28.5 L48,26.0 L52,32.0 L56,22.8 L60,27.7 L64,27.4 L68,13.3 L72,20.0 L76,8.4 L80,6.4 L84,10.6 L88,18.5 L92,19.7 L96,20.5 L100,21.3 L104,21.7 L108,20.0 L112,29.1 L116,32.5 L120,27.0 L124,30.6 L128,28.9 L132,20.4 L136,15.6 L140,20.4 L144,13.7 L148,9.5 L152,8.8 L156,14.5 L160,10.6 L164,21.9 L168,18.4 L172,20.7 L176,21.7 L180,27.8 L184,33.0 L188,32.8 L192,25.2 L196,26.9 L200,18.4"/></svg>
-                <span class="llm-train__guess">&hellip;said <q>that he was</q></span>
-                <span class="llm-train__err llm-e3" aria-hidden="true"></span>
-                <span class="llm-train__label">Grammar</span>
-              </li>
-              <li>
-                <b>Much later</b>
-                <svg class="llm-train__wave" viewBox="0 0 200 40" aria-hidden="true"><path d="M0,22.2 L4,14.7 L8,14.5 L12,13.3 L16,11.5 L20,10.5 L24,11.8 L28,15.7 L32,20.5 L36,22.7 L40,23.6 L44,28.5 L48,27.7 L52,32.6 L56,26.0 L60,23.9 L64,22.3 L68,18.6 L72,14.9 L76,9.9 L80,12.6 L84,9.0 L88,10.5 L92,14.0 L96,15.0 L100,18.8 L104,25.9 L108,26.0 L112,29.5 L116,30.3 L120,29.0 L124,30.3 L128,24.4 L132,22.0 L136,15.4 L140,15.4 L144,9.6 L148,8.7 L152,9.2 L156,9.3 L160,16.5 L164,16.9 L168,20.7 L172,24.0 L176,28.4 L180,32.1 L184,31.9 L188,28.7 L192,28.8 L196,26.1 L200,20.8"/></svg>
-                <span class="llm-train__guess">&hellip;said <q>over</q></span>
-                <span class="llm-train__err llm-e2" aria-hidden="true"></span>
-                <span class="llm-train__label">On topic</span>
-              </li>
-              <li>
-                <b>Trained</b>
-                <svg class="llm-train__wave" viewBox="0 0 200 40" aria-hidden="true"><path d="M0,20.0 L4,15.6 L8,11.8 L12,9.1 L16,8.0 L20,8.6 L24,10.8 L28,14.2 L32,18.5 L36,23.0 L40,27.1 L44,30.1 L48,31.8 L52,31.8 L56,30.1 L60,27.1 L64,23.0 L68,18.5 L72,14.2 L76,10.8 L80,8.6 L84,8.0 L88,9.1 L92,11.8 L96,15.6 L100,20.0 L104,24.4 L108,28.2 L112,30.9 L116,32.0 L120,31.4 L124,29.2 L128,25.8 L132,21.5 L136,17.0 L140,12.9 L144,9.9 L148,8.2 L152,8.2 L156,9.9 L160,12.9 L164,17.0 L168,21.5 L172,25.8 L176,29.2 L180,31.4 L184,32.0 L188,30.9 L192,28.2 L196,24.4 L200,20.0"/></svg>
-                <span class="llm-train__guess">&hellip;said <q>roger</q></span>
-                <span class="llm-train__err llm-e1" aria-hidden="true"></span>
-                <span class="llm-train__label">A clear signal</span>
-              </li>
-            </ol>
-            <figcaption class="fig mono">FIG. 8 &middot; THE SAME SENTENCE, ASKED AT FIVE POINTS IN TRAINING. THE BAR IS THE ERROR. ILLUSTRATIVE.</figcaption>
+            <div class="llm-loss">
+              <ol class="llm-train llm-stops" data-scrub data-scrub-start="4" aria-label="Training, from the first step to a trained model">
+                <li>
+                  <b>Step 0</b>
+                  <svg class="llm-train__wave" viewBox="0 0 200 40" aria-hidden="true"><path d="M0,21.1 L4,22.9 L8,29.2 L12,6.8 L16,32.4 L20,17.6 L24,6.2 L28,31.4 L32,18.1 L36,17.1 L40,35.2 L44,25.7 L48,16.3 L52,23.8 L56,15.3 L60,31.7 L64,28.5 L68,31.4 L72,18.7 L76,5.4 L80,15.0 L84,9.4 L88,21.3 L92,11.0 L96,31.1 L100,26.3 L104,15.7 L108,14.9 L112,24.5 L116,34.8 L120,29.3 L124,30.6 L128,27.7 L132,11.0 L136,28.4 L140,7.0 L144,6.6 L148,31.0 L152,21.3 L156,18.2 L160,32.9 L164,21.7 L168,8.1 L172,32.8 L176,18.9 L180,33.6 L184,20.0 L188,10.3 L192,30.6 L196,35.6 L200,32.5"/></svg>
+                  <span class="llm-train__guess">guess <q>kq#v</q> &middot; answer <q>roger</q></span>
+                  <span class="llm-train__label">Pure static</span>
+                </li>
+                <li>
+                  <b>Early</b>
+                  <svg class="llm-train__wave" viewBox="0 0 200 40" aria-hidden="true"><path d="M0,19.2 L4,28.2 L8,25.1 L12,15.3 L16,5.9 L20,16.7 L24,18.1 L28,14.5 L32,27.9 L36,19.6 L40,30.0 L44,22.2 L48,15.6 L52,34.5 L56,23.3 L60,20.9 L64,28.7 L68,24.2 L72,7.1 L76,5.5 L80,22.9 L84,10.4 L88,5.8 L92,21.9 L96,15.7 L100,29.6 L104,24.8 L108,20.0 L112,22.9 L116,19.5 L120,33.7 L124,27.3 L128,14.9 L132,18.9 L136,19.7 L140,19.0 L144,5.3 L148,13.3 L152,24.9 L156,9.3 L160,20.5 L164,20.1 L168,26.7 L172,23.7 L176,27.7 L180,33.7 L184,22.5 L188,33.1 L192,17.6 L196,31.9 L200,14.1"/></svg>
+                  <span class="llm-train__guess">guess <q>the</q> &middot; answer <q>roger</q></span>
+                  <span class="llm-train__label">Common pieces</span>
+                </li>
+                <li>
+                  <b>Later</b>
+                  <svg class="llm-train__wave" viewBox="0 0 200 40" aria-hidden="true"><path d="M0,16.3 L4,17.0 L8,11.9 L12,15.6 L16,9.0 L20,13.1 L24,16.9 L28,10.5 L32,20.2 L36,23.6 L40,20.5 L44,28.5 L48,26.0 L52,32.0 L56,22.8 L60,27.7 L64,27.4 L68,13.3 L72,20.0 L76,8.4 L80,6.4 L84,10.6 L88,18.5 L92,19.7 L96,20.5 L100,21.3 L104,21.7 L108,20.0 L112,29.1 L116,32.5 L120,27.0 L124,30.6 L128,28.9 L132,20.4 L136,15.6 L140,20.4 L144,13.7 L148,9.5 L152,8.8 L156,14.5 L160,10.6 L164,21.9 L168,18.4 L172,20.7 L176,21.7 L180,27.8 L184,33.0 L188,32.8 L192,25.2 L196,26.9 L200,18.4"/></svg>
+                  <span class="llm-train__guess">guess <q>that</q> &middot; answer <q>roger</q></span>
+                  <span class="llm-train__label">Grammar</span>
+                </li>
+                <li>
+                  <b>Much later</b>
+                  <svg class="llm-train__wave" viewBox="0 0 200 40" aria-hidden="true"><path d="M0,22.2 L4,14.7 L8,14.5 L12,13.3 L16,11.5 L20,10.5 L24,11.8 L28,15.7 L32,20.5 L36,22.7 L40,23.6 L44,28.5 L48,27.7 L52,32.6 L56,26.0 L60,23.9 L64,22.3 L68,18.6 L72,14.9 L76,9.9 L80,12.6 L84,9.0 L88,10.5 L92,14.0 L96,15.0 L100,18.8 L104,25.9 L108,26.0 L112,29.5 L116,30.3 L120,29.0 L124,30.3 L128,24.4 L132,22.0 L136,15.4 L140,15.4 L144,9.6 L148,8.7 L152,9.2 L156,9.3 L160,16.5 L164,16.9 L168,20.7 L172,24.0 L176,28.4 L180,32.1 L184,31.9 L188,28.7 L192,28.8 L196,26.1 L200,20.8"/></svg>
+                  <span class="llm-train__guess">guess <q>over</q> &middot; answer <q>roger</q></span>
+                  <span class="llm-train__label">On topic</span>
+                </li>
+                <li>
+                  <b>Trained</b>
+                  <svg class="llm-train__wave" viewBox="0 0 200 40" aria-hidden="true"><path d="M0,20.0 L4,15.6 L8,11.8 L12,9.1 L16,8.0 L20,8.6 L24,10.8 L28,14.2 L32,18.5 L36,23.0 L40,27.1 L44,30.1 L48,31.8 L52,31.8 L56,30.1 L60,27.1 L64,23.0 L68,18.5 L72,14.2 L76,10.8 L80,8.6 L84,8.0 L88,9.1 L92,11.8 L96,15.6 L100,20.0 L104,24.4 L108,28.2 L112,30.9 L116,32.0 L120,31.4 L124,29.2 L128,25.8 L132,21.5 L136,17.0 L140,12.9 L144,9.9 L148,8.2 L152,8.2 L156,9.9 L160,12.9 L164,17.0 L168,21.5 L172,25.8 L176,29.2 L180,31.4 L184,32.0 L188,30.9 L192,28.2 L196,24.4 L200,20.0"/></svg>
+                  <span class="llm-train__guess">guess <q>roger</q> &middot; answer <q>roger</q></span>
+                  <span class="llm-train__label">A clear signal</span>
+                </li>
+              </ol>
+              <div class="llm-loss__chart" aria-hidden="true">
+                <span class="llm-loss__y">ERROR</span>
+                <svg class="llm-loss__svg" viewBox="0 0 600 220" aria-hidden="true">
+                  <path class="llm-loss__grid" d="M40 20 V200 H590"/>
+                  <path class="llm-loss__curve llm-loss__curve--web" d="M40 30 C70 45, 90 60, 120 78 S190 108, 240 118 S340 136, 420 142 S540 150, 585 152"/>
+                  <path class="llm-loss__curve llm-loss__curve--small" d="M40 40 C60 90, 80 140, 120 165 S200 188, 260 194 S400 199, 585 200"/>
+                  <g class="llm-loss__mark llm-loss__mark--1"><path d="M40 20 V200"/><circle cx="40" cy="30" r="5"/><circle cx="40" cy="40" r="5"/></g>
+                  <g class="llm-loss__mark llm-loss__mark--2"><path d="M120 20 V200"/><circle cx="120" cy="78" r="5"/><circle cx="120" cy="165" r="5"/></g>
+                  <g class="llm-loss__mark llm-loss__mark--3"><path d="M240 20 V200"/><circle cx="240" cy="118" r="5"/><circle cx="240" cy="192" r="5"/></g>
+                  <g class="llm-loss__mark llm-loss__mark--4"><path d="M420 20 V200"/><circle cx="420" cy="142" r="5"/><circle cx="420" cy="199" r="5"/></g>
+                  <g class="llm-loss__mark llm-loss__mark--5"><path d="M585 20 V200"/><circle cx="585" cy="152" r="5"/><circle cx="585" cy="200" r="5"/></g>
+                </svg>
+                <span class="llm-loss__x">TRAINING STEPS &rarr;</span>
+                <ul class="llm-chartkey">
+                  <li><i class="llm-key llm-key--web"></i>a big model on the web</li>
+                  <li><i class="llm-key llm-key--small"></i>a small model on one machine&rsquo;s readings</li>
+                </ul>
+              </div>
+            </div>
+            <figcaption class="fig mono">FIG. 10 &middot; THE ERROR FALLS AS THE SETTINGS SETTLE. A NARROW STREAM IS LEARNED FASTER AND LOWER. ILLUSTRATIVE.</figcaption>
           </figure>
         </section>
 
-        <!-- §5 three schools -->
-        <section class="bc-sec" id="s5" data-reveal>
-          <span class="bc-sec__no">&sect;5 &middot; Three schools</span>
+        <!-- §6 three schools -->
+        <section class="bc-sec" id="s6" data-reveal>
+          <span class="bc-sec__no">&sect;6 &middot; Three schools</span>
           <h2>Why does a chatbot answer you instead of just continuing your text?</h2>
           <p>
-            Because it goes to school three times. The first teaches it language.
-            The other two teach it manners.
+            It goes to school three times. The first teaches it language. The
+            other two teach it the job and its manners.
           </p>
 
           <figure class="figure figure--plate">
             <img src="assets/broadcasts/llm-works-library.webp" srcset="assets/broadcasts/llm-works-library-800.webp 800w, assets/broadcasts/llm-works-library.webp 1600w" sizes="(max-width: 1000px) 100vw, 960px" width="1600" height="896"
                  alt="A vintage engraving of an endless archive hall, shelves stacked with reels of tape on both sides, and one small radio receiver on a pedestal in the aisle with a single red lamp lit above it." loading="lazy" decoding="async" />
-            <figcaption class="fig mono">FIG. 9 &middot; SCHOOL ONE: A LIBRARY, READ ONE NEXT PIECE AT A TIME.</figcaption>
+            <figcaption class="fig mono">FIG. 11 &middot; SCHOOL ONE: A LIBRARY, READ ONE NEXT PIECE AT A TIME.</figcaption>
           </figure>
 
           <ol class="steps">
-            <li><b>Read.</b> Pretraining: predict the next piece across a huge library of text. Out comes a model that can continue any document, but does not reliably answer you.</li>
-            <li><b>Learn the job.</b> Instruction tuning: many examples of a request and a good reply. Now it answers instead of rambling on.</li>
-            <li><b>Learn taste.</b> Preference tuning: people compare two replies and pick the better one, and the model is nudged toward their pick.</li>
+            <li><b>Pretraining.</b> Predict the next piece across a huge library of text. Out comes a model that continues any document, but does not reliably answer you.</li>
+            <li><b>Instruction tuning.</b> Thousands of examples of a request and a good reply. Now it answers instead of rambling on.</li>
+            <li><b>Preference tuning.</b> People compare two replies and pick the better one. The model is nudged toward their pick.</li>
           </ol>
         </section>
 
-        <!-- §6 a machine speaks too -->
-        <section class="bc-sec" id="s6" data-reveal>
-          <span class="bc-sec__no">&sect;6 &middot; A machine speaks too</span>
+        <!-- §7 how big -->
+        <section class="bc-sec" id="s7" data-reveal>
+          <span class="bc-sec__no">&sect;7 &middot; How big</span>
+          <h2>How big does a model need to be?</h2>
+          <p>
+            As big as the job. A model that knows a little about everything needs
+            hundreds of billions of settings and a data centre. A model that knows
+            one machine&rsquo;s language needs a few hundred million and a board
+            the size of a hand. Quantization, storing each setting in fewer bits,
+            shrinks either one further.
+          </p>
+
+          <figure class="figure figure--plate">
+            <img src="assets/broadcasts/llm-works-ladder.webp" srcset="assets/broadcasts/llm-works-ladder-800.webp 800w, assets/broadcasts/llm-works-ladder.webp 1600w" sizes="(max-width: 1000px) 100vw, 960px" width="1600" height="896"
+                 alt="A vintage engraving of six radios in a row, growing from a pocket crystal set to a wall-high equipment rack. One small red dial lamp is lit on the smallest." loading="lazy" decoding="async" />
+            <figcaption class="fig mono">FIG. 12 &middot; FROM A POCKET SET TO A RACK. EACH ONE IS SIZED FOR ITS ROOM.</figcaption>
+          </figure>
+
+          <figure class="figure figure--plate llm-fig">
+            <div class="llm-ladder-fig" role="img" aria-label="Diagram: the Wave family on a log scale of parameters, with the hardware each tier fits and its status. A microcontroller reads the sensor and runs no Wave tier. Wave Pico, 250 to 300 million parameters, a Raspberry Pi with no GPU, on air. Wave Nano, 0.8 to 1.5 billion, a gateway, training. Wave Micro, 7 to 8 billion, an on-site server, planned. Wave Giga, 27 to 35 billion, a plant datacenter, gated. Wave Tera, 80 to 120 billion, enterprise cloud, planned. Wave Peta, 150 to 200 billion, regional cloud, planned. Wave Exa, over 280 billion, a frontier datacenter, base selected.">
+            <ol class="llm-ladder" aria-hidden="true">
+              <li class="llm-ladder__row llm-ladder__row--mcu"><span class="llm-ladder__name">Microcontroller</span><span class="llm-ladder__bar"><i class="llm-at0"></i></span><span class="llm-ladder__size">no model</span><span class="llm-ladder__fit">reads the sensor, hands it up</span></li>
+              <li class="llm-ladder__row llm-ladder__row--live"><span class="llm-ladder__name">Wave Pico</span><span class="llm-ladder__bar"><i class="llm-at11"></i></span><span class="llm-ladder__size">250&ndash;300M</span><span class="llm-ladder__fit">Raspberry Pi, no GPU <em>on air</em></span></li>
+              <li class="llm-ladder__row"><span class="llm-ladder__name">Wave Nano</span><span class="llm-ladder__bar"><i class="llm-at27"></i></span><span class="llm-ladder__size">0.8&ndash;1.5B</span><span class="llm-ladder__fit">gateway <em>training</em></span></li>
+              <li class="llm-ladder__row"><span class="llm-ladder__name">Wave Micro</span><span class="llm-ladder__bar"><i class="llm-at47"></i></span><span class="llm-ladder__size">7&ndash;8B</span><span class="llm-ladder__fit">on-site server <em>planned</em></span></li>
+              <li class="llm-ladder__row"><span class="llm-ladder__name">Wave Giga</span><span class="llm-ladder__bar"><i class="llm-at62"></i></span><span class="llm-ladder__size">27&ndash;35B</span><span class="llm-ladder__fit">plant datacenter <em>gated</em></span></li>
+              <li class="llm-ladder__row"><span class="llm-ladder__name">Wave Tera</span><span class="llm-ladder__bar"><i class="llm-at75"></i></span><span class="llm-ladder__size">80&ndash;120B</span><span class="llm-ladder__fit">enterprise cloud <em>planned</em></span></li>
+              <li class="llm-ladder__row"><span class="llm-ladder__name">Wave Peta</span><span class="llm-ladder__bar"><i class="llm-at81"></i></span><span class="llm-ladder__size">150&ndash;200B</span><span class="llm-ladder__fit">regional cloud <em>planned</em></span></li>
+              <li class="llm-ladder__row"><span class="llm-ladder__name">Wave Exa</span><span class="llm-ladder__bar"><i class="llm-at86"></i></span><span class="llm-ladder__size">&gt;280B</span><span class="llm-ladder__fit">frontier datacenter <em>base selected</em></span></li>
+            </ol>
+            </div>
+            <figcaption class="fig mono">FIG. 13 &middot; PARAMETERS ON A LOG SCALE, 100M TO 1T, AND THE HARDWARE EACH TIER FITS. SIZES AND STATUS AS PUBLISHED.</figcaption>
+          </figure>
+        </section>
+
+        <!-- §8 a machine speaks too -->
+        <section class="bc-sec" id="s8" data-reveal>
+          <span class="bc-sec__no">&sect;8 &middot; A machine speaks too</span>
           <h2>Can the same trick read machine data?</h2>
           <p>
-            Yes. A machine talks all day in readings, status codes and log lines,
-            and that stream has a grammar: a motor draws current before it warms,
-            a valve opens and then the pressure moves. Cut it into pieces, train a
-            model to predict the next reading, and it learns what normal sounds like.
+            Yes. A machine talks all day in readings, status codes and log lines.
+            That stream has a grammar. A motor draws current before it warms. A
+            valve opens, then the pressure moves. Cut the stream into pieces and
+            train a model to predict the next reading. It learns what normal
+            sounds like.
+          </p>
+          <p>
+            Drag the needle to inject a fault. The next reading lands outside what
+            the model expected. That surprise is a score, and the score crosses a
+            line.
           </p>
 
           <figure class="figure figure--plate llm-fig">
-            <div class="llm-trace" role="img" aria-label="Diagram: a machine reading cut into tokens, pump 3, temp 71.2, rpm 1480, vib 0.21. Below it a sensor trace runs left to right inside a grey band of what the model expected next. Near the end the real reading jumps far outside the band, and that surprise is marked in red.">
-              <p class="llm-trace__line" aria-hidden="true"><span class="llm-tok">pump_3</span><span class="llm-tok">temp</span><span class="llm-tok">71.2</span><span class="llm-tok">rpm</span><span class="llm-tok">1480</span><span class="llm-tok">vib</span><span class="llm-tok">0.21</span><span class="llm-tok llm-tok--ghost">?</span></p>
-              <svg class="llm-trace__plot" viewBox="0 0 600 200" aria-hidden="true">
-                <path class="llm-trace__band" d="M0,87.6 L10,81.3 L20,77.0 L30,74.7 L40,74.3 L50,75.1 L60,76.4 L70,77.7 L80,78.2 L90,77.8 L100,76.4 L110,74.3 L120,72.1 L130,70.5 L140,70.2 L150,71.8 L160,75.6 L170,81.6 L180,89.3 L190,98.1 L200,107.1 L210,115.4 L220,122.1 L230,126.5 L240,128.6 L250,128.2 L260,125.9 L270,122.2 L280,118.1 L290,114.2 L300,111.1 L310,109.2 L320,108.3 L330,108.1 L340,108.2 L350,107.8 L360,106.2 L370,103.1 L380,98.3 L390,91.8 L400,84.3 L410,76.4 L420,69.1 L430,63.2 L440,59.4 L450,58.2 L460,59.7 L470,63.6 L480,69.2 L490,75.9 L500,82.6 L510,88.7 L520,93.6 L530,96.9 L540,98.9 L550,99.8 L560,100.3 L570,100.9 L580,102.4 L590,105.1 L600,109.0 L600,137.0 L590,133.1 L580,130.4 L570,128.9 L560,128.3 L550,127.8 L540,126.9 L530,124.9 L520,121.6 L510,116.7 L500,110.6 L490,103.9 L480,97.2 L470,91.6 L460,87.7 L450,86.2 L440,87.4 L430,91.2 L420,97.1 L410,104.4 L400,112.3 L390,119.8 L380,126.3 L370,131.1 L360,134.2 L350,135.8 L340,136.2 L330,136.1 L320,136.3 L310,137.2 L300,139.1 L290,142.2 L280,146.1 L270,150.2 L260,153.9 L250,156.2 L240,156.6 L230,154.5 L220,150.1 L210,143.4 L200,135.1 L190,126.1 L180,117.3 L170,109.6 L160,103.6 L150,99.8 L140,98.2 L130,98.5 L120,100.1 L110,102.3 L100,104.4 L90,105.8 L80,106.2 L70,105.7 L60,104.4 L50,103.1 L40,102.3 L30,102.7 L20,105.0 L10,109.3 L0,115.6 Z"/>
-                <path class="llm-trace__exp" d="M0,101.6 L10,95.3 L20,91.0 L30,88.7 L40,88.3 L50,89.1 L60,90.4 L70,91.7 L80,92.2 L90,91.8 L100,90.4 L110,88.3 L120,86.1 L130,84.5 L140,84.2 L150,85.8 L160,89.6 L170,95.6 L180,103.3 L190,112.1 L200,121.1 L210,129.4 L220,136.1 L230,140.5 L240,142.6 L250,142.2 L260,139.9 L270,136.2 L280,132.1 L290,128.2 L300,125.1 L310,123.2 L320,122.3 L330,122.1 L340,122.2 L350,121.8 L360,120.2 L370,117.1 L380,112.3 L390,105.8 L400,98.3 L410,90.4 L420,83.1 L430,77.2 L440,73.4 L450,72.2 L460,73.7 L470,77.6 L480,83.2 L490,89.9 L500,96.6 L510,102.7 L520,107.6 L530,110.9 L540,112.9 L550,113.8 L560,114.3 L570,114.9 L580,116.4 L590,119.1 L600,123.0"/>
-                <path class="llm-trace__real" pathLength="1" d="M0,97.9 L10,89.7 L20,89.5 L30,83.9 L40,82.2 L50,87.7 L60,96.3 L70,95.9 L80,96.0 L90,87.9 L100,90.9 L110,85.1 L120,81.5 L130,78.9 L140,80.2 L150,91.8 L160,94.2 L170,99.9 L180,107.5 L190,107.8 L200,118.5 L210,131.2 L220,139.3 L230,145.5 L240,147.9 L250,136.4 L260,141.3 L270,138.6 L280,132.2 L290,123.7 L300,124.8 L310,117.4 L320,128.4 L330,127.3 L340,122.9 L350,119.0 L360,126.0 L370,118.1 L380,117.6 L390,110.7 L400,98.4 L410,89.2 L420,84.5 L430,76.2 L440,68.7 L450,69.5 L460,78.1"/>
-                <path class="llm-trace__spike" pathLength="1" d="M460,78.1 L468,62 L476,44 L484,30 L490,26 L496,34 L504,56 L514,84 L522,104 L530,108.7"/>
-                <path class="llm-trace__after" pathLength="1" d="M530,108.7 L540,119.9 L550,109.5 L560,113.0 L570,110.8 L580,118.2 L590,115.9 L600,121.0"/>
-                <circle class="llm-trace__ring" cx="490" cy="27" r="15"/>
-              </svg>
-              <ul class="llm-trace__key" aria-hidden="true">
-                <li><i class="llm-key llm-key--band"></i>what it expected next</li>
-                <li><i class="llm-key llm-key--real"></i>what the sensor said</li>
-                <li><i class="llm-key llm-key--live"></i>surprise</li>
-              </ul>
+            <div class="llm-fault">
+              <ol class="llm-stops" data-scrub data-scrub-start="2" aria-label="A pump's temperature stream, normal to fault">
+                <li><b>Normal</b><span>surprise 0.1</span></li>
+                <li><b>Drift</b><span>surprise 0.4</span></li>
+                <li><b>Fault</b><span>surprise 0.9, over the line</span></li>
+                <li><b>Settles</b><span>surprise 0.2</span></li>
+              </ol>
+              <div class="llm-fault__view" role="img" aria-label="Diagram: a pump's temperature readings cut into tokens, 71.2, 71.4, 71.3 and so on, then a trace of those readings inside a grey band of what the model expected next. A fault pushes the reading far outside the band. Below it, a surprise score stays low until the fault, where it rises over a dashed line and is marked in red, then falls back as the readings settle.">
+                <p class="llm-fault__line" aria-hidden="true"><span class="llm-tok">71.2</span><span class="llm-tok">71.4</span><span class="llm-tok">71.3</span><span class="llm-tok">71.5</span><span class="llm-tok">71.2</span><span class="llm-tok">71.6</span><span class="llm-tok">73.9</span><span class="llm-tok">76.8</span><span class="llm-tok llm-tok--live">80.4</span><span class="llm-tok llm-tok--live">84.1</span><span class="llm-tok llm-tok--live">83.7</span><span class="llm-tok">79.0</span><span class="llm-tok">74.2</span><span class="llm-tok">72.0</span></p>
+                <svg class="llm-fault__svg" viewBox="0 0 600 300" aria-hidden="true">
+                  <path class="llm-trace__band" d="M0,87.6 L10,81.3 L20,77.0 L30,74.7 L40,74.3 L50,75.1 L60,76.4 L70,77.7 L80,78.2 L90,77.8 L100,76.4 L110,74.3 L120,72.1 L130,70.5 L140,70.2 L150,71.8 L160,75.6 L170,81.6 L180,89.3 L190,98.1 L200,107.1 L210,115.4 L220,122.1 L230,126.5 L240,128.6 L250,128.2 L260,125.9 L270,122.2 L280,118.1 L290,114.2 L300,111.1 L310,109.2 L320,108.3 L330,108.1 L340,108.2 L350,107.8 L360,106.2 L370,103.1 L380,98.3 L390,91.8 L400,84.3 L410,76.4 L420,69.1 L430,63.2 L440,59.4 L450,58.2 L460,59.7 L470,63.6 L480,69.2 L490,75.9 L500,82.6 L510,88.7 L520,93.6 L530,96.9 L540,98.9 L550,99.8 L560,100.3 L570,100.9 L580,102.4 L590,105.1 L600,109.0 L600,137.0 L590,133.1 L580,130.4 L570,128.9 L560,128.3 L550,127.8 L540,126.9 L530,124.9 L520,121.6 L510,116.7 L500,110.6 L490,103.9 L480,97.2 L470,91.6 L460,87.7 L450,86.2 L440,87.4 L430,91.2 L420,97.1 L410,104.4 L400,112.3 L390,119.8 L380,126.3 L370,131.1 L360,134.2 L350,135.8 L340,136.2 L330,136.1 L320,136.3 L310,137.2 L300,139.1 L290,142.2 L280,146.1 L270,150.2 L260,153.9 L250,156.2 L240,156.6 L230,154.5 L220,150.1 L210,143.4 L200,135.1 L190,126.1 L180,117.3 L170,109.6 L160,103.6 L150,99.8 L140,98.2 L130,98.5 L120,100.1 L110,102.3 L100,104.4 L90,105.8 L80,106.2 L70,105.7 L60,104.4 L50,103.1 L40,102.3 L30,102.7 L20,105.0 L10,109.3 L0,115.6 Z"/>
+                  <path class="llm-trace__exp" d="M0,101.6 L10,95.3 L20,91.0 L30,88.7 L40,88.3 L50,89.1 L60,90.4 L70,91.7 L80,92.2 L90,91.8 L100,90.4 L110,88.3 L120,86.1 L130,84.5 L140,84.2 L150,85.8 L160,89.6 L170,95.6 L180,103.3 L190,112.1 L200,121.1 L210,129.4 L220,136.1 L230,140.5 L240,142.6 L250,142.2 L260,139.9 L270,136.2 L280,132.1 L290,128.2 L300,125.1 L310,123.2 L320,122.3 L330,122.1 L340,122.2 L350,121.8 L360,120.2 L370,117.1 L380,112.3 L390,105.8 L400,98.3 L410,90.4 L420,83.1 L430,77.2 L440,73.4 L450,72.2 L460,73.7 L470,77.6 L480,83.2 L490,89.9 L500,96.6 L510,102.7 L520,107.6 L530,110.9 L540,112.9 L550,113.8 L560,114.3 L570,114.9 L580,116.4 L590,119.1 L600,123.0"/>
+                  <path class="llm-trace__real" d="M0,97.9 L10,89.7 L20,89.5 L30,83.9 L40,82.2 L50,87.7 L60,96.3 L70,95.9 L80,96.0 L90,87.9 L100,90.9 L110,85.1 L120,81.5 L130,78.9 L140,80.2 L150,91.8 L160,94.2 L170,99.9 L180,107.5 L190,107.8 L200,118.5 L210,131.2 L220,139.3 L230,145.5 L240,147.9 L250,136.4 L260,141.3 L270,138.6 L280,132.2 L290,123.7 L300,124.8 L310,117.4 L320,128.4 L330,127.3 L340,122.9 L350,119.0 L360,126.0 L370,118.1 L380,117.6 L390,110.7 L400,98.4 L410,89.2 L420,84.5 L430,76.2 L440,68.7 L450,69.5 L460,78.1"/>
+                  <path class="llm-trace__spike" d="M460,78.1 L468,62 L476,44 L484,30 L490,26 L496,34 L504,56 L514,84 L522,104 L530,108.7"/>
+                  <path class="llm-trace__real" d="M530,108.7 L540,119.9 L550,109.5 L560,113.0 L570,110.8 L580,118.2 L590,115.9 L600,121.0"/>
+                  <path class="llm-fault__thr" d="M0 236 H600"/>
+                  <g class="llm-fault__score">
+                    <rect x="2" y="276" width="6" height="12"/><rect x="22" y="278" width="6" height="10"/><rect x="42" y="274" width="6" height="14"/><rect x="62" y="279" width="6" height="9"/><rect x="82" y="276" width="6" height="12"/><rect x="102" y="280" width="6" height="8"/><rect x="122" y="275" width="6" height="13"/><rect x="142" y="277" width="6" height="11"/><rect x="162" y="274" width="6" height="14"/><rect x="182" y="279" width="6" height="9"/><rect x="202" y="276" width="6" height="12"/><rect x="222" y="278" width="6" height="10"/><rect x="242" y="272" width="6" height="16"/><rect x="262" y="277" width="6" height="11"/><rect x="282" y="275" width="6" height="13"/><rect x="302" y="279" width="6" height="9"/><rect x="322" y="276" width="6" height="12"/><rect x="342" y="278" width="6" height="10"/><rect x="362" y="274" width="6" height="14"/><rect x="382" y="277" width="6" height="11"/><rect x="402" y="275" width="6" height="13"/><rect x="422" y="270" width="6" height="18"/><rect x="442" y="262" width="6" height="26"/><rect x="462" y="248" width="6" height="40"/>
+                    <rect class="is-over" x="482" y="214" width="6" height="74"/><rect class="is-over" x="502" y="206" width="6" height="82"/><rect class="is-over" x="522" y="224" width="6" height="64"/>
+                    <rect x="542" y="256" width="6" height="32"/><rect x="562" y="270" width="6" height="18"/><rect x="582" y="276" width="6" height="12"/>
+                  </g>
+                  <g class="llm-fault__cur llm-fault__cur--1"><path d="M205 20 V290"/></g>
+                  <g class="llm-fault__cur llm-fault__cur--2"><path d="M445 20 V290"/></g>
+                  <g class="llm-fault__cur llm-fault__cur--3"><path d="M505 20 V290"/></g>
+                  <g class="llm-fault__cur llm-fault__cur--4"><path d="M585 20 V290"/></g>
+                </svg>
+                <ul class="llm-chartkey" aria-hidden="true">
+                  <li><i class="llm-key llm-key--band"></i>what it expected next</li>
+                  <li><i class="llm-key llm-key--real"></i>what the sensor said</li>
+                  <li><i class="llm-key llm-key--live"></i>surprise over the line</li>
+                </ul>
+              </div>
             </div>
-            <figcaption class="fig mono">FIG. 10 &middot; A MACHINE SENTENCE, AND THE MOMENT IT STOPS SOUNDING NORMAL. ILLUSTRATIVE.</figcaption>
+            <figcaption class="fig mono">FIG. 14 &middot; ONE PUMP, ONE FAULT. THE SURPRISE SCORE CROSSES THE LINE; THE MODEL FLAGS, A PERSON DECIDES. ILLUSTRATIVE.</figcaption>
           </figure>
 
           <p>
-            When the next reading lands far from what the model expected, that
-            surprise is the signal. Unusual is not always broken, so the model
-            flags and a person decides.
+            A big web model and a small plant model can both guess the next
+            reading. The small one has only ever heard this machine, so its guess
+            is sharper. Sharper guesses make smaller surprises on normal days and
+            louder ones on bad days.
           </p>
+
+          <figure class="figure figure--plate llm-fig">
+            <div class="llm-dist" role="img" aria-label="Diagram: two sets of bars over the next temperature reading, 70 to 76 degrees. A big general model spreads its bets across the whole range. A small specialist puts most of its bet on 71.4, so an unexpected reading stands out at once.">
+              <div class="llm-dist__pair">
+                <div class="llm-dist__one">
+                  <span class="llm-dist__name fig mono">A big web model</span>
+                  <ol class="llm-dist__bars"><li class="llm-h30"></li><li class="llm-h42"></li><li class="llm-h55"></li><li class="llm-h60"></li><li class="llm-h52"></li><li class="llm-h40"></li><li class="llm-h28"></li></ol>
+                </div>
+                <div class="llm-dist__one llm-dist__one--live">
+                  <span class="llm-dist__name fig mono">A small plant model</span>
+                  <ol class="llm-dist__bars"><li class="llm-h3"></li><li class="llm-h8"></li><li class="llm-h30"></li><li class="llm-h100"></li><li class="llm-h26"></li><li class="llm-h6"></li><li class="llm-h2"></li></ol>
+                </div>
+              </div>
+              <ol class="llm-dist__axis" aria-hidden="true"><li>70</li><li>71</li><li>71.2</li><li>71.4</li><li>71.6</li><li>72</li><li>76</li></ol>
+              <ul class="llm-dist__why" aria-hidden="true">
+                <li><b>Latency</b> tens of milliseconds on a single-board computer</li>
+                <li><b>Power</b> a few watts, no GPU</li>
+                <li><b>Network</b> none needed; it runs where the machine is</li>
+              </ul>
+            </div>
+            <figcaption class="fig mono">FIG. 15 &middot; THE SAME QUESTION, TWO MODELS. THE SPECIALIST&rsquo;S BET IS SHARPER. ILLUSTRATIVE.</figcaption>
+          </figure>
         </section>
 
-        <!-- §7 small, beside the machine -->
-        <section class="bc-sec" id="s7" data-reveal>
-          <span class="bc-sec__no">&sect;7 &middot; Small, beside the machine</span>
-          <h2>Why does a small model work for this?</h2>
+        <!-- §9 the small frontier -->
+        <section class="bc-sec" id="s9" data-reveal>
+          <span class="bc-sec__no">&sect;9 &middot; The small frontier</span>
+          <h2>How is RogerAI pushing the boundary for machines?</h2>
           <p>
-            A chatbot has to know a little about everything. A plant model has to
-            know one machine's language very well, and that takes far fewer
-            settings. Small means it fits on a modest computer on site, answers in
-            tens of milliseconds, and keeps working with the network cable unplugged.
+            Most of the field races to the largest model. We work the other end.
+            The question is how small a model can be and still read a machine
+            well. Here is what that means in practice.
           </p>
 
           <figure class="figure figure--plate">
             <img src="assets/broadcasts/llm-works-plant.webp" srcset="assets/broadcasts/llm-works-plant-800.webp 800w, assets/broadcasts/llm-works-plant.webp 1600w" sizes="(max-width: 1000px) 100vw, 960px" width="1600" height="896"
                  alt="A vintage illustration of a heavy industrial machine on a quiet factory floor. A long window in its side shows a chart of small grey vibration ripples that swell into one short burst drawn in red, then settle back to grey." loading="lazy" decoding="async" />
-            <figcaption class="fig mono">FIG. 11 &middot; THE MODEL READS THE MACHINE WHERE IT STANDS, NOT IN A DISTANT DATA CENTRE.</figcaption>
+            <figcaption class="fig mono">FIG. 16 &middot; THE MODEL READS THE MACHINE WHERE IT STANDS, NOT IN A DISTANT DATA CENTRE.</figcaption>
+          </figure>
+
+          <ul class="bc-dial">
+            <li><b>Trained on the machine&rsquo;s language.</b> Our small tiers start from nothing and read telemetry, log lines and serial dumps, not the web. The plant&rsquo;s vocabulary is the only one they learn.</li>
+            <li><b>Next reading, not next word.</b> The core skill is the same trick as this whole page: predict what comes next. A miss is a signal, and a confident miss is an alarm.</li>
+            <li><b>Measured, not claimed.</b> Every number we publish sits on the <a href="/research-wave-family.html">Wave family page</a>, with the benchmark it came from. Our smallest tiers score at chance on general benchmarks, on purpose.</li>
+            <li><b>A spectrum, not a single model.</b> Each tier is sized for a job. A Pico reads one machine. A Nano rolls up many Picos. Bigger tiers reason across a site and talk to the people who run it.</li>
+            <li><b>A read it cannot make goes up.</b> When a small tier is unsure, it sends the read to the tier above instead of guessing. Both speak the same machine vocabulary, so nothing is translated on the way.</li>
+            <li><b>It runs where the machine is.</b> On the board beside it, offline, in tens of milliseconds, beside the control system and never in place of it.</li>
+          </ul>
+
+          <figure class="figure figure--plate">
+            <img src="assets/broadcasts/llm-works-advisory.webp" srcset="assets/broadcasts/llm-works-advisory-800.webp 800w, assets/broadcasts/llm-works-advisory.webp 1600w" sizes="(max-width: 1000px) 100vw, 960px" width="1600" height="896"
+                 alt="A vintage illustration of a quiet factory floor: a large grey control cabinet with its doors closed, and bolted to the wall beside it a much smaller sealed instrument box with a single red lamp lit on its face. Thin cables run from a machine in the background into the small box." loading="lazy" decoding="async" />
+            <figcaption class="fig mono">FIG. 17 &middot; THE SMALL BOX BESIDE THE CABINET. IT WATCHES; THE CABINET RUNS THE MACHINE.</figcaption>
           </figure>
 
           <figure class="figure figure--plate llm-fig">
@@ -353,32 +593,64 @@
                 <span class="llm-path__box">A note to a person<small>&ldquo;bearing 2 sounds unusual&rdquo;</small></span>
               </div>
             </div>
-            <figcaption class="fig mono">FIG. 12 &middot; IT ADVISES. THE CONTROL SYSTEM STAYS IN CHARGE.</figcaption>
+            <figcaption class="fig mono">FIG. 18 &middot; IT ADVISES. THE CONTROL SYSTEM STAYS IN CHARGE.</figcaption>
           </figure>
 
+          <h3>What we do not claim</h3>
           <p>
-            This is what we build with the
-            <a href="/research-wave-family.html">Wave family</a>. The smallest,
-            Wave Pico, is on air today as the free band <code>wave-pico-293m</code>;
-            its weights are not published yet. Wave Nano is in training.
+            No Wave tier controls a machine, opens a valve or trips a breaker.
+            None of them guarantees it will catch a fault. A model that flags a
+            surprise is an adviser, and a person or the control system decides.
+            Where we stand today, from our own ledger: Wave Pico is on air, which
+            means <q>A gated artifact is served as a band on the network; its
+            weights are not published.</q> Wave Nano is in training.
           </p>
+
+          <h3>What to ask any vendor</h3>
+          <ol class="llm-ask">
+            <li>&ldquo;What did the model read during training: the web, or data like mine?&rdquo;</li>
+            <li>&ldquo;Where does it run, and does it keep working with the network unplugged?&rdquo;</li>
+            <li>&ldquo;What does it do when it is not sure?&rdquo;</li>
+            <li>&ldquo;Which numbers are measured on a public benchmark, and which are claims?&rdquo;</li>
+            <li>&ldquo;What can it change on the machine?&rdquo; The right answer is nothing.</li>
+          </ol>
         </section>
 
-        <!-- §8 what it is not -->
-        <section class="bc-sec" id="s8" data-reveal>
-          <span class="bc-sec__no">&sect;8 &middot; What it is not</span>
+        <!-- §10 what it is not -->
+        <section class="bc-sec" id="s10" data-reveal>
+          <span class="bc-sec__no">&sect;10 &middot; What it is not</span>
           <h2>What do people get wrong about LLMs?</h2>
           <ul class="bc-dial">
-            <li><b>&ldquo;It looks things up.&rdquo;</b> No. What it learned is spread across its settings, which is why it can sound sure and still be wrong.</li>
-            <li><b>&ldquo;It memorized the internet.&rdquo;</b> Its settings are far smaller than the text it read, so mostly it learned patterns, not pages.</li>
-            <li><b>&ldquo;It is a person.&rdquo;</b> It is a predictor. Predicting well forces it to model a lot about the world, but it has no life behind the words.</li>
+            <li><b>&ldquo;It looks things up.&rdquo;</b> No. What it learned is spread across its settings. That is why it can sound sure and still be wrong.</li>
+            <li><b>&ldquo;It memorized the internet.&rdquo;</b> Its settings are far smaller than the text it read. It learned patterns, not pages.</li>
+            <li><b>&ldquo;It is a person.&rdquo;</b> It is a predictor. Predicting well forces it to model a lot about the world, but there is no one behind the words.</li>
             <li><b>&ldquo;Bigger is always better.&rdquo;</b> For one narrow job, a small specialist trained on the right data often wins.</li>
           </ul>
         </section>
 
-        <!-- §9 faq -->
-        <section class="bc-sec" id="s9" data-reveal>
-          <span class="bc-sec__no">&sect;9 &middot; FAQ</span>
+        <!-- §11 glossary -->
+        <section class="bc-sec" id="s11" data-reveal>
+          <span class="bc-sec__no">&sect;11 &middot; Glossary</span>
+          <h2>What do the words on this page mean?</h2>
+          <dl class="tint-panel llm-gloss">
+            <dt>Token</dt><dd>A piece of text the model reads and writes: a word, part of a word, punctuation.</dd>
+            <dt>Vocabulary</dt><dd>The fixed set of tokens a model knows.</dd>
+            <dt>Embedding</dt><dd>The list of numbers that places a token on the map of meaning.</dd>
+            <dt>Attention</dt><dd>The step where each piece weighs the earlier pieces that matter now.</dd>
+            <dt>Transformer</dt><dd>The design that stacks attention layers; the architecture of today&rsquo;s LLMs.</dd>
+            <dt>Layer</dt><dd>One round of attention and arithmetic; models stack dozens.</dd>
+            <dt>Parameters</dt><dd>The settings training nudges; counted in millions or billions.</dd>
+            <dt>Loss</dt><dd>The measured miss between a guess and the answer; training pushes it down.</dd>
+            <dt>Pretraining</dt><dd>School one: next-piece prediction over a huge library.</dd>
+            <dt>Temperature</dt><dd>A setting for how often sampling takes a lower bar.</dd>
+            <dt>Quantization</dt><dd>Storing each setting in fewer bits, so the model takes less memory.</dd>
+            <dt>Surprise</dt><dd>How far a real reading lands from what the model expected; the anomaly score.</dd>
+          </dl>
+        </section>
+
+        <!-- §12 faq -->
+        <section class="bc-sec" id="s12" data-reveal>
+          <span class="bc-sec__no">&sect;12 &middot; FAQ</span>
           <h2>Questions people actually ask</h2>
           <dl class="bc-faq">
             <dt><b>What is a token in an LLM?</b></dt>
@@ -398,11 +670,11 @@
 
         <aside class="tint-panel bc-signoff">
           <span class="tint-panel__tag">roger that</span>
-          <p>Want to talk to one? Install the set, then <code class="cmd-words"><span>roger</span> <span>search</span></code> to see what is on the band, or <code class="cmd-words"><span>roger</span> <span>use</span> <span>wave-pico-293m</span></code> to hear a model that learned a machine&rsquo;s language.</p>
+          <p>To talk to one, install the set, then <code class="cmd-words"><span>roger</span> <span>search</span></code> to see what is on the band, or <code class="cmd-words"><span>roger</span> <span>use</span> <span>wave-pico-293m</span></code> to hear a model that learned a machine&rsquo;s language.</p>
           <div class="install">
             <!-- include: install-box.html id=signoffInstall cmd='curl <span class="tok">-fsSL</span> <span class="tok">https://rogerai.fm/install.sh</span> <span class="tok">| sh</span>' -->
           </div>
-          <p>Will a model fit on your card? Read <a href="/broadcasts-vram-for-llm.html">how much VRAM you need</a>.</p>
+          <p>Before you pick a model for your own card, read <a href="/broadcasts-vram-for-llm.html">how much VRAM you need</a>.</p>
         </aside>
 
       </div>

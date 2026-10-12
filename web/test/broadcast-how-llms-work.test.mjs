@@ -54,8 +54,8 @@ test("how-llms: a Quick Answer of 40 to 60 words opens the article", () => {
 
 test("how-llms: every section heading is a question a reader would type", () => {
   const h2s = [...mainOf(read(PAGE)).matchAll(/<section class="bc-sec"[^>]*>[\s\S]*?<h2>([^<]+)<\/h2>/g)].map((m) => m[1]);
-  assert.equal(h2s.length, 9);
-  for (const h of h2s.slice(0, 8)) assert.match(h, /\?$/, `"${h}" is a question`);
+  assert.equal(h2s.length, 12);
+  for (const h of h2s.slice(0, 11)) assert.match(h, /\?$/, `"${h}" is a question`);
 });
 
 test("how-llms: the FAQPage JSON-LD parses and mirrors the visible FAQ", () => {
@@ -87,25 +87,25 @@ test("how-llms: the hero, plates and OG card are real shipped assets", () => {
 
 test("how-llms: every figure has a caption and a text alternative", () => {
   const figs = [...mainOf(read(PAGE)).matchAll(/<figure\b[\s\S]*?<\/figure>/g)].map((m) => m[0]);
-  assert.equal(figs.length, 12, "twelve figures, FIG. 1 to FIG. 12");
+  assert.equal(figs.length, 18, "eighteen figures, FIG. 1 to FIG. 18");
   figs.forEach((fig, i) => {
     assert.match(fig, new RegExp(`<figcaption class="fig mono">FIG\\. ${i + 1} &middot; `), `FIG. ${i + 1} is captioned, in order`);
     const img = fig.match(/<img\b[^>]*>/);
     if (img) {
       const alt = img[0].match(/\salt="([^"]*)"/);
       assert.ok(alt && alt[1].length > 40, `FIG. ${i + 1}: the image says what it shows`);
-    } else if (/data-scrub/.test(fig)) {
-      assert.match(fig, /<ol class="llm-train scroll-box" data-scrub data-scrub-start="4" aria-label="[^"]{20,}"/, "the scrubber is named by its list");
-    } else {
-      assert.match(fig, /role="img" aria-label="Diagram: [^"]{60,}"/, `FIG. ${i + 1}: the diagram is described in words`);
+      return;
     }
+    // a scrubbed figure names its stops; a stage beside the stops is described in words
+    if (/data-scrub/.test(fig)) assert.match(fig, /data-scrub(?: data-scrub-start="\d")? aria-label="[^"]{20,}"/, `FIG. ${i + 1}: the scrubber is named by its list`);
+    if (/role="(img|group)"/.test(fig) || !/data-scrub/.test(fig)) assert.match(fig, /role="(img|group)" aria-label="[^"]{60,}"/, `FIG. ${i + 1}: the diagram is described in words`);
   });
 });
 
 test("how-llms: the diagrams carry no SVG text (their words are page text, so they reflow on a phone)", () => {
   const figs = (mainOf(read(PAGE)).match(/<figure\b[\s\S]*?<\/figure>/g) || []).join("");
   const svgs = figs.match(/<svg\b[\s\S]*?<\/svg>/g) || [];
-  assert.equal(svgs.length, 7, "the arcs, five training waves and the trace");
+  assert.equal(svgs.length, 8, "the arcs, five training waves, the error curves and the trace");
   for (const svg of svgs) {
     assert.doesNotMatch(svg, /<text\b/);
     assert.match(svg, /aria-hidden="true"/, "every drawing is decoration under a described figure");
@@ -113,7 +113,7 @@ test("how-llms: the diagrams carry no SVG text (their words are page text, so th
 });
 
 test("how-llms: the training scrubber is the shared component, five checkpoints, each named", () => {
-  const list = mainOf(read(PAGE)).match(/<ol class="llm-train scroll-box" data-scrub[\s\S]*?<\/ol>/)[0];
+  const list = mainOf(read(PAGE)).match(/<ol class="llm-train llm-stops" data-scrub data-scrub-start="4"[\s\S]*?<\/ol>/)[0];
   const items = [...list.matchAll(/<li>\s*<b>([^<]+)<\/b>/g)].map((m) => m[1]);
   assert.deepEqual(items, ["Step 0", "Early", "Later", "Much later", "Trained"]);
 });
@@ -146,24 +146,73 @@ test("how-llms: no em dashes, in the source or the build", () => {
 
 test("how-llms: the illustrative numbers are labelled as illustrative", () => {
   const caps = [...read(PAGE).matchAll(/<figcaption class="fig mono">([^<]*)<\/figcaption>/g)].map((m) => m[1]);
-  for (const n of [3, 6, 8, 10]) assert.match(caps[n - 1], /ILLUSTRATIVE/, `FIG. ${n} shows made-up numbers and says so`);
+  for (const n of [3, 6, 10, 14, 15]) assert.match(caps[n - 1], /ILLUSTRATIVE/, `FIG. ${n} shows made-up numbers and says so`);
+  assert.match(caps[7], /A SKETCH/, "FIG. 8 says it is a sketch");
 });
 
 /* ---- the one product claim matches the ledger ---------------------------------------- */
 
-test("how-llms: the Wave line says what wave-status.json says, and no more", () => {
+test("how-llms: every Wave claim says what wave-status.json says, and no more", () => {
   const ledger = JSON.parse(src("data/wave-status.json"));
   const tier = (id) => ledger.tiers.find((t) => t.id === id);
-  const body = text(mainOf(read(PAGE)));
+  const html = read(PAGE);
+  const body = text(mainOf(html));
   const pico = tier("pico"), nano = tier("nano");
-  assert.equal(pico.stage, "on-air", "the page says Pico is on air; the ledger must agree");
-  assert.ok(body.includes(`Wave Pico, is on air today as the free band ${pico.onAirBand}`), "the band named is the ledger's");
-  assert.equal(pico.publicCheckpoint, false);
-  assert.match(body, /its weights are not published yet/, "no public checkpoint, said plainly");
-  assert.equal(nano.stage, "training", "the page says Nano is training; the ledger must agree");
+  assert.equal(pico.stage, "on-air"); assert.equal(nano.stage, "training");
+  assert.match(body, /Wave Pico is on air, which means/, "the page states Pico's stage");
+  assert.ok(body.includes(ledger.stages["on-air"]), "and quotes the ledger's definition of that stage, verbatim");
   assert.match(body, /Wave Nano is in training/);
+  assert.ok(html.includes(`<span>${pico.onAirBand}</span>`), "the sign-off names the ledger's band");
   assert.ok(ledger.tiers.every((t) => !t.publicCheckpoint), "nothing is released, so the page claims no download");
   assert.doesNotMatch(body, /open weights|download (the )?weights|weights are (out|available|published)/i);
+  // the size ladder: one row per ladder tier, in ledger order, the ledger's size and stage word for word
+  const rows = [...html.matchAll(/<li class="llm-ladder__row[^"]*"><span class="llm-ladder__name">Wave (\w+)<\/span>[\s\S]*?<span class="llm-ladder__size">([^<]*)<\/span><span class="llm-ladder__fit">[^<]*<em>([^<]*)<\/em>/g)]
+    .map((m) => ({ name: m[1].toLowerCase(), size: m[2].replace(/&ndash;/g, "\u2013").replace(/&gt;/g, ">"), stage: m[3].replace(/ /g, "-") }));
+  const ladder = ledger.tiers.filter((t) => t.kind === "tier");
+  assert.deepEqual(rows.map((r) => r.name), ladder.map((t) => t.id), "every ladder tier, in order");
+  rows.forEach((r, i) => {
+    assert.equal(r.size, ladder[i].size, `${r.name}: the ledger's size`);
+    assert.equal(r.stage, ladder[i].stage, `${r.name}: the ledger's stage`);
+  });
+  assert.match(html, /Microcontroller<\/span>[\s\S]{0,120}no model/, "no Wave tier runs on a microcontroller: it reads the sensor");
+});
+
+test("how-llms: the glossary defines the words the page uses, and the vendor list is five quoted questions", () => {
+  const html = read(PAGE);
+  const gloss = html.match(/<dl class="tint-panel llm-gloss">[\s\S]*?<\/dl>/)[0];
+  const terms = [...gloss.matchAll(/<dt>([^<]+)<\/dt><dd>([^<]+)<\/dd>/g)].map((m) => ({ term: m[1], line: m[2] }));
+  assert.ok(terms.length >= 10 && terms.length <= 12, `${terms.length} terms`);
+  const prose = text(mainOf(html).replace(/<dl class="tint-panel llm-gloss">[\s\S]*?<\/dl>/, "")).toLowerCase();
+  for (const { term, line } of terms) {
+    assert.ok(prose.includes(term.toLowerCase().replace(/s$/, "")), `"${term}" is used on the page`);
+    assert.ok(line.split(" ").length <= 16, `"${term}": one line`);
+  }
+  const ask = [...html.match(/<ol class="llm-ask">[\s\S]*?<\/ol>/)[0].matchAll(/<li>([\s\S]*?)<\/li>/g)].map((m) => m[1]);
+  assert.equal(ask.length, 5);
+  for (const q of ask) assert.match(q, /^&ldquo;[^?]+\?&rdquo;/, "a quoted question");
+});
+
+test("how-llms: every scrubbed stage draws its last stop by default and reads the tuned stop through :has()", () => {
+  const css = src("styles/broadcast-how-llms-work.css").replace(/\/\*[\s\S]*?\*\//g, "");
+  const html = read(PAGE);
+  for (const [stage, def] of [["llm-mapstage", null], ["llm-attn", "llm-attn__set--5"], ["llm-loss", "llm-loss__mark--5"], ["llm-fault", "llm-fault__cur--3"]]) {
+    assert.match(css, new RegExp(`\\.${stage}:has\\(\\.llm-stops > li:nth-child\\(1\\)\\.is-tuned\\)`), `${stage} reads its stops`);
+    if (def) assert.match(css, new RegExp(`\\.${def} \\{ display: (block|grid); \\}`), `${stage}: a drawn default without JS`);
+  }
+  // the stops lists are laid out whole (a wrapping row), so data-scrub-start applies everywhere
+  for (const m of html.matchAll(/<ol class="([^"]*llm-stops[^"]*)" data-scrub( data-scrub-start="(\d)")? aria-label="([^"]+)"/g)) {
+    if (!/llm-attn__row/.test(m[1])) assert.ok(m[2], `${m[4]}: starts on its payoff stop`);
+  }
+  assert.match(css, /\.llm-stops \{[^}]*flex-wrap: wrap/, "the stops wrap instead of scrolling");
+});
+
+test("how-llms: the map's words are keyboard-reachable buttons in a named group, and a group lights on hover or focus", () => {
+  const map = read(PAGE).match(/<div class="llm-map" role="group" aria-label="[^"]{60,}">[\s\S]*?<\/div>/)[0];
+  const words = [...map.matchAll(/<button type="button" class="llm-map__w[^"]*" data-g="([abc])" aria-label="[^"]+">/g)];
+  assert.equal(words.length, 12);
+  const css = src("styles/broadcast-how-llms-work.css");
+  for (const g of ["a", "b", "c"]) assert.match(css, new RegExp(`\\.llm-map:has\\(\\.llm-map__w\\[data-g="${g}"\\]:is\\(:hover, :focus-visible\\)\\) \\.llm-map__w\\[data-g="${g}"\\]`));
+  assert.match(css, /\.llm-map__w:focus-visible \{ outline: 2px solid var\(--live\)/, "a visible focus ring");
 });
 
 /* ---- nothing internal ships ------------------------------------------------------------ */
