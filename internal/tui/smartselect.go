@@ -61,7 +61,7 @@ var smartOSC52 = func(s string) bool {
 	if err != nil || fi.Mode()&os.ModeCharDevice == 0 {
 		return false // no terminal, no OSC 52 path
 	}
-	fmt.Print(osc52(s))
+	fmt.Fprint(clipboardOut, osc52(s))
 	return true
 }
 
