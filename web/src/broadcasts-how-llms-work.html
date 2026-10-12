@@ -91,6 +91,21 @@
           handful of pictures. Follow one sentence through the machine.
         </p>
 
+        <figure class="figure figure--plate llm-fig">
+          <div class="llm-flow" role="img" aria-label="Diagram: the whole machine on one strip. Text comes in, is cut into pieces, each piece is placed on a map of meaning, every piece looks back at the others through a few dozen layers, the model scores every possible next piece, picks one, adds it to the text, and loops back to the start.">
+            <ol class="llm-flow__steps" aria-hidden="true">
+              <li><span class="llm-flow__no">IN</span><b>Text so far</b><small>&ldquo;&hellip;keyed the mic and said&rdquo;</small></li>
+              <li><span class="llm-flow__no">&sect;1</span><b>Cut into pieces</b><small>tokens</small></li>
+              <li><span class="llm-flow__no">&sect;2</span><b>Placed on a map</b><small>numbers for meaning</small></li>
+              <li><span class="llm-flow__no">&sect;3</span><b>Look back</b><small>attention, dozens of layers</small></li>
+              <li><span class="llm-flow__no">&sect;1</span><b>Score every next piece</b><small>a probability for each</small></li>
+              <li class="llm-flow__out"><span class="llm-flow__no">OUT</span><b>Pick one, add it</b><small>&ldquo;roger&rdquo;, then go again</small></li>
+            </ol>
+            <p class="llm-flow__loop" aria-hidden="true"><span class="llm-flow__arrow">&#8635;</span> the new piece joins the text, and the strip runs again</p>
+          </div>
+          <figcaption class="fig mono">FIG. 2 &middot; THE WHOLE MACHINE ON ONE STRIP. EVERY WORD OF AN ANSWER GOES ROUND ONCE.</figcaption>
+        </figure>
+
         <!-- §1 the next piece -->
         <section class="bc-sec" id="s1" data-reveal>
           <span class="bc-sec__no">&sect;1 &middot; The next piece</span>
@@ -112,7 +127,7 @@
                 <li class="llm-next__row llm-next__row--tail"><span class="llm-next__w">every other piece</span><span class="llm-next__track"><i class="llm-next__bar llm-p19"></i></span><span class="llm-next__p">19%</span></li>
               </ol>
             </div>
-            <figcaption class="fig mono">FIG. 2 &middot; SCORE EVERY NEXT PIECE, PICK ONE, REPEAT. ILLUSTRATIVE NUMBERS.</figcaption>
+            <figcaption class="fig mono">FIG. 3 &middot; SCORE EVERY NEXT PIECE, PICK ONE, REPEAT. ILLUSTRATIVE NUMBERS.</figcaption>
           </figure>
 
           <p>
@@ -127,7 +142,7 @@
               <p class="llm-pieces__word" aria-hidden="true"><span class="llm-tok">Roger</span><span class="llm-tok">&nbsp;that</span><span class="llm-tok">.</span></p>
               <p class="llm-pieces__word" aria-hidden="true"><span class="llm-tok">14</span><span class="llm-tok">80</span><span class="llm-tok">&nbsp;rpm</span></p>
             </div>
-            <figcaption class="fig mono">FIG. 3 &middot; PIECES, NOT WORDS. ONE WAY A TOKENIZER MIGHT CUT THEM.</figcaption>
+            <figcaption class="fig mono">FIG. 4 &middot; PIECES, NOT WORDS. ONE WAY A TOKENIZER MIGHT CUT THEM.</figcaption>
           </figure>
         </section>
 
@@ -162,7 +177,7 @@
               <span class="llm-map__w llm-w11" aria-hidden="true">soup</span>
               <span class="llm-map__w llm-w12" aria-hidden="true">oven</span>
             </div>
-            <figcaption class="fig mono">FIG. 4 &middot; SCATTERED AT FIRST, SORTED BY USE. A FLAT SKETCH OF A MAP WITH THOUSANDS OF DIRECTIONS.</figcaption>
+            <figcaption class="fig mono">FIG. 5 &middot; SCATTERED AT FIRST, SORTED BY USE. A FLAT SKETCH OF A MAP WITH THOUSANDS OF DIRECTIONS.</figcaption>
           </figure>
         </section>
 
@@ -193,7 +208,7 @@
                 <li><span class="llm-tok llm-tok--now">it</span><span class="llm-attn__w">5%</span></li>
               </ol>
             </div>
-            <figcaption class="fig mono">FIG. 5 &middot; &ldquo;IT&rdquo; LOOKS BACK AND LEANS ON &ldquo;PUMP&rdquo;. ILLUSTRATIVE WEIGHTS.</figcaption>
+            <figcaption class="fig mono">FIG. 6 &middot; &ldquo;IT&rdquo; LOOKS BACK AND LEANS ON &ldquo;PUMP&rdquo;. ILLUSTRATIVE WEIGHTS.</figcaption>
           </figure>
         </section>
 
@@ -211,7 +226,7 @@
           <figure class="figure figure--plate">
             <img src="assets/broadcasts/llm-works-dials.webp" srcset="assets/broadcasts/llm-works-dials-800.webp 800w, assets/broadcasts/llm-works-dials.webp 1600w" sizes="(max-width: 1000px) 100vw, 960px" width="1600" height="896"
                  alt="A vintage engraving of a steel instrument panel with rows of small knobs on either side of one large meter. Its red needle has swung low, toward the quiet end of the scale." loading="lazy" decoding="async" />
-            <figcaption class="fig mono">FIG. 6 &middot; PICTURE BILLIONS OF THESE KNOBS, EACH NUDGED A HAIR AFTER EVERY GUESS.</figcaption>
+            <figcaption class="fig mono">FIG. 7 &middot; PICTURE BILLIONS OF THESE KNOBS, EACH NUDGED A HAIR AFTER EVERY GUESS.</figcaption>
           </figure>
 
           <p>
@@ -257,7 +272,7 @@
                 <span class="llm-train__label">A clear signal</span>
               </li>
             </ol>
-            <figcaption class="fig mono">FIG. 7 &middot; THE SAME SENTENCE, ASKED AT FIVE POINTS IN TRAINING. THE BAR IS THE ERROR. ILLUSTRATIVE.</figcaption>
+            <figcaption class="fig mono">FIG. 8 &middot; THE SAME SENTENCE, ASKED AT FIVE POINTS IN TRAINING. THE BAR IS THE ERROR. ILLUSTRATIVE.</figcaption>
           </figure>
         </section>
 
@@ -273,7 +288,7 @@
           <figure class="figure figure--plate">
             <img src="assets/broadcasts/llm-works-library.webp" srcset="assets/broadcasts/llm-works-library-800.webp 800w, assets/broadcasts/llm-works-library.webp 1600w" sizes="(max-width: 1000px) 100vw, 960px" width="1600" height="896"
                  alt="A vintage engraving of an endless archive hall, shelves stacked with reels of tape on both sides, and one small radio receiver on a pedestal in the aisle with a single red lamp lit above it." loading="lazy" decoding="async" />
-            <figcaption class="fig mono">FIG. 8 &middot; SCHOOL ONE: A LIBRARY, READ ONE NEXT PIECE AT A TIME.</figcaption>
+            <figcaption class="fig mono">FIG. 9 &middot; SCHOOL ONE: A LIBRARY, READ ONE NEXT PIECE AT A TIME.</figcaption>
           </figure>
 
           <ol class="steps">
@@ -311,7 +326,7 @@
                 <li><i class="llm-key llm-key--live"></i>surprise</li>
               </ul>
             </div>
-            <figcaption class="fig mono">FIG. 9 &middot; A MACHINE SENTENCE, AND THE MOMENT IT STOPS SOUNDING NORMAL. ILLUSTRATIVE.</figcaption>
+            <figcaption class="fig mono">FIG. 10 &middot; A MACHINE SENTENCE, AND THE MOMENT IT STOPS SOUNDING NORMAL. ILLUSTRATIVE.</figcaption>
           </figure>
 
           <p>
@@ -335,7 +350,7 @@
           <figure class="figure figure--plate">
             <img src="assets/broadcasts/llm-works-plant.webp" srcset="assets/broadcasts/llm-works-plant-800.webp 800w, assets/broadcasts/llm-works-plant.webp 1600w" sizes="(max-width: 1000px) 100vw, 960px" width="1600" height="896"
                  alt="A vintage illustration of a heavy industrial machine on a quiet factory floor. A paper strip chart in its window shows a calm grey trace with one sharp spike drawn in red, and a control cabinet stands by the tall windows." loading="lazy" decoding="async" />
-            <figcaption class="fig mono">FIG. 10 &middot; THE MODEL READS THE MACHINE WHERE IT STANDS, NOT IN A DISTANT DATA CENTRE.</figcaption>
+            <figcaption class="fig mono">FIG. 11 &middot; THE MODEL READS THE MACHINE WHERE IT STANDS, NOT IN A DISTANT DATA CENTRE.</figcaption>
           </figure>
 
           <figure class="figure figure--plate llm-fig">
@@ -352,7 +367,7 @@
                 <span class="llm-path__box">A note to a person<small>&ldquo;bearing 2 sounds unusual&rdquo;</small></span>
               </div>
             </div>
-            <figcaption class="fig mono">FIG. 11 &middot; IT ADVISES. THE CONTROL SYSTEM STAYS IN CHARGE.</figcaption>
+            <figcaption class="fig mono">FIG. 12 &middot; IT ADVISES. THE CONTROL SYSTEM STAYS IN CHARGE.</figcaption>
           </figure>
 
           <p>

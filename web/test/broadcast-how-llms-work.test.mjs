@@ -86,7 +86,7 @@ test("how-llms: the hero, plates and OG card are real shipped assets", () => {
 
 test("how-llms: every figure has a caption and a text alternative", () => {
   const figs = [...mainOf(read(PAGE)).matchAll(/<figure\b[\s\S]*?<\/figure>/g)].map((m) => m[0]);
-  assert.equal(figs.length, 11, "eleven figures, FIG. 1 to FIG. 11");
+  assert.equal(figs.length, 12, "twelve figures, FIG. 1 to FIG. 12");
   figs.forEach((fig, i) => {
     assert.match(fig, new RegExp(`<figcaption class="fig mono">FIG\\. ${i + 1} &middot; `), `FIG. ${i + 1} is captioned, in order`);
     const img = fig.match(/<img\b[^>]*>/);
@@ -145,7 +145,7 @@ test("how-llms: no em dashes, in the source or the build", () => {
 
 test("how-llms: the illustrative numbers are labelled as illustrative", () => {
   const caps = [...read(PAGE).matchAll(/<figcaption class="fig mono">([^<]*)<\/figcaption>/g)].map((m) => m[1]);
-  for (const n of [2, 5, 7, 9]) assert.match(caps[n - 1], /ILLUSTRATIVE/, `FIG. ${n} shows made-up numbers and says so`);
+  for (const n of [3, 6, 8, 10]) assert.match(caps[n - 1], /ILLUSTRATIVE/, `FIG. ${n} shows made-up numbers and says so`);
 });
 
 /* ---- the one product claim matches the ledger ---------------------------------------- */
