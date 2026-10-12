@@ -1,0 +1,229 @@
+/* Broadcast 016 - how an LLM works, in pictures. Scoped under .llm-post.
+   Every diagram is complete as drawn: the base rules below ARE the finished figure (no-JS,
+   reduced motion, print, and browsers without scroll-driven animation all get it). Where the
+   browser supports animation-timeline, the parts assemble as the figure scrolls into view:
+   the reader's own scroll drives the motion, so nothing moves on its own and nothing loops.
+   Mono + one red: red marks the one thing each figure is about (the winning piece, the piece
+   attention leans on, the tuned training step, the surprise, the model's lane). */
+
+/* ---- the figure ground: the shared plate; each diagram sits on it ---- */
+.llm-post .llm-fig { view-timeline: --llm-fig block; }
+
+/* ---- a token chip: one piece of text ---- */
+.llm-tok {
+  display: inline-block; padding: 3px 8px; margin: 3px 2px;
+  font-family: var(--font-mono); font-size: var(--t-sm); line-height: 1.5;
+  color: var(--ink-900); background: var(--paper);
+  border: 1px solid var(--hairline-2); border-radius: var(--r-md);
+  white-space: pre;
+}
+.llm-tok--new, .llm-tok--live { border-color: var(--live); color: var(--live-text); font-weight: var(--weight-semi); }
+.llm-tok--now { background: var(--ink-900); border-color: var(--ink-900); color: var(--paper); }
+.llm-tok--ghost { border-style: dashed; color: var(--ink-500); }
+
+/* ---- FIG. 2: the next piece, scored ---- */
+.llm-next { padding: var(--s-2) var(--s-1); }
+.llm-next__line { margin: 0; }
+.llm-next__bars { list-style: none; margin: var(--s-5) 0 0; padding: 0; display: grid; gap: var(--s-2); }
+.llm-next__row {
+  display: grid; grid-template-columns: minmax(7.5rem, 11rem) minmax(0, 1fr) 3.2rem;
+  align-items: center; gap: var(--s-3);
+  font-family: var(--font-mono); font-size: var(--t-sm); color: var(--ink-700);
+}
+.llm-next__p { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink-500); }
+.llm-next__track { display: block; height: 10px; background: var(--hairline); border-radius: var(--r-xs); overflow: hidden; }
+.llm-next__bar { display: block; height: 100%; width: var(--p); background: var(--ink-500); transform-origin: left center; }
+.llm-next__row--win .llm-next__w, .llm-next__row--win .llm-next__p { color: var(--live-text); font-weight: var(--weight-semi); }
+.llm-next__row--win .llm-next__bar { background: var(--live); }
+.llm-next__row--tail { color: var(--ink-500); }
+.llm-next__row--tail .llm-next__bar { background: var(--ink-300); }
+.llm-p41 { --p: 41%; } .llm-p22 { --p: 22%; } .llm-p12 { --p: 12%; } .llm-p6 { --p: 6%; } .llm-p19 { --p: 19%; }
+
+/* ---- FIG. 3: pieces, not words ---- */
+.llm-pieces { display: flex; flex-wrap: wrap; gap: var(--s-3) var(--s-8); padding: var(--s-2) var(--s-1); }
+.llm-pieces__word { margin: 0; display: flex; }
+.llm-pieces__word .llm-tok { margin: 0; border-radius: 0; }
+.llm-pieces__word .llm-tok + .llm-tok { border-left-style: dashed; margin-left: -1px; }
+.llm-pieces__word .llm-tok:first-child { border-radius: var(--r-md) 0 0 var(--r-md); }
+.llm-pieces__word .llm-tok:last-child { border-radius: 0 var(--r-md) var(--r-md) 0; }
+
+/* ---- FIG. 4: the map. Positions are percentages of the map; the drift offsets are
+   container units, so they scale with it ---- */
+.llm-map {
+  position: relative; aspect-ratio: 16 / 10; container-type: inline-size; overflow: clip;
+  font-family: var(--font-mono);
+}
+.llm-map__zone {
+  position: absolute; left: var(--x); top: var(--y); width: var(--w); height: var(--h);
+  translate: -50% -50%; border: 1px dashed var(--hairline-2); border-radius: 50%;
+}
+.llm-map__name {
+  position: absolute; left: var(--x); top: var(--y);
+  font-size: var(--t-micro); letter-spacing: var(--tracking-label); color: var(--ink-400);
+}
+.llm-map__w {
+  position: absolute; left: var(--x); top: var(--y); translate: -50% -50%;
+  padding: 2px 8px; font-size: var(--t-sm); color: var(--ink-900);
+  background: var(--paper); border: 1px solid var(--hairline-2); border-radius: var(--r-pill);
+  white-space: nowrap;
+}
+.llm-map__w--live { border-color: var(--live); color: var(--live-text); font-weight: var(--weight-semi); }
+.llm-map__zone--a { --x: 27%; --y: 36%; --w: 40%; --h: 54%; }
+.llm-map__zone--b { --x: 74%; --y: 34%; --w: 38%; --h: 48%; }
+.llm-map__zone--c { --x: 50%; --y: 82%; --w: 34%; --h: 30%; }
+.llm-map__name--a { --x: 6%; --y: 4%; }
+.llm-map__name--b { --x: 58%; --y: 4%; }
+.llm-map__name--c { --x: 20%; --y: 80%; }
+.llm-w1  { --x: 17%; --y: 24%; --sx: 52cqw;  --sy: 30cqw; }
+.llm-w2  { --x: 33%; --y: 20%; --sx: 30cqw;  --sy: 36cqw; }
+.llm-w3  { --x: 18%; --y: 44%; --sx: 58cqw;  --sy: -6cqw; }
+.llm-w4  { --x: 37%; --y: 37%; --sx: 10cqw;  --sy: 28cqw; }
+.llm-w5  { --x: 28%; --y: 54%; --sx: 44cqw;  --sy: -22cqw; }
+.llm-w6  { --x: 66%; --y: 22%; --sx: -40cqw; --sy: 30cqw; }
+.llm-w7  { --x: 83%; --y: 26%; --sx: -60cqw; --sy: 6cqw; }
+.llm-w8  { --x: 70%; --y: 42%; --sx: -20cqw; --sy: -16cqw; }
+.llm-w9  { --x: 84%; --y: 46%; --sx: -50cqw; --sy: 16cqw; }
+.llm-w10 { --x: 41%; --y: 80%; --sx: 36cqw;  --sy: -34cqw; }
+.llm-w11 { --x: 57%; --y: 76%; --sx: -34cqw; --sy: -30cqw; }
+.llm-w12 { --x: 50%; --y: 89%; --sx: 22cqw;  --sy: -44cqw; }
+@media (max-width: 640px) {
+  .llm-map { aspect-ratio: 4 / 5; }
+  .llm-map__zone--a { --x: 50%; --y: 20%; --w: 92%; --h: 30%; }
+  .llm-map__zone--b { --x: 50%; --y: 52%; --w: 92%; --h: 26%; }
+  .llm-map__zone--c { --x: 50%; --y: 83%; --w: 80%; --h: 22%; }
+  .llm-map__name--a { --x: 4%; --y: 1%; }
+  .llm-map__name--b { --x: 4%; --y: 36%; }
+  .llm-map__name--c { --x: 4%; --y: 69%; }
+  .llm-w1  { --x: 24%; --y: 13%; } .llm-w2  { --x: 52%; --y: 10%; } .llm-w3  { --x: 78%; --y: 16%; }
+  .llm-w4  { --x: 34%; --y: 27%; } .llm-w5  { --x: 64%; --y: 28%; }
+  .llm-w6  { --x: 24%; --y: 46%; } .llm-w7  { --x: 52%; --y: 44%; } .llm-w8  { --x: 76%; --y: 53%; }
+  .llm-w9  { --x: 40%; --y: 58%; }
+  .llm-w10 { --x: 30%; --y: 81%; } .llm-w11 { --x: 58%; --y: 78%; } .llm-w12 { --x: 70%; --y: 89%; }
+}
+
+/* ---- FIG. 5: attention. Five equal columns, so each arc lands on its word's centre
+   (10, 30, 50, 70, 90 of the drawing's 100 units) ---- */
+.llm-attn { padding: var(--s-2) 0 0; }
+.llm-attn__arcs { display: block; width: 100%; height: auto; overflow: visible; }
+.llm-arc { fill: none; stroke: var(--ink-500); stroke-linecap: round; }
+.llm-arc--1 { stroke-width: 0.3; }
+.llm-arc--3 { stroke-width: 0.55; }
+.llm-arc--4 { stroke-width: 0.35; }
+.llm-arc--live { stroke: var(--live); stroke-width: 1.1; }
+.llm-attn__row { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.llm-attn__row li { display: flex; flex-direction: column; align-items: center; gap: var(--s-1); min-width: 0; }
+.llm-attn__row .llm-tok { margin: 0; padding-inline: 6px; }
+.llm-attn__w { font-family: var(--font-mono); font-size: var(--t-xs); color: var(--ink-500); font-variant-numeric: tabular-nums; }
+.llm-attn__w--live { color: var(--live-text); font-weight: var(--weight-semi); }
+
+/* ---- FIG. 7: training, on the shared scrubber. Five checkpoints in a row; a sideways
+   gallery on a phone (scrub.js centres the tuned one) ---- */
+.llm-train {
+  position: relative; list-style: none; margin: 0; padding: 0;
+  display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--s-2);
+}
+.llm-train > li {
+  display: flex; flex-direction: column; gap: var(--s-2); min-width: 0;
+  padding: var(--s-3); border-radius: var(--r-md);
+  border: 1px solid transparent;
+  transition: background-color var(--d-2), border-color var(--d-2);
+}
+.llm-train > li > b {
+  font-family: var(--font-mono); font-size: var(--t-micro); font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--ink-500);
+}
+.llm-train__wave { display: block; width: 100%; height: auto; }
+.llm-train__wave path { fill: none; stroke: var(--ink-500); stroke-width: 1.6; stroke-linejoin: round; }
+.llm-train__guess { font-family: var(--font-mono); font-size: var(--t-xs); color: var(--ink-700); overflow-wrap: anywhere; }
+.llm-train__guess q { color: var(--ink-900); font-weight: var(--weight-semi); }
+.llm-train__err { display: block; height: 6px; width: var(--e); background: var(--ink-500); border-radius: var(--r-xs); }
+.llm-e5 { --e: 100%; } .llm-e4 { --e: 72%; } .llm-e3 { --e: 44%; } .llm-e2 { --e: 20%; } .llm-e1 { --e: 6%; }
+.llm-train__label { font-size: var(--t-xs); color: var(--ink-500); }
+.llm-train > li.is-tuned { background: var(--paper); border-color: var(--hairline-2); }
+.llm-train > li.is-tuned .llm-train__wave path { stroke: var(--live); }
+.llm-train > li.is-tuned > b { color: var(--live-text); }
+@media (max-width: 640px) {
+  .llm-train {
+    display: flex; overflow-x: auto; scroll-snap-type: x mandatory; gap: var(--s-2);
+    padding-bottom: var(--s-2); scrollbar-width: thin;
+  }
+  .llm-train > li { flex: 0 0 62%; scroll-snap-align: center; }
+}
+
+/* ---- §5: the steps component in the article's measure ---- */
+.llm-post .steps { margin-top: var(--s-8); }
+
+/* ---- FIG. 9: a machine sentence and its trace ---- */
+.llm-trace__line { margin: 0 0 var(--s-4); }
+.llm-trace__plot { display: block; width: 100%; height: auto; }
+.llm-trace__band { fill: var(--ink-300); fill-opacity: 0.35; }
+.llm-trace__exp { fill: none; stroke: var(--ink-500); stroke-width: 1.5; stroke-dasharray: 5 5; }
+.llm-trace__real, .llm-trace__after { fill: none; stroke: var(--ink-900); stroke-width: 2.4; stroke-linejoin: round; }
+.llm-trace__spike { fill: none; stroke: var(--live); stroke-width: 3.2; stroke-linejoin: round; }
+.llm-trace__ring { fill: none; stroke: var(--live); stroke-width: 2; }
+.llm-trace__key {
+  list-style: none; margin: var(--s-3) 0 0; padding: 0;
+  display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-6);
+  font-family: var(--font-mono); font-size: var(--t-xs); color: var(--ink-500);
+}
+.llm-trace__key li { display: inline-flex; align-items: center; gap: var(--s-2); }
+.llm-key { display: inline-block; width: 18px; height: 10px; border-radius: var(--r-xs); }
+.llm-key--band { background: var(--ink-300); }
+.llm-key--real { height: 2px; background: var(--ink-900); }
+.llm-key--live { height: 3px; background: var(--live); }
+
+/* ---- FIG. 11: two lanes, the control system in charge and the model alongside ---- */
+.llm-path { display: grid; gap: var(--s-4); padding: var(--s-2) var(--s-1); }
+.llm-path__lane { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2) var(--s-3); }
+.llm-path__tag {
+  flex: 0 0 6.5rem; font-size: var(--t-micro); letter-spacing: var(--tracking-label); color: var(--ink-400);
+}
+.llm-path__box {
+  display: inline-flex; flex-direction: column; padding: var(--s-2) var(--s-3);
+  background: var(--paper); border: 1px solid var(--hairline-2); border-radius: var(--r-md);
+  color: var(--ink-900); font-size: var(--t-sm); font-weight: var(--weight-semi); line-height: 1.35;
+}
+.llm-path__box small { font-family: var(--font-mono); font-size: var(--t-xs); font-weight: var(--weight-regular); color: var(--ink-500); }
+.llm-path__box--live { border-color: var(--live); }
+.llm-path__box--live::before {
+  content: ""; width: 7px; height: 7px; margin-bottom: var(--s-1); border-radius: 50%; background: var(--live);
+}
+.llm-path__to { color: var(--ink-500); font-family: var(--font-mono); }
+@media (max-width: 640px) {
+  .llm-path__lane { flex-direction: column; align-items: flex-start; gap: var(--s-1); }
+  .llm-path__tag { flex-basis: auto; margin-bottom: var(--s-1); }
+  .llm-path__to { padding-left: var(--s-4); rotate: 90deg; }
+}
+
+/* ---- the motion: only where the browser can tie it to the reader's scroll ---- */
+@media (prefers-reduced-motion: no-preference) {
+  @supports (animation-timeline: view()) {
+    .llm-next__bar, .llm-tok--new, .llm-map__w, .llm-map__zone, .llm-arc, .llm-train__err,
+    .llm-trace__real, .llm-trace__spike, .llm-trace__after, .llm-trace__ring {
+      animation-duration: 1ms; animation-timing-function: linear; animation-fill-mode: both;
+      animation-timeline: --llm-fig;
+    }
+    /* FIG. 2: the scores rise, then the winner joins the sentence */
+    .llm-next__bar { animation-name: llm-grow; animation-range: entry 40% cover 45%; }
+    .llm-tok--new { animation-name: llm-arrive; animation-range: cover 40% cover 55%; }
+    /* FIG. 4: scattered pieces settle into their neighbourhoods */
+    .llm-map__w { animation-name: llm-settle; animation-range: entry 30% cover 50%; animation-timing-function: var(--ease-out-quint); }
+    .llm-map__zone { animation-name: llm-fade; animation-range: cover 35% cover 55%; }
+    /* FIG. 5: the arcs draw from "it" back, the heavy one last */
+    .llm-arc { stroke-dasharray: 1; animation-name: llm-draw; animation-range: entry 50% cover 45%; }
+    .llm-arc--live { animation-range: cover 25% cover 45%; }
+    /* FIG. 7: the error bars shrink into place */
+    .llm-train__err { transform-origin: left center; animation-name: llm-grow; animation-range: entry 40% cover 45%; }
+    /* FIG. 9: the reading runs inside the band, then breaks out */
+    .llm-trace__real, .llm-trace__spike, .llm-trace__after { stroke-dasharray: 1; animation-name: llm-draw; }
+    .llm-trace__real { animation-range: entry 40% cover 30%; }
+    .llm-trace__spike { animation-range: cover 30% cover 40%; }
+    .llm-trace__after { animation-range: cover 40% cover 45%; }
+    .llm-trace__ring { transform-box: fill-box; transform-origin: center; animation-name: llm-arrive; animation-range: cover 36% cover 44%; }
+  }
+}
+@keyframes llm-grow { from { transform: scaleX(0); } }
+@keyframes llm-arrive { from { opacity: 0; transform: translateY(6px) scale(0.92); } }
+@keyframes llm-settle { from { translate: calc(-50% + var(--sx)) calc(-50% + var(--sy)); opacity: 0.55; } }
+@keyframes llm-fade { from { opacity: 0; } }
+@keyframes llm-draw { from { stroke-dashoffset: 1; } }

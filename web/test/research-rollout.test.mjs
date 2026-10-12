@@ -165,7 +165,7 @@ test("index: the founder telegram folds on a phone and stays whole without JS", 
 const LONG = ["research.html", "research-wave-family.html", "research-hardware.html",
   "broadcasts-run-a-tower.html", "broadcasts-what-a-million-tokens-costs.html",
   "broadcasts-agent-governance-identity.html", "broadcasts-sharing-your-gpu-is-safe.html",
-  "broadcasts-jev-vs-wave.html"];
+  "broadcasts-jev-vs-wave.html", "broadcasts-how-llms-work.html"];
 
 test("long pages carry the shared contents tuner, one station per numbered section, never pinned", () => {
   for (const page of LONG) {
