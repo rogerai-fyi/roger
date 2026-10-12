@@ -1,11 +1,11 @@
 package store
 
 import (
-	"os"
 	"sync"
 	"testing"
 	"time"
 
+	"rogerai.fm/roger/v6/internal/pgtest"
 	"rogerai.fm/roger/v6/internal/protocol"
 )
 
@@ -151,12 +151,12 @@ func TestReleaseStaleHoldsBoundaryMem(t *testing.T) {
 // concurrently. The atomic delete-and-credit claim must release the stranded hold EXACTLY
 // once - no double-release, no wallet drift. Real Postgres only (no mocks).
 func TestReleaseStaleHoldsCrossInstancePostgres(t *testing.T) {
-	dsn := os.Getenv("ROGERAI_TEST_DATABASE_URL")
+	dsn := pgtest.DSN(t)
 	if dsn == "" {
 		t.Skip("cross-instance sweep needs ROGERAI_TEST_DATABASE_URL (a real Postgres) - skipping")
 	}
-	inst1 := freshPostgres(t, dsn)                     // truncates, then is instance #1
-	inst2, err := NewPostgres(storePrivateDSN(t, dsn)) // instance #2, SAME (private) database
+	inst1 := freshPostgres(t, dsn) // truncates, then is instance #1
+	inst2, err := NewPostgres(dsn) // instance #2, SAME (private) database
 	if err != nil {
 		t.Fatalf("second instance: %v", err)
 	}

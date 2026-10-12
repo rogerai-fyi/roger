@@ -40,6 +40,7 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/cucumber/godog"
 	"github.com/redis/go-redis/v9"
+	"rogerai.fm/roger/v6/internal/pgtest"
 	"rogerai.fm/roger/v6/internal/protocol"
 	"rogerai.fm/roger/v6/internal/store"
 )
@@ -77,7 +78,7 @@ func xiRedisURL(t *testing.T) string {
 // ROGERAI_TEST_DATABASE_URL is set, else the in-memory reference.
 func xiStore(t *testing.T) store.Store {
 	t.Helper()
-	if dsn := os.Getenv("ROGERAI_TEST_DATABASE_URL"); dsn != "" {
+	if dsn := pgtest.DSN(t); dsn != "" {
 		pg, err := store.NewPostgres(dsn)
 		if err != nil {
 			t.Fatalf("postgres: %v", err)
