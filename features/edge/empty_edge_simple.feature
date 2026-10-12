@@ -10,11 +10,11 @@
 # (features/onboarding/welcome_card.feature):
 #
 #   YOUR EDGE · not set up yet
-#   Roger Edge links your own devices (laptops, Pis, phones) so they
+#   Roger Edge links your own devices (laptops, desktops, Pis) so they
 #   can use each other's models, on your network.
 #
-#   e  start an Edge here        this machine becomes the authority
-#   j  join an Edge you run      paste an invite, or ask by address
+#   e  start an Edge here                  your other devices will join this one
+#   j  join an Edge you started elsewhere  paste an invite, or ask by address
 #
 #   scanning this network while this screen is open (every 30s)
 #   2 roger machines seen nearby · none in an Edge yet
@@ -46,13 +46,29 @@
 #   6. Look. RULED 2026-10-11: built from internal/fleetview's components and palette (the limoni look
 #      the founder approved for Health and Fleet on 2026-09-26): the ROGER · EDGE brand row and
 #      red rule, an amber eyebrow, paper key caps, the magic-eye scan glyph, the action bar.
+#      (Amended by the plan review below: inside the TUI's own chrome, with a muted eyebrow.)
 #   7. The brand row's on-air lamp. RULED 2026-10-11: no lamp at all on the empty state (the ◉ lamp is
 #      the ON AIR signal); it appears only once this machine is enrolled.
+#
+# RULED 2026-10-11 (founder, on the fresh-context plan review):
+#   R1. The enrolled [3] EDGE view is NOT restyled in this slice (follow-up: "Follow-up: enrolled
+#       [3] look" in docs/welcome-and-empty-edge-mockups.md). Only the empty state gets the look.
+#   R2. The Health/Fleet palette is the [3] colour exception, and it applies here.
+#   Review fixes: the empty state renders inside the TUI's chrome (preset bar and the big
+#   ROGER·AI brand stay); "ROGER · EDGE" is a muted eyebrow row and there is no second heavy rule;
+#   eyebrows are muted; the palette, glyphs and helpers come from the shared internal/look package
+#   (limoni is not embedded in the TUI); copy: "your other devices will join this one", "join an
+#   Edge you started elsewhere", "(laptops, desktops, Pis)"; the scan interval is the real one
+#   from SelfStatus; the scan glyph is ◌◌ before the first pass and ◉◎ after (the rack's eye);
+#   j means join only on the empty state (on the enrolled view j stays move-down); enter on the
+#   empty state is e; e on a build that cannot run setup shows the commands instead; the
+#   windowshade's header names [3] EDGE, never TUNE IN; NO_COLOR folds every new glyph through
+#   glyphs.Fold (▌ to >, ◌ to o, ◎ to O, key caps to [k]).
 #
 # SUPERSEDES (approved, not edited here; proposed text):
 #   features/edge/empty_edge.feature:51 "a fresh machine sees the three facts and a next command
 #     for each" -> "a fresh machine sees YOUR EDGE · not set up yet, the two ways in (e start an
-#     Edge here, j join an Edge you run) and the scan line; it names no command, no Core, no
+#     Edge here, j join an Edge you started elsewhere) and the scan line; it names no command, no Core, no
 #     login" (this file, section 1).
 #   empty_edge.feature:76 "a machine rooted at Core with no login says what a login is for" ->
 #     moved into `e`: the authority step says a RogerAI-rooted Edge needs a login and names it.
@@ -65,7 +81,7 @@
 #   empty_edge.feature:218 `roger edge` with nothing set up -> prints the same three lines and
 #     names `roger edge setup` (start) and `roger join` (join).
 #   features/edge/onboard.feature:52 "the empty screen keeps its facts and gains a way in" ->
-#     "the empty screen offers e (start an Edge here) and j (join an Edge you run)".
+#     "the empty screen offers e (start an Edge here) and j (join an Edge you started elsewhere)".
 #   onboard.feature:60 "pressing e opens the wizard ... asks whether to start a new Edge or join"
 #     -> "pressing e opens the wizard at starting an Edge here (the choice step is gone: join has
 #     its own key)".
@@ -88,9 +104,10 @@ Feature: A simple empty Edge screen
   Scenario: the empty Edge says what it is and offers two ways in
     When the owner opens [3] EDGE at 100 columns
     Then it shows "YOUR EDGE" and "not set up yet"
-    And one sentence says Roger Edge links your own devices so they can use each other's models, on your network
-    And it offers "e" with "start an Edge here" and "this machine becomes the authority"
-    And it offers "j" with "join an Edge you run" and "paste an invite, or ask by address"
+    And one sentence says Roger Edge links your own devices (laptops, desktops, Pis) so they can use each other's models, on your network
+    # corrected 2026-10-11 (founder-approved, plan review): copy
+    And it offers "e" with "start an Edge here" and "your other devices will join this one"
+    And it offers "j" with "join an Edge you started elsewhere" and "paste an invite, or ask by address"
 
   @tui
   Scenario: the empty Edge names no commands, no Core and no login
@@ -108,14 +125,31 @@ Feature: A simple empty Edge screen
   @tui
   Scenario: the footer offers exactly the two ways in and back
     When the owner opens [3] EDGE
-    Then the action bar reads "e start an Edge here", "j join an Edge" and "esc back"
+    # corrected 2026-10-11 (founder-approved, plan review): foot copy
+    Then the action bar reads "e start an Edge here", "j join" and "esc back"
 
   # 2. The scan line
 
   @tui
-  Scenario: the scan line says it scans only while the screen is open
+  # corrected 2026-10-11 (founder-approved, plan review)
+  Scenario Outline: the scan line says it scans only while the screen is open, at the real interval
+    Given discovery passes every <every> seconds
     When the owner opens [3] EDGE
-    Then it says "scanning this network while this screen is open (every 30s)"
+    Then it says "scanning this network while this screen is open (every <every>s)"
+
+    Examples:
+      | every |
+      | 30    |
+      | 10    |
+
+  @tui
+  # corrected 2026-10-11 (founder-approved, plan review)
+  Scenario: the scan glyph tells a pass that has not completed from one that has
+    Given no scan pass has completed yet
+    When the owner opens [3] EDGE
+    Then the scan line leads with ◌◌
+    When a scan pass completes
+    Then the scan line leads with ◉◎
 
   @tui
   Scenario: before the first pass completes the count is not invented
@@ -153,6 +187,19 @@ Feature: A simple empty Edge screen
   # 3. e: start an Edge here
 
   @tui
+  # corrected 2026-10-11 (founder-approved, plan review)
+  Scenario: enter on the empty state is e
+    When the owner presses enter
+    Then the setup opens at "start an Edge here"
+
+  @tui
+  # corrected 2026-10-11 (founder-approved, plan review)
+  Scenario: e on a build that cannot run setup names the commands instead
+    Given setup is not available in this build
+    When the owner presses e
+    Then the status names "roger edge setup" and "roger join <invite or address>"
+
+  @tui
   Scenario: e starts an Edge here with this machine as the authority
     When the owner presses e
     Then the setup opens at "start an Edge here"
@@ -185,7 +232,15 @@ Feature: A simple empty Edge screen
     Then [3] EDGE shows the existing full view with "workshop" as this machine and the authority
     And it says how to add the next device: roger edge invite, then roger join on that device
 
-  # 4. j: join an Edge you run
+  # 4. j: join an Edge you started elsewhere
+
+  @tui
+  # corrected 2026-10-11 (founder-approved, plan review)
+  Scenario: j means join only on the empty state
+    Given this machine is enrolled as "workshop" with two other nodes
+    When the owner presses j on [3] EDGE
+    Then the selection moves down one row, as before
+    And no join prompt opens
 
   @tui
   Scenario: j opens one prompt for an invite or an address
@@ -247,12 +302,12 @@ Feature: A simple empty Edge screen
   @console
   Scenario: the console's Edge view mirrors the empty state
     When the console's Edge view is opened
-    Then it shows "YOUR EDGE · not set up yet", the same sentence, and two buttons: start an Edge here, join an Edge you run
+    Then it shows "YOUR EDGE · not set up yet", the same sentence, and two buttons: start an Edge here, join an Edge you started elsewhere
     And the same scan line and nearby count
 
   @console
   Scenario: the console's join accepts an invite or an address
-    When the owner clicks join an Edge you run
+    When the owner clicks join an Edge you started elsewhere
     Then one field accepts an invite or an address, with the same outcomes as the TUI's j prompt
 
   @console
@@ -271,8 +326,9 @@ Feature: A simple empty Edge screen
   @tui
   Scenario: the empty Edge is drawn with the Health and Fleet look
     When the owner opens [3] EDGE
-    Then it uses internal/fleetview's palette (paper, ink, muted, the amber eyebrow, the one red)
-    And the brand row reads "▟•▙ ROGER · EDGE" with the red rule under it
+    # corrected 2026-10-11 (founder-approved, plan review): inside the TUI chrome, muted eyebrow
+    Then it uses the Health/Fleet palette (paper, ink, a muted eyebrow, the one red)
+    And under the TUI's own brand, "▟•▙ ROGER · EDGE" is a muted eyebrow row with no second heavy rule
     And the keys are drawn as paper key caps
     And the scan line leads with the magic-eye glyph
 
@@ -293,14 +349,20 @@ Feature: A simple empty Edge screen
     Given the compact windowshade mode is on
     When the owner opens [3] EDGE
     Then it shows one line: "your Edge: not set up · e start · j join"
+    # corrected 2026-10-11 (founder-approved, plan review): the shade names the section
+    And the compact header names [3] EDGE, never TUNE IN
 
   @tui
   Scenario: the empty Edge under NO_COLOR
     Given NO_COLOR is set
     When the owner opens [3] EDGE
+    # corrected 2026-10-11 (founder-approved, plan review): the fold rule is glyphs.Fold
     Then key caps read as bracketed keys, the magic eye folds to an ASCII mark, and every word is still there
+    And every glyph on the screen is one glyphs.Fold folds
 
   @tui
+  # corrected 2026-10-11 (founder-approved, plan review): goldens come from the TUI's own View()
   Scenario: a golden frame pins the look
-    When the empty Edge is rendered at 100x20 through the limoni uitest harness
-    Then the frame matches the committed golden snapshot for the empty Edge
+    When the empty Edge is rendered by the TUI at 100, 80 and 60 columns
+    Then each frame contains every key and word, and no line overflows
+    And the 100-column frame matches the committed golden file for the empty Edge

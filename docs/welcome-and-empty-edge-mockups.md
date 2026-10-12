@@ -197,3 +197,18 @@ Colour, 100 columns: /home/luis/rogerai-wt/simple-join/docs/empty-edge-mockup.pn
 - **No lamp on the empty Edge:** the ◉ ON AIR lamp in the brand row appears only once this machine is in an Edge (empty_edge_simple.feature DECISION 7).
 - **The scan line** leads with the magic-eye glyph, green while scanning, as on Health.
 - **The big ROGER·AI lockup** stays above the welcome card, unchanged.
+
+## Follow-up: enrolled [3] look
+
+Ruled 2026-10-11 (R1): this slice restyles only the welcome card and the empty [3] EDGE state.
+The enrolled [3] view keeps its current look until this follow-up is specced and built:
+
+- A brand band: `▟•▙ ROGER · EDGE` as a muted eyebrow row under the TUI's own brand, with the
+  on-air lamp lit only when this machine is enrolled.
+- The facts as eyebrow + ink rows (THIS MACHINE, AUTHORITY, DISCOVERY), the way Health lays out
+  its readings.
+- A key-cap action bar at the foot, the same helper the card and the empty state use.
+- The map cards lose their borders for rails (a red rail on the selected card, dim otherwise).
+- Session and map logic untouched: only the drawing changes.
+- Goldens at 100x30 and 80x24, written from the TUI's View() with the golden helper this slice
+  adds.

@@ -54,7 +54,7 @@ Feature: A machine is set up onto its Edge through an interactive, game-like wiz
   Scenario: the empty screen keeps its facts and gains a way in
     Given a machine that is in no Edge
     When the Edge screen renders at 100 columns
-    Then the empty screen offers e (start an Edge here) and j (join an Edge you run)
+    Then the empty screen offers e (start an Edge here) and j (join an Edge you started elsewhere)
 
   # superseded 2026-10-11 by founder ruling (welcome card / simple empty Edge)
   # now covered by features/edge/empty_edge_simple.feature section 3 (tagged @superseded so the old runner skips it)

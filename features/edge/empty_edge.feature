@@ -53,7 +53,7 @@ Feature: An empty Edge tells the owner what is true about this machine and what 
   Scenario: a fresh machine sees the three facts and a next command for each
     Given a machine that is in no Edge
     When the Edge screen renders at 100 columns
-    Then it shows YOUR EDGE · not set up yet, the two ways in (e start an Edge here, j join an Edge you run) and the scan line
+    Then it shows YOUR EDGE · not set up yet, the two ways in (e start an Edge here, j join an Edge you started elsewhere) and the scan line
     And it names no command, no Core and no login
 
   @tui
