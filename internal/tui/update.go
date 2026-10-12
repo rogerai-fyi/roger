@@ -352,6 +352,7 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// HELP is a pager now (audit P0: it was taller than most terminals and any
 		// key exited, so the top - the part a new user needs - was unreachable).
 		// Scroll keys page it; esc/q/enter/? go back; a preset key still jumps.
+		m.helpPaged(m.effWidth()) // the keys scroll the content the frame draws
 		switch k.String() {
 		case "up", "k":
 			m.helpVP.ScrollUp(1)

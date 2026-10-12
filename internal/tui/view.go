@@ -114,19 +114,10 @@ func (m model) View() string {
 	}
 	switch m.mode {
 	case modeHelp:
-		content := m.helpView()
-		budget := m.height - 8
-		if budget < 6 {
-			budget = 6
-		}
-		// No measured height (tests / pipes) renders the whole thing - the pager only
-		// engages when we KNOW the content will not fit.
-		if m.height <= 0 || lineRows(content) <= budget {
+		content, paged := m.helpPaged(w)
+		if !paged {
 			b.WriteString(content)
 		} else {
-			m.helpVP.Width = w
-			m.helpVP.Height = budget
-			m.helpVP.SetContent(content)
 			b.WriteString(m.helpVP.View() + "\n")
 			pct := int(m.helpVP.ScrollPercent() * 100)
 			b.WriteString("  " + stDim.Render(fmt.Sprintf("── %d%% · ↑↓ / pgdn scroll · esc back ──", pct)) + "\n")
@@ -235,6 +226,25 @@ func (m model) View() string {
 }
 
 // finishFrame bounds a built frame to the terminal and paints the deck ground under it.
+// helpPaged sizes and fills the HELP pager for this frame, or reports that the whole page fits
+// (no measured height - tests, pipes - renders the whole thing; the pager only engages when the
+// content is KNOWN not to fit). Shared by View and the scroll keys: the viewport is a value, so
+// filling it only inside View left the model's copy empty and every scroll key a no-op.
+func (m *model) helpPaged(w int) (content string, paged bool) {
+	content = m.helpView()
+	budget := m.height - 8
+	if budget < 6 {
+		budget = 6
+	}
+	if m.height <= 0 || lineRows(content) <= budget {
+		return content, false
+	}
+	m.helpVP.Width = w
+	m.helpVP.Height = budget
+	m.helpVP.SetContent(content)
+	return content, true
+}
+
 func (m model) finishFrame(out string, w int) string {
 	// Alt-screen: pad a short frame with blank lines up to the terminal height so it
 	// fully overwrites a TALLER previous frame (e.g. a long model list that overflowed
