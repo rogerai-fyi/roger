@@ -520,9 +520,10 @@ func TestAnInvitationRefusesADangerousStationID(t *testing.T) {
 	}
 }
 
-// SelfAttached is an OR over three fields on purpose, and the order of the three is the
-// documented one: any single marker of the self-attach path is proof, because a false negative
-// takes a paying node off the network while a false positive registers an inert hub entry.
+// SelfAttached is an OR over three fields on purpose: any single marker of the self-attach path
+// is proof, because a false negative takes a paying node off the network while a false positive
+// registers an inert hub entry. HubToken is the marker that is going away, so it gets a row of
+// its own: the predicate must keep answering once that credential is gone.
 func TestSelfAttachedIsAnyOneOfTheThreeMarkers(t *testing.T) {
 	for _, tc := range []struct {
 		name string

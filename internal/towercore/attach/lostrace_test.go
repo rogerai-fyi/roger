@@ -64,8 +64,16 @@ func (i *interposingStore) Admit(authID string, at Attachment) (bool, error) {
 
 // loserOver builds the Registry whose Admit will lose: it reads through `inter`, so the hooks
 // fire inside its window, while the winner in each hook writes through the bare store.
+//
+// ITS CLOCK IS ONE SECOND AHEAD OF THE WINNER'S, and that is what makes "answered from the
+// winner's record" provable. validate forces every proof field to equal the invitation, so the
+// attachment a loser computes for itself is field-for-field the winner's - except AttachedAt,
+// which is stamped from each Registry's own clock. A `!won` branch that skipped the replay and
+// returned the loser's own computation would pass every other assertion; it cannot pass one on
+// AttachedAt.
 func loserOver(inter Store, now time.Time) *Registry {
-	return New(Config{Network: net, Now: func() time.Time { return now }}, inter)
+	later := now.Add(time.Second)
+	return New(Config{Network: net, Now: func() time.Time { return later }}, inter)
 }
 
 // A RACER THAT READ THE INVITATION BEFORE THE WINNER COMMITTED is answered from the winner's
@@ -89,7 +97,10 @@ func TestParityALoserThatReadBeforeTheWinnerCommittedIsAnsweredFromTheWinnersRec
 		got, err := loser.Admit(goodProof())
 		require.NoError(t, err, "a racer that lost the commit is answered, not refused")
 		require.Equal(t, won.StationID, got.StationID)
-		require.Equal(t, won.AuthID, got.AuthID, "the answer is the winner's committed record")
+		require.Equal(t, won.AuthID, got.AuthID)
+		require.True(t, got.AttachedAt.Equal(won.AttachedAt),
+			"the answer is the winner's committed record, not the loser's own computation: "+
+				"got %v, winner committed at %v", got.AttachedAt, won.AttachedAt)
 		require.Equal(t, int64(1), got.Epoch, "nobody minted a second origin")
 		require.Equal(t, StateQuarantine, got.State)
 
@@ -110,8 +121,10 @@ func TestParityALoserThatLostTheCommitIsAnsweredFromTheWinnersRecord(t *testing.
 		inter := &interposingStore{Store: s}
 		loser := loserOver(inter, now)
 
+		var won Attachment
 		inter.beforeAdmit = func() {
-			_, err := winner.Admit(goodProof())
+			var err error
+			won, err = winner.Admit(goodProof())
 			require.NoError(t, err)
 		}
 
@@ -120,6 +133,8 @@ func TestParityALoserThatLostTheCommitIsAnsweredFromTheWinnersRecord(t *testing.
 		require.Equal(t, station, got.StationID)
 		require.Equal(t, authorID, got.AuthID)
 		require.Equal(t, int64(1), got.Epoch)
+		require.True(t, got.AttachedAt.Equal(won.AttachedAt),
+			"the loser must answer with the winner's record, not its own computation")
 	})
 }
 
