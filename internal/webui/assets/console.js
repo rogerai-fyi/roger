@@ -3584,6 +3584,14 @@
       if (e.status === 403) { show($("app"), false); show($("auth-gate"), true); }
     });
     connectSSE();
+    // The one-time welcome card, the same one the TUI shows (console-welcome.js).
+    if (window.RogerConsoleWelcome) {
+      window.RogerConsoleWelcome.mount(document, {
+        fetch: function (path, opts) { return fetch(withToken(path), opts); },
+        tab: setTab,
+        login: function () { setTab("account"); loginBegin(); },
+      });
+    }
   }
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);

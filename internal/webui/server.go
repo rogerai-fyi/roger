@@ -59,6 +59,11 @@ type Options struct {
 	// Owner is the owner's side of joining (towers.go), the same hooks the TUI uses. Nil = the
 	// console shows no Towers.
 	Owner *ownerjoin.Hooks
+	// WelcomeSeen / SaveWelcomeSeen are the one-time welcome card's flag, the same welcome_seen
+	// the TUI's card writes (features/onboarding/welcome_card.feature): seeing it in either
+	// front-end counts for both. Nil = the console shows no card.
+	WelcomeSeen     func() bool
+	SaveWelcomeSeen func() error
 }
 
 // Server is the node console HTTP server. It is safe for concurrent requests: all live
@@ -106,6 +111,8 @@ func (s *Server) routes() {
 	})
 	s.mux.Handle("/assets/", http.StripPrefix("/assets/", files))
 	s.mux.HandleFunc("/api/state", s.auth(s.handleState))
+	s.mux.HandleFunc("/api/welcome", s.auth(s.handleWelcome))
+	s.mux.HandleFunc("/api/welcome/seen", s.action(s.handleWelcomeSeen))
 	s.mux.HandleFunc("/api/events", s.auth(s.handleEvents))
 	// Operator write actions (POST-only, token-gated). Each returns the new snapshot.
 	s.mux.HandleFunc("/api/share/onair", s.action(s.handleOnAir))

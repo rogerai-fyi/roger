@@ -1592,3 +1592,18 @@ body.is-chat .content { padding-bottom: var(--s-6); }
 .join-request .btn { margin-right: 8px; }
 .join-line { display: block; overflow-wrap: anywhere; margin: 6px 0; }
 .join-qr { line-height: 1; font-size: 8px; background: var(--white); color: var(--ink-900); display: inline-block; padding: 8px; }
+
+/* The one-time welcome card (console-welcome.js): the TUI card's six lines as buttons. Tokens
+   only; the glyph wears the one red, the key reads as a key cap. */
+.welcome { border-top: 1px solid var(--hairline-2); border-bottom: 1px solid var(--hairline-2); padding: 12px 0; margin-bottom: 16px; }
+.welcome__eyebrow { color: var(--ink-400); letter-spacing: .08em; font-size: 12px; margin: 0; }
+.welcome__skip { color: var(--ink-500); margin: 2px 0 8px; }
+.welcome__list { list-style: none; margin: 0; padding: 0; }
+.welcome__opt { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; width: 100%; text-align: left; background: none; border: 0; padding: 6px 0; cursor: pointer; color: var(--ink-900); font: inherit; }
+.welcome__opt:hover, .welcome__opt:focus-visible { background: var(--paper-2); }
+.welcome__key { border: 1px solid var(--hairline-2); background: var(--paper-2); padding: 0 6px; font-weight: 600; }
+.welcome__glyph { color: var(--live); min-width: 3ch; }
+.welcome__label { font-weight: 600; }
+.welcome__what { color: var(--ink-500); }
+.welcome__term { color: var(--ink-700); }
+.welcome__close { background: none; border: 1px solid var(--hairline-2); padding: 2px 10px; cursor: pointer; color: var(--ink-700); font: inherit; }

@@ -110,6 +110,12 @@ func startWebConsole(cfg config, ctrl *node.Controller, port string, limits *tui
 		// THE SAME owner's join view the TUI's [3] EDGE shows (ownerjoin.go).
 		Owner:  consoleOwner(hooks),
 		Broker: cfg.Broker, User: cfg.User, ClientID: gitHubClientID(),
+		// THE SAME welcome_seen the TUI's card writes: seeing the card in either counts for both.
+		WelcomeSeen: func() bool {
+			c := loadConfig()
+			return c.WelcomeSeen && !c.WelcomeAgain
+		},
+		SaveWelcomeSeen: saveWelcomeSeen,
 		// THE SAME STORE the TUI edits, not a copy. The console's spend table and
 		// [4] CONFIG are two views of one setting; two stores would let them disagree
 		// about what the operator is willing to pay, and the loser is whichever wrote

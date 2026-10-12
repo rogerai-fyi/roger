@@ -54,6 +54,8 @@
     </header>
 
     <main class="content">
+      <!-- The one-time welcome card (console-welcome.js); hidden once seen here or in the TUI. -->
+      <section id="welcome" class="welcome" aria-label="Welcome" hidden></section>
 
       <!-- ===================== CHAT =====================
            Founder 2026-08-20: the chat mechanics lived only in the TUI, so the console
@@ -695,6 +697,7 @@
 
   <div class="toasts" id="toasts" aria-live="polite"></div>
 
+  <script src="/assets/console-welcome.js" defer></script>
   <script src="/assets/console-lan.js" defer></script>
   <script src="/assets/console-towers.js" defer></script>
   <script src="/assets/console.js" defer></script>
