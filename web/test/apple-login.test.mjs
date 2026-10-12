@@ -51,14 +51,31 @@ test("login: the sign-in buttons are never painted by the card link rule (the re
   assert.match(restGh[0], /color:\s*var\(--ink-900\)/, ".gh label is ink, per the founder direction comment");
 });
 
-test("login: card .fine links stay the quiet ink-500 directory despite :not() specificity", () => {
-  // `.card a:not(.gh)` is (0,2,1); a bare `.fine a` (0,1,1) loses, un-quieting the
-  // inline nav on tos/dashboard/manual. The quiet rule must match that specificity.
+test("login: the account sub-nav stays the quiet ink-500 directory despite the card link rule's :not() specificity", () => {
+  // `.card a:not(.gh)` was (0,2,1); a bare `.fine a` (0,1,1) lost, un-quieting the inline
+  // nav on tos/dashboard/manual, so a card form of the quiet rule was added to match. The
+  // guarantee is now narrower than the rule: only the footer sub-nav (.acctsubnav > a) is
+  // excluded from the card link rule by name; other .fine links in a card still take the
+  // prose treatment (a documented follow-up in account-base.css).
   const css = read("styles/account-base.css");
   const quiet = css.match(/\.card \.fine a[^{]*\{[^}]*\}/);
   assert.ok(quiet, "a .card .fine a rule exists to outrank .card a:not(.gh)");
   assert.match(quiet[0], /color:\s*var\(--ink-500\)/, "card .fine links rest at ink-500");
   assert.match(quiet[0], /border-bottom:\s*0/, "card .fine links carry no hairline underline");
+  // Amended 2026-10-12: "exists" was not "wins". Every :not(.x) counts a class, so the card
+  // link rule grew to (0,3,1) on 2026-08-22 and (0,4,1) on 2026-09-24, and the (0,2,1)
+  // quiet rule silently lost: the account sub-nav rendered in ink-900 with the hairline
+  // base.css excludes it from. Measured, not read: the quiet rule must outrank the card
+  // link rule on the sub-nav, or the card link rule must exclude the sub-nav by name
+  // (the comment above it already says a card <a> that is not a prose link is excluded by
+  // name there, so specificity never has to sort it out).
+  const cardLink = css.match(/^\.card a((?::not\([^)]*\))*)\s*\{/m);
+  assert.ok(cardLink, "a `.card a` link rule exists");
+  const classes = (sel) => (sel.match(/\.[a-zA-Z_][\w-]*/g) || []).length;
+  const quietSel = quiet[0].slice(0, quiet[0].indexOf("{")).split(",").map((s) => s.trim()).find((s) => s.startsWith(".card"));
+  const excluded = /:not\(\.acctsubnav > a\)/.test(cardLink[0]);
+  assert.ok(excluded || classes(quietSel) >= classes(cardLink[0]),
+    `the quiet rule ${quietSel} (${classes(quietSel)} classes) loses to ${cardLink[0].trim()} (${classes(cardLink[0])} classes) on the sub-nav`);
 });
 
 test("login: web Apple is the minimal redirect flow - NO JS SDK / popup / client_id in the page", () => {
