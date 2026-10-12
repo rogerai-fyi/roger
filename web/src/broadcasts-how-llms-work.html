@@ -84,10 +84,10 @@
           <div class="llm-flow" role="img" aria-label="Diagram: the whole machine on one strip. Text comes in, is cut into pieces, each piece is placed on a map of meaning, every piece looks back at the others through a few dozen layers, the model scores every possible next piece, picks one, adds it to the text, and loops back to the start.">
             <ol class="llm-flow__steps" aria-hidden="true">
               <li><span class="llm-flow__no">IN</span><b>Text so far</b><small>&ldquo;&hellip;keyed the mic and said&rdquo;</small></li>
-              <li><span class="llm-flow__no">&sect;1</span><b>Cut into pieces</b><small>tokens</small></li>
-              <li><span class="llm-flow__no">&sect;2</span><b>Placed on a map</b><small>numbers for meaning</small></li>
-              <li><span class="llm-flow__no">&sect;3</span><b>Look back</b><small>attention, dozens of layers</small></li>
-              <li><span class="llm-flow__no">&sect;1</span><b>Score every next piece</b><small>a probability for each</small></li>
+              <li><span class="llm-flow__no">01</span><b>Cut into pieces</b><small>tokens</small></li>
+              <li><span class="llm-flow__no">02</span><b>Placed on a map</b><small>numbers for meaning</small></li>
+              <li><span class="llm-flow__no">03</span><b>Look back</b><small>attention, dozens of layers</small></li>
+              <li><span class="llm-flow__no">04</span><b>Score every next piece</b><small>a probability for each</small></li>
               <li class="llm-flow__out"><span class="llm-flow__no">OUT</span><b>Pick one, add it</b><small>&ldquo;roger&rdquo;, then go again</small></li>
             </ol>
             <p class="llm-flow__loop" aria-hidden="true"><span class="llm-flow__arrow">&#8635;</span> the new piece joins the text, and the strip runs again</p>
@@ -105,14 +105,14 @@
             answer is this loop, run a few hundred times.
           </p>
           <p>
-            Drag the needle through five steps. The bars rank every candidate
+            <span class="llm-js">Drag the needle through five steps.</span> The bars rank every candidate
             for the next piece. At step 4 the model took the third bar: sampling
             sometimes picks a lower bar, and a setting called temperature says
             how often.
           </p>
 
           <figure class="figure figure--plate llm-fig">
-            <ol class="llm-gen" data-scrub data-scrub-start="4" aria-label="Writing one sentence, piece by piece">
+            <ol class="llm-gen" data-scrub data-scrub-start="3" aria-label="Writing one sentence, piece by piece">
               <li>
                 <b>Step 1</b>
                 <p class="llm-gen__line"><span class="llm-tok">The</span><span class="llm-tok">operator</span><span class="llm-tok">keyed</span><span class="llm-tok">the</span><span class="llm-tok">mic</span><span class="llm-tok llm-tok--new">and</span></p>
@@ -122,6 +122,7 @@
                   <span class="llm-bars__row"><span class="llm-bars__w">into</span><span class="llm-bars__track"><i class="llm-bars__bar llm-p9"></i></span><span class="llm-bars__p">9%</span></span>
                   <span class="llm-bars__row llm-bars__row--tail"><span class="llm-bars__w">all others</span><span class="llm-bars__track"><i class="llm-bars__bar llm-p16"></i></span><span class="llm-bars__p">16%</span></span>
                 </div>
+                <small class="llm-gen__note">took the top bar</small>
               </li>
               <li>
                 <b>Step 2</b>
@@ -132,6 +133,7 @@
                   <span class="llm-bars__row"><span class="llm-bars__w">spoke</span><span class="llm-bars__track"><i class="llm-bars__bar llm-p14"></i></span><span class="llm-bars__p">14%</span></span>
                   <span class="llm-bars__row llm-bars__row--tail"><span class="llm-bars__w">all others</span><span class="llm-bars__track"><i class="llm-bars__bar llm-p21"></i></span><span class="llm-bars__p">21%</span></span>
                 </div>
+                <small class="llm-gen__note">took the top bar</small>
               </li>
               <li>
                 <b>Step 3</b>
@@ -142,6 +144,7 @@
                   <span class="llm-bars__row"><span class="llm-bars__w">hello</span><span class="llm-bars__track"><i class="llm-bars__bar llm-p12"></i></span><span class="llm-bars__p">12%</span></span>
                   <span class="llm-bars__row llm-bars__row--tail"><span class="llm-bars__w">all others</span><span class="llm-bars__track"><i class="llm-bars__bar llm-p25"></i></span><span class="llm-bars__p">25%</span></span>
                 </div>
+                <small class="llm-gen__note">took the top bar</small>
               </li>
               <li>
                 <b>Step 4</b>
@@ -152,7 +155,7 @@
                   <span class="llm-bars__row llm-bars__row--win"><span class="llm-bars__w">that</span><span class="llm-bars__track"><i class="llm-bars__bar llm-p15"></i></span><span class="llm-bars__p">15%</span></span>
                   <span class="llm-bars__row llm-bars__row--tail"><span class="llm-bars__w">all others</span><span class="llm-bars__track"><i class="llm-bars__bar llm-p10"></i></span><span class="llm-bars__p">10%</span></span>
                 </div>
-                <small class="llm-gen__note">sampled the third bar</small>
+                <small class="llm-gen__note llm-gen__note--live">sampled the third bar</small>
               </li>
               <li>
                 <b>Step 5</b>
@@ -163,6 +166,7 @@
                   <span class="llm-bars__row"><span class="llm-bars__w">and</span><span class="llm-bars__track"><i class="llm-bars__bar llm-p11"></i></span><span class="llm-bars__p">11%</span></span>
                   <span class="llm-bars__row llm-bars__row--tail"><span class="llm-bars__w">all others</span><span class="llm-bars__track"><i class="llm-bars__bar llm-p9"></i></span><span class="llm-bars__p">9%</span></span>
                 </div>
+                <small class="llm-gen__note">took the top bar</small>
               </li>
             </ol>
             <figcaption class="fig mono">FIG. 3 &middot; FIVE STEPS, FIVE PIECES. THE BARS RE-RANK EVERY TIME. ILLUSTRATIVE NUMBERS.</figcaption>
@@ -196,7 +200,7 @@
             other. Nobody draws this map. It falls out of predicting the next piece.
           </p>
           <p>
-            Drag from untrained to trained and watch the words sort themselves.
+            <span class="llm-js">Drag from untrained to trained and watch the words sort themselves.</span>
             Point at a word, or tab to it, to light its neighbours.
           </p>
 
@@ -243,7 +247,7 @@
             thread through pages.
           </p>
           <p>
-            Drag the needle along the sentence. Each word looks back differently.
+            <span class="llm-js">Drag the needle along the sentence.</span> Each word looks back differently.
             &ldquo;It&rdquo; leans on &ldquo;pump&rdquo;.
           </p>
 
@@ -303,13 +307,14 @@
           <h2>Why are there so many layers?</h2>
           <p>
             One round of looking back is shallow. A model stacks dozens of them,
-            and each layer reads what the one below it wrote. Low layers settle
-            spelling and grammar. Higher layers hold facts and plan the answer.
+            and each layer reads what the one below it wrote. Roughly: low layers
+            tend to settle spelling and grammar, and higher layers tend to hold
+            facts and plan the answer.
           </p>
 
           <figure class="figure figure--plate">
             <img src="assets/broadcasts/llm-works-stack.webp" srcset="assets/broadcasts/llm-works-stack-800.webp 800w, assets/broadcasts/llm-works-stack.webp 1600w" sizes="(max-width: 1000px) 100vw, 960px" width="1600" height="896"
-                 alt="A vintage engraving of an open equipment rack holding six identical radio chassis stacked one above another, each with a row of glass tubes and a plain front panel. One wire runs up through every chassis to a small red lamp at the top." loading="lazy" decoding="async" />
+                 alt="A vintage engraving of an open equipment rack holding four identical radio chassis stacked one above another, each with a row of glass tubes and a plain front panel. Cables run up the rack to a small red lamp at the top." loading="lazy" decoding="async" />
             <figcaption class="fig mono">FIG. 7 &middot; THE SAME CIRCUIT, STACKED. THE SIGNAL CLIMBS THROUGH ALL OF IT BEFORE A GUESS.</figcaption>
           </figure>
 
@@ -344,7 +349,7 @@
           </figure>
 
           <p>
-            Drag the needle through training. The error falls, the static clears,
+            <span class="llm-js">Drag the needle through training.</span> The error falls, the static clears,
             and the same sentence comes out right. The lower curve is a small
             model on one machine&rsquo;s readings: a narrow stream, learned faster
             and closer to the floor.
@@ -434,8 +439,8 @@
           <span class="bc-sec__no">&sect;7 &middot; How big</span>
           <h2>How big does a model need to be?</h2>
           <p>
-            As big as the job. A model that knows a little about everything needs
-            hundreds of billions of settings and a data centre. A model that knows
+            As big as the job. The best general models run to hundreds of billions
+            of settings and a data centre. A model that knows
             one machine&rsquo;s language needs a few hundred million and a board
             the size of a hand. Quantization, storing each setting in fewer bits,
             shrinks either one further.
@@ -473,10 +478,10 @@
             That stream has a grammar. A motor draws current before it warms. A
             valve opens, then the pressure moves. Cut the stream into pieces and
             train a model to predict the next reading. It learns what normal
-            sounds like.
+            sounds like. A model built for the stream keeps 71.2 as one piece.
           </p>
           <p>
-            Drag the needle to inject a fault. The next reading lands outside what
+            <span class="llm-js">Drag the needle to inject a fault.</span> The next reading lands outside what
             the model expected. That surprise is a score, and the score crosses a
             line.
           </p>
@@ -526,7 +531,7 @@
           </p>
 
           <figure class="figure figure--plate llm-fig">
-            <div class="llm-dist" role="img" aria-label="Diagram: two sets of bars over the next temperature reading, 70 to 76 degrees. A big general model spreads its bets across the whole range. A small specialist puts most of its bet on 71.4, so an unexpected reading stands out at once.">
+            <div class="llm-dist" role="img" aria-label="Diagram: two sets of bars over the next temperature reading, seven bins of 0.2 degrees from 70.8 to 72.0. A big general model spreads its bets across the whole range. A small specialist puts most of its bet on the 71.4 bin, so an unexpected reading stands out at once.">
               <div class="llm-dist__pair">
                 <div class="llm-dist__one">
                   <span class="llm-dist__name fig mono">A big web model</span>
@@ -537,9 +542,9 @@
                   <ol class="llm-dist__bars"><li class="llm-h3"></li><li class="llm-h8"></li><li class="llm-h30"></li><li class="llm-h100"></li><li class="llm-h26"></li><li class="llm-h6"></li><li class="llm-h2"></li></ol>
                 </div>
               </div>
-              <ol class="llm-dist__axis" aria-hidden="true"><li>70</li><li>71</li><li>71.2</li><li>71.4</li><li>71.6</li><li>72</li><li>76</li></ol>
+              <ol class="llm-dist__axis" aria-hidden="true"><li>70.8</li><li>71.0</li><li>71.2</li><li>71.4</li><li>71.6</li><li>71.8</li><li>72.0</li></ol>
               <ul class="llm-dist__why" aria-hidden="true">
-                <li><b>Latency</b> tens of milliseconds on a single-board computer</li>
+                <li><b>Latency</b> built to answer in tens of milliseconds on a single-board computer</li>
                 <li><b>Power</b> a few watts, no GPU</li>
                 <li><b>Network</b> none needed; it runs where the machine is</li>
               </ul>
@@ -555,7 +560,7 @@
           <p>
             Most of the field races to the largest model. We work the other end.
             The question is how small a model can be and still read a machine
-            well. Here is what that means in practice.
+            well.
           </p>
 
           <figure class="figure figure--plate">
@@ -566,16 +571,16 @@
 
           <ul class="bc-dial">
             <li><b>Trained on the machine&rsquo;s language.</b> Our small tiers start from nothing and read telemetry, log lines and serial dumps, not the web. The plant&rsquo;s vocabulary is the only one they learn.</li>
-            <li><b>Next reading, not next word.</b> The core skill is the same trick as this whole page: predict what comes next. A miss is a signal, and a confident miss is an alarm.</li>
-            <li><b>Measured, not claimed.</b> Every number we publish sits on the <a href="/research-wave-family.html">Wave family page</a>, with the benchmark it came from. Our smallest tiers score at chance on general benchmarks, on purpose.</li>
+            <li><b>The next reading.</b> The core skill is the same trick as this whole page: predict what comes next. A miss is a signal, and a confident miss is an alarm.</li>
+            <li><b>Measured numbers.</b> The numbers we publish sit on the <a href="/research-wave-family.html">Wave family page</a>, with the benchmark each came from. Our smallest tiers score at chance on general benchmarks, on purpose.</li>
             <li><b>A spectrum, not a single model.</b> Each tier is sized for a job. A Pico reads one machine. A Nano rolls up many Picos. Bigger tiers reason across a site and talk to the people who run it.</li>
             <li><b>A read it cannot make goes up.</b> When a small tier is unsure, it sends the read to the tier above instead of guessing. Both speak the same machine vocabulary, so nothing is translated on the way.</li>
-            <li><b>It runs where the machine is.</b> On the board beside it, offline, in tens of milliseconds, beside the control system and never in place of it.</li>
+            <li><b>It runs where the machine is.</b> On the board beside it, offline, built to answer in tens of milliseconds, beside the control system and never in place of it.</li>
           </ul>
 
           <figure class="figure figure--plate">
             <img src="assets/broadcasts/llm-works-advisory.webp" srcset="assets/broadcasts/llm-works-advisory-800.webp 800w, assets/broadcasts/llm-works-advisory.webp 1600w" sizes="(max-width: 1000px) 100vw, 960px" width="1600" height="896"
-                 alt="A vintage illustration of a quiet factory floor: a large grey control cabinet with its doors closed, and bolted to the wall beside it a much smaller sealed instrument box with a single red lamp lit on its face. Thin cables run from a machine in the background into the small box." loading="lazy" decoding="async" />
+                 alt="A vintage illustration of a quiet factory floor: a large grey control cabinet with its doors closed, and standing on legs beside it a much smaller sealed instrument box with a single red lamp lit on its face. Thin cables run from a machine in the background into the small box." loading="lazy" decoding="async" />
             <figcaption class="fig mono">FIG. 17 &middot; THE SMALL BOX BESIDE THE CABINET. IT WATCHES; THE CABINET RUNS THE MACHINE.</figcaption>
           </figure>
 
@@ -622,7 +627,7 @@
           <h2>What do people get wrong about LLMs?</h2>
           <ul class="bc-dial">
             <li><b>&ldquo;It looks things up.&rdquo;</b> No. What it learned is spread across its settings. That is why it can sound sure and still be wrong.</li>
-            <li><b>&ldquo;It memorized the internet.&rdquo;</b> Its settings are far smaller than the text it read. It learned patterns, not pages.</li>
+            <li><b>&ldquo;It memorized the internet.&rdquo;</b> Its settings are far smaller than the text it read. It learned mostly patterns, not pages.</li>
             <li><b>&ldquo;It is a person.&rdquo;</b> It is a predictor. Predicting well forces it to model a lot about the world, but there is no one behind the words.</li>
             <li><b>&ldquo;Bigger is always better.&rdquo;</b> For one narrow job, a small specialist trained on the right data often wins.</li>
           </ul>

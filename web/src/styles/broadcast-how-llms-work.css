@@ -109,10 +109,11 @@
   writing-mode: vertical-rl; rotate: 180deg;
 }
 .llm-gen__line { margin: 0; }
-.llm-gen__note { display: block; margin-top: var(--s-2); font-family: var(--font-mono); font-size: var(--t-xs); color: var(--live-text); }
+.llm-gen__note { display: block; margin-top: var(--s-2); font-family: var(--font-mono); font-size: var(--t-xs); color: var(--ink-500); }
+.llm-gen__note--live { color: var(--live-text); }
 .llm-gen > li.is-tuned { background: var(--paper); border-color: var(--hairline-2); }
 .llm-gen > li.is-tuned > b { color: var(--live-text); }
-.llm-gen:has(li.is-tuned) > li:not(.is-tuned) :is(.llm-bars, .llm-gen__note) { display: none; }
+.llm-gen:has(li.is-tuned) > li:not(.is-tuned) .llm-bars { display: none; }
 @media (max-width: 640px) {
   .llm-gen > li { padding-left: var(--s-3); padding-top: var(--s-7); }
   .llm-gen > li > b { top: var(--s-2); left: var(--s-3); writing-mode: horizontal-tb; rotate: none; }
@@ -142,8 +143,9 @@
   .llm-cut > li { grid-template-columns: minmax(0, 1fr); gap: var(--s-1); }
 }
 
-/* ---- FIG. 5: the map. Trained positions are --x/--y, the untrained scatter --rx/--ry, both
-   percentages of the map; the stops before the map choose which the words take ---- */
+/* ---- FIG. 5: the map. Three hand-placed positions per word, all percentages of the map:
+   trained --x/--y, halfway --mx/--my (groups forming, nothing touching), scattered --rx/--ry;
+   the stops before the map choose which the words take ---- */
 .llm-map {
   position: relative; aspect-ratio: 16 / 10; overflow: clip;
   font-family: var(--font-mono);
@@ -173,7 +175,7 @@
 .llm-map:has(.llm-map__w[data-g="c"]:is(:hover, :focus-visible)) .llm-map__w[data-g="c"] { border-color: var(--live); color: var(--live-text); }
 /* the stops: untrained scatters the words and hides the groups; halfway puts them midway */
 .llm-mapstage:has(.llm-stops > li:nth-child(1).is-tuned) .llm-map__w { left: var(--rx); top: var(--ry); }
-.llm-mapstage:has(.llm-stops > li:nth-child(2).is-tuned) .llm-map__w { left: calc((var(--x) + var(--rx)) / 2); top: calc((var(--y) + var(--ry)) / 2); }
+.llm-mapstage:has(.llm-stops > li:nth-child(2).is-tuned) .llm-map__w { left: var(--mx); top: var(--my); }
 .llm-mapstage:has(.llm-stops > li:nth-child(1).is-tuned) :is(.llm-map__zone, .llm-map__name) { opacity: 0; }
 .llm-mapstage:has(.llm-stops > li:nth-child(2).is-tuned) :is(.llm-map__zone, .llm-map__name) { opacity: 0.4; }
 .llm-map__zone--a { --x: 27%; --y: 36%; --w: 40%; --h: 54%; }
@@ -182,18 +184,18 @@
 .llm-map__name--a { --x: 6%; --y: 4%; }
 .llm-map__name--b { --x: 58%; --y: 4%; }
 .llm-map__name--c { --x: 20%; --y: 80%; }
-.llm-w1  { --x: 17%; --y: 24%; --rx: 72%; --ry: 70%; }
-.llm-w2  { --x: 33%; --y: 20%; --rx: 60%; --ry: 88%; }
-.llm-w3  { --x: 18%; --y: 44%; --rx: 86%; --ry: 30%; }
-.llm-w4  { --x: 37%; --y: 37%; --rx: 48%; --ry: 62%; }
-.llm-w5  { --x: 28%; --y: 54%; --rx: 80%; --ry: 12%; }
-.llm-w6  { --x: 66%; --y: 22%; --rx: 14%; --ry: 70%; }
-.llm-w7  { --x: 83%; --y: 26%; --rx: 10%; --ry: 30%; }
-.llm-w8  { --x: 70%; --y: 42%; --rx: 36%; --ry: 14%; }
-.llm-w9  { --x: 84%; --y: 46%; --rx: 26%; --ry: 88%; }
-.llm-w10 { --x: 41%; --y: 80%; --rx: 88%; --ry: 52%; }
-.llm-w11 { --x: 57%; --y: 76%; --rx: 10%; --ry: 12%; }
-.llm-w12 { --x: 50%; --y: 89%; --rx: 56%; --ry: 36%; }
+.llm-w1  { --x: 17%; --y: 24%; --mx: 24%; --my: 14%; --rx: 72%; --ry: 70%; }
+.llm-w2  { --x: 33%; --y: 20%; --mx: 44%; --my: 12%; --rx: 60%; --ry: 88%; }
+.llm-w3  { --x: 18%; --y: 44%; --mx: 10%; --my: 50%; --rx: 86%; --ry: 30%; }
+.llm-w4  { --x: 37%; --y: 37%; --mx: 46%; --my: 46%; --rx: 48%; --ry: 62%; }
+.llm-w5  { --x: 28%; --y: 54%; --mx: 34%; --my: 64%; --rx: 80%; --ry: 12%; }
+.llm-w6  { --x: 66%; --y: 22%; --mx: 62%; --my: 12%; --rx: 14%; --ry: 70%; }
+.llm-w7  { --x: 83%; --y: 26%; --mx: 90%; --my: 16%; --rx: 10%; --ry: 30%; }
+.llm-w8  { --x: 70%; --y: 42%; --mx: 64%; --my: 50%; --rx: 36%; --ry: 14%; }
+.llm-w9  { --x: 84%; --y: 46%; --mx: 88%; --my: 38%; --rx: 26%; --ry: 88%; }
+.llm-w10 { --x: 41%; --y: 80%; --mx: 30%; --my: 88%; --rx: 88%; --ry: 52%; }
+.llm-w11 { --x: 57%; --y: 76%; --mx: 72%; --my: 86%; --rx: 10%; --ry: 12%; }
+.llm-w12 { --x: 50%; --y: 89%; --mx: 52%; --my: 70%; --rx: 56%; --ry: 36%; }
 @media (max-width: 640px) {
   .llm-map { aspect-ratio: 4 / 5; }
   .llm-map__zone--a { --x: 50%; --y: 20%; --w: 92%; --h: 30%; }
@@ -202,11 +204,11 @@
   .llm-map__name--a { --x: 4%; --y: 1%; }
   .llm-map__name--b { --x: 4%; --y: 36%; }
   .llm-map__name--c { --x: 4%; --y: 69%; }
-  .llm-w1  { --x: 24%; --y: 13%; } .llm-w2  { --x: 52%; --y: 10%; } .llm-w3  { --x: 78%; --y: 16%; }
-  .llm-w4  { --x: 34%; --y: 27%; } .llm-w5  { --x: 64%; --y: 28%; }
-  .llm-w6  { --x: 24%; --y: 46%; } .llm-w7  { --x: 52%; --y: 44%; } .llm-w8  { --x: 76%; --y: 53%; }
-  .llm-w9  { --x: 40%; --y: 58%; }
-  .llm-w10 { --x: 30%; --y: 81%; } .llm-w11 { --x: 58%; --y: 78%; } .llm-w12 { --x: 70%; --y: 89%; }
+  .llm-w1  { --x: 24%; --y: 13%; --mx: 22%; --my: 8%; } .llm-w2  { --x: 52%; --y: 10%; --mx: 56%; --my: 6%; } .llm-w3  { --x: 78%; --y: 16%; --mx: 84%; --my: 20%; }
+  .llm-w4  { --x: 34%; --y: 27%; --mx: 32%; --my: 20%; } .llm-w5  { --x: 64%; --y: 28%; --mx: 60%; --my: 30%; }
+  .llm-w6  { --x: 24%; --y: 46%; --mx: 18%; --my: 40%; } .llm-w7  { --x: 52%; --y: 44%; --mx: 50%; --my: 42%; } .llm-w8  { --x: 76%; --y: 53%; --mx: 78%; --my: 52%; }
+  .llm-w9  { --x: 40%; --y: 58%; --mx: 38%; --my: 56%; }
+  .llm-w10 { --x: 30%; --y: 81%; --mx: 22%; --my: 74%; } .llm-w11 { --x: 58%; --y: 78%; --mx: 62%; --my: 70%; } .llm-w12 { --x: 70%; --y: 89%; --mx: 46%; --my: 88%; }
 }
 
 /* ---- FIG. 6: attention. Six equal columns (8.3, 25, 41.7, 58.3, 75, 91.7 of 100 units),
@@ -439,6 +441,10 @@
   .llm-path__tag { flex-basis: auto; margin-bottom: var(--s-1); }
   .llm-path__to { padding-left: var(--s-4); rotate: 90deg; }
 }
+
+/* ---- a sentence that only makes sense with the scrubber: gone without scripts, and in print ---- */
+html:not(.js) .llm-js { display: none; }
+@media print { .llm-js { display: none; } }
 
 /* ---- §9: the vendor questions, a plain numbered list in the body size ---- */
 .llm-ask { margin: var(--s-4) 0 0; padding-left: 1.4rem; color: var(--ink-700); font-size: var(--bc-body); line-height: 1.7; }

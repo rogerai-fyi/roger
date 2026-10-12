@@ -29,11 +29,26 @@ export const TICS = [
 
 before(() => execFileSync("node", ["build.mjs"], { cwd: WEB }));
 
+// an element hidden from assistive tech is not prose either (a token strip, a chart key):
+// drop it with everything inside it, matching its own close tag through any nesting
+export function dropHidden(html) {
+  let out = html, m;
+  while ((m = /<(\w+)\b[^>]*\baria-hidden="true"[^>]*>/.exec(out))) {
+    const tag = m[1]; let depth = 0, i = m.index, end = -1;
+    const re = new RegExp(`<(/?)${tag}\\b[^>]*>`, "g"); re.lastIndex = m.index;
+    let t;
+    while ((t = re.exec(out))) { depth += t[1] ? -1 : 1; if (!depth) { end = t.index + t[0].length; break; } }
+    out = out.slice(0, i) + out.slice(end < 0 ? i + m[0].length : end);
+  }
+  return out;
+}
+
 // the reader's prose: text of the article body's p, li, dt, dd, h2, h3 and captions
 export function prose(html) {
-  const body = (html.match(/<div class="bc-post__body">[\s\S]*?<\/article>/) || [""])[0]
+  const raw = (html.match(/<div class="bc-post__body">[\s\S]*?<\/article>/) || [""])[0]
     .replace(/<!--[\s\S]*?-->/g, "").replace(/<script\b[\s\S]*?<\/script>/g, "").replace(/<style\b[\s\S]*?<\/style>/g, "")
     .replace(/<svg\b[\s\S]*?<\/svg>/g, "").replace(/<(code|kbd)\b[^>]*>[\s\S]*?<\/\1>/g, " code ");
+  const body = dropHidden(raw);
   const lead = (html.match(/<blockquote class="bc-answer"[\s\S]*?<\/blockquote>/) || [""])[0] + (html.match(/<p class="bc-post__dek">[\s\S]*?<\/p>/) || [""])[0];
   const out = [];
   for (const [, tag, inner] of (body + lead).matchAll(/<(p|li|dt|dd|h2|h3|figcaption|blockquote|small)\b[^>]*>([\s\S]*?)<\/\1>/g)) {
@@ -82,5 +97,16 @@ for (const page of PAGES) {
     const bad = prose(html).filter((b) => /\?/.test(b)).filter((b) => !new RegExp("(<h[23]>|<dt><b>)\\s*" + esc(b.slice(0, 30))).test(html))
       .filter((b) => !/^FIG\. |^"[^"]*\?"/.test(b));   // a quoted question inside a myth card is a quote, not the page asking
     assert.deepEqual(bad, [], "rhetorical questions in body copy");
+  });
+}
+
+// a run of "X, not Y" heads is a rhythm tic; one in a row is a point, two is a pattern
+for (const page of PAGES) {
+  test(`voice: ${page} never stacks two "X, not Y" heads in a row`, () => {
+    const html = dropHidden(read(page));
+    for (const list of html.match(/<(?:ul|ol)\b[^>]*>[\s\S]*?<\/(?:ul|ol)>/g) || []) {
+      const heads = [...list.matchAll(/<li>\s*<b>([^<]*)<\/b>/g)].map((m) => /\bnot\b/i.test(m[1]));
+      for (let i = 1; i < heads.length; i++) assert.ok(!(heads[i] && heads[i - 1]), `two "not" heads in a row: ${list.slice(0, 80)}`);
+    }
   });
 }

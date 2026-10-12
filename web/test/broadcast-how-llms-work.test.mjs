@@ -296,3 +296,77 @@ test("how-llms: the flow strip's arrows share one type rule, so the phone's thir
     assert.match(b, /content:/, "a layout rule sets the glyph");
   }
 });
+
+/* ---- the second review's findings, pinned ----------------------------------------- */
+
+// FIG. 5: every word has three hand-placed positions (trained, halfway, scattered), and at
+// every stop no two chips overlap. Static geometry: a chip is its text in the mono face at
+// 14px (0.6em per glyph) plus 22px of padding and border, 26px tall; the map is 608x380 on
+// a desktop (the 640px article column less the plate's padding) and 326x407 on a 390 phone.
+function mapGeometry(css, phone) {
+  const block = phone ? (css.match(/@media \(max-width: 640px\) \{([\s\S]*?)\n\}/g) || []).join("\n") : css;
+  const words = ["antenna", "dial", "signal", "over", "roger", "pump", "valve", "bearing", "motor", "bread", "soup", "oven"];
+  const vars = (k) => {
+    const out = {};
+    for (const m of block.matchAll(new RegExp(`\\.llm-w${k}\\s*\\{([^}]*)\\}`, "g")))
+      for (const [, name, v] of m[1].matchAll(/--(\w+):\s*([\d.]+)%/g)) out[name] = Number(v);
+    return out;
+  };
+  return words.map((w, i) => {
+    const base = vars(i + 1), over = phone ? { ...mapGeometry(css, false)[i].vars, ...base } : base;
+    return { word: w, vars: over, w: w.length * 0.6 * 14 + 22, h: 26 };
+  });
+}
+function overlaps(items, W, H, stop) {
+  const box = (it) => {
+    const x = it.vars[stop === "trained" ? "x" : stop === "halfway" ? "mx" : "rx"], y = it.vars[stop === "trained" ? "y" : stop === "halfway" ? "my" : "ry"];
+    assert.ok(x !== undefined && y !== undefined, `${it.word} has a ${stop} position`);
+    return { l: (x / 100) * W - it.w / 2, r: (x / 100) * W + it.w / 2, t: (y / 100) * H - it.h / 2, b: (y / 100) * H + it.h / 2 };
+  };
+  const pairs = [];
+  for (let a = 0; a < items.length; a++) for (let b = a + 1; b < items.length; b++) {
+    const A = box(items[a]), B = box(items[b]);
+    if (A.l < B.r && B.l < A.r && A.t < B.b && B.t < A.b) pairs.push(`${items[a].word}/${items[b].word}`);
+  }
+  return pairs;
+}
+test("how-llms: FIG. 5 places every word by hand at all three stops, with no two chips overlapping, desktop or phone", () => {
+  const css = src("styles/broadcast-how-llms-work.css").replace(/\/\*[\s\S]*?\*\//g, "");
+  assert.match(css, /\.llm-mapstage:has\(\.llm-stops > li:nth-child\(2\)\.is-tuned\) \.llm-map__w \{ left: var\(--mx\); top: var\(--my\); \}/, "halfway is its own position, not a midpoint");
+  for (const [items, W, H, where] of [[mapGeometry(css, false), 608, 380, "desktop"], [mapGeometry(css, true), 326, 407, "phone"]])
+    for (const stop of ["trained", "halfway", "scattered"]) assert.deepEqual(overlaps(items, W, H, stop), [], `${where}, ${stop}`);
+});
+
+// FIG. 3: scrubbing must not move the page. Every step carries the same parts (a line, four
+// bars, a note), and nothing a step shows is hidden on another, so every stop has one height.
+test("how-llms: FIG. 3's five steps carry the same parts, and the note is never display:none", () => {
+  const steps = [...read(PAGE).match(/<ol class="llm-gen"[\s\S]*?<\/ol>/)[0].matchAll(/<li>([\s\S]*?)<\/li>/g)].map((m) => m[1]);
+  assert.equal(steps.length, 5);
+  for (const s of steps) {
+    assert.equal((s.match(/class="llm-bars__row/g) || []).length, 4, "four bars");
+    assert.equal((s.match(/class="llm-gen__note/g) || []).length, 1, "one note");
+  }
+  const css = src("styles/broadcast-how-llms-work.css").replace(/\/\*[\s\S]*?\*\//g, "");
+  for (const [sel, body] of css.matchAll(/([^{}]*llm-gen__note[^{}]*)\{([^}]*)\}/g)) assert.doesNotMatch(body, /display:\s*none/, `${sel.trim()} hides the note`);
+});
+
+// No-JS and print: the scrubbers do not exist there, so the "Drag the needle" sentences go too.
+test("how-llms: every scrubber instruction is marked .llm-js and hidden without scripts and in print", () => {
+  const html = read(PAGE);
+  const spans = [...html.matchAll(/<span class="llm-js">([^<]*)<\/span>/g)].map((m) => m[1].trim());
+  assert.equal(spans.length, 5);
+  for (const s of spans) assert.match(s, /^Drag /, s);
+  assert.doesNotMatch(html.replace(/<span class="llm-js">[^<]*<\/span>/g, ""), /Drag (the needle|from)/, "no instruction escapes the span");
+  const css = src("styles/broadcast-how-llms-work.css");
+  assert.match(css, /html:not\(\.js\) \.llm-js \{ display: none; \}/);
+  assert.match(css, /@media print \{[^}]*\.llm-js \{ display: none; \}/);
+});
+
+test("how-llms: FIG. 2 numbers its stages once each, and FIG. 15's bins are uniform", () => {
+  const html = read(PAGE);
+  const nos = [...html.match(/<ol class="llm-flow__steps"[\s\S]*?<\/ol>/)[0].matchAll(/<span class="llm-flow__no">([^<]*)<\/span>/g)].map((m) => m[1]);
+  assert.equal(new Set(nos).size, nos.length, `no repeated stage label: ${nos.join(" ")}`);
+  const axis = [...html.match(/<ol class="llm-dist__axis"[\s\S]*?<\/ol>/)[0].matchAll(/<li>([^<]*)<\/li>/g)].map((m) => Number(m[1]));
+  const steps = axis.slice(1).map((v, i) => +(v - axis[i]).toFixed(2));
+  assert.ok(steps.every((s) => s === steps[0]), `uniform bins: ${axis.join(", ")}`);
+});
