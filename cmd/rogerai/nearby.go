@@ -190,6 +190,11 @@ type nearbyResolved struct {
 
 func (r nearbyResolved) ref() string { return r.mp.File.Repo + ":" + modelDash(r.c.File.Quant) }
 
+// mapLine is the source's mapping, as the source says it.
+func (r nearbyResolved) mapLine() string {
+	return fmt.Sprintf("%s = %s as served by %s", r.name, r.mp.File.Ref(), r.mp.by())
+}
+
 // line is the mapping as the owner reads it before saying yes.
 func (r nearbyResolved) line() string {
 	if r.listed {
@@ -487,11 +492,7 @@ func modelHubLookup(ctx context.Context, cfg config, name string, ctxLen int, ye
 		return localmodel.Model{}, fmt.Errorf("nothing nearby and nothing on the model hub matches %q - try roger model search <other words>", name)
 	}
 	fmt.Fprintf(modelOut, "ranked by the model hub's download count, among GGUF repositories with a file that fits this machine; the top %d are shown\n", hubShown)
-	fmt.Fprintln(modelOut, "each is its author's word, not RogerAI's and not a nearby source's")
-	for i, p := range picks {
-		fmt.Fprintf(modelOut, "  %d) %s:%s  %s  licence %s  %s downloads  %s\n", i+1, p.m.Repo, modelDash(p.c.File.Quant),
-			provision.BytesWord(p.c.File.Bytes), modelDash(p.m.License), countWord(p.m.Downloads), p.c.Verdict.Short())
-	}
+	hubList(picks)
 	if more > 0 {
 		fmt.Fprintf(modelOut, "  %d more that fits: roger model search %s shows every match\n", more, name)
 	}
@@ -504,6 +505,21 @@ func modelHubLookup(ctx context.Context, cfg config, name string, ctxLen int, ye
 	if !edgeIsInteractive() {
 		return localmodel.Model{}, errors.New("no terminal to pick on, so nothing was fetched; name one exactly: roger model serve <owner/repo>:<quant>")
 	}
+	return hubFetchPick(ctx, picks, yes)
+}
+
+// hubList draws the hub's offers, numbered, as their authors' word.
+func hubList(picks []hubPick) {
+	fmt.Fprintln(modelOut, "each is its author's word, not RogerAI's and not a nearby source's")
+	for i, p := range picks {
+		fmt.Fprintf(modelOut, "  %d) %s:%s  %s  licence %s  %s downloads  %s\n", i+1, p.m.Repo, modelDash(p.c.File.Quant),
+			provision.BytesWord(p.c.File.Bytes), modelDash(p.m.License), countWord(p.m.Downloads), p.c.Verdict.Short())
+	}
+}
+
+// hubFetchPick has the owner pick one offer (a single one is not asked to be picked), shows it in
+// full and fetches it only on a yes, against the digest the listing gave.
+func hubFetchPick(ctx context.Context, picks []hubPick, yes bool) (localmodel.Model, error) {
 	i := 0
 	if len(picks) > 1 {
 		fmt.Fprintf(modelOut, "pick 1-%d to see it before anything is fetched, or n: ", len(picks))
@@ -517,6 +533,133 @@ func modelHubLookup(ctx context.Context, cfg config, name string, ctxLen int, ye
 		ask:    "fetch it? [y/N]: ",
 		source: "source: the model hub - its author's word, checked against the digest the listing gave",
 	}, yes)
+}
+
+// noTerminalSuggest is what a run with no terminal says after its suggestions: nothing moved.
+const noTerminalSuggest = "no terminal, so nothing is fetched: roger model serve <name> serves one"
+
+// modelSuggest is `roger model serve` with no name (short_names_nearby.feature section 6): what is
+// served nearby that fits this machine, else a few hub models that fit comfortably, by a stated
+// rule. ok is false when nothing was chosen; nothing is ever fetched without a pick at a terminal.
+func modelSuggest(ctx context.Context, cfg config, a modelArgv) (localmodel.Model, bool, error) {
+	b := modelBudget()
+	var mapped []nearbyName
+	for _, n := range modelNearby(cfg) {
+		for _, mp := range n.Maps {
+			mapped = append(mapped, nearbyName{Name: n.Name, Maps: []nearbyMap{mp}})
+		}
+	}
+	if !b.Known() {
+		// No guess: each nearby one with what it needs, and the owner decides on their own word.
+		fmt.Fprintf(modelOut, "roger cannot judge what fits this machine: %s\n", b.Why)
+		if len(mapped) == 0 {
+			fmt.Fprintln(modelOut, "nothing is served nearby.")
+			return localmodel.Model{}, false, nil
+		}
+		for _, n := range mapped {
+			line := nearbyResolved{name: n.Name, mp: n.Maps[0]}.mapLine()
+			if c, ok := nearbyChoice(ctx, n.Maps[0], a.ctx); ok && c.Verdict.Need.Total > 0 {
+				fmt.Fprintf(modelOut, "  -  %s  %s  needs %s of memory at %d context\n", line, provision.BytesWord(c.File.Bytes),
+					provision.BytesWord(c.Verdict.Need.Total), c.Verdict.Need.Ctx)
+			} else {
+				fmt.Fprintf(modelOut, "  -  %s\n", line)
+			}
+		}
+		fmt.Fprintln(modelOut, "roger model serve <name> serves one on your word")
+		return localmodel.Model{}, false, nil
+	}
+	if len(mapped) > 0 {
+		var fit []nearbyName
+		var fitLines, other []string
+		for _, n := range mapped {
+			line := nearbyResolved{name: n.Name, mp: n.Maps[0]}.mapLine()
+			c, ok := nearbyChoice(ctx, n.Maps[0], a.ctx)
+			switch {
+			case !ok:
+				other = append(other, fmt.Sprintf("  -  %s  cannot be judged: the model hub does not list that file now", line))
+			case c.Verdict.Fit == catalog.FitWontFit:
+				other = append(other, fmt.Sprintf("  -  %s  %s  would not fit here: %s", line, provision.BytesWord(c.File.Bytes), c.Verdict.Line()))
+			default:
+				fit = append(fit, n)
+				fitLines = append(fitLines, fmt.Sprintf("  %d) %s  %s  %s", len(fit), line, provision.BytesWord(c.File.Bytes), c.Verdict.Short()))
+			}
+		}
+		if len(fit) > 0 {
+			fmt.Fprintln(modelOut, "served nearby, and fits this machine:")
+			for _, l := range append(fitLines, other...) {
+				fmt.Fprintln(modelOut, l)
+			}
+			if !edgeIsInteractive() {
+				fmt.Fprintln(modelOut, noTerminalSuggest)
+				return localmodel.Model{}, false, nil
+			}
+			if len(fit) == 1 {
+				fmt.Fprint(modelOut, "pick 1 to serve it, or n: ")
+			} else {
+				fmt.Fprintf(modelOut, "pick 1-%d to serve one, or n: ", len(fit))
+			}
+			i := modelReadPick(len(fit))
+			if i < 0 {
+				fmt.Fprintln(modelOut, "not fetched. Nothing changed.")
+				return localmodel.Model{}, false, nil
+			}
+			m, err := modelFromNearby(ctx, cfg, fit[i], "", a.ctx, a.yes)
+			return m, err == nil, err
+		}
+		fmt.Fprintln(modelOut, "nothing served nearby fits this machine:")
+		for _, l := range other {
+			fmt.Fprintln(modelOut, l)
+		}
+	} else {
+		fmt.Fprintln(modelOut, "nothing is served nearby.")
+	}
+	ms, err := modelHub().Search(ctx, hfhub.Query{Limit: hubInspect})
+	if err != nil {
+		return localmodel.Model{}, false, fmt.Errorf("nothing is served nearby, and %s (%v), so roger suggests nothing", hubTrouble(err), err)
+	}
+	sort.SliceStable(ms, func(i, j int) bool { return ms[i].Downloads > ms[j].Downloads })
+	var picks []hubPick
+	for _, m := range ms {
+		if m.Pipeline != "text-generation" || len(picks) == hubShown {
+			continue // a chat model, the rule says
+		}
+		cs, b, err := modelRank(ctx, m.Repo, a.ctx)
+		if err != nil {
+			continue
+		}
+		if i := localmodel.Suggest(cs); i >= 0 && cs[i].Verdict.Fit == catalog.FitFits {
+			picks = append(picks, hubPick{m, cs[i], b})
+		}
+	}
+	fmt.Fprintf(modelOut, "from the model hub: the most-downloaded chat GGUFs on the model hub with a file that fits this machine comfortably; up to %d\n", hubShown)
+	if len(picks) == 0 {
+		fmt.Fprintln(modelOut, "none of them fits this machine comfortably; roger model search <words> looks further")
+		return localmodel.Model{}, false, nil
+	}
+	hubList(picks)
+	if !edgeIsInteractive() {
+		fmt.Fprintln(modelOut, noTerminalSuggest)
+		return localmodel.Model{}, false, nil
+	}
+	m, err := hubFetchPick(ctx, picks, a.yes)
+	if errors.Is(err, errModelDeclined) {
+		return m, false, nil
+	}
+	return m, err == nil, err
+}
+
+// nearbyChoice is the hub's ranked entry for the exact file a mapping names, judged here.
+func nearbyChoice(ctx context.Context, mp nearbyMap, ctxLen int) (localmodel.Choice, bool) {
+	cs, _, err := modelRank(ctx, mp.File.Repo, ctxLen)
+	if err != nil {
+		return localmodel.Choice{}, false
+	}
+	for _, c := range cs {
+		if c.File.Path == mp.File.File {
+			return c, true
+		}
+	}
+	return localmodel.Choice{}, false
 }
 
 func hubAllUnservable(cs []localmodel.Choice) bool {

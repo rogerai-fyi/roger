@@ -224,8 +224,18 @@ func cmdModel(cfg config, args []string) error {
 		}
 		return err
 	case "serve":
+		if len(a.pos) == 0 {
+			m, ok, err := modelSuggest(ctx, cfg, a)
+			if !ok || err != nil {
+				if errors.Is(err, errModelDeclined) {
+					return nil
+				}
+				return err
+			}
+			return modelServeModel(ctx, a, m)
+		}
 		if len(a.pos) != 1 {
-			return errors.New("usage: roger model serve <name | owner/repo[:QUANT] | file.gguf> [--ctx N] [--port N] [--detach] [--add]")
+			return errors.New("usage: roger model serve [name | owner/repo[:QUANT] | file.gguf] [--ctx N] [--port N] [--detach] [--add] [--hub]")
 		}
 		return modelServe(ctx, cfg, a)
 	case "status":
@@ -557,6 +567,11 @@ func modelServe(ctx context.Context, cfg config, a modelArgv) error {
 		}
 		return err
 	}
+	return modelServeModel(ctx, a, m)
+}
+
+// modelServeModel serves a model already on this disk.
+func modelServeModel(ctx context.Context, a modelArgv, m localmodel.Model) error {
 	// The runtime first: serving needs it anyway, and once it is here its own fit check answers. The
 	// build it resolves to decides the pool (local_models.feature §10).
 	rt, err := modelRuntime(ctx)

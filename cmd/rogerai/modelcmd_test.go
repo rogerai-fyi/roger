@@ -593,7 +593,7 @@ func TestModelUsageAndFlagMistakesAreSaidPlainly(t *testing.T) {
 	}{
 		{[]string{"files"}, "usage: roger model files"},
 		{[]string{"get"}, "usage: roger model get"},
-		{[]string{"serve"}, "usage: roger model serve"},
+		{[]string{"serve", "a", "b"}, "usage: roger model serve"},
 		{[]string{"rm"}, "usage: roger model rm"},
 		{[]string{"frobnicate"}, "unknown: roger model frobnicate"},
 		{[]string{"serve", "x", "--ctx"}, "--ctx needs a value"},

@@ -262,22 +262,36 @@ func (r *nearbyRig) enroll(t *testing.T) {
 // proven is whether the serving probe answered; a member that only claims the band is not a source.
 func (r *nearbyRig) member(t *testing.T, node, band string, f *servedfile.File, proven bool) {
 	t.Helper()
+	r.memberBands(t, node, proven, []string{band}, []*servedfile.File{f})
+}
+
+// memberBands records a member serving several bands at once, the first its latest.
+func (r *nearbyRig) memberBands(t *testing.T, node string, proven bool, bands []string, files []*servedfile.File) {
+	t.Helper()
 	r.enroll(t)
 	st, err := loadEdgeState()
 	require.NoError(t, err)
 	id := "n_" + node + strings.Repeat("0", 24-len(node))
-	m := &store.EdgeModel{Band: band, ID: band}
-	if f != nil {
-		m.ID, m.Quant, m.File, m.SHA256 = f.Ref(), f.Quant, f.File, f.SHA256
+	m := &store.EdgeModel{}
+	for i, band := range bands {
+		e := store.EdgeServed{Band: band, ID: band}
+		if f := files[i]; f != nil {
+			e.ID, e.Quant, e.File, e.SHA256 = f.Ref(), f.Quant, f.File, f.SHA256
+		}
+		if i == 0 {
+			m.Band, m.ID, m.Quant, m.File, m.SHA256 = e.Band, e.ID, e.Quant, e.File, e.SHA256
+		} else {
+			m.Also = append(m.Also, e)
+		}
 	}
 	obs := edge.Observation{Name: node, Kind: "host", Addr: "192.168.1.77:1", Fingerprint: strings.Repeat("cd", 32),
 		Instances: []edge.Instance{{Name: "serve", Caps: []store.EdgeCap{{Name: string(edge.Serve), State: string(edge.Claimed)}},
-			Bands: []string{band}, Model: m}}}
+			Bands: bands, Model: m}}}
 	_, err = st.fleet.Observe(id, obs)
 	require.NoError(t, err)
 	if proven {
 		require.NoError(t, st.fleet.RecordInstanceProbe(id, "serve", edge.Serve, true))
-		require.NoError(t, st.fleet.RecordServeProbe(id, "serve", []string{band}))
+		require.NoError(t, st.fleet.RecordServeProbe(id, "serve", bands))
 	}
 	require.NoError(t, st.save())
 }
