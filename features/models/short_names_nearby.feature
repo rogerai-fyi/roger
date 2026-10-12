@@ -528,3 +528,54 @@ Feature: A person can serve a model by the name it already has nearby, or find i
   Scenario: a remote instruction carrying only a name is refused
     Given an Edge instruction arrives naming a model only by a short name
     Then the member refuses it, because members fetch only an exact reference
+
+  # founder ruling 2026-10-11: same-repo quants on disk are picked by the quant rule
+  Scenario: two quantisations of one repository on disk are picked by the quantisation rule
+    Given "smollm2-135m-instruct" is on this disk at Q4_K_M and at Q8_0 of one repository
+    When the owner runs "roger model serve smollm2-135m-instruct"
+    Then roger serves the Q4_K_M file, the one the quantisation rule picks for this machine
+    And it says it chose Q4_K_M as the best fit here, that Q8_0 is also on disk, and how to pick it
+    And nothing is downloaded from the model hub
+
+  # founder ruling 2026-10-11: same-repo quants on disk are picked by the quant rule
+  Scenario: --quant picks another quantisation already on disk
+    Given "smollm2-135m-instruct" is on this disk at Q4_K_M and at Q8_0 of one repository
+    When the owner runs "roger model serve smollm2-135m-instruct --quant Q8_0"
+    Then roger serves the Q8_0 file
+    And nothing is downloaded from the model hub
+
+  # founder ruling 2026-10-11: same-repo quants on disk are picked by the quant rule
+  Scenario: get of a name with two quantisations on disk fetches nothing
+    Given "smollm2-135m-instruct" is on this disk at Q4_K_M and at Q8_0 of one repository
+    When the owner runs "roger model get smollm2-135m-instruct"
+    Then roger says it is already on this machine, naming the file the rule picks and the other quantisation
+    And the command succeeds
+    And nothing is downloaded from the model hub
+
+  # founder ruling 2026-10-11: same-repo quants on disk are picked by the quant rule
+  Scenario: get of a name already on disk once fetches nothing
+    Given "smollm2-135m-instruct" is on this disk at Q4_K_M only
+    When the owner runs "roger model get smollm2-135m-instruct"
+    Then roger says "already on this machine: bartowski/SmolLM2-135M-Instruct-GGUF:Q4_K_M"
+    And the command succeeds
+    And nothing is downloaded from the model hub
+
+  # founder ruling 2026-10-11: same-repo quants on disk are picked by the quant rule
+  Scenario: --quant naming a quantisation not on disk fetches it from that repository
+    Given "smollm2-135m-instruct" is on this disk at Q4_K_M only
+    When the owner runs "roger model get smollm2-135m-instruct --quant Q8_0 --yes"
+    Then the Q8_0 file of that repository is fetched and on this disk
+
+  # founder ruling 2026-10-11: same-repo quants on disk are picked by the quant rule
+  Scenario: one name from two different repositories on disk is never picked for the owner
+    Given "smollm2-135m-instruct" is on this disk from two different repositories
+    When the owner runs "roger model serve smollm2-135m-instruct" and picks 2
+    Then both repositories are listed, numbered
+    And roger serves the file from the second repository listed
+
+  # founder ruling 2026-10-11: same-repo quants on disk are picked by the quant rule
+  Scenario: a scripted run never picks between two repositories on disk
+    Given "smollm2-135m-instruct" is on this disk from two different repositories
+    And no terminal is attached
+    When the owner runs "roger model serve smollm2-135m-instruct"
+    Then roger refuses, listing both, and serves nothing

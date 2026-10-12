@@ -125,6 +125,7 @@ type modelArgv struct {
 	detach bool
 	add    bool   // serve beside what is on the air, rather than switching (local_models.feature §5)
 	hub    bool   // skip every nearby source and look the name up on the model hub (short_names_nearby.feature §4)
+	quant  string // a quantisation named for a short name (founder ruling 2026-10-11)
 	on     string // a member of the Edge: the same command, on that machine (remote_model.feature)
 }
 
@@ -162,6 +163,12 @@ func parseModelArgv(args []string) (modelArgv, error) {
 		}
 		if name == "on" {
 			a.on = strings.TrimSpace(val)
+			continue
+		}
+		if name == "quant" {
+			if a.quant = strings.TrimSpace(val); a.quant == "" {
+				return a, errors.New("--quant needs a quantisation, such as Q4_K_M")
+			}
 			continue
 		}
 		n, err := strconv.Atoi(val)
@@ -216,7 +223,23 @@ func cmdModel(cfg config, args []string) error {
 		return modelNearbyList(cfg)
 	case "get", "pull":
 		if len(a.pos) != 1 {
-			return errors.New("usage: roger model get <owner/repo>[:QUANT] [--ctx N] [--yes]")
+			return errors.New("usage: roger model get <name | owner/repo[:QUANT]> [--quant Q] [--ctx N] [--yes]")
+		}
+		if p, err := modelOnDisk(modelHome(), a.pos[0], a.quant, a.ctx); err == nil && p.fetch == "" {
+			line := "already on this machine: " + p.m.ID
+			if p.byRule {
+				line += " (best fit here)"
+			}
+			fmt.Fprintln(modelOut, line)
+			if o := diskOthers(p); o != "" {
+				fmt.Fprintln(modelOut, o)
+			}
+			return nil // nothing to fetch
+		} else if err != nil && !errors.Is(err, localmodel.ErrUnknownModel) {
+			if errors.Is(err, errModelDeclined) {
+				return nil
+			}
+			return err
 		}
 		_, err := modelResolve(ctx, cfg, a.pos[0], a)
 		if errors.Is(err, errModelDeclined) {
@@ -235,7 +258,7 @@ func cmdModel(cfg config, args []string) error {
 			return modelServeModel(ctx, a, m)
 		}
 		if len(a.pos) != 1 {
-			return errors.New("usage: roger model serve [name | owner/repo[:QUANT] | file.gguf] [--ctx N] [--port N] [--detach] [--add] [--hub]")
+			return errors.New("usage: roger model serve [name | owner/repo[:QUANT] | file.gguf] [--quant Q] [--ctx N] [--port N] [--detach] [--add] [--hub]")
 		}
 		return modelServe(ctx, cfg, a)
 	case "status":
@@ -536,18 +559,32 @@ func modelResolve(ctx context.Context, cfg config, ref string, a modelArgv) (loc
 		}
 	}
 	h := modelHome()
-	m, err := h.Find(ref)
+	p, err := modelOnDisk(h, ref, a.quant, a.ctx)
+	if err == nil && p.fetch != "" {
+		fmt.Fprintf(modelOut, "%s is not on this machine yet.\n", p.fetch)
+		return modelGet(ctx, p.fetch, a.ctx, a.yes)
+	}
+	m := p.m
+	if err == nil && p.byRule {
+		fmt.Fprintln(modelOut, diskUsing(p))
+	}
 	if err == nil && !m.Verified() && !a.hub && !strings.Contains(ref, "/") {
 		nearbyAlso(cfg, m, ref) // the owner's own file keeps its name; a nearby one is said
 	}
 	if err == nil || !errors.Is(err, localmodel.ErrUnknownModel) {
 		return m, err
 	}
+	if a.quant != "" && strings.Contains(ref, "/") && !strings.Contains(ref, ":") {
+		ref += ":" + a.quant
+	}
 	if strings.Contains(ref, "/") {
 		fmt.Fprintf(modelOut, "%s is not on this machine yet.\n", ref)
 		return modelGet(ctx, ref, a.ctx, a.yes)
 	}
 	name, quant, _ := strings.Cut(ref, ":")
+	if a.quant != "" {
+		quant = a.quant
+	}
 	if !a.hub {
 		if n, ok := nearbyFind(modelNearby(cfg), name); ok {
 			if len(n.Maps) > 0 {
