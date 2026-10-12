@@ -1662,6 +1662,8 @@
     return "· " + out;
   }
 
+  var edgeEmptyCtl = null, edgeEmptyKey = "";
+
   function edgeRender(d) {
     edgeLast = d;
     if (!d || d.configured === false) {
@@ -1703,8 +1705,25 @@
     edgePrev = seen;
 
     var empty = !d.nodes.length && !d.candidates.length;
-    show($("edge-empty"), empty);
-    if (empty) edgeRenderFacts(d);
+    // A machine in no Edge gets the simple empty state, never the old facts block
+    // (features/edge/empty_edge_simple.feature §6).
+    show($("edge-empty"), empty && !d.empty);
+    if (empty && !d.empty) edgeRenderFacts(d);
+    var simple = $("edge-empty-simple");
+    if (simple && window.RogerConsoleEdgeEmpty) {
+      if (empty && d.empty) {
+        if (!edgeEmptyCtl || edgeEmptyKey !== JSON.stringify(d.empty)) {
+          edgeEmptyKey = JSON.stringify(d.empty);
+          edgeEmptyCtl = window.RogerConsoleEdgeEmpty.render(document, simple, d, {
+            fetch: function (path, opts) { return fetch(withToken(path), opts); },
+            refresh: loadEdge,
+          });
+        }
+      } else {
+        show(simple, false);
+        edgeEmptyCtl = null; edgeEmptyKey = "";
+      }
+    }
     show($("edge-stage"), !empty);
     if (!empty) {
       if (d.too_many) {

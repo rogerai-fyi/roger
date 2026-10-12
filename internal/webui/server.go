@@ -74,6 +74,9 @@ type Server struct {
 	mux   *http.ServeMux
 	opts  Options
 
+	// joinPrompt is the empty state's ask by address in flight, if any (edge_joinprompt.go).
+	joinPrompt edgeJoinPromptRun
+
 	loginMu     sync.Mutex
 	loginDevice *client.Device // the in-flight device-flow login between begin and poll
 
@@ -149,6 +152,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/edge", s.auth(s.handleEdge))
 	s.mux.HandleFunc("/api/edge/adopt", s.action(s.handleEdgeAdopt))
 	s.mux.HandleFunc("/api/edge/join", s.action(s.handleEdgeJoin))
+	s.mux.HandleFunc("/api/edge/joinprompt", s.auth(s.handleEdgeJoinPrompt))
 	s.mux.HandleFunc("/api/edge/name", s.action(s.handleEdgeName))
 	s.mux.HandleFunc("/api/edge/forget", s.action(s.handleEdgeForget))
 	s.mux.HandleFunc("/api/edge/agent", s.action(s.handleEdgeAgent))

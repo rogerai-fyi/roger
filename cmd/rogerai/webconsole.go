@@ -214,6 +214,7 @@ func edgeHooksFor(cfg config, h *tui.Hooks) webui.EdgeHooks {
 		Join:      func(name, authority, code string) error { return edgeConsoleJoin(cfg, name, authority, code) },
 		Household: h.EdgeHousehold,
 		Sessions:  h.EdgeSessions, Status: h.EdgeStatus,
+		JoinPrompt: h.EdgeJoin,
 	}
 }
 

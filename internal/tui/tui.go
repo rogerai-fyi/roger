@@ -41,6 +41,7 @@ import (
 	"rogerai.fm/roger/v6/internal/edge"
 	"rogerai.fm/roger/v6/internal/glyphs"
 	"rogerai.fm/roger/v6/internal/harness"
+	"rogerai.fm/roger/v6/internal/look"
 	"rogerai.fm/roger/v6/internal/modelview"
 	"rogerai.fm/roger/v6/internal/netbind"
 	"rogerai.fm/roger/v6/internal/node"
@@ -235,6 +236,10 @@ type Hooks struct {
 	// precedent.
 	EdgeSetup   *EdgeSetup
 	EdgeSetupOf func() EdgeSetupState
+	// EdgeJoin is the empty state's j prompt backend: an invite or an address, with the rules
+	// of `roger join` (features/edge/empty_edge_simple.feature §4). Nil = this build cannot
+	// join from here, and j says so.
+	EdgeJoin *edge.JoinPrompt
 	// EdgeHeartbeats carries a node id every time the host actually HEARD from that node
 	// (a verified discovery sighting). It is the ONLY thing that animates the graph: the
 	// TUI never invents a heartbeat on a timer, so a fleet with no traffic draws a still
@@ -1760,6 +1765,14 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.onEdgeSetupDone(msg)
 	case edgeSetupCodeMsg:
 		return m.onEdgeSetupCode(msg)
+	case edgeJoinStartedMsg:
+		return m.onEdgeJoinStarted(msg)
+	case edgeJoinDoneMsg:
+		return m.onEdgeJoinDone(msg)
+	case edgeJoinTickMsg:
+		return m.onEdgeJoinTick()
+	case edgeStatusTickMsg:
+		return m.onEdgeStatusTick()
 	case tickMsg:
 		// A stale tick chain (a kick bumped m.tickGen since this one was scheduled): let it die
 		// silently - do NOT advance the frame or reschedule, so only the newest chain survives.
@@ -4894,6 +4907,10 @@ func (m model) footer(w int) string {
 		left = stDim.Render("↑↓ select  ·  ⏎ detail  ·  a adopt  ·  r re-read  ·  esc back")
 		if m.narrow() {
 			left = stDim.Render("↑↓ · ⏎ detail · a adopt · esc")
+		}
+		if m.edgeEmptySimple() {
+			// Nothing to select or adopt yet: the footer offers the two ways in and back.
+			left = stDim.Render(look.ActionsPlain(look.EmptyEdgeActions))
 		}
 		return modalFooter(m.effWidth(), left, m.accountTag(true), m.status)
 	case modeShare:

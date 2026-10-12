@@ -97,6 +97,8 @@ type edgeHost struct {
 	// what it found. Guarded by mu like the candidates it produced.
 	lastPass    time.Time
 	lastFound   string
+	lastNearby  int // other roger machines the last pass saw
+	lastInEdge  int // of those, in an Edge
 	unavailable bool
 	armed       bool // the engine exists (ROGERAI_EDGE_DISCOVERY was not 0)
 	// browsing is whether the engine's browse is running now; onRequest, that it runs only
@@ -212,6 +214,8 @@ func (h *edgeHost) wire(hooks *tui.Hooks) {
 	setup := edgeSetupHooks(h.cfg)
 	hooks.EdgeSetup = &setup
 	hooks.EdgeSetupOf = edgeSetupState
+	// The empty state's j prompt: `roger join` with an invite or an address (edgejoinprompt.go).
+	hooks.EdgeJoin = edgeJoinPromptHooks(h.cfg)
 }
 
 // status is what is true about THIS machine right now - enrolled, rooted where, scanning
@@ -236,7 +240,7 @@ func (h *edgeHost) status() edge.SelfStatus {
 	st := h.st
 	facts := edgeDiscoveryFacts{
 		Enabled: h.armed, Unavailable: h.unavailable, Interval: h.every,
-		LastPass: h.lastPass, Found: h.lastFound, AuthorityAddr: edgeAuthorityURL(h.authLn),
+		LastPass: h.lastPass, Found: h.lastFound, Nearby: h.lastNearby, InEdge: h.lastInEdge, AuthorityAddr: edgeAuthorityURL(h.authLn),
 		NoEngine: h.armed && !h.browsing && !asked, OnRequest: h.onRequest || (asked && !h.browsing),
 	}
 	h.mu.Unlock()
@@ -1018,6 +1022,11 @@ func (h *edgeHost) runPass(ctx context.Context) edge.Report {
 	h.st.candidates = edgeDropMembers(h.st.candidates, h.st.fleet) // a member re-advertising as a candidate is not to-adopt
 	h.lastPass, h.unavailable = time.Now(), rep.Unavailable()
 	h.lastFound = edge.PassSummary(len(rep.Verified), len(h.st.candidates))
+	// The nearby count (empty_edge_simple.feature §2, ruled 2026-10-11): every other roger
+	// machine that advertised on this LAN, split by whether it is in an Edge (ours, verified,
+	// or somebody else's) or not yet (a candidate).
+	h.lastNearby = len(rep.Verified) + rep.Foreign + len(h.st.candidates)
+	h.lastInEdge = len(rep.Verified) + rep.Foreign
 	err := h.st.save()
 	h.mu.Unlock()
 	if err != nil {

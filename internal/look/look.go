@@ -82,3 +82,13 @@ type Action struct{ Key, Label string }
 
 // ActionGap separates the action bar's items.
 const ActionGap = "   "
+
+// ActionsPlain is an action bar as one plain line ("e start · j join · esc back"), for the
+// footers and hints that carry no style of their own.
+func ActionsPlain(acts []Action) string {
+	parts := make([]string, 0, len(acts))
+	for _, a := range acts {
+		parts = append(parts, a.Key+" "+a.Label)
+	}
+	return strings.Join(parts, " · ")
+}

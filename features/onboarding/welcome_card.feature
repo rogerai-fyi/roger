@@ -1,5 +1,6 @@
 # STATUS: APPROVED 2026-10-11 (founder)
-# BUILD STATUS: NOT BUILT.
+# BUILD STATUS: BUILT 2026-10-11 (internal/look, internal/tui/welcome.go, cmd/rogerai/onboard.go, internal/webui/welcome.go + console-welcome.js;
+#   runners: internal/look/look_test.go, internal/tui/welcome_card_bdd_test.go, cmd/rogerai/welcome_card_bdd_test.go, internal/webui/welcome_console_bdd_test.go).
 #
 # WELCOME CARD: the pre-TUI welcome picker (cmd/rogerai/onboard.go runWizard: "Welcome to
 # RogerAI - a two-way radio for Local Models ... Just use models / Share FREE / Share earn")

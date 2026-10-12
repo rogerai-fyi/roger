@@ -31,6 +31,7 @@ import (
 	"rogerai.fm/roger/v6/internal/client"
 	"rogerai.fm/roger/v6/internal/edge"
 	"rogerai.fm/roger/v6/internal/edgeauth"
+	"rogerai.fm/roger/v6/internal/look"
 	"rogerai.fm/roger/v6/internal/store"
 )
 
@@ -980,10 +981,20 @@ func cmdEdgeList(cfg config, args []string) error {
 			fmt.Println("nothing on this Edge matches that.")
 			return nil
 		}
+		self := edgeSelfStatus(st.fleet, edgeDiscoveryFactsFromEnv())
+		if self.Err == "" && !self.SetUp() {
+			// Nothing set up: the same three things the TUI and the console say
+			// (features/edge/empty_edge_simple.feature §7), then the discovery fact.
+			fmt.Println(look.EmptyEdgeCLIHead)
+			fmt.Println("  " + look.EmptyEdgeSay)
+			fmt.Printf("  %-36s%s\n", look.EmptyEdgeStart+":", look.EmptyEdgeCLIStart)
+			fmt.Printf("  %-36s%s\n", look.EmptyEdgeJoin+":", look.EmptyEdgeCLIJoin)
+			fmt.Printf("  %-14s%s\n", "DISCOVERY", self.DiscoveryLine(time.Now()))
+			return nil
+		}
 		fmt.Println("your Edge: this machine is the only node.")
 		// The three facts that decide what to do next, worded once in internal/edge
 		// (features/edge/empty_edge.feature) so the TUI and the console say the same.
-		self := edgeSelfStatus(st.fleet, edgeDiscoveryFactsFromEnv())
 		fact := func(label string, lines ...string) {
 			for i, l := range lines {
 				if i > 0 {

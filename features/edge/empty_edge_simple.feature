@@ -1,5 +1,7 @@
 # STATUS: APPROVED 2026-10-11 (founder)
-# BUILD STATUS: NOT BUILT.
+# BUILD STATUS: BUILT 2026-10-11 (internal/tui/edge_empty_simple.go + edge_join.go, internal/edge/joinprompt.go, cmd/rogerai/edgejoinprompt.go,
+#   internal/webui/edge_joinprompt.go + console-edge-empty.js, `roger edge` in cmd/rogerai/edge.go; runners: internal/tui/empty_edge_simple_bdd_test.go,
+#   internal/webui/edge_empty_simple_console_bdd_test.go, cmd/rogerai/edge_empty_simple_cli_bdd_test.go).
 #
 # THE SIMPLE EMPTY EDGE: what [3] EDGE (and the console's Edge view) shows on a machine that is
 # in no Edge yet. Today it lists THIS MACHINE "not enrolled · roger edge enroll <name>",

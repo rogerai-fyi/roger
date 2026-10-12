@@ -262,9 +262,10 @@ func TestArrowHintNoColorNarrow(t *testing.T) {
 		}
 	}
 
-	// HELP names the arrow keys.
+	// HELP names the arrow keys. HELP is a pager whose "more keys" block sits at the end
+	// (welcome_card.feature: start here first); an unmeasured height renders the whole page.
 	h := New("http://broker.local", "tester")
-	h.width, h.height = 100, 40
+	h.width, h.height = 100, 0
 	h.mode = modeHelp
 	if got := stripANSI(h.View()); !strings.Contains(got, "switch section") {
 		t.Errorf("HELP should document ←/→ switch section:\n%s", got)

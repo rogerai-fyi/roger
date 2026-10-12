@@ -25,6 +25,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"rogerai.fm/roger/v6/internal/edge"
+	"rogerai.fm/roger/v6/internal/look"
 )
 
 // EdgeSetup is the onboarding backend the wizard drives (filled by the host, cmd/rogerai/
@@ -39,6 +40,9 @@ type EdgeSetup struct {
 	// an error is the end of that held answer (features/edge/enrollment_root_trust.feature).
 	JoinCode   func(code string) (done bool, err error)
 	EnrollSelf func() error // finish: designated here but not enrolled
+	// EnrollCore roots the new Edge through RogerAI instead of here (the authority step's second
+	// line, features/edge/empty_edge_simple.feature §3). Nil = this build offers local only.
+	EnrollCore func(name string) error
 }
 
 // NeedsCodeError is what Join returns when the authority answered and this machine keeps the root
@@ -67,7 +71,8 @@ var ErrNotAllowedYet = errors.New("this machine is not allowed on that Edge yet"
 type edgeSetupStep int
 
 const (
-	setupChoose  edgeSetupStep = iota // new vs join
+	setupChoose  edgeSetupStep = iota // where the authority lives: here (default) or RogerAI
+	setupLogin                        // (RogerAI) a login is needed first
 	setupName                         // name this machine
 	setupAddr                         // (join) the authority address
 	setupRunning                      // the handshake is in flight
@@ -81,8 +86,9 @@ const (
 type edgeSetup struct {
 	open    bool
 	step    edgeSetupStep
-	join    bool   // the chosen path
-	choice  int    // 0 = new, 1 = join (at setupChoose)
+	join    bool   // the chosen path (join: reached by the onboard join flow, not by e)
+	core    bool   // root the new Edge through RogerAI (the authority step's second line)
+	choice  int    // 0 = here, 1 = through RogerAI (at setupChoose)
 	name    string // the name buffer
 	addr    string // the authority-address buffer
 	field   int    // which text field is active at a step (name/addr)
@@ -134,9 +140,11 @@ func (m model) canSetup() bool { return m.hooks.EdgeSetup != nil }
 // the choice.
 func (m *model) openEdgeSetup() {
 	if !m.canSetup() {
-		m.status = stEmber.Render("this build cannot set up an Edge here - use the commands shown")
+		m.status = stEmber.Render(look.SetupNoBuildLine)
 		return
 	}
+	// e starts an Edge HERE (features/edge/empty_edge_simple.feature §3): the first step asks
+	// where its authority lives, local by default; join has its own key (j), never a choice here.
 	s := edgeSetup{open: true, step: setupChoose}
 	if m.hooks.EdgeSetup.DefaultName != nil {
 		s.name = m.hooks.EdgeSetup.DefaultName()
@@ -163,7 +171,7 @@ func (m *model) dispatchEdgeSetup() tea.Cmd {
 	s := m.edge.setup
 	s.step, s.anim, s.startAt, s.frame = setupRunning, true, m.edgeNow(), 0
 	hooks := m.hooks.EdgeSetup
-	name, addr, join, finish := s.name, s.addr, s.join, s.finish
+	name, addr, join, finish, core := s.name, s.addr, s.join, s.finish, s.core
 	run := func() tea.Msg {
 		var err error
 		switch {
@@ -171,6 +179,12 @@ func (m *model) dispatchEdgeSetup() tea.Cmd {
 			err = hooks.EnrollSelf()
 		case join:
 			err = hooks.Join(name, addr)
+		case core:
+			if hooks.EnrollCore == nil {
+				err = errors.New("this build cannot root an Edge through RogerAI from here: run roger edge enroll after roger login")
+			} else {
+				err = hooks.EnrollCore(name)
+			}
 		default:
 			err = hooks.NewEdge(name)
 		}
@@ -246,6 +260,8 @@ func (m *model) onEdgeSetupKey(k tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 	switch s.step {
 	case setupChoose:
 		return m.onSetupChooseKey(k)
+	case setupLogin:
+		return m.onSetupLoginKey(k)
 	case setupName:
 		return m.onSetupTextKey(k, &s.name, m.setupAfterName)
 	case setupAddr:
@@ -291,8 +307,30 @@ func (m *model) onSetupChooseKey(k tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 	case "left", "right", "tab":
 		s.choice ^= 1
 	case "enter":
-		s.join = s.choice == 1
+		s.core = s.choice == 1
+		if s.core && !m.loggedInState() {
+			s.step = setupLogin // RogerAI roots nothing for a machine with no account
+			return m, nil, true
+		}
 		s.step = setupName
+	}
+	return m, nil, true
+}
+
+// onSetupLoginKey is the RogerAI choice without a login: enter starts the TUI's own login (the
+// wizard stays open underneath, so coming back lands here), esc returns to the authority step.
+func (m *model) onSetupLoginKey(k tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
+	s := m.edge.setup
+	switch k.String() {
+	case "esc", "q":
+		s.step, s.core = setupChoose, false
+	case "enter":
+		if m.loggedInState() {
+			s.step = setupName
+			return m, nil, true
+		}
+		mm, cmd := m.doLogin()
+		return mm, cmd, true
 	}
 	return m, nil, true
 }

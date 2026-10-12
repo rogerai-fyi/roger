@@ -13,6 +13,8 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+
+	"rogerai.fm/roger/v6/internal/look"
 )
 
 // edgeSetupContentWidth is the cabinet's inner width for the current terminal: wide enough to
@@ -49,6 +51,8 @@ func (m model) edgeSetupView(w int, line func(string)) {
 	switch s.step {
 	case setupChoose:
 		emit(m.setupChooseScene(cw))
+	case setupLogin:
+		emit(m.setupLoginScene(cw))
 	case setupName:
 		emit(m.setupNameScene(cw))
 	case setupAddr:
@@ -101,7 +105,7 @@ func edgeCabinet(cw int, title string, off int) string {
 // Every state carries its own glyph so NO_COLOR reads the same order; the frequency framing is
 // dropped on a narrow terminal.
 func edgeSetupTrack(s *edgeSetup, cw int) string {
-	steps := []string{"mode", "name", "handshake", "on air"}
+	steps := []string{"authority", "name", "handshake", "on air"}
 	if s.finish {
 		steps = []string{"finish", "handshake", "on air"}
 	}
@@ -144,7 +148,7 @@ func edgeSetupRailIndex(s *edgeSetup) int {
 		}
 	}
 	switch s.step {
-	case setupChoose:
+	case setupChoose, setupLogin:
 		return 0
 	case setupName, setupAddr:
 		return 1
@@ -157,15 +161,24 @@ func edgeSetupRailIndex(s *edgeSetup) int {
 
 // ── the choice: two glowing cards ──────────────────────────────────────────
 
+// setupChooseScene is the authority step of "start an Edge here" (features/edge/
+// empty_edge_simple.feature §3, ruled 2026-10-11): one line each, local selected by default.
 func (m model) setupChooseScene(cw int) string {
-	head := edgeSetupCenter(stDim.Render("how do you want to set this machine up?"), cw)
-	newCard := edgeSetupCard(cw, m.edge.setup.choice == 0, edgeTowerEmblem(),
-		"start a new Edge - this machine becomes the authority",
-		[]string{"needs no internet, roots the fleet here"})
-	joinCard := edgeSetupCard(cw, m.edge.setup.choice == 1, edgeAntennaEmblem(),
-		"join an existing Edge",
-		[]string{"needs the authority's address, and to be allowed on it"})
-	return lipgloss.JoinVertical(lipgloss.Left, head, "", newCard, joinCard)
+	title := edgeSetupCenter(stKey.Render(look.EmptyEdgeStart), cw)
+	head := edgeSetupCenter(stDim.Render(look.SetupAuthorityAsk), cw)
+	local := edgeSetupCard(cw, m.edge.setup.choice == 0, edgeTowerEmblem(), look.SetupAuthorityLocal, nil)
+	core := edgeSetupCard(cw, m.edge.setup.choice == 1, edgeAntennaEmblem(), look.SetupAuthorityCore, nil)
+	return lipgloss.JoinVertical(lipgloss.Left, title, head, "", local, core)
+}
+
+// setupLoginScene says a RogerAI-rooted Edge needs a login, and offers it in place.
+func (m model) setupLoginScene(cw int) string {
+	return edgeSetupPanel(cw, cLive, []string{
+		stKey.Render(look.SetupNeedsLogin),
+		stDim.Render("this machine is not logged in, so there is no account to root the Edge under."),
+		"",
+		stKey.Render("⏎ ") + stDim.Render(look.SetupLoginOffer+" (GitHub)") + stDim.Render("   ·   esc back to the authority choice"),
+	})
 }
 
 // edgeSetupCard is one choice: a bordered panel that GLOWS red with a ▶ carat when selected and
@@ -546,6 +559,8 @@ func edgeSetupHint(s *edgeSetup) string {
 	switch s.step {
 	case setupChoose:
 		return "↑↓ choose  ·  ⏎ continue  ·  esc leave"
+	case setupLogin:
+		return "⏎ log in  ·  esc back"
 	case setupName, setupAddr:
 		return "type  ·  ⏎ continue  ·  esc back"
 	case setupRunning:

@@ -12,6 +12,7 @@ package edge
 // Spec: features/edge/empty_edge.feature.
 
 import (
+	"rogerai.fm/roger/v6/internal/look"
 	"strconv"
 	"time"
 )
@@ -113,7 +114,28 @@ type SelfStatus struct {
 	IntervalS      int64  `json:"interval_s,omitempty"`
 	LastPass       int64  `json:"last_pass,omitempty"` // unix; 0 = no pass has completed
 	Found          string `json:"found,omitempty"`     // PassSummary of the last pass
-	Err            string `json:"error,omitempty"`
+	// Nearby counts the other roger machines the last completed pass saw on this LAN (this
+	// machine excluded); NearbyInEdge how many of those advertise an Edge membership
+	// (features/edge/empty_edge_simple.feature §2, ruled 2026-10-11).
+	Nearby       int    `json:"nearby,omitempty"`
+	NearbyInEdge int    `json:"nearby_in_edge,omitempty"`
+	Err          string `json:"error,omitempty"`
+}
+
+// SetUp reports whether this machine is in an Edge at all: enrolled, or rooting one. A machine
+// that is neither gets the simple empty state on every surface.
+func (s SelfStatus) SetUp() bool { return s.Enrolled || s.AuthorityHere }
+
+// Scan is the empty Edge's scan line: off when discovery is, counted only once a pass has
+// completed, at the host's real interval.
+func (s SelfStatus) Scan() look.EdgeScan {
+	return look.EdgeScan{
+		Off:      s.Discovery == DiscoveryOff,
+		PassDone: s.LastPass != 0,
+		Seen:     s.Nearby,
+		InEdge:   s.NearbyInEdge,
+		Every:    time.Duration(s.IntervalS) * time.Second,
+	}
 }
 
 // PassSummary words one discovery pass: what it found, or that nothing answered.

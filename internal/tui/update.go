@@ -58,6 +58,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// One central call, after every update: a screen change opens or closes the
 		// on-request LAN scan (scan.go), so no key handler has to remember it.
 		mm.syncScans()
+		// The empty [3] state re-reads its status while it shows (edge_empty_simple.go).
+		if _, isKey := msg.(tea.KeyMsg); isKey {
+			if tick := mm.armEdgeStatusTick(); tick != nil {
+				cmd = tea.Batch(cmd, tick)
+			}
+		}
 		return mm.refreshScroll(), cmd
 	}
 	return tm, cmd

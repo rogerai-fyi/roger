@@ -208,6 +208,14 @@ func (m model) edgeView(w int) string {
 		return b.String()
 	}
 
+	// A machine in no Edge gets the simple empty state, inside the TUI's chrome and without the
+	// cabinet (features/edge/empty_edge_simple.feature: no lamp, no banner until it is set up).
+	if m.edgeEmptySimple() {
+		m.edgeEmptySimpleView(w, line)
+		m.edgeSessionBlock(edgeGeomFor(w, 0), line)
+		return b.String()
+	}
+
 	// THE GAME CABINET (features/edge/patchbay.feature §8): the whole [3] surface wears the same
 	// arcade marquee the setup wizard wears, so the tab reads as one instrument. Its Wave-Spectrum
 	// shoulders shift only while real traffic moves (the pulse steps), and sit still on a still
@@ -230,6 +238,14 @@ func (m model) edgeView(w int) string {
 	// graph/list below until the manual grid/list switch lands (features/edge/map_scale.feature).
 	if m.edgeMapActive() {
 		m.edgeNetworkMap(w, cw, line)
+		if len(st.rows) == 0 && len(st.cands) == 0 {
+			// A fresh authority alone on its Edge is told how the next device joins.
+			if next := edgeAddNextLine(st.status); next != "" {
+				for _, part := range wrapCommand(next, max(20, w-4)) {
+					line("  " + stDim.Render(part))
+				}
+			}
+		}
 		m.edgeSessionBlock(edgeGeomFor(w, 0), line)
 		return b.String()
 	}

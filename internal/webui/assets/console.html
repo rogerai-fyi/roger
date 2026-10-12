@@ -348,6 +348,8 @@
         </div>
 
         <!-- an EMPTY Edge explains itself instead of drawing an empty box -->
+        <!-- A machine in no Edge: the simple empty state (console-edge-empty.js), the same words as the TUI's [3]. -->
+        <div class="edgeempty" id="edge-empty-simple" hidden></div>
         <div class="edge-empty" id="edge-empty" hidden>
           <p><b class="mono" id="edge-self-name">this machine</b> is the only node on the Edge.
              Nothing else has been seen, and this screen draws only what it has seen.</p>
@@ -698,6 +700,7 @@
   <div class="toasts" id="toasts" aria-live="polite"></div>
 
   <script src="/assets/console-welcome.js" defer></script>
+  <script src="/assets/console-edge-empty.js" defer></script>
   <script src="/assets/console-lan.js" defer></script>
   <script src="/assets/console-towers.js" defer></script>
   <script src="/assets/console.js" defer></script>

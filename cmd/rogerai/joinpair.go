@@ -108,11 +108,34 @@ func joinEdgePair(out io.Writer, addr, name, root string) error {
 
 // pairWith runs one request-and-approve against peer and returns the owner's approval.
 func pairWith(out io.Writer, addr string, peer pairPeer, key ed25519.PrivateKey, kind, name string, models []string) (localplane.JoinAnswer, error) {
-	var none localplane.JoinAnswer
+	p, err := pairStart(addr, peer, key, kind, name, models)
+	if err != nil {
+		return localplane.JoinAnswer{}, err
+	}
+	if p.already != nil {
+		return *p.already, nil
+	}
+	fmt.Fprintf(out, "asking %s to let you in. Check this phrase matches the owner's screen: %s\n", p.tower, p.phrase)
+	fmt.Fprintln(out, "the owner should see the same phrase; if it differs, someone is in the middle: do not continue")
+	return p.wait(nil)
+}
+
+// pairing is a request the other side accepted and is showing its owner: the phrase both
+// screens show, who is being asked, and wait, which blocks until the owner answers (or stop
+// closes). already is set instead when this machine was admitted before and nothing waits.
+type pairing struct {
+	phrase, tower string
+	already       *localplane.JoinAnswer
+	wait          func(stop <-chan struct{}) (localplane.JoinAnswer, error)
+}
+
+// pairStart posts the request and reveals the nonce, up to the point where the owner on the
+// other side must act. It prints nothing: the CLI and the TUI's j prompt both build on it.
+func pairStart(addr string, peer pairPeer, key ed25519.PrivateKey, kind, name string, models []string) (*pairing, error) {
 	pubHex := hex.EncodeToString(key.Public().(ed25519.PublicKey))
 	eph, err := ecdh.X25519().GenerateKey(rand.Reader)
 	if err != nil {
-		return none, err
+		return nil, err
 	}
 	ephHex := hex.EncodeToString(eph.PublicKey().Bytes())
 	mine := joinsas.NewNonce()
@@ -120,21 +143,21 @@ func pairWith(out io.Writer, addr string, peer pairPeer, key ed25519.PrivateKey,
 	body, _ := json.Marshal(localplane.PairStartBody{Kind: kind, Name: name, Models: models, ClientEph: ephHex, Commit: joinsas.Commit(mine)})
 	status, raw, err := peer.post("/local/pair/start", body, joinTimeout)
 	if err != nil {
-		return none, err
+		return nil, err
 	}
 	if status != http.StatusOK {
 		if msg := towerError(raw); msg != "" && status != http.StatusUnauthorized {
-			return none, &joinRefusal{msg: msg}
+			return nil, &joinRefusal{msg: msg}
 		}
-		return none, &joinRefusal{msg: addr + " refused the request\nask the owner, or use an invite"}
+		return nil, &joinRefusal{msg: addr + " refused the request\nask the owner, or use an invite"}
 	}
 	var start localplane.PairStartAnswer
 	if err := json.Unmarshal(raw, &start); err != nil {
-		return none, fmt.Errorf("%s answered something that is not a join request answer", addr)
+		return nil, fmt.Errorf("%s answered something that is not a join request answer", addr)
 	}
 	if start.AlreadyMember {
 		// Already admitted: no request was created and there is nothing to approve.
-		return localplane.JoinAnswer{Joined: kind, AlreadyMember: true, Tower: start.Tower}, nil
+		return &pairing{already: &localplane.JoinAnswer{Joined: kind, AlreadyMember: true, Tower: start.Tower}}, nil
 	}
 	tower := start.Tower
 	if tower == "" {
@@ -146,36 +169,45 @@ func pairWith(out io.Writer, addr string, peer pairPeer, key ed25519.PrivateKey,
 	})
 	reveal, _ := json.Marshal(localplane.PairRevealBody{ID: start.ID, ClientNonce: mine})
 	if status, _, err = peer.post("/local/pair/reveal", reveal, joinTimeout); err != nil {
-		return none, err
+		return nil, err
 	}
 	if status != http.StatusOK {
-		return none, &joinRefusal{msg: tower + " refused the request\nask the owner, or use an invite"}
+		return nil, &joinRefusal{msg: tower + " refused the request\nask the owner, or use an invite"}
 	}
-	fmt.Fprintf(out, "asking %s to let you in. Check this phrase matches the owner's screen: %s\n", tower, phrase)
-	fmt.Fprintln(out, "the owner should see the same phrase; if it differs, someone is in the middle: do not continue")
-
-	deadline := time.Now().Add(pairWaitFor)
-	wait, _ := json.Marshal(localplane.PairWaitBody{ID: start.ID})
-	for time.Now().Before(deadline) {
-		status, raw, err := peer.post("/local/pair/wait", wait, localplane.PairLifetime)
-		if err != nil {
-			return none, err
+	wait := func(stop <-chan struct{}) (localplane.JoinAnswer, error) {
+		var none localplane.JoinAnswer
+		deadline := time.Now().Add(pairWaitFor)
+		body, _ := json.Marshal(localplane.PairWaitBody{ID: start.ID})
+		for time.Now().Before(deadline) {
+			select {
+			case <-stop:
+				return none, errPairCancelled
+			default:
+			}
+			status, raw, err := peer.post("/local/pair/wait", body, localplane.PairLifetime)
+			if err != nil {
+				return none, err
+			}
+			var got localplane.PairWaitAnswer
+			if status != http.StatusOK || json.Unmarshal(raw, &got) != nil {
+				return none, &joinRefusal{msg: tower + " refused the request\nask the owner, or use an invite"}
+			}
+			switch got.Status {
+			case "approved":
+				return got.Answer, nil
+			case "refused":
+				return none, &joinRefusal{msg: start.Tower + " refused the request\nask the owner, or use an invite"}
+			case "expired":
+				return none, errPairUnanswered(start.Tower)
+			}
 		}
-		var got localplane.PairWaitAnswer
-		if status != http.StatusOK || json.Unmarshal(raw, &got) != nil {
-			return none, &joinRefusal{msg: tower + " refused the request\nask the owner, or use an invite"}
-		}
-		switch got.Status {
-		case "approved":
-			return got.Answer, nil
-		case "refused":
-			return none, &joinRefusal{msg: start.Tower + " refused the request\nask the owner, or use an invite"}
-		case "expired":
-			return none, errPairUnanswered(start.Tower)
-		}
+		return none, errPairUnanswered(start.Tower)
 	}
-	return none, errPairUnanswered(start.Tower)
+	return &pairing{phrase: phrase, tower: tower, wait: wait}, nil
 }
+
+// errPairCancelled is the wait's answer when this side gave up (the TUI's esc).
+var errPairCancelled = errors.New("the ask was cancelled here")
 
 func errPairUnanswered(tower string) error {
 	return errors.New(tower + " did not answer in 2 minutes. Ask the owner to open roger, or use an invite")

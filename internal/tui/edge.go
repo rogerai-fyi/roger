@@ -84,6 +84,10 @@ type edgeState struct {
 	// sub-state of this screen (features/edge/onboard.feature), never a separate mode, so
 	// the fleet keeps drawing behind it and esc returns here.
 	setup *edgeSetup
+	// join is the empty state's j prompt (edge_join.go); statusTicking says the empty state's
+	// status re-read loop is armed (edge_empty_simple.go).
+	join          edgeJoinState
+	statusTicking bool
 	// renaming + renameBuf drive the inline "Rename" prompt. renameNodeID is empty when renaming THIS
 	// roger (EdgeRenameSelf) and a node id when renaming a MEMBER device (EdgeName).
 	renaming     bool
@@ -313,6 +317,10 @@ func (m *model) onEdgeKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		mm, cmd, _ := m.onEdgeSetupKey(k)
 		return mm, cmd
 	}
+	// So does the empty state's j prompt (features/edge/empty_edge_simple.feature §4).
+	if m.edge.join.open {
+		return m.onEdgeJoinKey(k)
+	}
 	// The inline Rename prompt owns every key while it is open.
 	if m.edge.renaming {
 		m.onEdgeRenameKey(k)
@@ -352,6 +360,18 @@ func (m *model) onEdgeKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "down", "j", "right":
 			m.edgeMoveNetSel(+1)
+			return m, nil
+		}
+	}
+	// THE SIMPLE EMPTY STATE (features/edge/empty_edge_simple.feature): enter is e, and j opens
+	// the join prompt. Only here - on an enrolled view j stays "move down" and enter opens a node.
+	if m.edgeEmptySimple() && !m.edge.actionFocused {
+		switch key {
+		case "enter", "e":
+			m.openEdgeSetup()
+			return m, nil
+		case "j":
+			m.openEdgeJoin()
 			return m, nil
 		}
 	}

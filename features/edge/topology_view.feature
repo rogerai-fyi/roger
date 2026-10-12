@@ -100,6 +100,10 @@ Feature: The Edge screen draws the owner's fleet, animates its liveness, and nev
     And it has no edge to self, because nothing is connected yet
     And the screen says how to adopt it
 
+  # superseded 2026-10-11 by founder ruling (welcome card / simple empty Edge)
+  # now covered by features/edge/empty_edge_simple.feature section 1 (tagged @superseded so the old runner skips it)
+  # the TUI twin of console_view.feature:164: a machine in no Edge shows YOUR EDGE · not set up yet, not "the only node"
+  @superseded
   Scenario: an empty Edge explains itself instead of drawing an empty box
     Given a fleet with no nodes and no candidates
     When the Edge screen renders

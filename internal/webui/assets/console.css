@@ -1316,6 +1316,27 @@ body.is-chat .content { padding-bottom: var(--s-6); }
    --------------------------------------------------------------------------- */
 .edge-headline { font-size: var(--t-sm); font-weight: var(--weight-regular); margin-left: var(--s-2); }
 .edge-empty { padding: var(--s-5) 0; max-width: 56ch; }
+/* the simple empty Edge (console-edge-empty.js): the Health/Fleet look, one red */
+.edgeempty { padding: var(--s-5) 0; max-width: 72ch; }
+.edgeempty__eyebrow { color: var(--ink-400); letter-spacing: .08em; font-size: 12px; margin: 0; }
+.edgeempty__head { margin: 4px 0 8px; border-left: 3px solid var(--live); padding-left: 8px; }
+.edgeempty__title { letter-spacing: .06em; }
+.edgeempty__state { color: var(--ink-700); }
+.edgeempty__say { color: var(--ink-700); margin: 0 0 12px; }
+.edgeempty__ways { display: grid; grid-template-columns: max-content 1fr; gap: 6px 12px; align-items: baseline; margin-bottom: 12px; }
+.edgeempty__way { background: var(--paper-2); border: 1px solid var(--hairline-2); padding: 4px 10px; cursor: pointer; font: inherit; color: var(--ink-900); text-align: left; }
+.edgeempty__way:hover, .edgeempty__way:focus-visible { border-color: var(--live); }
+.edgeempty__way:disabled { opacity: .5; cursor: default; }
+.edgeempty__is, .edgeempty__note, .edgeempty__nearby, .edgeempty__wait, .edgeempty__phrasenote { color: var(--ink-500); }
+.edgeempty__join { margin: 8px 0 12px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.edgeempty__field { flex: 1 1 32ch; font: inherit; padding: 4px 8px; border: 1px solid var(--hairline-2); background: var(--paper); color: var(--ink-900); }
+.edgeempty__go, .edgeempty__cancel { background: none; border: 1px solid var(--hairline-2); padding: 2px 10px; cursor: pointer; color: var(--ink-700); font: inherit; }
+.edgeempty__says { flex-basis: 100%; color: var(--live); margin: 0; }
+.edgeempty__ask { flex-basis: 100%; }
+.edgeempty__phrase { font-size: 1.1em; letter-spacing: .04em; }
+.edgeempty__scan { margin: 0; color: var(--ink-700); }
+.edgeempty__eye { color: var(--live); }
+.edgeempty__scan--off .edgeempty__eye { color: var(--ink-400); }
 .edge-empty p { margin-bottom: var(--s-3); }
 .edge-stage { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 22rem); gap: var(--s-5); align-items: start; }
 @media (max-width: 900px) { .edge-stage { grid-template-columns: minmax(0, 1fr); } }

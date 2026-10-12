@@ -35,7 +35,9 @@ type modeTUIBDD struct {
 
 func (s *modeTUIBDD) reset() {
 	s.now = time.Date(2026, 9, 20, 12, 0, 0, 0, time.UTC)
-	s.status = edge.SelfStatus{Root: edge.RootCore, Authority: "Core", Discovery: edge.DiscoveryScanning, IntervalS: 30}
+	// An enrolled machine: the header with its two words is the set-up Edge's screen (a machine
+	// in no Edge shows the simple empty state instead, empty_edge_simple.feature, 2026-10-11).
+	s.status = edge.SelfStatus{Enrolled: true, Name: "workshop", Root: edge.RootCore, Authority: "Core", Discovery: edge.DiscoveryScanning, IntervalS: 30}
 	s.sess = edge.NewSessions("acct-1")
 	s.sess.SetClock(func() time.Time { return s.now })
 	s.fleet = edge.NewFleet(store.NewMem(), "acct-1")

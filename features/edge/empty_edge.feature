@@ -79,26 +79,38 @@ Feature: An empty Edge tells the owner what is true about this machine and what 
     When the owner presses e
     Then the authority step says a RogerAI-rooted Edge needs a login, and names it
 
-  @tui
+  # superseded 2026-10-11 by founder ruling (welcome card / simple empty Edge)
+  # now covered by features/edge/empty_edge_simple.feature section 2 (tagged @superseded so the old runner skips it)
+  # the DISCOVERY fact on a machine in no Edge is the scan line now; an enrolled machine's facts are unchanged
+  @tui @superseded
   Scenario: discovery reports its last pass
     Given discovery last ran 12 seconds ago and nothing answered
     When the Edge screen renders at 100 columns
     Then under DISCOVERY it says the last pass was 12s ago and nothing answered
 
-  @tui
+  # superseded 2026-10-11 by founder ruling (welcome card / simple empty Edge)
+  # now covered by features/edge/empty_edge_simple.feature section 2 (tagged @superseded so the old runner skips it)
+  # the DISCOVERY fact on a machine in no Edge is the scan line now; an enrolled machine's facts are unchanged
+  @tui @superseded
   Scenario: discovery reports what it found
     Given discovery last ran 5 seconds ago and saw 2 candidates
     When the Edge screen renders at 100 columns
     Then under DISCOVERY it says 2 candidates were seen
 
-  @tui
+  # superseded 2026-10-11 by founder ruling (welcome card / simple empty Edge)
+  # now covered by features/edge/empty_edge_simple.feature section 2 (tagged @superseded so the old runner skips it)
+  # the DISCOVERY fact on a machine in no Edge is the scan line now; an enrolled machine's facts are unchanged
+  @tui @superseded
   Scenario: discovery that is switched off says so, and names the switch
     Given discovery is off
     When the Edge screen renders at 100 columns
     Then under DISCOVERY it says "off" and names ROGERAI_EDGE_DISCOVERY
     And it does not claim to be scanning
 
-  @tui
+  # superseded 2026-10-11 by founder ruling (welcome card / simple empty Edge)
+  # now covered by features/edge/empty_edge_simple.feature section 2 (tagged @superseded so the old runner skips it)
+  # the DISCOVERY fact on a machine in no Edge is the scan line now; an enrolled machine's facts are unchanged
+  @tui @superseded
   Scenario: discovery that has not run yet does not invent a pass
     Given discovery is on and has not completed a pass
     When the Edge screen renders at 100 columns

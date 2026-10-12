@@ -13,6 +13,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"rogerai.fm/roger/v6/internal/agent"
+	"rogerai.fm/roger/v6/internal/look"
 )
 
 // shortTerminal reports a window with no rows to spare for decoration. A frame taller than
@@ -55,6 +56,13 @@ func (m model) compactHeader(w int) string {
 		section := "TUNE IN"
 		if m.inShareSection() {
 			section = "SHARE"
+		}
+		if m.mode == modeEdge {
+			// The windowshade names the screen it is on, never TUNE IN over [3] (ruled 2026-10-11).
+			section = "[3] EDGE"
+			if m.edgeEmptySimple() {
+				summary = look.EmptyEdgeCompact
+			}
 		}
 		state := stKey.Render(section) + sep + stDim.Render(summary)
 		if m.onAir && m.share != nil {
@@ -235,6 +243,9 @@ func (m model) compactFooter(w int) string {
 		keys = "↑↓ · ⏎ edit · d clear · esc"
 	case modeEdge:
 		keys = "↑↓ · ⏎ detail · a adopt · esc"
+		if m.edgeEmptySimple() {
+			keys = look.ActionsPlain(look.EmptyEdgeActions)
+		}
 	case modeShareEditor:
 		keys = "tab field · ⏎ save · esc"
 	case modeShareSetup:

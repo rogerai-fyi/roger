@@ -121,6 +121,9 @@ type Report struct {
 	Seen    int
 	Dropped int
 	Dials   int
+	// Foreign counts the peers enrolled to ANOTHER account this pass: not ours, never stored,
+	// but roger machines on this LAN that are in an Edge (the nearby count's "in an Edge").
+	Foreign int
 }
 
 // Has reports whether the report contains a refusal with this reason.
@@ -409,6 +412,7 @@ func (d *Discovery) consider(ctx context.Context, ad Advert, rep *Report) {
 	// is not a member, it is not offered as a candidate, and nothing about it is
 	// written anywhere: a machine that belongs to somebody else is not fleet state.
 	if ad.Account != "" && ad.Account != f.Account() {
+		rep.Foreign++
 		return
 	}
 

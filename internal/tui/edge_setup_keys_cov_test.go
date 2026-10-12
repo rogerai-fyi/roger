@@ -123,10 +123,16 @@ func TestTheWizardStartsANewEdgeAndRecoversFromAFailure(t *testing.T) {
 	require.Nil(t, m.edge.setup, "enter on the done screen closes to [3]")
 }
 
+// joinPath puts the open wizard on its join path (name, then address). Since 2026-10-11 e starts
+// an Edge here and j on the empty screen is the join, so the path is entered directly here.
+func joinPath(m model) model {
+	m.edge.setup.join, m.edge.setup.step = true, setupName
+	return m
+}
+
 func TestTheWizardJoinsAndShowsTheKeyWhenNotAllowedYet(t *testing.T) {
 	m, calls := setupWizard(t)
-	m = edgePress(m, "j")
-	m, _ = setupKey(m, kt(tea.KeyEnter))
+	m = joinPath(m)
 	s := m.edge.setup
 	require.True(t, s.join)
 	m, _ = setupKey(m, kt(tea.KeyEnter)) // the default name
@@ -160,8 +166,7 @@ func TestTheWizardJoinsAndShowsTheKeyWhenNotAllowedYet(t *testing.T) {
 
 func TestAFailedJoinRetriesAtTheAddress(t *testing.T) {
 	m, calls := setupWizard(t)
-	m = edgePress(m, "j")
-	m, _ = setupKey(m, kt(tea.KeyEnter))
+	m = joinPath(m)
 	m, _ = setupKey(m, kt(tea.KeyEnter))
 	m = edgePress(m, "http://nowhere:1")
 	calls.err = errors.New("connection refused")

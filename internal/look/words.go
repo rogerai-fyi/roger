@@ -64,6 +64,52 @@ const (
 // EmptyEdgeActions is the empty Edge's action bar.
 var EmptyEdgeActions = []Action{{"e", "start an Edge here"}, {"j", "join"}, {"esc", "back"}}
 
+// The j prompt (features/edge/empty_edge_simple.feature §4): what it asks, what an ask by
+// address shows, and the one line each way a join can fail. The host maps real errors onto
+// these; the TUI, the console and the tests only ever see the words.
+const (
+	EmptyEdgePromptAsk  = "paste an invite, or type the authority's address"
+	EmptyEdgePhraseNote = "the owner of that Edge should see the same phrase"
+	EmptyEdgeAskWait    = "waiting for the owner there to approve"
+	JoinSaysUsed        = "that invite was already used: ask for a new one"
+	JoinSaysExpired     = "that invite expired: ask for a new one"
+	JoinSaysRefused     = "the owner refused"
+	JoinSaysTimeout     = "no answer in 2 minutes: ask again"
+	JoinSaysNoAnswer    = "nothing answered at that address"
+	JoinSaysTower       = "that is a Tower invite: use it from the dial (roger join)"
+	JoinSaysOtherEdge   = "that is not the Edge you joined before"
+	JoinSaysNotInvite   = "that is not an invite roger knows: paste the whole roger:// line"
+	JoinSaysNotLocal    = "that address is not on your network: a join reaches your own network only"
+	JoinSaysNotAddress  = "that is not an address roger can reach: host:port on your network"
+	// JoinSaysUsedOrExpired is what the host says when the authority holds no live code for the
+	// invite: it does not tell a spent code from an expired one, so neither does this line.
+	JoinSaysUsedOrExpired = "that invite was already used or has expired: ask for a new one"
+)
+
+// EmptyEdgePromptActions is the j prompt's action bar, and EmptyEdgeAskActions the wait's.
+var (
+	EmptyEdgePromptActions = []Action{{"enter", "join"}, {"esc", "back"}}
+	EmptyEdgeAskActions    = []Action{{"esc", "cancel"}}
+)
+
+// The e setup's authority step (ruled 2026-10-11: inside e, local by default).
+const (
+	SetupAuthorityAsk   = "where does this Edge's authority live?"
+	SetupAuthorityLocal = "on this network only (works with no internet)"
+	SetupAuthorityCore  = "through RogerAI (needs a login; reach it from anywhere)"
+	SetupNeedsLogin     = "rooting an Edge through RogerAI needs a login"
+	SetupLoginOffer     = "log in now"
+	// SetupNoBuildLine is what e says on a build that cannot run setup.
+	SetupNoBuildLine = "this build cannot set up an Edge here: run roger edge setup to start one, or roger join <invite or address> to join one"
+)
+
+// The CLI's empty Edge (§7): the head line and the two next steps.
+const (
+	EmptyEdgeCLIHead  = "your Edge: not set up yet"
+	EmptyEdgeCLIStart = "roger edge setup"
+	EmptyEdgeCLIJoin  = "roger join <invite or address>"
+)
+
 // EdgeScan is what the empty Edge's scan line knows: whether discovery is off, whether a pass
 // has completed, what it saw, and how often it runs.
 type EdgeScan struct {

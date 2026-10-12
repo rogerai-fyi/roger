@@ -398,10 +398,11 @@ func (s *emptyEdgeBDD) labelsAsText() error {
 }
 
 func (s *emptyEdgeBDD) framesConsistent() error {
-	if !strings.Contains(s.frameA, "not enrolled") || strings.Contains(s.frameA, "workshop") {
+	// Frame A is the machine in no Edge (the simple empty state), frame B the enrolled one.
+	if !strings.Contains(s.frameA, "not set up yet") || strings.Contains(s.frameA, "workshop") {
 		return fmt.Errorf("frame A mixes states:\n%s", s.frameA)
 	}
-	if !strings.Contains(s.frameB, "workshop") || strings.Contains(s.frameB, "not enrolled") {
+	if !strings.Contains(s.frameB, "workshop") || strings.Contains(s.frameB, "not set up yet") {
 		return fmt.Errorf("frame B mixes states:\n%s", s.frameB)
 	}
 	return nil
@@ -417,7 +418,7 @@ func (s *emptyEdgeBDD) rReReads() error {
 		s.m = *v
 	}
 	s.out = stripANSI(s.m.edgeView(100))
-	return contains(s.out, "not enrolled")
+	return contains(s.out, "not set up yet")
 }
 
 func TestEmptyEdgeFeatureTUI(t *testing.T) {

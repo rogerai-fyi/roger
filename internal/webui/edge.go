@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"rogerai.fm/roger/v6/internal/edge"
+	"rogerai.fm/roger/v6/internal/look"
 	"rogerai.fm/roger/v6/internal/protocol"
 	"rogerai.fm/roger/v6/internal/store"
 )
@@ -129,7 +130,10 @@ type EdgeHooks struct {
 	AdoptCode func(id string) (code string, until time.Time, ok bool)
 	// Join enrolls this machine against an authority's address, keeping the root only if the code
 	// the owner read off the authority verifies it. nil = the console cannot join.
-	Join             func(name, authority, code string) error
+	Join func(name, authority, code string) error
+	// JoinPrompt is the empty state's join: an invite or an address, with the rules of
+	// `roger join` (features/edge/empty_edge_simple.feature §6). nil = the console cannot join.
+	JoinPrompt       *edge.JoinPrompt
 	PersistentAgents func() []edge.PersistentAgent
 	AgentJobs        func() []edge.AgentJob
 	// Now is the snapshot clock. Injectable so a test can assert on an age without
@@ -282,6 +286,39 @@ type edgeFacts struct {
 	Setup string `json:"setup,omitempty"`
 }
 
+// edgeEmptyJSON is the simple empty state, worded once in internal/look.
+type edgeEmptyJSON struct {
+	Brand      string `json:"brand"`
+	Title      string `json:"title"`
+	State      string `json:"state"`
+	Say        string `json:"say"`
+	Start      string `json:"start"`
+	StartIs    string `json:"start_is"`
+	Join       string `json:"join"`
+	JoinIs     string `json:"join_is"`
+	Eye        string `json:"eye"`
+	Scan       string `json:"scan"`
+	Nearby     string `json:"nearby"`
+	Off        bool   `json:"off"`
+	PromptAsk  string `json:"prompt_ask"`
+	PhraseNote string `json:"phrase_note"`
+	CanJoin    bool   `json:"can_join"`
+	// Setup is what the console says about starting an Edge: a terminal thing for now.
+	Setup string `json:"setup"`
+}
+
+func edgeEmptyOf(st edge.SelfStatus, canJoin bool) *edgeEmptyJSON {
+	scan := st.Scan()
+	first, second := scan.Lines()
+	return &edgeEmptyJSON{
+		Brand: look.EmptyEdgeBrand, Title: look.Eyebrow(look.EmptyEdgeTitle), State: look.EmptyEdgeState, Say: look.EmptyEdgeSay,
+		Start: look.EmptyEdgeStart, StartIs: look.EmptyEdgeStartIs, Join: look.EmptyEdgeJoin, JoinIs: look.EmptyEdgeJoinIs,
+		Eye: scan.Eye(), Scan: first, Nearby: second, Off: scan.Off,
+		PromptAsk: look.EmptyEdgePromptAsk, PhraseNote: look.EmptyEdgePhraseNote, CanJoin: canJoin,
+		Setup: st.SetupConsoleLine(),
+	}
+}
+
 type edgeSnap struct {
 	Configured bool `json:"configured"`
 	// SelfInstances is THIS machine's household: the rogers running here, this one among
@@ -289,14 +326,17 @@ type edgeSnap struct {
 	SelfInstances []edge.Instance  `json:"self_instances"`
 	SelfStatus    *edge.SelfStatus `json:"self_status,omitempty"`
 	Facts         *edgeFacts       `json:"facts,omitempty"`
-	Self          string           `json:"self,omitempty"`
-	Account       string           `json:"account,omitempty"`
-	At            int64            `json:"at,omitempty"`
-	Nodes         []edgeNodeJSON   `json:"nodes"`
-	Candidates    []edgeNodeJSON   `json:"candidates"`
-	Sessions      []edgeSessJSON   `json:"sessions"`
-	TooMany       bool             `json:"too_many"`
-	GraphMax      int              `json:"graph_max"`
+	// Empty is the simple empty state's words when this machine is in no Edge (features/edge/
+	// empty_edge_simple.feature §6): the browser paints them and composes nothing.
+	Empty      *edgeEmptyJSON `json:"empty,omitempty"`
+	Self       string         `json:"self,omitempty"`
+	Account    string         `json:"account,omitempty"`
+	At         int64          `json:"at,omitempty"`
+	Nodes      []edgeNodeJSON `json:"nodes"`
+	Candidates []edgeNodeJSON `json:"candidates"`
+	Sessions   []edgeSessJSON `json:"sessions"`
+	TooMany    bool           `json:"too_many"`
+	GraphMax   int            `json:"graph_max"`
 	// Manage is true when this build wired the fleet-management hooks (Name + Forget), so the console
 	// shows those actions on a member exactly when they would work, and never when they would 501.
 	Manage bool `json:"manage"`
@@ -669,6 +709,9 @@ func (s *Server) edgeSnapshot() (edgeSnap, error) {
 				Discovery: st.DiscoveryLine(now), EnrollAgainst: st.JoinAgainstLine()}
 			if !st.Enrolled {
 				snap.Facts.Setup = st.SetupConsoleLine()
+			}
+			if !st.SetUp() {
+				snap.Empty = edgeEmptyOf(st, h.JoinPrompt != nil && h.JoinPrompt.Start != nil)
 			}
 		}
 	}

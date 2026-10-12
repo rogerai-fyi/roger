@@ -19,6 +19,7 @@ import (
 	"github.com/cucumber/godog"
 
 	"rogerai.fm/roger/v6/internal/edge"
+	"rogerai.fm/roger/v6/internal/look"
 	"rogerai.fm/roger/v6/internal/store"
 )
 
@@ -263,8 +264,9 @@ func (s *onboardBDD) wizardOnJoin() error {
 	if err := s.wizardAtChoice(); err != nil {
 		return err
 	}
-	s.key(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}}) // down -> join
-	s.enter()
+	// e starts an Edge HERE since 2026-10-11 (join has its own key, j, on the empty screen):
+	// the wizard's join path is entered directly for the scenarios that exercise it.
+	s.wiz().join, s.wiz().step = true, setupName
 	if w := s.wiz(); w == nil || !w.join || w.step != setupName {
 		return fmt.Errorf("not on the join name step: %+v", s.wiz())
 	}
@@ -523,7 +525,7 @@ func (s *onboardBDD) wizardCloses() error {
 }
 func (s *onboardBDD) edgeShownUnchanged() error {
 	s.render(100)
-	return contains(s.out, "is the only node on the Edge")
+	return contains(s.out, look.EmptyEdgeState) // the simple empty state, as before e
 }
 func (s *onboardBDD) defaultOffered() error {
 	s.render(100)

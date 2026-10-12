@@ -106,7 +106,7 @@ func (s *rootTrustTUI) nothingKept() error {
 
 func (s *rootTrustTUI) edgeScreenUnchanged() error {
 	s.render(100)
-	return contains(s.out, "is the only node on the Edge")
+	return contains(s.out, "not set up yet") // the simple empty state, as before the wizard opened
 }
 
 // ---- the adopting panel ----------------------------------------------------

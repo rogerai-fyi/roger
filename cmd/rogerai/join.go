@@ -69,19 +69,7 @@ func cmdJoin(cfg config, args []string) error {
 	// An invite whose addresses are not local is refused before any connection.
 	// A name is resolved ONCE and the join connects to the address that lookup approved, never to
 	// the name again (features/join/adversarial.feature).
-	var local []string
-	for _, a := range in.Addrs {
-		addr, perr := lanmode.ParseAddr(a)
-		if perr != nil {
-			continue
-		}
-		if dial, v := lanmode.Resolve(context.Background(), addr, joinResolve); v.Local {
-			if addr.Literal() {
-				dial = a
-			}
-			local = append(local, dial)
-		}
-	}
+	local := joinLocalAddrs(in)
 	if len(local) == 0 {
 		return usagef("%s is not a local address (%s): a local invite only joins machines on your network",
 			strings.Join(in.Addrs, ", "), lanmode.LocalRanges)

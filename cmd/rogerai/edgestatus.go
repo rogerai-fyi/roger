@@ -34,6 +34,9 @@ type edgeDiscoveryFacts struct {
 	Interval  time.Duration
 	LastPass  time.Time
 	Found     string
+	// Nearby / InEdge are the last pass's count of other roger machines, and how many of them
+	// are in an Edge (features/edge/empty_edge_simple.feature §2).
+	Nearby, InEdge int
 	// AuthorityAddr is the address other machines enroll against when THIS machine is
 	// the authority and its LAN service is up; "" otherwise.
 	AuthorityAddr string
@@ -99,6 +102,7 @@ func edgeSelfStatus(fleet *edge.Fleet, disc edgeDiscoveryFacts) edge.SelfStatus 
 	st.IntervalS = int64(disc.Interval / time.Second)
 	if !disc.LastPass.IsZero() {
 		st.LastPass, st.Found = disc.LastPass.Unix(), disc.Found
+		st.Nearby, st.NearbyInEdge = disc.Nearby, disc.InEdge
 	}
 	return st
 }

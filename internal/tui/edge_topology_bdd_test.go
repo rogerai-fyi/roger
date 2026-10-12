@@ -1426,7 +1426,7 @@ func TestEdgeTopologyViewFeature(t *testing.T) {
 			sc.Step(`^the same node is still selected$`, st.sameNodeStillSelected)
 		},
 		Options: &godog.Options{
-			Format: "pretty", TestingT: t, Strict: true,
+			Format: "pretty", TestingT: t, Strict: true, Tags: "~@superseded",
 			Paths: []string{"../../features/edge/topology_view.feature"},
 		},
 	}
