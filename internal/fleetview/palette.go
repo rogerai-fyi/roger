@@ -3,6 +3,8 @@ package fleetview
 import (
 	lm "github.com/thebanri/limoni"
 
+	"rogerai.fm/roger/v6/internal/look"
+
 	"rogerai.fm/roger/v6/internal/edge"
 )
 
@@ -11,19 +13,22 @@ import (
 // signal: selection, on air, alarm. A unit's kind is told by its word and its glyph, never by a
 // hue of its own - three rail hues per kind is a chart legend, not a rack.
 var (
-	live   = lm.RGB(255, 68, 56)   // selection rail, alarm, the ON AIR lamp, a red iris, a firing rule
-	lamp   = lm.RGB(140, 40, 32)   // the lamp between breaths: red, dimmed - never another hue
-	signal = lm.RGB(132, 194, 85)  // the magic eye's iris, a healthy meter, online, VERIFIED, a good outcome
-	shade  = lm.RGB(66, 97, 42)    // the iris closing
-	glow   = lm.RGB(245, 166, 35)  // a device asking to be adopted, the bench, claimed chips, this machine's rogers
-	dial   = lm.RGB(126, 166, 216) // member machines, models on air, sparklines
-	paper  = lm.RGB(243, 241, 234) // the hub's name, key caps, the values that matter
-	ink    = lm.RGB(215, 211, 200) // prose and readings
-	muted  = lm.RGB(154, 150, 139) // eyebrows, verbs, kinds
-	dim    = lm.RGB(85, 81, 72)    // off cells, rules, unselected rails
-	ash    = lm.RGB(135, 131, 120) // dark units
-	ground = lm.RGB(14, 13, 11)    // the confirm box's fill
+	live   = c(look.Live)   // selection rail, alarm, the ON AIR lamp, a red iris, a firing rule
+	lamp   = c(look.Lamp)   // the lamp between breaths: red, dimmed - never another hue
+	signal = c(look.Signal) // the magic eye's iris, a healthy meter, online, VERIFIED, a good outcome
+	shade  = c(look.Shade)  // the iris closing
+	glow   = c(look.Glow)   // a device asking to be adopted, the bench, claimed chips, this machine's rogers
+	dial   = c(look.Dial)   // member machines, models on air, sparklines
+	paper  = c(look.Paper)  // the hub's name, key caps, the values that matter
+	ink    = c(look.Ink)    // prose and readings
+	muted  = c(look.Muted)  // eyebrows, verbs, kinds
+	dim    = c(look.Dim)    // off cells, rules, unselected rails
+	ash    = c(look.Ash)    // dark units
+	ground = c(look.Ground) // the confirm box's fill
 )
+
+// c is a shared palette color (internal/look) as a limoni color.
+func c(x look.RGB) lm.Color { return lm.RGB(x.R, x.G, x.B) }
 
 // kindColor is a node's rail: one hue for every kind (its word and glyph tell them apart).
 func kindColor(string) lm.Color { return dial }

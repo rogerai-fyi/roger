@@ -16,6 +16,7 @@ import (
 	lm "github.com/thebanri/limoni"
 
 	"rogerai.fm/roger/v6/internal/edge"
+	"rogerai.fm/roger/v6/internal/look"
 )
 
 const meterCells = 9
@@ -180,7 +181,7 @@ func alarm(wordings []string, metric string) []lm.Span {
 }
 
 // eyebrow is a section word: uppercase, quiet.
-func eyebrow(s string, c lm.Color) lm.Span { return span(strings.ToUpper(s), c) }
+func eyebrow(s string, c lm.Color) lm.Span { return span(look.Eyebrow(s), c) }
 
 // chips draws capabilities: VERIFIED bold on its color, claimed lowercase and quiet with a dot.
 func chips(caps []Cap) []lm.Span {
