@@ -261,15 +261,21 @@ body.auth {
    The lesson the earlier fix already wrote down: a control that happens to be an <a> must
    be excluded by name here, because the link treatment out-specifies every button rule.
    If a third button class appears, it belongs in this list too (the shared
-   .research-button is the third: the account state's lead row). ---- */
-.card a:not(.gh):not(.primary):not(.research-button) {
+   .research-button is the third: the account state's lead row).
+
+   The footer sub-nav (.acctsubnav > a) is excluded by name for the same reason: each
+   :not(.x) here counts a class, so this rule is (0,4,1) and the (0,2,1) quiet directory
+   rule below (the .fine link rule: ink-500, no hairline) had silently lost to it since
+   2026-08-22, painting the sub-nav as prose links. base.css already keeps the hairline off
+   a row of nothing but links; test/apple-login.test.mjs now measures who wins. ---- */
+.card a:not(.gh):not(.primary):not(.research-button):not(.acctsubnav > a) {
   color: var(--ink-900);
   border-bottom: 1px solid var(--hairline-2);
   transition: color var(--d-1) var(--ease-standard),
                border-color var(--d-1) var(--ease-standard);
 }
-.card a:not(.gh):not(.primary):not(.research-button):hover { color: var(--live-text); border-bottom-color: var(--live); }
-.card a:not(.gh):not(.primary):not(.research-button):focus-visible {
+.card a:not(.gh):not(.primary):not(.research-button):not(.acctsubnav > a):hover { color: var(--live-text); border-bottom-color: var(--live); }
+.card a:not(.gh):not(.primary):not(.research-button):not(.acctsubnav > a):focus-visible {
   outline: 2px solid var(--live);
   outline-offset: 2px;
   border-radius: var(--r-xs);
