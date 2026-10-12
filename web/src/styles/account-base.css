@@ -154,9 +154,10 @@ body.auth {
    inline-block link (below) would not. */
 .acctsubnav a + a::before { content: "- "; color: var(--ink-400); }
 /* A row of nothing but links is not running text, so the target-size rule holds each link to
-   the --hit-min floor: an inline-block padded out to it (look unchanged: same ink, same face,
-   same separator), on 24px rows, so no link's area reaches the row above or below. The touch
-   block at the end of this sheet lifts the rows to --hit. */
+   the --hit-min floor: an inline-block padded out to it, on 24px rows, so no link's area
+   reaches the row above or below. The padding draws nothing: the links keep the quiet
+   directory style of the .fine link rule below (ink-500, no hairline, the same face and
+   separator). The touch block at the end of this sheet lifts the rows to --hit. */
 .acctsubnav > a { display: inline-block; padding-block: calc((var(--hit-min) - 1lh) / 2); }
 
 /* ---- stat rows: a printed spec line. Mono uppercase keys, mono tabular
@@ -281,8 +282,13 @@ body.auth {
   border-radius: var(--r-xs);
 }
 /* the inline nav lines (account/billing/usage...) read as a quiet directory.
-   The .card .fine form matches the (0,2,1) specificity of .card a:not(.gh) above,
-   so the quiet treatment survives inside cards. */
+   The card form of this rule is (0,2,1); the card link rule above has grown to (0,5,3)
+   with every :not() it carries, so this rule does NOT outrank it. What keeps the quiet
+   treatment inside cards is the exclusion by name up there, and that names only the
+   footer sub-nav (.acctsubnav > a): every other .fine link in a card (dashboard's help
+   lines, for one) still takes the prose treatment, ink-900 with the hairline. Widening
+   the exclusion to all .fine links would change those pages' look, so it is a
+   documented follow-up, not done here; test/apple-login.test.mjs guards the sub-nav. */
 .fine a, .card .fine a { color: var(--ink-500); border-bottom: 0; }
 .fine a:hover, .card .fine a:hover { color: var(--live-text); }
 

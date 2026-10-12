@@ -51,9 +51,12 @@ test("login: the sign-in buttons are never painted by the card link rule (the re
   assert.match(restGh[0], /color:\s*var\(--ink-900\)/, ".gh label is ink, per the founder direction comment");
 });
 
-test("login: card .fine links stay the quiet ink-500 directory despite :not() specificity", () => {
-  // `.card a:not(.gh)` is (0,2,1); a bare `.fine a` (0,1,1) loses, un-quieting the
-  // inline nav on tos/dashboard/manual. The quiet rule must match that specificity.
+test("login: the account sub-nav stays the quiet ink-500 directory despite the card link rule's :not() specificity", () => {
+  // `.card a:not(.gh)` was (0,2,1); a bare `.fine a` (0,1,1) lost, un-quieting the inline
+  // nav on tos/dashboard/manual, so a card form of the quiet rule was added to match. The
+  // guarantee is now narrower than the rule: only the footer sub-nav (.acctsubnav > a) is
+  // excluded from the card link rule by name; other .fine links in a card still take the
+  // prose treatment (a documented follow-up in account-base.css).
   const css = read("styles/account-base.css");
   const quiet = css.match(/\.card \.fine a[^{]*\{[^}]*\}/);
   assert.ok(quiet, "a .card .fine a rule exists to outrank .card a:not(.gh)");
