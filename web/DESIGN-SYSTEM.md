@@ -39,7 +39,7 @@ is the module that wakes on the hook (every page loads it via `site-js.html`).
 | Heading dash glue | `.nobr` (added by `scripts/glue-dashes.mjs` (run by `build.mjs`) to h1-h6 and `.bc-row__title`: the word before " - " stays with the dash) | - | every page with a dashed heading |
 | Rail, on-air mark | `rail.html`, `onair.html` partials | - | 34 / 37 pages |
 | Photo credit | `.photo-credit` (research.css) | - | Industrial, Hardware |
-| Touch hit area | `--hit`, `--hit-inset` (tokens); the `@media (pointer: coarse)` blocks (components.css documents the pattern) | - | every standalone control, sitewide |
+| Touch hit area | `--hit`, `--hit-min`, `--hit-inset` (tokens); the `@media (pointer: coarse)` blocks (components.css documents the pattern) | - | every standalone control, sitewide |
 | Print | `@media print` at the end of `components.css` + `tokens.css` | - | every page |
 
 ### One role, one pattern
@@ -378,7 +378,10 @@ its containing block without overriding a page's own positioning. The sheet that
 control lists it in its own `@media (pointer: coarse)` block: `components.css` for the
 components (where the pattern is documented), `base.css` for the chrome, each page sheet
 for its own controls. The page index gets 44px rows, the contents tuner's stations grow
-downward to 44px, and a form field is 44px tall (all in `components.css`).
+downward to 44px, and a form field is 44px tall (all in `components.css`); the account
+pages' footer sub-nav (`.acctsubnav`, a row of nothing but links, so not exempt as running
+text) is 24px rows at every pointer (`--hit-min`, the target-size floor) and 44px rows on
+touch, in `account-base.css`.
 `test/qa-polish2.test.mjs` holds the list of controls. Links inside running text (a sentence, a
 callout, a spec plate) are exempt, as the target-size rule exempts them. A grown area must
 never cover another control's drawn box (a tap aimed at the neighbour would open this

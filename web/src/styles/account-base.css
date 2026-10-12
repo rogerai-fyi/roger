@@ -149,7 +149,14 @@ body.auth {
 /* Account footer sub-nav (accountnav.html): links joined by a CSS-drawn " - " so
    dropping the current page's link never leaves a dangling separator. The combinator
    ignores intervening whitespace text nodes, so it works across the include output. */
-.acctsubnav a + a::before { content: " - "; color: var(--ink-400); }
+/* white-space: pre keeps the separator's leading space once each link is an inline-block
+   (below): a line box drops its leading space, and "Dashboard- Console" is not the look. */
+.acctsubnav a + a::before { content: " - "; color: var(--ink-400); white-space: pre; }
+/* A row of nothing but links is not running text, so the target-size rule holds each link to
+   the --hit-min floor: an inline-block padded out to it (look unchanged: same ink, same face,
+   same separator), on 24px rows, so no link's area reaches the row above or below. The touch
+   block at the end of this sheet lifts the rows to --hit. */
+.acctsubnav > a { display: inline-block; padding-block: calc((var(--hit-min) - 1lh) / 2); }
 
 /* ---- stat rows: a printed spec line. Mono uppercase keys, mono tabular
    values to the same baseline. Money is weight + mono, not hue. ---- */
@@ -445,3 +452,10 @@ body.auth {
 /* Fault state (a feed failed with a 5xx/network drop): show only the title, the error, sign-out
    and the page nav, so no control that cannot work looks live. */
 .card.is-fault > *:not(h1):not(#pageError):not(#logout):not(.acctsubnav) { display: none; }
+
+/* touch: the sub-nav links take the room themselves, 44px rows, as the page index does
+   (the pattern: the touch hit area block in components.css). Not a grown ::before: its
+   ::before draws the separator, and a grown area would cover the row above or below. */
+@media (pointer: coarse) {
+  .acctsubnav > a { padding-block: calc((var(--hit) - 1lh) / 2); }
+}
