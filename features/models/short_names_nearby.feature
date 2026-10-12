@@ -1,5 +1,13 @@
 # STATUS: APPROVED 2026-10-11 (founder)
-# BUILD STATUS: NOT BUILT.
+# BUILD STATUS: BUILT 2026-10-11 on wt/simple-join. Every scenario is executable: the @tui ones by
+#   internal/tui/short_names_nearby_bdd_test.go against the real SHARE screen, every other one by
+#   cmd/rogerai/short_names_nearby_bdd_test.go with real Edge fleet records, a real pinned Tower and
+#   the real console server, against a stand-in for the model hub's API (never the real hub).
+#   How the runner reads three scenarios, said here so nobody assumes more: "a spoofed Edge member"
+#   is a band on record that the serving probe never proved (an advertisement without a member
+#   certificate never reaches the fleet record at all); "the Tower lab" is named by its address on
+#   screen, as every Tower is; and "--on" sends the member the exact owner/repo:QUANT and its sha256,
+#   which a member older than this build refuses as a malformed task rather than serving a name.
 #
 # SHORT NAMES COME FROM WHAT IS SERVED NEARBY, AND FALL BACK TO THE MODEL HUB - slice 1 of the
 # first-run work.

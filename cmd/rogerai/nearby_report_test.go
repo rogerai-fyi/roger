@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -76,4 +77,12 @@ func TestAMembersRecordCarriesTheSizeOfItsFile(t *testing.T) {
 	_, err = r.run(t, "serve", "tiny")
 	require.NoError(t, err)
 	require.Equal(t, int64(len(r.files["Tiny-Q4_K_M.gguf"])), now.Bytes, "what this machine reports of its own serve")
+}
+
+// The TUI and console start LAN stations through the same report as `roger share`.
+func TestTheFrontEndsStationsReportTheSameFiles(t *testing.T) {
+	useTempConfig(t)
+	h := tuiHooks(loadConfig())
+	require.NotNil(t, h.StationFiles)
+	require.Equal(t, fmt.Sprintf("%p", stationFiles), fmt.Sprintf("%p", h.StationFiles))
 }

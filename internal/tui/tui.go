@@ -19,6 +19,7 @@ import (
 	"os"
 	"os/exec"
 	"reflect"
+	"rogerai.fm/roger/v6/internal/servedfile"
 	"runtime"
 	"sort"
 	"strconv"
@@ -263,6 +264,9 @@ type Hooks struct {
 	// SavedProbeMin seeds each model's declared minimum probe interval (config.json
 	// share_prices probe_min), so TUI and auto-started shares register it (nil = none).
 	SavedProbeMin map[string]time.Duration
+	// StationFiles is which file each model roger serves is, reported by a LAN station
+	// (features/models/short_names_nearby.feature); nil reports none.
+	StationFiles func() map[string]servedfile.File
 	// SavedVoices seeds each model's on-air voice identity (dj name / default voice /
 	// speed / language / sample clip URL) from the host's config.json share_voices block,
 	// so a saved identity - including the BOOTH-less sample_url - arms the offer without
@@ -1515,13 +1519,14 @@ func NewController(broker string, hooks Hooks) *node.Controller {
 	ctrl := node.New(node.Config{
 		Broker: broker, HW: hooks.HW, Station: station,
 		ShareModel: hooks.ShareModel, SharePriceI: hooks.SharePriceI, SharePriceO: hooks.SharePriceO,
-		MaxOnAir:    hooks.ShareMaxOnAir,
-		Upstream:    hooks.ShareUpstream,
-		UpstreamKey: hooks.ShareUpstreamKey,
-		Prices:      hooks.SavedPrices,
-		Voices:      hooks.SavedVoices,
-		AutoStart:   hooks.SavedAutoStart,
-		ProbeMin:    hooks.SavedProbeMin,
+		MaxOnAir:     hooks.ShareMaxOnAir,
+		Upstream:     hooks.ShareUpstream,
+		UpstreamKey:  hooks.ShareUpstreamKey,
+		Prices:       hooks.SavedPrices,
+		Voices:       hooks.SavedVoices,
+		AutoStart:    hooks.SavedAutoStart,
+		ProbeMin:     hooks.SavedProbeMin,
+		StationFiles: hooks.StationFiles,
 		Hooks: node.Hooks{
 			SaveUpstream:  hooks.SaveUpstream,
 			SavePrice:     hooks.SavePrice,

@@ -743,6 +743,8 @@ func tuiHooks(cfg config) tui.Hooks {
 	h := tui.Hooks{
 		// THE SAME `roger model` the CLI and the console run (modelweb.go).
 		Models: modelWebHooks(cfg),
+		// A LAN station started here says which file each model roger serves is, as `roger share` does.
+		StationFiles: stationFiles,
 		// A screen that is open is a request to scan (edgescan.go, scan_on_request.feature).
 		EdgeScan: func(kind string) func() { return edgeScans.Begin(scanKind(kind)) },
 		// ...and the same request carried to a member (edgeservecontrol.go).

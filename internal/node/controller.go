@@ -14,6 +14,7 @@ package node
 import (
 	"errors"
 	"io"
+	"rogerai.fm/roger/v6/internal/servedfile"
 	"sort"
 	"strings"
 	"sync"
@@ -198,11 +199,16 @@ type Config struct {
 	// ProbeMin is the saved per-model minimum probe interval (config.json share_prices
 	// probe_min) every share of that model registers with; absent = undeclared.
 	ProbeMin map[string]time.Duration
-	Hooks    Hooks
+	// StationFiles is which exact file each model roger serves is, for a LAN station's report
+	// (features/models/short_names_nearby.feature); nil reports none.
+	StationFiles func() map[string]servedfile.File
+	Hooks        Hooks
 }
 
 // Controller is the single, concurrency-safe owner of a node's live share state.
 type Controller struct {
+	stationFiles func() map[string]servedfile.File
+
 	mu sync.Mutex
 
 	broker      string
@@ -247,21 +253,22 @@ type Controller struct {
 // the host calls LoadRows after the first detection scan.
 func New(cfg Config) *Controller {
 	c := &Controller{
-		broker:      cfg.Broker,
-		hw:          cfg.HW,
-		station:     cfg.Station,
-		shareModel:  cfg.ShareModel,
-		sharePriceI: cfg.SharePriceI,
-		sharePriceO: cfg.SharePriceO,
-		maxOnAir:    cfg.MaxOnAir,
-		hooks:       cfg.Hooks,
-		sessions:    map[string]*agent.Session{},
-		private:     map[string]bool{},
-		prices:      map[string]Pricing{},
-		voices:      map[string]VoiceConfig{},
-		autostart:   map[string]bool{},
-		probeMin:    cfg.ProbeMin,
-		locks:       map[string]func(){},
+		broker:       cfg.Broker,
+		hw:           cfg.HW,
+		station:      cfg.Station,
+		shareModel:   cfg.ShareModel,
+		sharePriceI:  cfg.SharePriceI,
+		sharePriceO:  cfg.SharePriceO,
+		maxOnAir:     cfg.MaxOnAir,
+		hooks:        cfg.Hooks,
+		sessions:     map[string]*agent.Session{},
+		private:      map[string]bool{},
+		prices:       map[string]Pricing{},
+		voices:       map[string]VoiceConfig{},
+		autostart:    map[string]bool{},
+		probeMin:     cfg.ProbeMin,
+		stationFiles: cfg.StationFiles,
+		locks:        map[string]func(){},
 		// Seed the saved/verified upstream so the first scan probes it first and a saved
 		// keyed upstream is reused without re-prompting. savedUp/Key mirror what is already
 		// on disk so a re-detection of the same endpoint is a no-op (no SaveUpstream write).
@@ -658,7 +665,7 @@ func (c *Controller) startLocked(row ShareRow, p Pricing, private bool, lanTower
 		// LAN mode: serve the LAN Towers as a standalone station; register with nothing.
 		c.locks[row.Model] = release
 		return startLANAgent(agent.Config{Upstream: up, UpstreamKey: upKey, NodeID: node, Station: c.station,
-			Model: row.Model, Modality: row.Modality, Ctx: row.Ctx}, lanTowers), nil
+			Model: row.Model, Modality: row.Modality, Ctx: row.Ctx, StationFiles: c.stationFiles}, lanTowers), nil
 	}
 	// The SHARE VOICE BOOTH result (if any) rides onto the offer so a voice goes on air as the
 	// operator's named DJ with their picked voice/blend/speed. An unconfigured model has the zero
