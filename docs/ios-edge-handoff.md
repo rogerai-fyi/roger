@@ -5,15 +5,15 @@ Written 2026-10-11 for the founder's Mac session. The Go side (branch `wt/simple
 that says what each ask is, the exact bytes the phone must produce or check, what to change in the
 app, and what the founder should see on both screens when it works.
 
-Everything here is pinned to the real Go code in `/home/luis/rogerai-wt/simple-join` and to approved
+Everything here is pinned to the real Go code in `<this checkout>` and to approved
 specs. Nothing is pushed anywhere; this is a local test branch.
 
 Read these alongside this file:
 
-- `/home/luis/rogerai-wt/simple-join/docs/ios-enrollment-root-trust.md`: the Swift for the root
+- `docs/ios-enrollment-root-trust.md`: the Swift for the root
   check, written file by file, with the golden vectors. This handoff cites it rather than repeating
   it. Call it "the root-trust doc" below.
-- `/home/luis/ai/roger-ios/EDGE-HANDOFF.md`: the earlier two-repo handoff (presence, claim loop,
+- `<roger-ios checkout>/EDGE-HANDOFF.md`: the earlier two-repo handoff (presence, claim loop,
   advertiser). Still accurate for the pieces it covers; superseded where this file says so.
 
 ## 1. Purpose and status
@@ -45,7 +45,7 @@ vitals.
 
 ### 2.1 The Linux box's binaries and build
 
-The current test build is `/home/luis/rogerai-test-builds/20261011-1924-e41c3b6b/`. Its checksums:
+The current test build is `<the test build folder>/`. Its checksums:
 
 ```
 89561b9be2963f0746b8ef94c1ff3d30547c3ea742a68bf4ecb2433b269614cc  roger
@@ -61,7 +61,7 @@ copy the worktree over (Syncthing carries `~/ai`; the worktree is outside it, so
 `git bundle` it), then on the Mac:
 
 ```sh
-cd <copy of /home/luis/rogerai-wt/simple-join>
+cd <copy of <this checkout>>
 CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build \
   -ldflags "-s -w -X rogerai.fm/roger/v6/internal/buildinfo.Version=6.10.0-test.e41c3b6b" \
   -o roger ./cmd/rogerai
@@ -78,9 +78,9 @@ Two options. Pick one; do not run both on the same port.
 **Option A, the simulated hub published on 39019 (matches the runbook step 17).** On the Linux box:
 
 ```sh
-export EDGESIM_ROGER=/home/luis/rogerai-test-builds/20261011-1924-e41c3b6b/roger
+export EDGESIM_ROGER=<the test build folder>/roger
 export EDGESIM_PUBLISH=1
-SIM=/home/luis/rogerai-wt/simple-join/tools/edgesim/edgesim
+SIM=tools/edgesim/edgesim
 $SIM down
 $SIM up 2
 $SIM status
@@ -99,7 +99,7 @@ the founder's real one is untouched:
 ```sh
 export XDG_CONFIG_HOME=/tmp/rbk/phone-auth
 export ROGERAI_NO_UPDATE_CHECK=1
-R=/home/luis/rogerai-test-builds/20261011-1924-e41c3b6b/roger
+R=<the test build folder>/roger
 $R edge authority local shed --yes
 $R                       # the TUI; press 3 for EDGE. The authority answers while this runs.
 ```
@@ -122,7 +122,7 @@ pass criteria.
 
 ### (a) First-join root verification with a code or an invite
 
-**Spec:** `/home/luis/rogerai-wt/simple-join/features/edge/enrollment_root_trust.feature:353`
+**Spec:** `features/edge/enrollment_root_trust.feature:353`
 (adopted phone keeps its certificate only once the code verifies), `:362` (typed-address join uses
 the same code), `:1003` (the Edge tab asks for the code), `:1010` (the join form takes the code),
 `:668` (same cap, same stretch, same window as the CLI), `:751` and `:758` (re-claim with and
@@ -136,17 +136,17 @@ without a held root), `:1023` (golden vectors).
 | `root_proof_status` | `"none"` when the authority proves roots but held no live code for this join |
 
 and, NEW since the root-trust doc, a response HEADER `Roger-Edge: <query-escaped name>` naming the
-Edge (`/home/luis/rogerai-wt/simple-join/internal/edgeauth/enrollhttp/enrollhttp.go:55-57`,
+Edge (`internal/edgeauth/enrollhttp/enrollhttp.go:55-57`,
 `:147`, `:213`). The body is exactly what an old app knows. Show the name after a successful join
 ("joined the Edge shed"); it decides nothing. Up to 64 printable characters, else ignore it
 (`internal/edgeauth/issue.go:92-98`).
 
-Derivation (`/home/luis/rogerai-wt/simple-join/internal/joincode/joincode.go:51-54`, domain
+Derivation (`internal/joincode/joincode.go:51-54`, domain
 `rogerai-edge-root-proof/v1`, 10 Crockford symbols, PBKDF2-HMAC-SHA256 at 200000 iterations
 salted with `domain + "\n" + nonce`, message `domain, rootFP, account, node_id, nonce` joined by
 `\n`): the root-trust doc section 1 has it in full and section 2 has the Swift (`EdgeRootProof`).
 
-**Golden vectors:** `/home/luis/rogerai-wt/simple-join/internal/edgeauth/testdata/root_proof_vectors.json`
+**Golden vectors:** `internal/edgeauth/testdata/root_proof_vectors.json`
 (4 proofs, 13 code transcriptions, 10 pins). Copy it into `RogerAITests/`. The first row:
 
 ```
@@ -181,7 +181,7 @@ verifies), `:474` (hold at most 4 answers, earliest received, say how many more)
 (`.granted(Response, nonce:)`), because the proof is salted with it.
 
 **Swift:** root-trust doc, section 2, "Claim loop". Today's code at
-`/home/luis/ai/roger-ios/RogerAI/Services/Edge/EdgeService.swift:192-215` (`claimOnce`, `.granted`
+`<roger-ios checkout>/RogerAI/Services/Edge/EdgeService.swift:192-215` (`claimOnce`, `.granted`
 calls `adopted` at line 203) is the exact spot.
 
 **Pass:** run a second authority on the LAN (option B on the Linux box while option A's hub is
@@ -194,7 +194,7 @@ as "answered as an Edge authority but could not prove its root (offered root XXX
 **Spec:** `enrollment_root_trust.feature:1016` (same P-256 chain rules as Go).
 
 **Wire:** none. The checks mirror `edge.VerifyPeer`
-(`/home/luis/rogerai-wt/simple-join/internal/edge/verify.go:129-170`) and `edgeauth.CheckResponse`:
+(`internal/edge/verify.go:129-170`) and `edgeauth.CheckResponse`:
 
 1. the leaf chains to the root in the same answer (SecTrust with the root as the only anchor);
 2. the leaf's URI SAN names this phone's `node_id`;
@@ -210,13 +210,13 @@ node id, are both refused with nothing written. Then a real join still succeeds.
 
 ### (d) Join by `roger://join` invite, pasted or scanned
 
-**Spec:** `/home/luis/rogerai-wt/simple-join/features/join/invite.feature:208` (a device joins an
+**Spec:** `features/join/invite.feature:208` (a device joins an
 Edge with `roger join`), `:218` (`roger edge invite` needs no joiner key first: a BEARER invite),
 `:65` (the old `rogerai-edge://join?...` alias still accepted), `:80` (Edge codes keep the
-10-symbol format), `:39` and `/home/luis/rogerai-wt/simple-join/features/join/surfaces.feature:52`
+10-symbol format), `:39` and `features/join/surfaces.feature:52`
 (the QR encodes the same line).
 
-**Wire, the invite** (`/home/luis/rogerai-wt/simple-join/internal/joininvite/joininvite.go:3-8`,
+**Wire, the invite** (`internal/joininvite/joininvite.go:3-8`,
 `:26-47`, parse at `:79+`):
 
 ```
@@ -246,7 +246,7 @@ Parse rules, each a refusal with a reason (`joininvite.go` lines noted):
 
 **Wire, the join itself.** Two things differ from a plain enroll:
 
-1. The request gains `join_proof` (`/home/luis/rogerai-wt/simple-join/internal/edgeauth/request.go:45`),
+1. The request gains `join_proof` (`internal/edgeauth/request.go:45`),
    the device's proof that it holds the invite's code, in the `rogerai-edge-join/v1` domain
    (`joincode.go:60-63`, same 10 symbols, same 200000 iterations, salted with the request nonce):
 
@@ -279,9 +279,9 @@ clipboard. QR scanning: `AVCaptureMetadataOutput` with `.qr`, feeding the same p
 made QR a later UX slice for the CLI; on the phone a scan is the natural input, so build it if it
 fits the session. Mark the Linux-side `edge invite` output as the source.
 
-**Golden vectors:** `/home/luis/rogerai-wt/simple-join/internal/edgeauth/testdata/join_proof_vectors.json`,
+**Golden vectors:** `internal/edgeauth/testdata/join_proof_vectors.json`,
 beside the root-proof vectors, computed independently of Go by
-`/home/luis/rogerai-wt/simple-join/internal/edgeauth/testdata/gen_join_proof_vectors.py` (Python
+`internal/edgeauth/testdata/gen_join_proof_vectors.py` (Python
 `hashlib` only; re-run it to regenerate). Nine rows: a normal join, the two boundary codes, a
 different root, node key and user key, the same proof on a new nonce (a replay), a code typed with
 confusables, and one row marked `verifies: false`: a correct root-proof-domain computation over
@@ -304,7 +304,7 @@ against the same file.
 
 ### (e) Presence posting while the Edge tab is open
 
-**Spec:** `/home/luis/rogerai-wt/simple-join/features/edge/presence.feature` (dial-out presence),
+**Spec:** `features/edge/presence.feature` (dial-out presence),
 built on both sides.
 
 **Wire:** `POST /edge/present` on the authority (`internal/edge/presence.go:29`), canonical
@@ -354,7 +354,7 @@ face accept it (`caller()` returns the node id). That one probe settles option (
 
 ### (h) Scan-on-request parity
 
-**Spec:** `/home/luis/rogerai-wt/simple-join/features/edge/scan_on_request.feature`. For a
+**Spec:** `features/edge/scan_on_request.feature`. For a
 machine NOT in an Edge: browse only while the Edge screen is open, nothing in the background. For
 an enrolled machine (`:133`): it keeps browsing in the background. The Go rule is
 `edgeMayBrowse` (`cmd/rogerai/edgescan.go:108-121`): enrolled, or an on-request scope is open.
@@ -424,7 +424,7 @@ cannot pass steps 2 to 5.
 
 **Run (Mac):**
 ```sh
-cd ~/ai/roger-ios
+cd <roger-ios checkout>
 xcodegen generate
 # apply the root-trust doc's section 2, and EdgeInvite.swift from ask (d) above
 xcodebuild -scheme RogerAI -destination 'platform=iOS Simulator,name=iPhone 16' test
@@ -442,9 +442,9 @@ message joins with `\n`; the root fingerprint hashes the DER, not the PEM text.
 
 **Run (host, option A):**
 ```sh
-export EDGESIM_ROGER=/home/luis/rogerai-test-builds/20261011-1924-e41c3b6b/roger
+export EDGESIM_ROGER=<the test build folder>/roger
 export EDGESIM_PUBLISH=1
-SIM=/home/luis/rogerai-wt/simple-join/tools/edgesim/edgesim
+SIM=tools/edgesim/edgesim
 $SIM down && $SIM up 2 && $SIM status
 curl -s -o /dev/null -w '%{http_code}\n' http://192.168.1.69:39019/edge/root
 ```
@@ -558,7 +558,7 @@ rm -rf /tmp/rbk/phone-auth
 **Gaps the Mac session should expect:**
 
 - The `rogerai-edge-join/v1` golden vectors (ask d) exist now at
-  `/home/luis/rogerai-wt/simple-join/internal/edgeauth/testdata/join_proof_vectors.json`; port the
+  `internal/edgeauth/testdata/join_proof_vectors.json`; port the
   Swift check against them before any live join, the same way as the root-proof vectors.
 - Option A's hub cannot dial the phone (podman boundary): only push presence is exercised there.
   Use option B for anything that needs the authority to reach the phone.

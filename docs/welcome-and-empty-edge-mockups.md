@@ -1,8 +1,8 @@
 # Welcome card and empty Edge: mockups
 
 Proposed 2026-10-11, for founder approval alongside the specs:
-- /home/luis/rogerai-wt/simple-join/features/onboarding/welcome_card.feature
-- /home/luis/rogerai-wt/simple-join/features/edge/empty_edge_simple.feature
+- features/onboarding/welcome_card.feature
+- features/edge/empty_edge_simple.feature
 
 These were rendered with the real `internal/fleetview` palette and helpers (the limoni look of the
 Edge Health and Fleet screens: brand row and red rule, amber eyebrow, paper key caps, the one red,
@@ -12,7 +12,7 @@ throwaway renderer was not committed.
 
 ## Welcome card (inside the TUI, first launch only)
 
-Colour, 100 columns: /home/luis/rogerai-wt/simple-join/docs/welcome-card-mockup.png
+Colour, 100 columns: docs/welcome-card-mockup.png
 
 ![welcome card](welcome-card-mockup.png)
 
@@ -134,7 +134,7 @@ Colour, 100 columns: /home/luis/rogerai-wt/simple-join/docs/welcome-card-mockup.
 
 ## Empty Edge ([3] EDGE on a machine in no Edge)
 
-Colour, 100 columns: /home/luis/rogerai-wt/simple-join/docs/empty-edge-mockup.png
+Colour, 100 columns: docs/empty-edge-mockup.png
 
 ![empty edge](empty-edge-mockup.png)
 
