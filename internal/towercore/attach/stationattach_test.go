@@ -520,6 +520,27 @@ func TestAnInvitationRefusesADangerousStationID(t *testing.T) {
 	}
 }
 
+// SelfAttached is an OR over three fields on purpose, and the order of the three is the
+// documented one: any single marker of the self-attach path is proof, because a false negative
+// takes a paying node off the network while a false positive registers an inert hub entry.
+func TestSelfAttachedIsAnyOneOfTheThreeMarkers(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		at   Attachment
+		want bool
+	}{
+		{"classic: none of the three", Attachment{StationID: station}, false},
+		{"node id alone", Attachment{NodeID: "n-1"}, true},
+		{"model alone", Attachment{Model: "llama3"}, true},
+		{"hub token alone, the marker that is going away", Attachment{HubToken: "hub"}, true},
+		{"all three", Attachment{NodeID: "n-1", Model: "llama3", HubToken: "hub"}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, tc.at.SelfAttached())
+		})
+	}
+}
+
 func TestValidStationIDShape(t *testing.T) {
 	require.True(t, ValidStationID("st-deadbeef"))
 	require.True(t, ValidStationID("st-x"))

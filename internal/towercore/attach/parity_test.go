@@ -1002,6 +1002,111 @@ func TestParityADormantStationComesBack(t *testing.T) {
 	}
 }
 
+// THE SAME MACHINE COMES BACK THROUGH THE FRONT DOOR. The test above drives the store directly;
+// this one goes through Registry.Admit, which is the call agent.AttachTower actually makes, and
+// asserts the two things Admit carries forward on a revival that the store cannot see on its
+// own: the epoch advances (the fence against the old origin's in-flight work) and the audit
+// proof stays (a fact about the machine, not about the attachment that lapsed).
+func TestParityADormantStationRevivedThroughAdmitKeepsItsProofAndAdvancesItsEpoch(t *testing.T) {
+	eachStore(t, func(t *testing.T, s Store, r *Registry, now time.Time) {
+		first, err := r.Admit(goodProof())
+		require.NoError(t, err)
+		proven, err := s.MarkAuditProven(station, now)
+		require.NoError(t, err)
+		require.True(t, proven)
+		moved, err := s.SetState(station, StateDormant)
+		require.NoError(t, err)
+		require.True(t, moved)
+
+		// A fresh invitation: same id, same keys, same owner, same origin kind.
+		require.NoError(t, s.PutAuthorization(withSecret(Authorization{
+			ID: "auth-back", Network: net, StationID: station, Owner: owner,
+			Origin:       Origin{Kind: OriginJoined, TowerID: tower},
+			AssertionKey: keyA, SessionKey: keyK, CeilingHash: "ceil-2",
+			IssuedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Hour),
+		})))
+		p := goodProof()
+		p.AuthID = "auth-back"
+		back, err := r.Admit(p)
+		require.NoError(t, err, "the machine that holds this Station's keys could not come home")
+		require.Equal(t, first.Epoch+1, back.Epoch, "a revival is a rehome and must fence the old origin")
+		require.Equal(t, now.UTC(), back.AuditProvenAt.UTC(),
+			"the audit proof is a fact about the machine and comes back with it")
+		require.Equal(t, StateQuarantine, back.State, "admission proves who, never that it is any good")
+		require.Equal(t, "ceil-2", back.CeilingHash, "the new invitation's ceiling is the one recorded")
+
+		got, ok, err := s.ByStation(station)
+		require.NoError(t, err)
+		require.True(t, ok)
+		require.Equal(t, first.Epoch+1, got.Epoch)
+		require.Equal(t, now.UTC(), got.AuditProvenAt.UTC(), "and the row kept the proof")
+		require.True(t, got.Live())
+	})
+}
+
+// A STRANGER AT A DORMANT STATION'S ID is refused with the sentence for THAT - the Station is
+// asleep and answerable, just not to them - and not with the terminal one. The assertion key is
+// public and rode in the clear on every hub poll, so holding it proves nothing; the owner is
+// what does not match here, and the refusal must not tell the rightful owner, when they read it,
+// that their identity is finished.
+func TestParityAStrangerCannotWakeADormantStation(t *testing.T) {
+	eachStore(t, func(t *testing.T, s Store, r *Registry, now time.Time) {
+		_, err := r.Admit(goodProof())
+		require.NoError(t, err)
+		moved, err := s.SetState(station, StateDormant)
+		require.NoError(t, err)
+		require.True(t, moved)
+
+		require.NoError(t, s.PutAuthorization(withSecret(Authorization{
+			ID: "auth-stranger", Network: net, StationID: station, Owner: "stranger_pub",
+			Origin:       Origin{Kind: OriginJoined, TowerID: tower},
+			AssertionKey: keyA, SessionKey: keyK,
+			IssuedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Hour),
+		})))
+		p := goodProof()
+		p.AuthID, p.Owner = "auth-stranger", "stranger_pub"
+		_, err = r.Admit(p)
+		require.ErrorIs(t, err, ErrRejected)
+		require.Contains(t, err.Error(), "dormant and can only be reattached by the machine that holds")
+		require.NotContains(t, err.Error(), "retired", "a sleeping Station is not a finished one")
+
+		still, ok, err := s.ByStation(station)
+		require.NoError(t, err)
+		require.True(t, ok)
+		require.Equal(t, StateDormant, still.State, "the sleeping Station is undisturbed")
+		require.Equal(t, owner, still.Owner)
+	})
+}
+
+// THE REGISTRY'S PASS-THROUGH READS STILL HAVE TO PASS THROUGH. ByTower, ByAssertionKey and
+// MarkAuditProven are one line each and had never been called on a Registry from this package;
+// a wrapper that forgot to delegate would read as "no such Station" to dispatch, which is the
+// failure direction that takes a paying node off the network.
+func TestParityTheRegistryReadsDelegateToTheStore(t *testing.T) {
+	eachStore(t, func(t *testing.T, s Store, r *Registry, now time.Time) {
+		_, err := r.Admit(goodProof())
+		require.NoError(t, err)
+
+		fleet, err := r.ByTower(tower)
+		require.NoError(t, err)
+		require.Len(t, fleet, 1)
+		require.Equal(t, station, fleet[0].StationID)
+
+		byKey, ok, err := r.ByAssertionKey(keyA)
+		require.NoError(t, err)
+		require.True(t, ok)
+		require.Equal(t, station, byKey.StationID)
+
+		stamped, err := r.MarkAuditProven(station, now)
+		require.NoError(t, err)
+		require.True(t, stamped)
+		got, ok, err := s.ByStation(station)
+		require.NoError(t, err)
+		require.True(t, ok)
+		require.Equal(t, now.UTC(), got.AuditProvenAt.UTC(), "the stamp reached the store")
+	})
+}
+
 // A DORMANT STATION KEEPS ITS KEYS. The assertion key is public - it rides in the clear on every
 // hub poll and the node's own notice channel says so - so if going quiet released it, anybody
 // could bind it to a Station of their own and the sleeping operator's return would be refused
