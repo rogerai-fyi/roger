@@ -21,6 +21,7 @@
 // screenshot, 640w for a desktop one), for its srcset (test/qa-polish3.test.mjs).
 
 import { execFileSync } from "node:child_process";
+import { stripFiles, walkPngs } from "./strip-png-text.mjs";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -69,6 +70,10 @@ export function pngSize(file) {
 
 function main() {
   const only = process.argv[2];
+  // a master must never ship its recipe: drop the text chunks (the ComfyUI "prompt" and
+  // "workflow", a tool's "parameters", timestamps) from every PNG under src/assets first
+  const stripped = stripFiles(walkPngs(path.join(WEB, "src", "assets")), (m) => console.log(m));
+  if (stripped) console.log(`${stripped} png(s) stripped of text chunks`);
   for (const name of MASTERS.filter((n) => !only || n.includes(only))) {
     const src = path.join(WEBP_DIR, `${name}.png`);
     const { w } = pngSize(src);
