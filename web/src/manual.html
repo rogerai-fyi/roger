@@ -201,18 +201,26 @@
           <section class="man-sec" id="s2">
             <span class="man-sec__no">§2 · First contact</span>
             <h2>The first run</h2>
-            <p>Run <code>roger</code> with no arguments. On a real terminal, a tiny
-              first-run wizard asks the one question that matters - are you here to
-              <b>use</b> models or to <b>share</b> your GPU - then drops you into the app.
-              Everything else (the model, the context length, a free local port) is
-              auto-detected. The wizard runs once; re-run it any time with
-              <code>roger onboard</code>.</p>
+            <!-- superseded 2026-10-11 by founder ruling (welcome card / simple empty Edge):
+                 the pre-app wizard is replaced by a one-time welcome card inside the app. -->
+            <p>Run <code>roger</code> with no arguments. The first time the app opens, a
+              one-time welcome card names the six things roger does, one line each. Press a
+              key (or move with the arrows and press enter) and you land on that part of the
+              app; <kbd>esc</kbd> skips it. Nothing is configured by the card itself. Open it
+              again any time from help with <kbd>?</kbd>, or run
+              <code>roger onboard --welcome</code> to show it on the next launch.
+              <code>roger onboard</code> still sets up sharing.</p>
             <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">$</span> roger
-  Welcome to RogerAI - a two-way radio for Local Models.
-  Are you here to use models, or to share your GPU?
-   <span class="code-block__prompt" aria-hidden="true">&gt;</span> Just use models (open the app)
-     Share my GPU - QuickStart, FREE, no login
-     Share my GPU - earn (set prices + log in)</pre></div>
+  first time here? pick one, or esc to skip
+
+   1  Chat with a model     pick a band on the dial and talk
+   0  Run an agent          let a model read, write, run code
+   2  Share a model         put a model on air (free or paid)
+   3  Edge network          join your own devices together
+   w  Web console           open the same app in a browser
+   l  Log in                starter credit for new accounts, earn from shares
+
+  you can always get here again with ?</pre></div>
 
             <h3>Share for free in 30 seconds</h3>
             <p>Pick the FREE share path (or run it straight): no login, no account. The
@@ -1541,7 +1549,7 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre></div>
                 <caption>roger &lt;command&gt; [flags]</caption>
                 <thead><tr><th>Command</th><th>Description &amp; key flags</th></tr></thead>
                 <tbody>
-                  <tr><td><code>roger</code></td><td>open the interactive app (browse, tune in, chat); first run shows the onboarding wizard</td></tr>
+                  <tr><td><code>roger</code></td><td>open the interactive app (browse, tune in, chat); the first launch shows a one-time welcome card</td></tr>
                   <tr><td><code>search</code></td><td>list models, cheapest first (aliases: <code>discover</code>, <code>models</code>)</td></tr>
                   <tr><td><code>use &lt;model&gt;</code></td><td>open a local OpenAI endpoint for your bots (aliases: <code>connect</code>, <code>tune</code>). Flags: <code>--max-out $</code> (headline cap, skip stations above this $/1M out) · <code>--yes</code> (skip the connect confirm) · <code>--advanced</code> reveals <code>--port</code> (0 = auto-pick) · <code>--max-in</code> · <code>--min-tps</code> · <code>--confidential</code> · <code>--raw</code> (keep raw model output; skip the reasoning-as-answer fallback)</td></tr>
                   <tr><td><code>balance</code></td><td>wallet balance ($). Topping up is <code>topup [usd]</code>; <code>balance --topup [usd]</code> and <code>balance topup [usd]</code> are retained aliases</td></tr>

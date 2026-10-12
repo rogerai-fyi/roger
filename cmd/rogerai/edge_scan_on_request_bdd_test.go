@@ -428,7 +428,7 @@ func TestScanOnRequestFeatureCLI(t *testing.T) {
 			sc.Then(`^one browse for advertised Towers was made$`, st.lanBrowses(1))
 		},
 		Options: &godog.Options{
-			Format: "pretty", TestingT: t, Strict: true, Tags: "@cli",
+			Format: "pretty", TestingT: t, Strict: true, Tags: "@cli && ~@superseded",
 			Paths: []string{"../../features/edge/scan_on_request.feature"},
 		},
 	}

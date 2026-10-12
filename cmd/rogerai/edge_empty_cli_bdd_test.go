@@ -87,7 +87,7 @@ func TestEmptyEdgeFeatureCLI(t *testing.T) {
 			sc.Then(`^it names "([^"]*)" as the way to look now$`, func(w string) error { return st.namesBoth(w, w) })
 		},
 		Options: &godog.Options{
-			Format: "pretty", TestingT: t, Strict: true, Tags: "@cli",
+			Format: "pretty", TestingT: t, Strict: true, Tags: "@cli && ~@superseded",
 			Paths: []string{"../../features/edge/empty_edge.feature"},
 		},
 	}

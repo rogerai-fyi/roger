@@ -1389,7 +1389,7 @@ func TestEdgeConsoleViewFeature(t *testing.T) {
 	suite := godog.TestSuite{
 		ScenarioInitializer: st.init,
 		Options: &godog.Options{
-			Format: "pretty", TestingT: t, Strict: true,
+			Format: "pretty", TestingT: t, Strict: true, Tags: "~@superseded",
 			Paths: []string{"../../features/edge/console_view.feature"},
 		},
 	}
@@ -1468,7 +1468,7 @@ func TestEmptyEdgeFeatureConsole(t *testing.T) {
 	suite := godog.TestSuite{
 		ScenarioInitializer: st.init,
 		Options: &godog.Options{
-			Format: "pretty", TestingT: t, Strict: true, Tags: "@console",
+			Format: "pretty", TestingT: t, Strict: true, Tags: "@console && ~@superseded",
 			Paths: []string{"../../features/edge/empty_edge.feature"},
 		},
 	}

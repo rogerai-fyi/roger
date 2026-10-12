@@ -161,14 +161,13 @@ Feature: The console's EDGE tab draws the owner's fleet and its live sessions, a
     Then live, relayed and dark differ by stroke pattern, not only by colour
     And a verified capability differs from a declared one by case, as it does in the terminal
 
+  # superseded 2026-10-11 by founder ruling (welcome card / simple empty Edge)
+  # now covered by features/edge/empty_edge_simple.feature section 6 (tagged @superseded so the old runner skips it)
+  @superseded
   Scenario: an empty Edge explains itself instead of drawing an empty box
-    Given this instance is the only node
+    Given this instance is in no Edge
     When the console shell is served
-    Then the panel says this instance is the only node on the Edge
-    And it says the screen draws only what it has seen
-    # superseded 2026-10-11 by founder ruling (simple join): a node is added with an invite or by
-    # asking to join and being approved, not by adopting a candidate.
-    And it says how to add a node: roger edge invite and roger join, or roger join <address> and approve
+    Then the panel mirrors the TUI's empty Edge (YOUR EDGE · not set up yet, start and join, the nearby line)
 
   Scenario: a long node name never breaks the drawing
     When the console shell is served

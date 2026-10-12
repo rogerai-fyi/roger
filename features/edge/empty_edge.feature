@@ -47,15 +47,14 @@ Feature: An empty Edge tells the owner what is true about this machine and what 
 
   # superseded 2026-10-07 by founder ruling: a machine outside an Edge scans only on request
   # (features/edge/scan_on_request.feature). It scans while this screen is open, and says so.
-  @tui
+  # superseded 2026-10-11 by founder ruling (welcome card / simple empty Edge)
+  # now covered by features/edge/empty_edge_simple.feature section 1 (tagged @superseded so the old runner skips it)
+  @tui @superseded
   Scenario: a fresh machine sees the three facts and a next command for each
-    Given a machine that is not enrolled, not logged in, rooted at Core, scanning while this view is open
+    Given a machine that is in no Edge
     When the Edge screen renders at 100 columns
-    Then it still says this machine is the only node on the Edge
-    And under THIS MACHINE it says "not enrolled" and names "roger edge enroll <name>"
-    And under AUTHORITY it says Core and that enrolling a new node needs the network
-    And it names "roger edge authority local <name>" as the way to form an Edge with no internet
-    And under DISCOVERY it says it scans while this screen is open, and how often
+    Then it shows YOUR EDGE · not set up yet, the two ways in (e start an Edge here, j join an Edge you run) and the scan line
+    And it names no command, no Core and no login
 
   @tui
   Scenario: an enrolled machine is named, and the enroll hint goes away
@@ -72,11 +71,13 @@ Feature: An empty Edge tells the owner what is true about this machine and what 
     And it says this machine IS the authority and that 2 machines may enroll against it
     And it names "roger edge authority allow <user key>" as the way to admit another
 
-  @tui
+  # superseded 2026-10-11 by founder ruling (welcome card / simple empty Edge)
+  # now covered by features/edge/empty_edge_simple.feature section 3 (tagged @superseded so the old runner skips it)
+  @tui @superseded
   Scenario: a machine rooted at Core with no login says what a login is for
-    Given a machine that is not logged in and rooted at Core
-    When the Edge screen renders at 100 columns
-    Then it says a login is needed to enroll under Core, and names "roger login"
+    Given a machine that is in no Edge and not logged in
+    When the owner presses e
+    Then the authority step says a RogerAI-rooted Edge needs a login, and names it
 
   @tui
   Scenario: discovery reports its last pass
@@ -110,12 +111,13 @@ Feature: An empty Edge tells the owner what is true about this machine and what 
 
   # superseded 2026-10-11 by founder ruling (simple join): ADD A NODE names the one-paste
   # invite and the ask-and-approve join, not adopt and `roger edge enroll`.
-  @tui
+  # superseded 2026-10-11 by founder ruling (welcome card / simple empty Edge)
+  # now covered by features/edge/empty_edge_simple.feature section 1 (tagged @superseded so the old runner skips it)
+  @tui @superseded
   Scenario: both ways to add a node are named
-    Given a machine that is not enrolled, not logged in, rooted at Core, scanning its network
+    Given a machine that is in no Edge
     When the Edge screen renders at 100 columns
-    Then under ADD A NODE it names an invite from "roger edge invite" pasted on the other machine as "roger join <invite>"
-    And it names the other machine running "roger join <address>" and the owner approving with y
+    Then ADD A NODE is not shown: it appears only once this machine is in an Edge (unchanged there)
 
   # superseded 2026-10-11 by founder ruling (simple join): the hint is `roger join <address>`.
   @tui
@@ -163,12 +165,14 @@ Feature: An empty Edge tells the owner what is true about this machine and what 
       | 60   |
       | 40   |
 
-  @tui
+  # superseded 2026-10-11 by founder ruling (welcome card / simple empty Edge)
+  # now covered by features/edge/empty_edge_simple.feature section 8 (tagged @superseded so the old runner skips it)
+  @tui @superseded
   Scenario: the empty screen is legible under NO_COLOR
     Given NO_COLOR is set
-    And a machine that is not enrolled, not logged in, rooted at Core, scanning its network
+    And a machine that is in no Edge
     When the Edge screen renders at 100 columns
-    Then the three fact labels are distinguishable as text alone
+    Then the new empty layout reads as text alone: bracketed keys, an ASCII eye, every word
 
   @tui
   Scenario: the status is read once per frame like everything else
@@ -190,12 +194,12 @@ Feature: An empty Edge tells the owner what is true about this machine and what 
     Then it carries a self status with enrolled false, authority "Core", discovery "scanning" and an interval of 30 seconds
     And the self status says it scans only while this view is open
 
-  @console
+  # superseded 2026-10-11 by founder ruling (welcome card / simple empty Edge)
+  # now covered by features/edge/empty_edge_simple.feature section 6 (tagged @superseded so the old runner skips it)
+  @console @superseded
   Scenario: the console's empty state shows the three facts and both ways to add a node
     When the console shell is served
-    Then the empty state has a slot for THIS MACHINE, AUTHORITY and DISCOVERY
-    And the Edge code fills them from the self status
-    And it names both ways to add a node
+    Then the console's empty state shows YOUR EDGE · not set up yet, start and join buttons, and the nearby line
 
   @console
   Scenario: the console shows a discovery that is off as off
@@ -214,15 +218,13 @@ Feature: An empty Edge tells the owner what is true about this machine and what 
   # 6. THE CLI SAYS THE SAME
   # =========================================================================
 
-  @cli
+  # superseded 2026-10-11 by founder ruling (welcome card / simple empty Edge)
+  # now covered by features/edge/empty_edge_simple.feature section 7 (tagged @superseded so the old runner skips it)
+  @cli @superseded
   Scenario: `roger edge` with nothing set up prints the three facts before the hints
     Given an owner who is not logged in
     When they run "roger edge"
-    Then it prints that this machine is the only node
-    And it prints THIS MACHINE as not enrolled
-    And it prints AUTHORITY as Core
-    And it prints the scan and adopt hints
-    And it names "roger edge enroll" and "roger edge authority local"
+    Then it prints the same three lines as the empty screen and names `roger edge setup` (start) and `roger join` (join)
 
   @cli
   Scenario: `roger edge` without a running host does not claim to be scanning

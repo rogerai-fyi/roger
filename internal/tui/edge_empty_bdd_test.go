@@ -476,7 +476,7 @@ func TestEmptyEdgeFeatureTUI(t *testing.T) {
 			sc.Step(`^r re-reads the status$`, st.rReReads)
 		},
 		Options: &godog.Options{
-			Format: "pretty", TestingT: t, Strict: true, Tags: "@tui",
+			Format: "pretty", TestingT: t, Strict: true, Tags: "@tui && ~@superseded",
 			Paths: []string{"../../features/edge/empty_edge.feature"},
 		},
 	}

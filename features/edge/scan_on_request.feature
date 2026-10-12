@@ -96,10 +96,12 @@ Feature: A machine that has not joined an Edge scans the LAN only while someone 
   # 3. WHAT THE SCREEN SAYS
   # =========================================================================
 
-  @cli
+  # superseded 2026-10-11 by founder ruling (welcome card / simple empty Edge)
+  # now covered by features/edge/empty_edge_simple.feature section 2 (tagged @superseded so the old runner skips it)
+  @cli @superseded
   Scenario: the DISCOVERY fact says the scan runs only while the view is open
     When the owner opens the [3] EDGE screen
-    Then the DISCOVERY fact says it scans while this screen is open
+    Then the scan line reads "scanning this network while this screen is open (every 30s)" with the nearby count under it
 
   # =========================================================================
   # 4. LAN MODE FOLLOWS THE SAME RULE

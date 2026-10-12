@@ -933,7 +933,7 @@ func TestOnboardFeatureTUI(t *testing.T) {
 			sc.Step(`^leaving the wizard before confirming changes nothing on this machine$`, st.leavingChangesNothing)
 		},
 		Options: &godog.Options{
-			Format: "pretty", TestingT: t, Strict: true, Tags: "@tui",
+			Format: "pretty", TestingT: t, Strict: true, Tags: "@tui && ~@superseded",
 			Paths: []string{"../../features/edge/onboard.feature"},
 		},
 	}

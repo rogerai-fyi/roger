@@ -1,4 +1,4 @@
-# STATUS: PROPOSED 2026-10-11 (awaiting founder approval)
+# STATUS: APPROVED 2026-10-11 (founder)
 # BUILD STATUS: NOT BUILT.
 #
 # THE SIMPLE EMPTY EDGE: what [3] EDGE (and the console's Edge view) shows on a machine that is
@@ -29,24 +29,24 @@
 # phrase), features/edge/scan_on_request.feature (scan only while this screen is open),
 # internal/fleetview (the limoni Health/Fleet look: palette.go, brandBand, actionBar, eye).
 #
-# DECISIONS (each with a recommendation):
-#   1. Where the Core-vs-local authority choice lives. RECOMMEND: inside `e` (start an Edge
+# RULED 2026-10-11 (founder approved every recommendation):
+#   1. Where the Core-vs-local authority choice lives. RULED 2026-10-11: inside `e` (start an Edge
 #      here), as one line each with LOCAL selected by default: "on this network only (works with
 #      no internet)" vs "through RogerAI (needs a login; reach it from anywhere)". The empty
 #      screen itself never mentions Core, login or `roger edge authority local`.
-#   2. The nearby count's wording when nothing is known yet. RECOMMEND: "scanning... no pass yet"
+#   2. The nearby count's wording when nothing is known yet. RULED 2026-10-11: "scanning... no pass yet"
 #      until the first pass completes; never "0 machines" before a pass.
-#   3. Counting rule. RECOMMEND: count distinct roger machines advertising _rogerai._tcp on this
+#   3. Counting rule. RULED 2026-10-11: count distinct roger machines advertising _rogerai._tcp on this
 #      LAN (this machine excluded), and split "in an Edge" vs "not in an Edge" from their adverts.
-#   4. `j` with an invite vs address. RECOMMEND: one prompt that accepts either; a roger:// string
+#   4. `j` with an invite vs address. RULED 2026-10-11: one prompt that accepts either; a roger:// string
 #      goes to the invite parser, anything else is treated as an address (the same rule as
 #      `roger join`).
-#   5. The console. RECOMMEND: the console's Edge view mirrors this state with the same two
+#   5. The console. RULED 2026-10-11: the console's Edge view mirrors this state with the same two
 #      actions as buttons and the same nearby line.
-#   6. Look. RECOMMEND: built from internal/fleetview's components and palette (the limoni look
+#   6. Look. RULED 2026-10-11: built from internal/fleetview's components and palette (the limoni look
 #      the founder approved for Health and Fleet on 2026-09-26): the ROGER · EDGE brand row and
 #      red rule, an amber eyebrow, paper key caps, the magic-eye scan glyph, the action bar.
-#   7. The brand row's on-air lamp. RECOMMEND: no lamp at all on the empty state (the ◉ lamp is
+#   7. The brand row's on-air lamp. RULED 2026-10-11: no lamp at all on the empty state (the ◉ lamp is
 #      the ON AIR signal); it appears only once this machine is enrolled.
 #
 # SUPERSEDES (approved, not edited here; proposed text):

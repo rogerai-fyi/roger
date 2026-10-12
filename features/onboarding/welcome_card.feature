@@ -1,4 +1,4 @@
-# STATUS: PROPOSED 2026-10-11 (awaiting founder approval)
+# STATUS: APPROVED 2026-10-11 (founder)
 # BUILD STATUS: NOT BUILT.
 #
 # WELCOME CARD: the pre-TUI welcome picker (cmd/rogerai/onboard.go runWizard: "Welcome to
@@ -37,35 +37,35 @@
 #     only the first ROGERAI_SEED_LIMIT (default 1000) wallets are seeded (cmd/rogerai-broker
 #     main.go runServe; store SeedOnce). So "$1, always" is not a promise the code keeps.
 #
-# DECISIONS (each with a recommendation):
+# RULED 2026-10-11 (founder approved every recommendation):
 #   1. Card keys. The preview numbered 1-6, but 1/2/3 already switch sections and the agent is
 #      [0]. A card that says "2 Run an agent" while [2] is SHARE everywhere else would teach the
-#      wrong keys. RECOMMEND: the card shows the REAL keys (1 dial, 0 agent, 2 share, 3 edge,
+#      wrong keys. RULED 2026-10-11: the card shows the REAL keys (1 dial, 0 agent, 2 share, 3 edge,
 #      w console, l login) and arrows + enter also work.
-#   2. Reopening. `?` is already the help screen. RECOMMEND: `?` keeps opening help, and the
+#   2. Reopening. `?` is already the help screen. RULED 2026-10-11: `?` keeps opening help, and the
 #      help screen gains the card as its first section ("start here"), so "get here again with
 #      ?" stays true without a second key. (Alternative: a new key such as `W`; not recommended.)
-#   3. Starter-credit wording. RECOMMEND: "a starter credit for new accounts" with the amount
+#   3. Starter-credit wording. RULED 2026-10-11: "a starter credit for new accounts" with the amount
 #      shown only when the broker reports it is still offered (a read the client already makes
 #      at login); never a fixed "$1" on the card.
-#   4. Who sees it. RECOMMEND: only a config with neither onboarded=true nor a saved share, and
+#   4. Who sees it. RULED 2026-10-11: only a config with neither onboarded=true nor a saved share, and
 #      a new welcome_seen flag. Existing users (onboarded or sharing) never see it: no
 #      migration prompt, the flag is simply set on their next save.
-#   5. `roger onboard`. RECOMMEND: keep the Keep/Modify/Reset share setup there (it is the
+#   5. `roger onboard`. RULED 2026-10-11: keep the Keep/Modify/Reset share setup there (it is the
 #      scripted/explicit share setup), and add `roger onboard --welcome` to show the card on the
 #      next TUI launch. --free/--earn/--yes/--reset keep working unchanged.
-#   6. Web console. RECOMMEND: the console shows the same one-time card (same six lines, same
+#   6. Web console. RULED 2026-10-11: the console shows the same one-time card (same six lines, same
 #      destinations), sharing the same welcome_seen flag, so seeing it in either front-end
 #      counts for both.
 #
-#   7. Look. RECOMMEND: the card is built from internal/fleetview's components and palette, the
+#   7. Look. RULED 2026-10-11: the card is built from internal/fleetview's components and palette, the
 #      limoni look the founder approved for the Edge Health and Fleet screens (2026-09-26): an
 #      amber eyebrow, paper key caps, a red selection rail, one glyph per line in the one red,
 #      prose in ink, descriptions muted, and the fleetview action bar at the foot. The radio TUI
 #      is bubbletea, so the card renders through limoni's bubbletea compat inside the existing
 #      view, under the big ROGER·AI lockup (kept, founder rule). A rendered mockup with the real
 #      palette: docs/welcome-and-empty-edge-mockups.md and docs/welcome-card-mockup.png.
-#   8. Glyphs. RECOMMEND: ◉ chat, ▸ agent, ((•)) share, ▟•▙ edge, ◇ console, ◈ login, each in the
+#   8. Glyphs. RULED 2026-10-11: ◉ chat, ▸ agent, ((•)) share, ▟•▙ edge, ◇ console, ◈ login, each in the
 #      one red; under NO_COLOR they fold the way the TUI already folds its glyphs.
 #
 # SUPERSEDES (approved, not edited here; proposed text):
@@ -313,17 +313,20 @@ Feature: A one-time welcome card inside the TUI
 
   # 7. The web console
 
+  @console
   Scenario: the console shows the same card once
     Given welcome_seen is false
     When the web console is opened for the first time
     Then it shows the same six lines with the same destinations
     And closing it saves welcome_seen so the TUI will not show the card either
 
+  @console
   Scenario: seeing the card in the TUI counts for the console
     Given the welcome card was closed in the TUI
     When the web console is opened
     Then no welcome card is shown there
 
+  @console
   Scenario: the console's Log in and Web console lines make sense in a browser
     When the console's welcome card is open
     Then "Web console" is replaced by "Terminal app" with the command to run roger

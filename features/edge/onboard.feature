@@ -48,20 +48,21 @@ Feature: A machine is set up onto its Edge through an interactive, game-like wiz
 
   # superseded 2026-10-07 by founder ruling: a machine outside an Edge scans only on request
   # (features/edge/scan_on_request.feature), so it scans while this screen is open.
-  @tui
+  # superseded 2026-10-11 by founder ruling (welcome card / simple empty Edge)
+  # now covered by features/edge/empty_edge_simple.feature section 1 (tagged @superseded so the old runner skips it)
+  @tui @superseded
   Scenario: the empty screen keeps its facts and gains a way in
-    Given a machine that is not enrolled, rooted at Core, scanning while this view is open
+    Given a machine that is in no Edge
     When the Edge screen renders at 100 columns
-    Then it still says this machine is the only node on the Edge
-    And it still names "roger edge enroll <name>"
-    And it also invites the owner to press e to set this up interactively
+    Then the empty screen offers e (start an Edge here) and j (join an Edge you run)
 
-  @tui
+  # superseded 2026-10-11 by founder ruling (welcome card / simple empty Edge)
+  # now covered by features/edge/empty_edge_simple.feature section 3 (tagged @superseded so the old runner skips it)
+  @tui @superseded
   Scenario: pressing e opens the wizard
-    Given a machine that is not enrolled
+    Given a machine that is in no Edge
     When the owner presses e on the Edge screen
-    Then the setup wizard opens
-    And it asks whether to start a new Edge or join an existing one
+    Then the wizard opens at starting an Edge here (the choice step is gone: join has its own key)
     And a step rail shows where the owner is in the flow
 
   @tui
@@ -83,18 +84,17 @@ Feature: A machine is set up onto its Edge through an interactive, game-like wiz
   # 2. THE CHOICE
   # =========================================================================
 
-  @tui
+  # superseded 2026-10-11 by founder ruling (welcome card / simple empty Edge)
+  # now covered by features/edge/empty_edge_simple.feature sections 1 and 3 (tagged @superseded so the old runner skips it)
+  @tui @superseded
   Scenario: the choice is two clear paths with a sensible default
-    Given the wizard is open at the choice
-    Then one path is "start a new Edge - this machine becomes the authority"
-    And the other is "join an existing Edge"
-    And one is selected by default so enter alone makes progress
+    Then the choice is retired from the e flow: the e and j lines on the empty screen carry its explanations
 
-  @tui
+  # superseded 2026-10-11 by founder ruling (welcome card / simple empty Edge)
+  # now covered by features/edge/empty_edge_simple.feature sections 1 and 3 (tagged @superseded so the old runner skips it)
+  @tui @superseded
   Scenario: the choice explains what each path means before the owner commits
-    Given the wizard is open at the choice
-    Then the new-Edge path says it needs no internet and roots the fleet here
-    And the join path says it needs the authority's address and to be allowed on it
+    Then the choice is retired from the e flow: the e and j lines on the empty screen carry its explanations
 
   @tui
   Scenario: esc at the choice leaves the wizard and returns to the Edge screen
