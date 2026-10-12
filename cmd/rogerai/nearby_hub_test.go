@@ -25,6 +25,11 @@ func TestTheHubFallbackListsTheTopThreeThatFitByAStatedRule(t *testing.T) {
 	require.Regexp(t, `3\) third/Qwen3-8B-Chat-GGUF:Q4_K_M\s+4\.5 KiB\s+licence apache-2\.0\s+50 downloads\s+fits`, out)
 	require.NotContains(t, out, "4) ", "three at most")
 	require.Contains(t, out, "1 more that fits: roger model search qwen3-8b shows every match")
+	r.hub.add(&hubRepo{id: "fifth/Qwen3-8B-Extra-GGUF", downloads: 5, license: "mit", pipeline: "text-generation",
+		files: map[string]*hubFile{"Qwen3-8B-Extra-Q4_K_M.gguf": {body: modelGGUF(4400)}}})
+	out, err = r.do(t, "n\n", "serve", "qwen3-8b")
+	require.NoError(t, err)
+	require.Contains(t, out, "2 more that fit: roger model search qwen3-8b shows every match")
 	require.Regexp(t, `-\s+big/Qwen3-8B-Huge-GGUF\s+not offered: no file in it fits this machine`, out)
 	require.Regexp(t, `-\s+proj/Qwen3-8B-Vision-GGUF\s+cannot be served: mmproj-Qwen3-8B-F16\.gguf is a vision projector`, out)
 	require.Contains(t, out, "pick 1-3 to see it before anything is fetched, or n: ")

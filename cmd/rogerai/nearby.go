@@ -503,7 +503,11 @@ func modelHubLookup(ctx context.Context, cfg config, name string, ctxLen int, ye
 	fmt.Fprintf(modelOut, "ranked by the model hub's download count, among GGUF repositories with a file that fits this machine; the top %d are shown\n", hubShown)
 	hubList(picks)
 	if more > 0 {
-		fmt.Fprintf(modelOut, "  %d more that fits: roger model search %s shows every match\n", more, name)
+		verb := "fit"
+		if more == 1 {
+			verb = "fits"
+		}
+		fmt.Fprintf(modelOut, "  %d more that %s: roger model search %s shows every match\n", more, verb, name)
 	}
 	for _, l := range skipped {
 		fmt.Fprintln(modelOut, l)
