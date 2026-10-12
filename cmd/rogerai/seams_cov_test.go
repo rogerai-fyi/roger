@@ -327,13 +327,14 @@ func TestCmdOnboardFree(t *testing.T) {
 	}
 }
 
-// TestMaybeOnboardAlreadyOnboarded covers the early return when the user has onboarded
-// (the wizard never runs, the config passes through unchanged).
-func TestMaybeOnboardAlreadyOnboarded(t *testing.T) {
+// TestWelcomeOnLaunchAlreadyOnboarded: an onboarded user never sees the card, and nothing but
+// welcome_seen changes.
+func TestWelcomeOnLaunchAlreadyOnboarded(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	in := config{Broker: "https://b", User: "u", Onboarded: true}
-	got := maybeOnboard(in)
-	if got.Broker != in.Broker || got.User != in.User || !got.Onboarded || got.Share != nil {
-		t.Fatalf("maybeOnboard(onboarded) mutated config: %+v", got)
+	got, due := welcomeOnLaunch(in, true)
+	if due || got.Broker != in.Broker || got.User != in.User || !got.Onboarded || got.Share != nil || !got.WelcomeSeen {
+		t.Fatalf("welcomeOnLaunch(onboarded) = %+v due %v", got, due)
 	}
 }
 

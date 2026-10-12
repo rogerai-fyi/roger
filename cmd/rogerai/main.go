@@ -107,15 +107,17 @@ type config struct {
 	Broker          string                `json:"broker"`
 	User            string                `json:"user"`
 	Limits          Limits                `json:"limits"`
-	Onboarded       bool                  `json:"onboarded,omitempty"`    // first-run wizard completed
-	Share           *Share                `json:"share,omitempty"`        // saved provider config (the wizard's earn/free choice)
-	Prices          map[string]SharePrice `json:"share_prices,omitempty"` // per-model price + schedule from the in-TUI editor
-	Voices          map[string]ShareVoice `json:"share_voices,omitempty"` // per-model voice identity (dj name / voice / speed / language / sample_url)
-	Compact         bool                  `json:"compact,omitempty"`      // windowshade compact-mode toggle (the in-TUI [m] choice, persisted)
-	Webui           *bool                 `json:"webui,omitempty"`        // browser node console: nil/true = on (default), false = off; --no-webui overrides off for a run
-	WebuiOpen       *bool                 `json:"webui_open,omitempty"`   // auto-open the console in a browser at launch: nil/false = no (default; founder respec 2026-07-14 - it hijacked terminal-embedded browsers), true = yes
-	Palette         string                `json:"palette,omitempty"`      // TUI color layer: ""/"full" = the lamp board (default), "mono" = the mono+red escape hatch. ROGER_PALETTE overrides per-run. (design overhaul increment 0)
-	Deck            string                `json:"deck,omitempty"`         // the painted deck ground behind the whole TUI: ""/"on" = the RogerAI faceplate (default), "off" = inherit the terminal's own background. ROGER_DECK overrides per-run.
+	Onboarded       bool                  `json:"onboarded,omitempty"`     // share setup completed (`roger onboard`)
+	WelcomeSeen     bool                  `json:"welcome_seen,omitempty"`  // the one-time welcome card was shown and closed
+	WelcomeAgain    bool                  `json:"welcome_again,omitempty"` // show the card once more (`roger onboard --welcome` / --reset)
+	Share           *Share                `json:"share,omitempty"`         // saved provider config (the wizard's earn/free choice)
+	Prices          map[string]SharePrice `json:"share_prices,omitempty"`  // per-model price + schedule from the in-TUI editor
+	Voices          map[string]ShareVoice `json:"share_voices,omitempty"`  // per-model voice identity (dj name / voice / speed / language / sample_url)
+	Compact         bool                  `json:"compact,omitempty"`       // windowshade compact-mode toggle (the in-TUI [m] choice, persisted)
+	Webui           *bool                 `json:"webui,omitempty"`         // browser node console: nil/true = on (default), false = off; --no-webui overrides off for a run
+	WebuiOpen       *bool                 `json:"webui_open,omitempty"`    // auto-open the console in a browser at launch: nil/false = no (default; founder respec 2026-07-14 - it hijacked terminal-embedded browsers), true = yes
+	Palette         string                `json:"palette,omitempty"`       // TUI color layer: ""/"full" = the lamp board (default), "mono" = the mono+red escape hatch. ROGER_PALETTE overrides per-run. (design overhaul increment 0)
+	Deck            string                `json:"deck,omitempty"`          // the painted deck ground behind the whole TUI: ""/"on" = the RogerAI faceplate (default), "off" = inherit the terminal's own background. ROGER_DECK overrides per-run.
 	LastSeenVersion string                `json:"last_seen_version,omitempty"`
 	// EdgeInstance is the name THIS roger goes by on its node's Edge (features/edge/
 	// instances.feature). Empty = a default derived from the node's name. Set by
@@ -838,6 +840,8 @@ func tuiHooks(cfg config) tui.Hooks {
 		// Seed + persist the windowshade compact-mode choice so [m] sticks across launches
 		// (the host owns the config write; the TUI does no disk I/O).
 		Compact: cfg.Compact,
+		// The welcome card's one write: welcome_seen and nothing else.
+		SaveWelcomeSeen: saveWelcomeSeen,
 		SaveCompact: func(on bool) {
 			c := loadConfig()
 			c.Compact = on
@@ -1088,18 +1092,13 @@ func run(argv []string, cfg config) error {
 		// version - the first-ever run and after an upgrade, never an ordinary re-launch.
 		// tui.PlayBoot self-skips under quiet / NO_COLOR; we stamp last_seen_version either
 		// way so it plays at most once for this build.
-		if bootShouldPlay(cfg.LastSeenVersion, buildinfo.Version) {
-			tui.PlayBoot(os.Stdout, time.Sleep)
-			cfg.LastSeenVersion = buildinfo.Version
-			_ = saveConfig(cfg)
-		}
-		// First run: a tiny guided wizard (consume vs share, free vs earn) before the
-		// app. Non-interactive / already-onboarded runs skip it and launch straight in.
-		cfg = maybeOnboard(cfg)
+		// The first-ever run opens the TUI with the one-time welcome card (tuiLaunch decides
+		// it after the boot); nothing runs before the TUI any more.
 		// no args -> launch the interactive radio TUI with the in-TUI flow hooks, plus the
 		// browser console (unless disabled) over the SAME shared node controller, so a
 		// change in either front-end shows up in the other.
-		hooks := tuiHooks(cfg)
+		var hooks tui.Hooks
+		cfg, hooks = tuiLaunch(cfg, interactive(), func() { tui.PlayBoot(os.Stdout, time.Sleep) })
 		// ROGER EDGE: give [3] EDGE this machine's real fleet - the one `roger edge`
 		// keeps - and start LAN discovery on its own goroutine behind it. Nothing here
 		// blocks the launch, and ROGERAI_EDGE_DISCOVERY=0 starts nothing at all.

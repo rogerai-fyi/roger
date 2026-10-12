@@ -16,6 +16,7 @@ import (
 	"github.com/charmbracelet/bubbles/cursor"
 	"github.com/charmbracelet/bubbles/textarea"
 	"rogerai.fm/roger/v6/internal/glyphs"
+	"rogerai.fm/roger/v6/internal/look"
 )
 
 // alertBox is a tiny thread-safe mailbox: the relay's failover callback (running
@@ -68,8 +69,13 @@ func (m model) loginView(w int) string {
 	}
 
 	// LOGGED OUT -> press enter to start the GitHub device flow (#5).
+	credit := ""
+	if m.promoOn != nil && *m.promoOn {
+		// Only while the broker still offers it, and never an amount (welcome_card.feature R3).
+		credit = stDim.Render("  new accounts get a starter credit") + "\n"
+	}
 	body := stKey.Render("GITHUB LOGIN") + "\n\n" +
-		stDim.Render("  log in with GitHub to use your wallet + earn as a provider") + "\n\n" +
+		stDim.Render("  log in with GitHub to use your wallet + earn as a provider") + "\n" + credit + "\n" +
 		"  " + stDim.Render("press ") + stKey.Render("enter") + stDim.Render(" to start (opens your browser) · esc cancels")
 	return "\n" + panelFit(body, w) + "\n"
 }
@@ -97,6 +103,15 @@ func (m model) View() string {
 		b.WriteString(m.header(w) + "\n")
 	}
 	b.WriteString(m.ownerJoinBanner(w))
+	if m.welcome && m.mode != modePingWorld {
+		// The one-time welcome card, over the dial and under the brand (welcome.go).
+		rows := 0
+		if m.height > 0 {
+			rows = max(1, m.height-lineRows(b.String()))
+		}
+		b.WriteString(m.welcomeView(w, rows))
+		return m.finishFrame(b.String(), w)
+	}
 	switch m.mode {
 	case modeHelp:
 		content := m.helpView()
@@ -216,12 +231,16 @@ func (m model) View() string {
 		b.WriteString("\n" + m.promptLine(w))
 	}
 	b.WriteString("\n" + m.footer(w))
+	return m.finishFrame(b.String(), w)
+}
+
+// finishFrame bounds a built frame to the terminal and paints the deck ground under it.
+func (m model) finishFrame(out string, w int) string {
 	// Alt-screen: pad a short frame with blank lines up to the terminal height so it
 	// fully overwrites a TALLER previous frame (e.g. a long model list that overflowed
 	// a small terminal) rather than leaving ghost remnants of the old frame - the
 	// duplicated brand/header/"scanning…" the founder hit after going on-air. Guarded
 	// on height>0 so headless tests (no WindowSizeMsg) keep their exact, unpadded output.
-	out := b.String()
 	// THE BOTTOM PIN: agentView marks where its slack belongs (agentPinMark); spend it
 	// HERE, where the whole frame - chrome, footer, status - has actually been built
 	// and can be counted. Padding inside the view instead only knows that view's row
@@ -922,11 +941,11 @@ func renderComposer(input textarea.Model, placeholder, lead string, leadWidth, w
 }
 
 func (m model) helpView() string {
-	// Lead with the few things a new user needs - the two-way radio in one breath.
-	start := [][2]string{
-		{"0", "AGENT: a small tool-capable agent (dj.md persona) - reads files, runs commands (you confirm)"},
+	// "start here" IS the welcome card's six lines, keys and all (welcome_card.feature): the
+	// card says "you can always get here again with ?", and this is where.
+	// The rest of the keys follow at the end, under "more keys".
+	more := [][2]string{
 		{"←/→", "switch section: cycle the [0] AGENT … [?] HELP bar (same as pressing its number)"},
-		{"↑↓ then enter", "TUNE IN: pick a band, open a channel, chat"},
 		{"f", "FILTER the band by name (live) - esc clears, enter keeps it applied"},
 		{"t", "YOUR BANDS: switch the dial between OPEN MARKET and your own PRIVATE bands. A private band is hidden from the public list - including from you - so this is where you find it. ⏎ on one whose model runs here opens a DIRECT channel (no broker, no meter); n mints a new code, f clears a revoked row"},
 		{"~", "PRIVATE FREQ: enter SOMEONE ELSE'S frequency code to tune onto their hidden band - esc returns to OPEN MARKET"},
@@ -936,7 +955,6 @@ func (m model) helpView() string {
 		{"Q", "QUANT filter: show only one compression label (Q4_K_M, IQ4_XS, 4bit…). Two stations serving the same model name are not serving the same weights - only labels actually on air are offered"},
 		{"m  ·  alt+m", "MINIMIZE to the dense compact windowshade · alt+m (or /compact) works from anywhere, even mid-chat"},
 		{"z", "SCREENSAVER: zone out to Ping's world (fullscreen, any key wakes) · also /ping"},
-		{"w", "WEB CONSOLE: open this station's browser console (it no longer auto-opens at launch)"},
 		{"esc (in a channel)", "disconnect - leave the channel, back to the band"},
 		{"q (browsing)", "quit RogerAI"},
 	}
@@ -967,9 +985,9 @@ func (m model) helpView() string {
 	ping := renderPing(pingIdleFrames[pf%len(pingIdleFrames)], "•")
 	b.WriteString("\n" + indentBlock(ping, "    ") + "\n")
 	b.WriteString("    " + stPingDim.Render("Ping · on air, go ahead") + "\n\n")
-	b.WriteString(stBrand.Render("  start here") + stDim.Render("  (a two-way radio for Local Models)") + "\n\n")
-	for _, c := range start {
-		b.WriteString("  " + stKey.Render(fmt.Sprintf("%-20s", c[0])) + stDim.Render(c[1]) + "\n")
+	b.WriteString(stBrand.Render("  start here") + stDim.Render("  (a two-way radio for Local Models · m compact view · more keys at the end)") + "\n\n")
+	for _, o := range look.WelcomeOptions {
+		b.WriteString("  " + stKey.Render(fmt.Sprintf("%-4s", o.Key)) + stKey.Render(fmt.Sprintf("%-20s", o.Label)) + stDim.Render(o.What) + "\n")
 	}
 	b.WriteString("\n" + stBrand.Render("  all commands") + stDim.Render("  (each is also a `roger <cmd>` you can script)") + "\n\n")
 	for _, c := range cmds {
@@ -1024,6 +1042,11 @@ func (m model) helpView() string {
 	b.WriteString("\n" + stBrand.Render("  [4] CONFIG") + stDim.Render("  (your routing rules, per band and default)") + "\n\n")
 	for _, c := range config {
 		b.WriteString("  " + stKey.Render(fmt.Sprintf("%-16s", c[0])) + stDim.Render(c[1]) + "\n")
+	}
+
+	b.WriteString("\n" + stBrand.Render("  more keys") + "\n\n")
+	for _, c := range more {
+		b.WriteString("  " + stKey.Render(fmt.Sprintf("%-20s", c[0])) + stDim.Render(c[1]) + "\n")
 	}
 
 	lockup := "rogerai"

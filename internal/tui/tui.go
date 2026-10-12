@@ -84,13 +84,20 @@ type Hooks struct {
 	// ConsoleURL is the tokenized URL of this run's browser node console ("" = no
 	// console this run, e.g. --no-webui). The console no longer auto-opens at launch
 	// (founder respec 2026-07-14); `w` in BROWSE and /webui in AGENT open it on demand.
-	ConsoleURL  string
-	HW          string  // hardware label for the offer
-	GitHubID    string  // public GitHub OAuth client id (device flow)
-	LinkedLogin string  // the locally-linked GitHub login at startup ("" = anonymous)
-	ShareModel  string  // saved onboarding model (default offer)
-	SharePriceI float64 // saved input price (0 = free)
-	SharePriceO float64 // saved output price (0 = free)
+	ConsoleURL string
+	// WelcomeDue opens the one-time welcome card over the dial on this launch
+	// (features/onboarding/welcome_card.feature). The host decides it: an interactive first
+	// launch, or `roger onboard --welcome`.
+	WelcomeDue bool
+	// SaveWelcomeSeen writes welcome_seen and nothing else, when the card closes in any way
+	// (the TUI does no disk I/O itself). Nil = in-session only.
+	SaveWelcomeSeen func() error
+	HW              string  // hardware label for the offer
+	GitHubID        string  // public GitHub OAuth client id (device flow)
+	LinkedLogin     string  // the locally-linked GitHub login at startup ("" = anonymous)
+	ShareModel      string  // saved onboarding model (default offer)
+	SharePriceI     float64 // saved input price (0 = free)
+	SharePriceO     float64 // saved output price (0 = free)
 	// ShareUpstream + ShareUpstreamKey seed the saved/verified local endpoint (and any
 	// bearer key it needs) from the host config, so a custom / key-protected upstream
 	// saved during onboarding is probed FIRST and reused on the TUI's first /share scan -
@@ -1239,12 +1246,18 @@ type model struct {
 	hooks Hooks     // host-supplied platform/auth bits (nil-safe)
 	own   ownerJoin // the owner's view of joins on the Towers this user serves (owner_join.go)
 	// scanEnds closes each on-request scan this model opened, by kind (scan.go).
-	scanEnds  map[string]func()
-	share     *agent.Session // most-recently-shared in-process session (the panel's headline; nil = none)
-	onAir     bool           // ON AIR indicator + panel (true while any share is live)
-	ghLogin   string         // linked GitHub login (set at startup if linked, or once /login succeeds); "" = anonymous
-	loggedIn  bool           // true when the broker confirms a real account wallet (gates the balance display)
-	grantList []GrantRow     // last /grant list result
+	scanEnds   map[string]func()
+	share      *agent.Session // most-recently-shared in-process session (the panel's headline; nil = none)
+	onAir      bool           // ON AIR indicator + panel (true while any share is live)
+	welcome    bool           // the one-time welcome card is open over the dial (welcome.go)
+	welcomeSel int            // the card's selected line
+	promoOn    *bool          // the broker's GET /promo: a starter credit is still offered (nil = not read)
+	welcomeErr string         // the card's welcome_seen could not be saved (shown, never blocking)
+	shareIntro bool           // SHARE was opened from the card: it says free vs earn in one line
+	earnShown  bool           // the earn disclosure is up in SHARE (an anonymous user asked to earn)
+	ghLogin    string         // linked GitHub login (set at startup if linked, or once /login succeeds); "" = anonymous
+	loggedIn   bool           // true when the broker confirms a real account wallet (gates the balance display)
+	grantList  []GrantRow     // last /grant list result
 	// BASE STATION / remote control (v5.0.0). rcBridge is the live HOST bridge for THIS
 	// machine's agent (nil unless /remote-control is on); rcInfo is its one-time enable info
 	// (for re-copy); rcSessions is the roster cache for modePrivate; rcCursor/rcErr drive the
@@ -1557,6 +1570,7 @@ func NewWithHooksController(broker, user string, limits *LimitStore, hooks Hooks
 	// before the first /balance comes back. The broker's logged_in flag (from the signed
 	// balance read) is the source of truth and confirms it.
 	m.ghLogin = hooks.LinkedLogin
+	m.welcome = hooks.WelcomeDue
 	m.ctrl = ctrl
 	m.ctrl.SetLoggedIn(m.loggedInState())
 	// Seed the windowshade compact mode from the saved config so the [m] choice sticks.
@@ -2123,6 +2137,12 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = stDim.Render("waiting for GitHub authorization…")
 		openURL(m.loginDevice.VerificationURI)
 		return m, m.pollLoginCmd()
+	case promoMsg:
+		if msg.ok {
+			on := msg.active
+			m.promoOn = &on
+		}
+		return m, nil
 	case loginMsg:
 		m.ghLogin = string(msg)
 		m.loggedIn = true
@@ -2132,7 +2152,7 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.mode == modeLogin {
 			m.mode = m.loginReturn
 		}
-		m.status = stLive.Render(glyphLineage + " verified operator @" + string(msg) + " - wallet ready ($1 starter credit on first login), you can now earn as a provider")
+		m.status = stLive.Render(glyphLineage + " verified operator @" + string(msg) + " - wallet ready, you can now earn as a provider")
 		// Refresh the wallet so the header flips to @login · $balance right away, and
 		// (re)fetch the payout snapshot now that there is a signing identity to read it.
 		m.payoutFetched = true

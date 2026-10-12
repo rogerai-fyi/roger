@@ -314,6 +314,22 @@ func (m model) shareView(w int) string {
 			stDim.Render(fmt.Sprintf("   your local model as a station   %s detected   ", plural(len(m.shareRows), "model"))) +
 			slotCell + "\n")
 	}
+	textW := w - 4 // (max is shadowed by the slot cap above)
+	if textW < 20 {
+		textW = 20
+	}
+	if m.shareIntro {
+		// Opened from the welcome card: free vs earn, in one line.
+		b.WriteString("  " + stDim.Render(truncVisible(welcomeShareLine, textW)) + "\n")
+	}
+	if m.earnShown {
+		// The earn disclosure, before any price is asked: the old earn wizard's two lines.
+		for _, line := range []string{EarnLoginLine, EarnPayoutLine} {
+			for _, part := range wordWrap(line, textW) {
+				b.WriteString("  " + stEmber.Render(part) + "\n")
+			}
+		}
+	}
 
 	// Station line: the friendly broadcast callsign every band's node id carries into
 	// /discover (the owner sees THEIR name, never the hostname). While renaming, it shows

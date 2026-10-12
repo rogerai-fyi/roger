@@ -113,6 +113,10 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if k.String() == "ctrl+c" {
 		return m.requestQuit()
 	}
+	// The one-time welcome card owns every other key while it is open (welcome.go).
+	if m.welcome {
+		return m.onWelcomeKey(k)
+	}
 	// alt+m is the typing-SAFE global minimize: it toggles the dense compact "windowshade"
 	// (the 2000s-MP3-player feel) from ANY mode - including chat / AGENT / the command palette
 	// / numeric editors, where plain m is a literal character. Plain m still toggles compact on
@@ -1614,6 +1618,8 @@ func (m model) enterShareEditor() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if !m.loggedInState() {
+		// The login requirement and the payout terms come BEFORE any price is asked.
+		m.earnShown = true
 		m.status = stEmber.Render("log in to earn - run ") + stKey.Render("/login") + stDim.Render("  (free sharing works without an account)")
 		return m, nil
 	}
@@ -1739,10 +1745,11 @@ func (m model) doLogin() (tea.Model, tea.Cmd) {
 	m.loginDevice = LoginDevice{}
 	if m.loggedInState() {
 		m.status = stDim.Render("log out? y confirms · n / esc keeps you logged in")
-	} else {
-		m.status = stDim.Render("log in with GitHub - press enter · esc cancels")
+		return m, nil
 	}
-	return m, nil
+	m.status = stDim.Render("log in with GitHub - press enter · esc cancels")
+	// Whether new accounts still get a starter credit is the broker's to say (GET /promo).
+	return m, fetchPromo(m.broker)
 }
 
 // onLoginKey owns every key while the [L] login/logout panel is open, so the
