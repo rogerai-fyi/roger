@@ -172,6 +172,7 @@ const BARE_PRE = {
   "stations.html": "the signed-in plate's own command well (account-base .cmd)",
   "dashboard.html": "the signed-in plate's own command well (account-base .cmd)",
   "console.html": "the signed-in plate's own command well (account-base .cmd)",
+  "payouts.html": "the signed-in plate's own command well (account-base .cmd)",
 };
 test("every block of commands is a .code-block (the install line the install-box partial)", () => {
   const bad = [];
