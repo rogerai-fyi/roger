@@ -397,7 +397,7 @@ rogerai.fm/roger/v6/cmd/rogerai-broker/dispatchq.go:870:		newWaiter			100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/dispatchq.go:876:		advertise			92.9%
 rogerai.fm/roger/v6/cmd/rogerai-broker/dispatchq.go:898:		wakeIdle			100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/dispatchq.go:916:		retire				93.8%
-rogerai.fm/roger/v6/cmd/rogerai-broker/dispatchq.go:943:		pop				78.6%
+rogerai.fm/roger/v6/cmd/rogerai-broker/dispatchq.go:943:		pop				85.7%
 rogerai.fm/roger/v6/cmd/rogerai-broker/dispatchq.go:965:		handOver			82.1%
 rogerai.fm/roger/v6/cmd/rogerai-broker/dispatchq.go:1006:		requeue				86.7%
 rogerai.fm/roger/v6/cmd/rogerai-broker/dispatchq.go:1031:		writeJob			100.0%
@@ -740,7 +740,7 @@ rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:414:			rcSubtree			78.6%
 rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:445:			rcJoin				55.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:475:			rcAuthHost			100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:486:			rcAuthViewer			72.7%
-rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:505:			rcPoll				74.4%
+rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:505:			rcPoll				79.5%
 rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:581:			rcEvents			64.7%
 rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:608:			rcSend				79.3%
 rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:652:			rcStream			76.6%
@@ -1213,7 +1213,7 @@ rogerai.fm/roger/v6/cmd/rogerai-broker/tunnel.go:1344:			offersTTS			100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/tunnel.go:1366:			applyOfferOverrides		100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/tunnel.go:1388:			heartbeat			93.8%
 rogerai.fm/roger/v6/cmd/rogerai-broker/tunnel.go:1415:			agentPoll			91.7%
-rogerai.fm/roger/v6/cmd/rogerai-broker/tunnel.go:1465:			agentPollMulti			93.0%
+rogerai.fm/roger/v6/cmd/rogerai-broker/tunnel.go:1465:			agentPollMulti			89.5%
 rogerai.fm/roger/v6/cmd/rogerai-broker/tunnel.go:1552:			agentResult			81.6%
 rogerai.fm/roger/v6/cmd/rogerai-broker/tunnel.go:1617:			relay				96.6%
 rogerai.fm/roger/v6/cmd/rogerai-broker/tunnel.go:2289:			rekeyHold			100.0%
@@ -1487,7 +1487,7 @@ rogerai.fm/roger/v6/internal/agent/agent.go:449:			ProbeStats			100.0%
 rogerai.fm/roger/v6/internal/agent/agent.go:455:			Start				100.0%
 rogerai.fm/roger/v6/internal/agent/agent.go:532:			pollLoop			100.0%
 rogerai.fm/roger/v6/internal/agent/agent.go:596:			brokerForgot			100.0%
-rogerai.fm/roger/v6/internal/agent/agent.go:623:			recordIf			100.0%
+rogerai.fm/roger/v6/internal/agent/agent.go:623:			recordIf			66.7%
 rogerai.fm/roger/v6/internal/agent/agent.go:642:			heartbeatUntil			96.3%
 rogerai.fm/roger/v6/internal/agent/agent.go:695:			redactUpstreamKey		100.0%
 rogerai.fm/roger/v6/internal/agent/agent.go:702:			isStream			100.0%
@@ -3392,7 +3392,7 @@ rogerai.fm/roger/v6/internal/tui/agent.go:581:				agentFindingBandBeat		100.0%
 rogerai.fm/roger/v6/internal/tui/agent.go:589:				pickAgentModel			100.0%
 rogerai.fm/roger/v6/internal/tui/agent.go:616:				bindAgentEndpoint		80.0%
 rogerai.fm/roger/v6/internal/tui/agent.go:631:				applyToolBudget			88.9%
-rogerai.fm/roger/v6/internal/tui/agent.go:654:				newAgentRuntime			81.2%
+rogerai.fm/roger/v6/internal/tui/agent.go:654:				newAgentRuntime			82.8%
 rogerai.fm/roger/v6/internal/tui/agent.go:843:				bandForModel			100.0%
 rogerai.fm/roger/v6/internal/tui/agent.go:855:				modelBadgeTail			81.8%
 rogerai.fm/roger/v6/internal/tui/agent.go:875:				deskRowCount			100.0%
@@ -3863,7 +3863,7 @@ rogerai.fm/roger/v6/internal/tui/tui.go:1329:				newBase				85.7%
 rogerai.fm/roger/v6/internal/tui/tui.go:1396:				Init				100.0%
 rogerai.fm/roger/v6/internal/tui/tui.go:1407:				syncComposerGeometry		100.0%
 rogerai.fm/roger/v6/internal/tui/tui.go:1419:				setTextareaGeometry		92.3%
-rogerai.fm/roger/v6/internal/tui/tui.go:1438:				update				83.9%
+rogerai.fm/roger/v6/internal/tui/tui.go:1438:				update				83.6%
 rogerai.fm/roger/v6/internal/tui/tui.go:2148:				idleDiscoveryEnabled		100.0%
 rogerai.fm/roger/v6/internal/tui/tui.go:2152:				textareaCanMoveUp		100.0%
 rogerai.fm/roger/v6/internal/tui/tui.go:2157:				textareaCanMoveDown		100.0%
