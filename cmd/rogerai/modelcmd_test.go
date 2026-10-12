@@ -609,9 +609,8 @@ func TestModelUsageAndFlagMistakesAreSaidPlainly(t *testing.T) {
 	// is no longer an error; it is looked up nearby, then on the model hub, and nothing is fetched
 	// without a yes (features/models/short_names_nearby.feature section 4).
 	out, err := r.run(t, "serve", "nothing-here")
-	require.NoError(t, err)
+	require.ErrorContains(t, err, "no terminal to pick on, so nothing was fetched")
 	require.Contains(t, out, "nothing-here is not served nearby; looking it up on the model hub")
-	require.Contains(t, out, "not fetched. Nothing changed.")
 }
 
 func TestModelProgressIsBytesRateAndTimeNeverABareFraction(t *testing.T) {

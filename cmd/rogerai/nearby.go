@@ -238,7 +238,7 @@ func nearbyResolve(ctx context.Context, n nearbyName, quant string, ctxLen int) 
 	r := nearbyResolved{name: n.Name, mp: mp}
 	cs, b, err := modelRank(ctx, mp.File.Repo, ctxLen)
 	if err != nil {
-		return r, fmt.Errorf("%s is %s as served by %s, and the file must come from the model hub: %w", n.Name, mp.File.Ref(), mp.by(), err)
+		return r, fmt.Errorf("%s is %s as served by %s, and the file must come from the model hub, but %s: %w", n.Name, mp.File.Ref(), mp.by(), hubTrouble(err), err)
 	}
 	r.b = b
 	if quant != "" {
@@ -437,51 +437,117 @@ func modelNearbyList(cfg config) error {
 	return nil
 }
 
+// The hub fallback's rule (ruling 2026-10-11, decision 4): GGUF repositories matching the words that
+// have a file which fits this machine by the existing rule, by the hub's own download count.
+const (
+	hubShown   = 3  // offered
+	hubInspect = 10 // looked into: one listing and one header read each
+)
+
+// hubPick is one repository the fallback offers, at the quantisation the existing rule picks.
+type hubPick struct {
+	m hfhub.Model
+	c localmodel.Choice
+	b localmodel.Budget
+}
+
 // modelHubLookup is a name served nowhere nearby, looked up on the model hub because the owner asked
-// to serve it. The owner picks; nothing is fetched on a guess.
-func modelHubLookup(ctx context.Context, name string, ctxLen int, yes bool) (localmodel.Model, error) {
+// to serve it. The owner picks; nothing is fetched on a guess, and never without a terminal.
+func modelHubLookup(ctx context.Context, cfg config, name string, ctxLen int, yes bool) (localmodel.Model, error) {
 	fmt.Fprintf(modelOut, "%s is not served nearby; looking it up on the model hub, because you asked to serve it\n", name)
-	ms, err := modelHub().Search(ctx, hfhub.Query{Text: name, Limit: 20})
+	ms, err := modelHub().Search(ctx, hfhub.Query{Text: name, Limit: hubInspect})
 	if err != nil {
-		return localmodel.Model{}, modelSourceErr(err)
+		return localmodel.Model{}, fmt.Errorf("%s is not served nearby, and %s (%v); %s", name, hubTrouble(err), err, nearbyInstead(cfg))
 	}
-	type pick struct {
-		repo string
-		c    localmodel.Choice
-		b    localmodel.Budget
-		m    hfhub.Model
-	}
-	var picks []pick
+	sort.SliceStable(ms, func(i, j int) bool { return ms[i].Downloads > ms[j].Downloads })
+	var picks []hubPick
+	var more int
+	var skipped []string
 	for _, m := range ms {
 		cs, b, err := modelRank(ctx, m.Repo, ctxLen)
 		if err != nil {
+			skipped = append(skipped, fmt.Sprintf("  -  %s  cannot be served: %v", m.Repo, err))
 			continue
 		}
-		if i := localmodel.Suggest(cs); i >= 0 {
-			picks = append(picks, pick{m.Repo, cs[i], b, m})
+		i := localmodel.Suggest(cs)
+		switch {
+		case i >= 0 && len(picks) < hubShown:
+			picks = append(picks, hubPick{m, cs[i], b})
+		case i >= 0:
+			more++
+		case len(cs) > 0 && hubAllUnservable(cs):
+			skipped = append(skipped, fmt.Sprintf("  -  %s  cannot be served: %s is %s", m.Repo, cs[0].File.Path, cs[0].Unservable))
+		case len(cs) > 0:
+			skipped = append(skipped, fmt.Sprintf("  -  %s  not offered: no file in it fits this machine", m.Repo))
+		default:
+			skipped = append(skipped, fmt.Sprintf("  -  %s  cannot be served: it has no GGUF weights", m.Repo))
 		}
 	}
-	if len(picks) == 0 {
+	if len(picks) == 0 && len(skipped) == 0 {
 		return localmodel.Model{}, fmt.Errorf("nothing nearby and nothing on the model hub matches %q - try roger model search <other words>", name)
 	}
+	fmt.Fprintf(modelOut, "ranked by the model hub's download count, among GGUF repositories with a file that fits this machine; the top %d are shown\n", hubShown)
+	fmt.Fprintln(modelOut, "each is its author's word, not RogerAI's and not a nearby source's")
 	for i, p := range picks {
-		fmt.Fprintf(modelOut, "  %d) %s:%s  %s  licence %s  %s downloads  %s\n", i+1, p.repo, modelDash(p.c.File.Quant),
+		fmt.Fprintf(modelOut, "  %d) %s:%s  %s  licence %s  %s downloads  %s\n", i+1, p.m.Repo, modelDash(p.c.File.Quant),
 			provision.BytesWord(p.c.File.Bytes), modelDash(p.m.License), countWord(p.m.Downloads), p.c.Verdict.Short())
+	}
+	if more > 0 {
+		fmt.Fprintf(modelOut, "  %d more that fits: roger model search %s shows every match\n", more, name)
+	}
+	for _, l := range skipped {
+		fmt.Fprintln(modelOut, l)
+	}
+	if len(picks) == 0 {
+		return localmodel.Model{}, fmt.Errorf("nothing nearby, and nothing on the model hub that matches %q fits this machine - try roger model search <other words>", name)
+	}
+	if !edgeIsInteractive() {
+		return localmodel.Model{}, errors.New("no terminal to pick on, so nothing was fetched; name one exactly: roger model serve <owner/repo>:<quant>")
 	}
 	i := 0
 	if len(picks) > 1 {
 		fmt.Fprintf(modelOut, "pick 1-%d to see it before anything is fetched, or n: ", len(picks))
-		i = modelReadPick(len(picks))
-		if i < 0 {
+		if i = modelReadPick(len(picks)); i < 0 {
 			fmt.Fprintln(modelOut, "not fetched. Nothing changed.")
 			return localmodel.Model{}, errModelDeclined
 		}
 	}
 	p := picks[i]
-	return modelFetchChoice(ctx, p.repo, p.c, p.b, modelFetchAsk{
+	return modelFetchChoice(ctx, p.m.Repo, p.c, p.b, modelFetchAsk{
 		ask:    "fetch it? [y/N]: ",
 		source: "source: the model hub - its author's word, checked against the digest the listing gave",
 	}, yes)
+}
+
+func hubAllUnservable(cs []localmodel.Choice) bool {
+	for _, c := range cs {
+		if c.Unservable == "" {
+			return false
+		}
+	}
+	return true
+}
+
+// hubTrouble says why the model hub gave no answer, in the owner's words.
+func hubTrouble(err error) string {
+	if errors.Is(err, hfhub.ErrUnreachable) {
+		return "the model hub cannot be reached now"
+	}
+	return "the model hub did not answer"
+}
+
+// nearbyInstead is what is served nearby, said when the hub cannot be asked.
+func nearbyInstead(cfg config) string {
+	var names []string
+	for _, n := range modelNearby(cfg) {
+		if len(n.Maps) > 0 {
+			names = append(names, n.Name)
+		}
+	}
+	if len(names) == 0 {
+		return "nothing is served nearby either"
+	}
+	return "served nearby instead: " + strings.Join(names, ", ")
 }
 
 // modelReadPick reads a number from 1 to n; anything else is no (-1).

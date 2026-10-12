@@ -46,7 +46,7 @@ var (
 	}
 	modelHW        = detectLocalHW
 	modelHubBase   = hfhub.DefaultBase
-	modelFetcher   = func() *provision.Fetcher { return &provision.Fetcher{OnProgress: modelProgress} }
+	modelFetcher   = defaultModelFetcher
 	modelUntilDone = func(ctx context.Context) {
 		sig := make(chan os.Signal, 1)
 		signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
@@ -91,6 +91,21 @@ func init() {
 		}
 		return out
 	}
+}
+
+// defaultModelFetcher measures the disk it writes to, so a file that cannot fit is refused before a
+// byte moves, with the numbers.
+func defaultModelFetcher() *provision.Fetcher {
+	return &provision.Fetcher{OnProgress: modelProgress, FreeSpace: func(dir string) (int64, bool) {
+		for d := dir; ; d = filepath.Dir(d) { // the models directory may not exist yet: its disk does
+			if mib, ok := hwDiskFreeMiB(d); ok {
+				return int64(mib) << 20, true
+			}
+			if filepath.Dir(d) == d {
+				return 0, false
+			}
+		}
+	}}
 }
 
 func modelHub() *hfhub.Client {
@@ -531,7 +546,7 @@ func modelResolve(ctx context.Context, cfg config, ref string, a modelArgv) (loc
 			nearbyNotes(n)
 		}
 	}
-	return modelHubLookup(ctx, name, a.ctx, a.yes)
+	return modelHubLookup(ctx, cfg, name, a.ctx, a.yes)
 }
 
 func modelServe(ctx context.Context, cfg config, a modelArgv) error {
