@@ -1,19 +1,5 @@
 <!DOCTYPE html>
-<!-- Broadcast 016: how an LLM works, and how it learns to. A generic, textbook-level explainer
-     that lets the figures carry it (founder brief: minimal words, illustrations and motion show
-     the system). Written for the "how do LLMs actually work?" question (r/LargeLanguageModels,
-     2026-10-12). One running sentence carries the first half; radio is the story layer only.
-     Every number on the page is illustrative and labelled so (probabilities, attention weights,
-     error meters); no RogerAI training detail, data source or customer appears, by rule. The
-     industrial section is textbook (log and telemetry language models, surprise as an anomaly
-     signal: DeepLog 2017, LogBERT 2021, Chronos 2024, TimesFM 2024). The Wave line matches
-     src/data/wave-status.json (Pico on air as wave-pico-293m, weights not published; Nano
-     training), pinned by test/broadcast-how-llms-work.test.mjs.
-     Motion: every diagram is drawn complete in HTML/SVG; where the browser supports scroll-driven
-     animation the parts assemble as the figure scrolls in (the reader's scroll drives it, so
-     nothing moves on its own). No support, reduced motion or print: the finished figure.
-     Assets: four Flux plates (brandlocked, one red); the hero is the operator (character style,
-     after 015's object hero). Registered in build.mjs CSS_BUNDLES; listed atop broadcasts.html. -->
+<!-- Broadcast 016: how an LLM works, in pictures. Tests: test/broadcast-how-llms-work.test.mjs. -->
 <html lang="en">
 <head>
   <!-- include: head.html title="How LLMs actually work, in pictures." desc="A large language model does one thing: it guesses the next piece of text. How it reads, how it learns from its mistakes, how it becomes an assistant, and why the same trick can learn the language of a machine. Illustrated, in plain words." theme=external og=post ogtype=article ogtitle="How LLMs actually work, in pictures." ogdesc="One trick, repeated: guess the next piece. How a language model reads, learns and gets taught, and why a small one can learn a machine's language. An illustrated field guide." ogurl="https://rogerai.fm/broadcasts-how-llms-work.html" ogimage="https://rogerai.fm/assets/broadcasts/llm-works-og.png" -->
@@ -78,7 +64,7 @@
       <blockquote class="bc-answer" data-reveal>
         <b>Quick answer.</b> A large language model predicts the next piece of text,
         one piece at a time. It learns that by guessing its way through a vast pile of
-        text and nudging billions of internal settings a little after every wrong guess.
+        text and nudging billions of internal settings a little after each round of guesses.
         Further training on examples, and on which answers people prefer, turns that
         autocomplete into an assistant.
       </blockquote>
@@ -133,7 +119,7 @@
           <p>
             The pieces are called <b>tokens</b>: whole words, parts of words,
             punctuation. A model knows a fixed set of them, usually tens of
-            thousands.
+            thousands to a few hundred thousand.
           </p>
 
           <figure class="figure figure--plate llm-fig">
@@ -225,7 +211,7 @@
 
           <figure class="figure figure--plate">
             <img src="assets/broadcasts/llm-works-dials.webp" srcset="assets/broadcasts/llm-works-dials-800.webp 800w, assets/broadcasts/llm-works-dials.webp 1600w" sizes="(max-width: 1000px) 100vw, 960px" width="1600" height="896"
-                 alt="A vintage engraving of a steel instrument panel with rows of small knobs on either side of one large meter. Its red needle has swung low, toward the quiet end of the scale." loading="lazy" decoding="async" />
+                 alt="A vintage engraving of a steel instrument panel with rows of small knobs on either side of one large meter. One red needle leans toward the low, left end of the scale; a grey pointer stands upright beside it." loading="lazy" decoding="async" />
             <figcaption class="fig mono">FIG. 7 &middot; PICTURE BILLIONS OF THESE KNOBS, EACH NUDGED A HAIR AFTER EVERY GUESS.</figcaption>
           </figure>
 
@@ -235,7 +221,7 @@
           </p>
 
           <figure class="figure figure--plate llm-fig">
-            <ol class="llm-train scroll-box" data-scrub aria-label="Training, from the first step to a trained model">
+            <ol class="llm-train scroll-box" data-scrub data-scrub-start="4" aria-label="Training, from the first step to a trained model">
               <li>
                 <b>Step 0</b>
                 <svg class="llm-train__wave" viewBox="0 0 200 40" aria-hidden="true"><path d="M0,21.1 L4,22.9 L8,29.2 L12,6.8 L16,32.4 L20,17.6 L24,6.2 L28,31.4 L32,18.1 L36,17.1 L40,35.2 L44,25.7 L48,16.3 L52,23.8 L56,15.3 L60,31.7 L64,28.5 L68,31.4 L72,18.7 L76,5.4 L80,15.0 L84,9.4 L88,21.3 L92,11.0 L96,31.1 L100,26.3 L104,15.7 L108,14.9 L112,24.5 L116,34.8 L120,29.3 L124,30.6 L128,27.7 L132,11.0 L136,28.4 L140,7.0 L144,6.6 L148,31.0 L152,21.3 L156,18.2 L160,32.9 L164,21.7 L168,8.1 L172,32.8 L176,18.9 L180,33.6 L184,20.0 L188,10.3 L192,30.6 L196,35.6 L200,32.5"/></svg>
@@ -292,7 +278,7 @@
           </figure>
 
           <ol class="steps">
-            <li><b>Read.</b> Pretraining: predict the next piece across a huge library of text. Out comes a model that can continue any document, but does not answer you.</li>
+            <li><b>Read.</b> Pretraining: predict the next piece across a huge library of text. Out comes a model that can continue any document, but does not reliably answer you.</li>
             <li><b>Learn the job.</b> Instruction tuning: many examples of a request and a good reply. Now it answers instead of rambling on.</li>
             <li><b>Learn taste.</b> Preference tuning: people compare two replies and pick the better one, and the model is nudged toward their pick.</li>
           </ol>
@@ -344,12 +330,12 @@
             A chatbot has to know a little about everything. A plant model has to
             know one machine's language very well, and that takes far fewer
             settings. Small means it fits on a modest computer on site, answers in
-            milliseconds, and keeps working with the network cable unplugged.
+            tens of milliseconds, and keeps working with the network cable unplugged.
           </p>
 
           <figure class="figure figure--plate">
             <img src="assets/broadcasts/llm-works-plant.webp" srcset="assets/broadcasts/llm-works-plant-800.webp 800w, assets/broadcasts/llm-works-plant.webp 1600w" sizes="(max-width: 1000px) 100vw, 960px" width="1600" height="896"
-                 alt="A vintage illustration of a heavy industrial machine on a quiet factory floor. A paper strip chart in its window shows a calm grey trace with one sharp spike drawn in red, and a control cabinet stands by the tall windows." loading="lazy" decoding="async" />
+                 alt="A vintage illustration of a heavy industrial machine on a quiet factory floor. A long window in its side shows a chart of small grey vibration ripples that swell into one short burst drawn in red, then settle back to grey." loading="lazy" decoding="async" />
             <figcaption class="fig mono">FIG. 11 &middot; THE MODEL READS THE MACHINE WHERE IT STANDS, NOT IN A DISTANT DATA CENTRE.</figcaption>
           </figure>
 
@@ -396,7 +382,7 @@
           <h2>Questions people actually ask</h2>
           <dl class="bc-faq">
             <dt><b>What is a token in an LLM?</b></dt>
-            <dd>A piece of text the model reads and writes: a whole word, part of a word, a number fragment or punctuation. A model works with a fixed vocabulary of them, usually tens of thousands, and writes its answer one token at a time.</dd>
+            <dd>A piece of text the model reads and writes: a whole word, part of a word, a number fragment or punctuation. A model works with a fixed vocabulary of them, usually tens of thousands to a few hundred thousand, and writes its answer one token at a time.</dd>
             <dt><b>Does an LLM look things up on the internet?</b></dt>
             <dd>Not by itself. A plain model answers from patterns stored in its settings during training. Some apps give it a search tool and paste the results into its context, which is a separate step around the model.</dd>
             <dt><b>Why do LLMs make things up?</b></dt>
@@ -414,7 +400,7 @@
           <span class="tint-panel__tag">roger that</span>
           <p>Want to talk to one? Install the set, then <code class="cmd-words"><span>roger</span> <span>search</span></code> to see what is on the band, or <code class="cmd-words"><span>roger</span> <span>use</span> <span>wave-pico-293m</span></code> to hear a model that learned a machine&rsquo;s language.</p>
           <div class="install">
-            <!-- include: install-box.html id=signoffInstall cmd='curl <span class="tok">-fsSL</span> <span class="tok">https://rogerai.fm/install.sh</span> | sh' -->
+            <!-- include: install-box.html id=signoffInstall cmd='curl <span class="tok">-fsSL</span> <span class="tok">https://rogerai.fm/install.sh</span> <span class="tok">| sh</span>' -->
           </div>
           <p>Will a model fit on your card? Read <a href="/broadcasts-vram-for-llm.html">how much VRAM you need</a>.</p>
         </aside>
@@ -428,7 +414,7 @@
 
   <!-- include: footer.html anchors=/ -->
 
-  <script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"What is a token in an LLM?","acceptedAnswer":{"@type":"Answer","text":"A piece of text the model reads and writes: a whole word, part of a word, a number fragment or punctuation. A model works with a fixed vocabulary of them, usually tens of thousands, and writes its answer one token at a time."}},{"@type":"Question","name":"Does an LLM look things up on the internet?","acceptedAnswer":{"@type":"Answer","text":"Not by itself. A plain model answers from patterns stored in its settings during training. Some apps give it a search tool and paste the results into its context, which is a separate step around the model."}},{"@type":"Question","name":"Why do LLMs make things up?","acceptedAnswer":{"@type":"Answer","text":"Because they are trained to produce a likely next piece, not a checked fact. When the pattern is weak, a fluent guess still comes out. Grounding it in real documents and asking it to cite them helps."}},{"@type":"Question","name":"How long does it take to train an LLM?","acceptedAnswer":{"@type":"Answer","text":"The largest models train for weeks to months on thousands of GPUs. A small specialist model, trained on one narrow kind of data, can be trained on far less hardware."}},{"@type":"Question","name":"Can I run an LLM on my own computer?","acceptedAnswer":{"@type":"Answer","text":"Yes. Smaller open models run on a laptop or a gaming GPU, and quantized versions shrink them further. Our VRAM guide shows what fits on which card, and RogerAI lets you reach bigger models other people share."}},{"@type":"Question","name":"Why train a model on manufacturing data instead of using a chatbot?","acceptedAnswer":{"@type":"Answer","text":"A machine's readings are a language of their own, and a model trained on them learns what normal sounds like for that machine. It can be small enough to run on site, offline, as an adviser beside the control system rather than in place of it."}}]}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"What is a token in an LLM?","acceptedAnswer":{"@type":"Answer","text":"A piece of text the model reads and writes: a whole word, part of a word, a number fragment or punctuation. A model works with a fixed vocabulary of them, usually tens of thousands to a few hundred thousand, and writes its answer one token at a time."}},{"@type":"Question","name":"Does an LLM look things up on the internet?","acceptedAnswer":{"@type":"Answer","text":"Not by itself. A plain model answers from patterns stored in its settings during training. Some apps give it a search tool and paste the results into its context, which is a separate step around the model."}},{"@type":"Question","name":"Why do LLMs make things up?","acceptedAnswer":{"@type":"Answer","text":"Because they are trained to produce a likely next piece, not a checked fact. When the pattern is weak, a fluent guess still comes out. Grounding it in real documents and asking it to cite them helps."}},{"@type":"Question","name":"How long does it take to train an LLM?","acceptedAnswer":{"@type":"Answer","text":"The largest models train for weeks to months on thousands of GPUs. A small specialist model, trained on one narrow kind of data, can be trained on far less hardware."}},{"@type":"Question","name":"Can I run an LLM on my own computer?","acceptedAnswer":{"@type":"Answer","text":"Yes. Smaller open models run on a laptop or a gaming GPU, and quantized versions shrink them further. Our VRAM guide shows what fits on which card, and RogerAI lets you reach bigger models other people share."}},{"@type":"Question","name":"Why train a model on manufacturing data instead of using a chatbot?","acceptedAnswer":{"@type":"Answer","text":"A machine's readings are a language of their own, and a model trained on them learns what normal sounds like for that machine. It can be small enough to run on site, offline, as an adviser beside the control system rather than in place of it."}}]}</script>
 
   <!-- include: site-js.html -->
 </body>

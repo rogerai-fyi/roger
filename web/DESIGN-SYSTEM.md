@@ -336,7 +336,9 @@ item: it gets `.is-tuned`, which the page styles (homepage: a quiet ground and a
 Items never fade. If the page lays the list out as a sideways gallery (it overflows its own
 width, e.g. a phone snap gallery), scrubbing centres the tuned item and a swipe tunes the
 item that comes to rest in the middle; the list must be `position: relative` (the items'
-offsetParent). No-JS: the complete static list, no control.
+offsetParent). It starts on the first item; `data-scrub-start="k"` (zero-based) starts it on
+another (broadcast 016 starts on its last, the payoff), and loading never scrolls the list.
+No-JS: the complete static list, no control.
 
 ### Range twin
 ```html

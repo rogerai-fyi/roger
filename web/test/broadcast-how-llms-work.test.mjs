@@ -13,6 +13,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import vm from "node:vm";
 
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PAGE = "broadcasts-how-llms-work.html";
@@ -94,7 +95,7 @@ test("how-llms: every figure has a caption and a text alternative", () => {
       const alt = img[0].match(/\salt="([^"]*)"/);
       assert.ok(alt && alt[1].length > 40, `FIG. ${i + 1}: the image says what it shows`);
     } else if (/data-scrub/.test(fig)) {
-      assert.match(fig, /<ol class="llm-train scroll-box" data-scrub aria-label="[^"]{20,}"/, "the scrubber is named by its list");
+      assert.match(fig, /<ol class="llm-train scroll-box" data-scrub data-scrub-start="4" aria-label="[^"]{20,}"/, "the scrubber is named by its list");
     } else {
       assert.match(fig, /role="img" aria-label="Diagram: [^"]{60,}"/, `FIG. ${i + 1}: the diagram is described in words`);
     }
@@ -177,12 +178,53 @@ const NEVER = [
   /\b\d+\s*(attention heads|kv heads|layers deep)\b/i, /tokens? of (our|proprietary)/i,
   /firedefense|southern california/i,
 ];
-test("how-llms: no internal detail, run setting or customer name appears on the page", () => {
-  const page = visible(read(PAGE));
+test("how-llms: no internal detail, run setting or customer name appears anywhere in the shipped page, comments included", () => {
+  const page = read(PAGE);
   for (const re of NEVER) assert.doesNotMatch(page, re);
 });
 
 test("how-llms: the page has a first-load weight budget", () => {
   const budget = JSON.parse(readFileSync(path.join(WEB, "test", "fixtures", "page-weight-budget.json"), "utf8"));
   assert.ok(budget.pages[PAGE] > 0, "budgeted in test/fixtures/page-weight-budget.json");
+});
+
+test("how-llms: the shipped source comment is a neutral one-liner", () => {
+  const first = read(PAGE).match(/<!DOCTYPE html>\s*<!--([\s\S]*?)-->/)[1];
+  assert.ok(!first.includes("\n"), "one line");
+  assert.doesNotMatch(first, /founder|reddit|brief/i);
+});
+
+test("how-llms: vocabulary size is stated as it is today, in the body, the FAQ and the schema alike", () => {
+  const html = read(PAGE);
+  const n = (html.match(/tens of\s+thousands to a few hundred thousand/g) || []).length;
+  assert.equal(n, 3, "body, visible FAQ and JSON-LD");
+  assert.doesNotMatch(html.replace(/tens of\s+thousands to a few hundred thousand/g, ""), /tens of\s+thousands/);
+});
+
+test("how-llms: the Quick Answer does not claim the model learns only from wrong guesses", () => {
+  const qa = read(PAGE).match(/<blockquote class="bc-answer"[^>]*>([\s\S]*?)<\/blockquote>/)[1];
+  assert.doesNotMatch(qa, /wrong guess/);
+  assert.match(qa, /after each round of guesses/);
+});
+
+test("how-llms: the training scrubber starts tuned on Trained (data-scrub-start), without scrolling the gallery", () => {
+  const on = (el) => { el.listeners = {}; el.addEventListener = (t, f) => { (el.listeners[t] ||= []).push(f); }; return el; };
+  const names = ["Step 0", "Early", "Later", "Much later", "Trained"];
+  const lis = names.map((n) => on({ cls: new Set(), querySelector: (q) => (q === "b" ? { textContent: n } : null) }));
+  lis.forEach((li) => { li.classList = { toggle: (c, v) => (v ? li.cls.add(c) : li.cls.delete(c)) }; });
+  let range = null, scrolled = 0;
+  const make = (start) => on({ getAttribute: (k) => (k === "data-scrub-start" ? start : "Training"), querySelectorAll: () => lis,
+    scrollWidth: 1000, clientWidth: 300, scrollLeft: 0, scrollTo() { scrolled++; }, parentNode: { insertBefore: (el) => { range = el; } } });
+  const run = (start) => {
+    const ol = make(start);
+    const win = { document: { querySelectorAll: (q) => (q === "[data-scrub]" ? [ol] : []),
+      createElement: (tag) => on({ tagName: tag, value: "", setAttribute() {}, style: { setProperty() {} } }) },
+      matchMedia: () => ({ matches: false }), setTimeout: (f) => f(), clearTimeout() {} };
+    win.window = win; vm.createContext(win); vm.runInContext(src("js/scrub.js"), win);
+    return lis.findIndex((l) => l.cls.has("is-tuned"));
+  };
+  assert.equal(run("4"), 4); assert.equal(range.value, "4");
+  assert.equal(run(null), 0, "no attribute: the first item, as before");
+  assert.equal(run("9"), 0, "out of range: the first item");
+  assert.equal(scrolled, 0, "loading never scrolls the gallery");
 });
