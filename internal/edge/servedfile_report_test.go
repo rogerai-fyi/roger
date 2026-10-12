@@ -32,3 +32,15 @@ func TestAMembersMalformedFileReportNamesNoFile(t *testing.T) {
 	require.Empty(t, got.Also[0].SHA256)
 	require.Equal(t, "qwen3-8b", got.Band, "the band itself still stands")
 }
+
+// "each shows the repository, quantisation and size its source says": the size is the member's word
+// too, kept only with a file report and only when it is a size a file can have.
+func TestAMembersReportKeepsTheSizeOfTheFile(t *testing.T) {
+	got := CleanModel(&EdgeModel{Band: "q", ID: "Qwen/Qwen3-8B-GGUF:Q4_K_M", Quant: "Q4_K_M", File: "Qwen3-8B-Q4_K_M.gguf",
+		SHA256: reportSHA, Bytes: 5 << 30,
+		Also: []store.EdgeServed{{Band: "s", ID: "a/b:Q8_0", File: "b-Q8_0.gguf", SHA256: reportSHA, Bytes: -1},
+			{Band: "t", ID: "a/b:Q8_0", Bytes: 7}}})
+	require.Equal(t, int64(5<<30), got.Bytes)
+	require.Zero(t, got.Also[0].Bytes, "a negative size is no size")
+	require.Zero(t, got.Also[1].Bytes, "a size without a file names nothing")
+}

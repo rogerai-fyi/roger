@@ -79,6 +79,7 @@ type EdgeModel struct {
 	// (features/models/short_names_nearby.feature). Empty on an older member: no mapping from it.
 	File        string     `json:"file,omitempty"`
 	SHA256      string     `json:"sha256,omitempty"`
+	Bytes       int64      `json:"bytes,omitempty"` // the file's size, as the member says
 	Fetch       *EdgeFetch `json:"fetch,omitempty"`
 	CannotServe string     `json:"cannot_serve,omitempty"` // why this machine has no runtime, in one sentence
 	ServeFailed string     `json:"serve_failed,omitempty"` // the last serve's own last words, when it never came on the air
@@ -102,6 +103,7 @@ type EdgeServed struct {
 	Since  int64  `json:"since,omitempty"`
 	File   string `json:"file,omitempty"`
 	SHA256 string `json:"sha256,omitempty"`
+	Bytes  int64  `json:"bytes,omitempty"`
 }
 
 // EdgeFetch is a fetch on a member, as it last reported it.

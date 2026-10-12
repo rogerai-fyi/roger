@@ -246,7 +246,8 @@ func (r *nearbyRig) do(t *testing.T, in string, args ...string) (string, error) 
 
 // hubFileOf is the servedfile report for a file the stand-in hub has, with its true digest.
 func (r *nearbyRig) hubFileOf(repo, file, quant string) servedfile.File {
-	return servedfile.File{Repo: repo, File: file, Quant: quant, SHA256: r.hub.sha(repo, file)}
+	return servedfile.File{Repo: repo, File: file, Quant: quant, SHA256: r.hub.sha(repo, file),
+		Bytes: int64(len(r.hub.repo(repo).files[file].body))}
 }
 
 func (r *nearbyRig) enroll(t *testing.T) {
@@ -276,10 +277,10 @@ func (r *nearbyRig) memberBands(t *testing.T, node string, proven bool, bands []
 	for i, band := range bands {
 		e := store.EdgeServed{Band: band, ID: band}
 		if f := files[i]; f != nil {
-			e.ID, e.Quant, e.File, e.SHA256 = f.Ref(), f.Quant, f.File, f.SHA256
+			e.ID, e.Quant, e.File, e.SHA256, e.Bytes = f.Ref(), f.Quant, f.File, f.SHA256, f.Bytes
 		}
 		if i == 0 {
-			m.Band, m.ID, m.Quant, m.File, m.SHA256 = e.Band, e.ID, e.Quant, e.File, e.SHA256
+			m.Band, m.ID, m.Quant, m.File, m.SHA256, m.Bytes = e.Band, e.ID, e.Quant, e.File, e.SHA256, e.Bytes
 		} else {
 			m.Also = append(m.Also, e)
 		}

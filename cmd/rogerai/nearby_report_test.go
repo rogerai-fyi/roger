@@ -59,3 +59,21 @@ func TestAMembersRecordMapsEachOfItsBandsToItsFile(t *testing.T) {
 	require.Nil(t, edgeBandFile(m, "none"))
 	require.Nil(t, edgeBandFile(nil, "tiny"))
 }
+
+// The size a member reports reaches the dial with its file.
+func TestAMembersRecordCarriesTheSizeOfItsFile(t *testing.T) {
+	const sha = "2e8040ceae78a1b2c3d4e5f60718293a4b5c6d7e8f9001122334455667788990"
+	m := &store.EdgeModel{Band: "tiny", ID: "acme/Tiny-GGUF:Q4_K_M", Quant: "Q4_K_M", File: "Tiny-Q4_K_M.gguf", SHA256: sha, Bytes: 4321,
+		Also: []store.EdgeServed{{Band: "big", ID: "acme/Big-GGUF:Q8_0", Quant: "Q8_0", File: "Big-Q8_0.gguf", SHA256: sha, Bytes: 99}}}
+	require.Equal(t, int64(4321), edgeBandFile(m, "tiny").Bytes)
+	require.Equal(t, int64(99), edgeBandFile(m, "big").Bytes)
+
+	r := newModelRig(t, 16384)
+	_, err := r.run(t, "get", "acme/Tiny-GGUF:Q4_K_M", "--yes")
+	require.NoError(t, err)
+	var now *store.EdgeModel
+	modelUntilDone = func(context.Context) { now = edgeModelNow() }
+	_, err = r.run(t, "serve", "tiny")
+	require.NoError(t, err)
+	require.Equal(t, int64(len(r.files["Tiny-Q4_K_M.gguf"])), now.Bytes, "what this machine reports of its own serve")
+}

@@ -216,7 +216,7 @@ func CleanModel(m *EdgeModel) *EdgeModel {
 	out := &EdgeModel{Band: cleanText(m.Band), ID: cleanText(m.ID), Quant: cleanText(m.Quant), Ctx: m.Ctx,
 		Since: m.Since, CannotServe: cleanText(m.CannotServe), ServeFailed: cleanText(m.ServeFailed),
 		Stopped: cleanText(m.Stopped), Build: cleanText(m.Build), TokPerSec: m.TokPerSec}
-	out.File, out.SHA256 = reportedFile(out.ID, m.File, out.Quant, m.SHA256)
+	out.File, out.SHA256, out.Bytes = reportedFile(out.ID, m.File, out.Quant, m.SHA256, m.Bytes)
 	if out.TokPerSec < 0 || out.TokPerSec > 100000 {
 		out.TokPerSec = 0
 	}
@@ -228,7 +228,7 @@ func CleanModel(m *EdgeModel) *EdgeModel {
 			break
 		}
 		c := store.EdgeServed{Band: cleanText(a.Band), ID: cleanText(a.ID), Quant: cleanText(a.Quant), Ctx: a.Ctx, Since: a.Since}
-		c.File, c.SHA256 = reportedFile(c.ID, a.File, c.Quant, a.SHA256)
+		c.File, c.SHA256, c.Bytes = reportedFile(c.ID, a.File, c.Quant, a.SHA256, a.Bytes)
 		if c.Ctx < 0 || c.Ctx > 1<<21 {
 			c.Ctx = 0
 		}
@@ -339,9 +339,9 @@ func BuildWord(b string) string {
 
 // reportedFile keeps a member's file and digest only when together they name exactly one file on
 // the model hub (features/models/short_names_nearby.feature): a malformed report names no file.
-func reportedFile(id, file, quant, sha string) (string, string) {
-	if f := servedfile.FromID(id, file, quant, sha, 0); f != nil {
-		return f.File, f.SHA256
+func reportedFile(id, file, quant, sha string, bytes int64) (string, string, int64) {
+	if f := servedfile.FromID(id, file, quant, sha, max(bytes, 0)); f != nil {
+		return f.File, f.SHA256, f.Bytes
 	}
-	return "", ""
+	return "", "", 0
 }

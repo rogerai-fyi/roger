@@ -315,8 +315,9 @@ func withStationRoutes(run *agent.Config, routes map[string]stationRoute) {
 // repository, file and digest; one placed by hand names none, so it maps nothing.
 func stationFiles() map[string]servedfile.File {
 	out := map[string]servedfile.File{}
-	for _, s := range modelHome().LiveAll() {
-		if f := servedfile.FromID(s.ID, s.File, s.Quant, s.SHA256, 0); f != nil {
+	h := modelHome()
+	for _, s := range h.LiveAll() {
+		if f := servedfile.FromID(s.ID, s.File, s.Quant, s.SHA256, modelBytesOf(h, s)); f != nil {
 			out[s.Band] = *f
 		}
 	}

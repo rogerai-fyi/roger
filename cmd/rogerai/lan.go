@@ -988,11 +988,11 @@ func edgeBandFile(m *store.EdgeModel, band string) *servedfile.File {
 		return nil
 	}
 	if m.Band == band {
-		return servedfile.FromID(m.ID, m.File, m.Quant, m.SHA256, 0)
+		return servedfile.FromID(m.ID, m.File, m.Quant, m.SHA256, m.Bytes)
 	}
 	for _, a := range m.Also {
 		if a.Band == band {
-			return servedfile.FromID(a.ID, a.File, a.Quant, a.SHA256, 0)
+			return servedfile.FromID(a.ID, a.File, a.Quant, a.SHA256, a.Bytes)
 		}
 	}
 	return nil
