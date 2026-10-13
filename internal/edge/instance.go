@@ -32,6 +32,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"rogerai.fm/roger/v6/internal/onair"
 	"rogerai.fm/roger/v6/internal/store"
 )
 
@@ -245,10 +246,21 @@ func Household(dir string, now time.Time) []Instance {
 		if json.Unmarshal(b, &h) != nil || h.Instance.Name == "" {
 			continue
 		}
+		if !writerRunning(h.Instance, fi.ModTime()) {
+			_ = os.Remove(p) // its roger is gone: the name goes back to the next one to start
+			continue
+		}
 		out = append(out, h.Instance)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
+}
+
+// writerRunning reports whether the roger that wrote a registration is still that running
+// process, by the same rule the on-air records use (same pid, started before it wrote, not a
+// zombie). A record from a roger too old to carry its pid is judged by its heartbeat alone.
+func writerRunning(in Instance, written time.Time) bool {
+	return in.PID <= 0 || onair.StillTheProcess(in.PID, written)
 }
 
 // LiveInstance is one instance of the household together with how fresh its registration is: a stop
@@ -274,7 +286,7 @@ func LiveHousehold(dir string, now time.Time) []LiveInstance {
 			continue
 		}
 		var h householdFile
-		if json.Unmarshal(b, &h) != nil || h.Instance.Name == "" {
+		if json.Unmarshal(b, &h) != nil || h.Instance.Name == "" || !writerRunning(h.Instance, fi.ModTime()) {
 			continue
 		}
 		out = append(out, LiveInstance{Instance: h.Instance, Beat: fi.ModTime()})

@@ -99,6 +99,14 @@ func edgeIsAgentRole(cfg config) bool {
 // registerInstance joins the household. A machine that has not enrolled registers
 // nothing, and that is a state, not an error.
 func (h *edgeHost) registerInstance(cfg config) {
+	// One registration per process. arm runs again on every pass while the face is down, and
+	// a second registration here would claim the next default name each time (hub-2, hub-3...).
+	h.mu.Lock()
+	registered := h.reg != nil
+	h.mu.Unlock()
+	if registered {
+		return
+	}
 	id, _, ok, err := edgeIdentityStore().LoadIdentity()
 	if err != nil || !ok {
 		return

@@ -365,3 +365,34 @@ Feature: A running roger registers itself on its node's Edge, several to a machi
     Given two instances serving the same band, one reporting more free GPU memory
     Then the fact is shown
     And routing prefers the one that measured faster, never the one that merely reports more room
+
+  # =========================================================================
+  # 9. A NAME IS HELD BY A RUNNING ROGER, AND ONLY ONE NAME PER ROGER
+  # =========================================================================
+  # 2026-10-13 founder test: short CLI runs never claim an instance name
+
+  @cli
+  Scenario: short CLI runs never claim an instance name
+    Given this machine is enrolled as "hub" and a roger is running here
+    When they run "roger edge", "roger edge list", "roger edge health" and "roger edge invite" 5 times
+    Then this machine's rogers are exactly "hub"
+
+  @cli
+  Scenario: a roger keeps one name for its whole run, even when its LAN face cannot open
+    Given this machine is enrolled as "hub" and a roger is running here
+    And another roger starts here while the LAN face port is held
+    When that roger runs 5 discovery passes
+    Then this machine's rogers are exactly "hub" and "hub-2"
+
+  @cli
+  Scenario: a roger that died without leaving gives its name back to the next one
+    Given this machine is enrolled as "hub"
+    And a roger registered here as "hub" whose process is gone
+    When a roger starts here
+    Then this machine's rogers are exactly "hub"
+
+  @cli
+  Scenario: two rogers running at once on one machine keep distinct names
+    Given this machine is enrolled as "hub" and a roger is running here
+    When a roger starts here
+    Then this machine's rogers are exactly "hub" and "hub-2"

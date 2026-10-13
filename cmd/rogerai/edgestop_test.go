@@ -20,7 +20,8 @@ import (
 )
 
 // stopRig is a machine with a persistent agent "watcher" REGISTERED as if it were running, with the
-// signal and the roger check recorded rather than performed.
+// signal and the roger check recorded rather than performed. pid is a real running process (see
+// separateProcess): a registration is a running roger only while the pid that wrote it runs.
 func stopRig(t *testing.T, pid int) (*[]int, *edge.Registry) {
 	t.Helper()
 	useTempConfig(t)
@@ -49,11 +50,12 @@ func stopRig(t *testing.T, pid int) (*[]int, *edge.Registry) {
 }
 
 func TestStopSignalsARunningAgentWithSIGTERM(t *testing.T) {
-	signalled, reg := stopRig(t, 424242)
+	pid := separateProcess(t)
+	signalled, reg := stopRig(t, pid)
 	says, changed, refused := edgeStopAgent("watcher", time.Now())
 	require.Equal(t, "", refused)
 	require.True(t, changed)
-	require.Equal(t, []int{424242}, *signalled)
+	require.Equal(t, []int{pid}, *signalled)
 	// The fake process never leaves the household, so the answer says exactly that, and says why it
 	// is not forced.
 	require.Contains(t, says, "had not gone yet")
@@ -71,7 +73,8 @@ func TestStopSignalsARunningAgentWithSIGTERM(t *testing.T) {
 
 func TestStopNeverSignalsAProcessItCannotVouchFor(t *testing.T) {
 	t.Run("stale registration", func(t *testing.T) {
-		signalled, reg := stopRig(t, 424242)
+		pid := separateProcess(t)
+		signalled, reg := stopRig(t, pid)
 		// Age the registration past the reap window: the pid may be somebody else's now.
 		old := time.Now().Add(-2 * edge.InstanceLife)
 		require.NoError(t, os.Chtimes(regPath(t, reg), old, old))
@@ -92,7 +95,8 @@ func TestStopNeverSignalsAProcessItCannotVouchFor(t *testing.T) {
 	})
 
 	t.Run("not a roger any more", func(t *testing.T) {
-		signalled, _ := stopRig(t, 424242)
+		pid := separateProcess(t)
+		signalled, _ := stopRig(t, pid)
 		edgeProcIsRoger = func(int) (bool, bool) { return false, true }
 		_, changed, refused := edgeStopAgent("watcher", time.Now())
 		require.False(t, changed)
@@ -109,7 +113,8 @@ func TestStopNeverSignalsAProcessItCannotVouchFor(t *testing.T) {
 	})
 
 	t.Run("not persistent", func(t *testing.T) {
-		signalled, _ := stopRig(t, 424242)
+		pid := separateProcess(t)
+		signalled, _ := stopRig(t, pid)
 		_, err := edge.UnmarkPersistent(edgePersistDir(), "watcher")
 		require.NoError(t, err)
 		_, changed, refused := edgeStopAgent("watcher", time.Now())
@@ -129,7 +134,8 @@ func regPath(t *testing.T, reg *edge.Registry) string {
 }
 
 func TestRestartSaysWhichHalfDidWhat(t *testing.T) {
-	signalled, reg := stopRig(t, 424242)
+	pid := separateProcess(t)
+	signalled, reg := stopRig(t, pid)
 	launched := 0
 	edgeSpawnRoger = func(map[string]string) error { launched++; return nil }
 
@@ -138,7 +144,7 @@ func TestRestartSaysWhichHalfDidWhat(t *testing.T) {
 	says, changed, refused := edgeRestartAgent(loadConfig(), "watcher", time.Now())
 	require.Equal(t, "", refused)
 	require.True(t, changed)
-	require.Equal(t, []int{424242}, *signalled)
+	require.Equal(t, []int{pid}, *signalled)
 	require.Contains(t, says, "asked \"watcher\" to stop")
 	require.Contains(t, says, "NOT started again")
 	require.Zero(t, launched, "nothing is launched on top of a roger that is still there")
@@ -165,7 +171,8 @@ func TestRestartSaysWhichHalfDidWhat(t *testing.T) {
 // The whole way in: stop and restart are refused unless BOTH of the owner's locks are open, and
 // reboot and shutdown are still refused by name.
 func TestStopAndRestartGoThroughTheMaintenanceGate(t *testing.T) {
-	signalled, _ := stopRig(t, 424242)
+	pid := separateProcess(t)
+	signalled, _ := stopRig(t, pid)
 	task := func(a edge.MaintainAction) json.RawMessage {
 		b, _ := json.Marshal(edge.MaintainTask{Action: a, Target: "watcher"})
 		return b
@@ -185,7 +192,7 @@ func TestStopAndRestartGoThroughTheMaintenanceGate(t *testing.T) {
 	res, refused := edgeMaintainRun(loadConfig(), "n_desk", "desk", "shed", task(edge.MaintainStop), now)
 	require.Equal(t, "", refused)
 	require.True(t, res.Changed)
-	require.Equal(t, []int{424242}, *signalled)
+	require.Equal(t, []int{pid}, *signalled)
 
 	// The action is on the machine's own history, naming who asked.
 	st, err := loadEdgeState()
@@ -212,7 +219,8 @@ func TestStopAndRestartGoThroughTheMaintenanceGate(t *testing.T) {
 // The roger that may never be a target is the one THIS process REGISTERED - not the name a new roger
 // would take. Guessing it from the config refused a start for the very agent the owner named.
 func TestTheSelfTargetIsTheRegisteredNameNotAGuess(t *testing.T) {
-	signalled, _ := stopRig(t, 424242)
+	pid := separateProcess(t)
+	signalled, _ := stopRig(t, pid)
 	deps := edgeLiveTurnDeps(func() string { return "roger" }) // what this process registered
 	handler := edgeInvokeHandler(deps)
 	_, err := captureEdgeStdout(func() error { return cmdEdgeMaintenance(loadConfig(), []string{"on"}) })
@@ -228,7 +236,7 @@ func TestTheSelfTargetIsTheRegisteredNameNotAGuess(t *testing.T) {
 	// "watcher" is NOT this process, so it may be acted on.
 	res := ask(edge.MaintainStop, "watcher")
 	require.Equal(t, "", res.Refused)
-	require.Equal(t, []int{424242}, *signalled)
+	require.Equal(t, []int{pid}, *signalled)
 
 	// The registered name is refused, whichever action asks.
 	for _, a := range edge.MaintainActs {
@@ -249,13 +257,14 @@ func TestTheSelfTargetIsTheRegisteredNameNotAGuess(t *testing.T) {
 // A start says whether the agent really JOINED, not merely that it was launched: a spawned roger
 // that cannot stand up its face exits at once (features/edge/maintenance.feature).
 func TestStartSaysWhetherTheAgentReallyJoined(t *testing.T) {
-	_, reg := stopRig(t, 424242)
+	pid := separateProcess(t)
+	_, reg := stopRig(t, pid)
 	require.NoError(t, reg.Deregister()) // "watcher" is marked persistent and not running
 
 	// It joins: the answer says so.
 	edgeSpawnRoger = func(map[string]string) error {
 		_, err := edge.Register(edgeInstancesDir(), edgeThisNodeID(),
-			edge.Instance{Name: "watcher", Agent: true, PID: 515151}, time.Now())
+			edge.Instance{Name: "watcher", Agent: true, PID: separateProcess(t)}, time.Now())
 		return err
 	}
 	says, changed, refused := edgeStartAgent(loadConfig(), "watcher", time.Now())
@@ -313,7 +322,8 @@ var errStubbedDetach = errors.New("detach stubbed out")
 // node/instance addresses ONE roger rather than the machine, because a node's recorded face is
 // whichever roger observed itself last (features/edge/maintenance.feature).
 func TestAnInstanceAddressDialsThatRogersOwnFace(t *testing.T) {
-	stopRig(t, 424242)
+	pid := separateProcess(t)
+	stopRig(t, pid)
 	st, err := loadEdgeState()
 	require.NoError(t, err)
 	id := edgeThisNodeID()
