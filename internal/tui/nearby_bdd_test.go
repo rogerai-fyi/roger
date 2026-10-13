@@ -463,7 +463,9 @@ func (s *emptySimpleBDD) inviteMintedFor(label string) error {
 	return nil
 }
 func (s *emptySimpleBDD) showsQRAndLineRowInvited() error {
-	if !strings.Contains(s.joined(), "roger join roger://join?") {
+	// Quoted: the invite carries & between its fields, so an unquoted line pasted into a shell runs
+	// `roger join roger://join?kind=edge` in the background and drops the code.
+	if !strings.Contains(s.joined(), "roger join 'roger://join?") {
 		return fmt.Errorf("the join line is not on the screen:\n%s", s.out)
 	}
 	if !strings.Contains(s.out, "▀") && !strings.Contains(s.out, "▄") && !strings.Contains(s.out, "█") && !strings.Contains(s.out, "paste the line") {

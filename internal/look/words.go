@@ -2,6 +2,7 @@ package look
 
 import (
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -150,6 +151,24 @@ func NearbyRunLine(addr string) string { return "on it, run: roger join " + addr
 // NearbyCLIInvite and NearbyCLIApprove are the two lines `roger edge nearby` prints under a row.
 func NearbyCLIInvite(id string) string  { return "invite it: roger edge invite --for " + id }
 func NearbyCLIApprove(id string) string { return "approve it when it asks: roger edge approve " + id }
+
+// NearbyKey is how a nearby row names a device's key: the fingerprint of the certificate it serves
+// ("fp"), or for a device with none (a phone) its node id, which derives from its node key ("key").
+// Twelve hex characters, never clipped, are what tell two same-named devices apart.
+func NearbyKey(pin, id string) (label, short string) {
+	if pin != "" {
+		return "fp", NearbyShort(pin)
+	}
+	return "key", NearbyShort(strings.TrimPrefix(id, "n_"))
+}
+
+// NearbyShort is the first twelve characters of a fingerprint or an id.
+func NearbyShort(s string) string {
+	if len(s) > 12 {
+		return s[:12]
+	}
+	return s
+}
 
 func shortAge(d time.Duration) string {
 	switch {

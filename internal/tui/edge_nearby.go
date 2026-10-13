@@ -19,6 +19,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"rogerai.fm/roger/v6/internal/joininvite"
 	"rogerai.fm/roger/v6/internal/look"
 	"rogerai.fm/roger/v6/internal/ownerjoin"
 	"rogerai.fm/roger/v6/internal/qr"
@@ -84,22 +85,6 @@ func (m model) edgeNearbyInvited(id string) bool {
 	return false
 }
 
-// edgeNearbyFP is the row's short fingerprint: the certificate it serves, else its node id, which
-// IS the fingerprint of its node key.
-func edgeNearbyFP(n store.EdgeNode) (label, short string) {
-	if n.Pin != "" {
-		return "fp", edgeNearbyShort(n.Pin)
-	}
-	return "key", edgeNearbyShort(strings.TrimPrefix(n.ID, "n_"))
-}
-
-func edgeNearbyShort(s string) string {
-	if len(s) > 12 {
-		return s[:12]
-	}
-	return s
-}
-
 // edgeNearbySelectedID is the node id the highlight is on, on the map or in the empty state.
 func (m model) edgeNearbySelectedID() string {
 	if m.edgeMapActive() {
@@ -160,7 +145,7 @@ func (m model) edgeNearbyLines(w int, mono bool) []string {
 			since = now.Sub(time.Unix(n.LastSeen, 0))
 			facts = append(facts, look.NearbySeen(since))
 		}
-		label, short := edgeNearbyFP(n)
+		label, short := look.NearbyKey(n.Pin, n.ID)
 		facts = append(facts, label+" "+short)
 		state := ""
 		switch {
@@ -202,7 +187,7 @@ func edgeNearbyName(n store.EdgeNode) string {
 	if strings.TrimSpace(n.Name) != "" && n.Name != n.ID {
 		return n.Name
 	}
-	return edgeNearbyShort(strings.TrimPrefix(n.ID, "n_"))
+	return look.NearbyShort(strings.TrimPrefix(n.ID, "n_"))
 }
 
 // edgeNearbyInviteLines is the invite panel: the heading, what to do with it, the join line in
@@ -218,7 +203,7 @@ func (m model) edgeNearbyInviteLines(w int, mono bool) []string {
 	for _, ln := range wordWrap(look.NearbyInviteNext, max(30, w-4)) {
 		out = append(out, "  "+ink.Render(ln))
 	}
-	for _, row := range splitRunes("roger join "+inv.line, max(20, w-2)) {
+	for _, row := range splitRunes(joininvite.JoinLine(inv.line), max(20, w-2)) {
 		out = append(out, "  "+paper.Render(row))
 	}
 	left := inv.until.Sub(m.edgeNow())
@@ -240,7 +225,7 @@ func (m *model) onEdgeNearbyInviteKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "c":
 		line := m.edge.nearby.invite.line
 		m.status = copiedToast("the join line")
-		return m, clipboardWrite("roger join " + line)
+		return m, clipboardWrite(joininvite.JoinLine(line))
 	}
 	return m, nil
 }
