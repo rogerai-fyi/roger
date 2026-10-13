@@ -80,7 +80,9 @@ var edgeSubcommands = []edgeSubcommand{
 	{"name", "<node>|. <name>", "give a node a name the owner chooses", 2, 2},
 	{"forget", "<node>", "remove a node from this Edge", 1, 1},
 	{"tag", "<node> [+tag|-tag|tag...] [--clear]", "show or change the owner's words for a unit: a group a rule can cover", 1, 14},
-	{"adopt", "<candidate>", "take a discovered candidate into the fleet", 1, 1},
+	{"nearby", "", "list the devices pinging on this network that are not on your Edge yet", 0, 0},
+	{"approve", "<id>", "let a nearby device onto your Edge: a phone by claim, a roger device verified and enrolled", 1, 1},
+	{"adopt", "<candidate>", "take a discovered candidate into the fleet", 1, 1}, // the old name for approve, kept one release (§7)
 	{"readmit", "[<node>]", "bring back a device you forgot or revoked (lifts its revocation); alone, lists them", 0, 1},
 	{"scan", "", "look for nodes on this network now", 0, 0},
 	{"sessions", "", "show the live sessions on this machine's Edge", 0, 0},
@@ -109,7 +111,7 @@ var edgeSubcommands = []edgeSubcommand{
 	{"model", "<agent> <model> [use|share|use,share]", "bind a model to an agent, to use or share on the Edge", 2, 3},
 	{"job", "<agent> <serve|watch|relay|none> [targets...]", "give an agent a job, or clear it", 2, 16},
 	{"authority", "[local <name>|core|allow <key>]", "show or choose what roots this Edge", 0, 2},
-	{"invite", "[--at <address>:<port>] [--qr]", "print one `roger join` line that adds a device to this Edge, once", 0, 0},
+	{"invite", "[--for <node id>] [--at <address>:<port>] [--qr]", "print one `roger join` line that adds a device to this Edge, once; --for binds it to one device", 0, 0},
 	{"grant", "[<caller> <cap> <callee> --for 7d | revoke <id>]", "issue, list or revoke an authority-signed grant", 0, 16},
 	{"invoke", "<callee> <prompt...> [--cap operate] [--model <band>]", "ask another node to act, under a grant", 1, 32},
 }
@@ -192,6 +194,10 @@ func cmdEdge(cfg config, args []string) error {
 		return cmdEdgeForget(cfg, rest)
 	case "tag":
 		return cmdEdgeTag(cfg, rest)
+	case "nearby":
+		return cmdEdgeNearby(cfg, rest)
+	case "approve":
+		return cmdEdgeApprove(cfg, rest)
 	case "adopt":
 		return cmdEdgeAdopt(cfg, rest)
 	case "readmit":
@@ -274,7 +280,7 @@ func edgeWantsHelp(args []string) bool {
 var edgeFlags = map[string]bool{
 	"json": false, "dark": false, "candidates": false, "yes": false, "verbose": false, "live": false, "watch": false,
 	"force": false, "clear": false, "replace-root": false, "qr": false,
-	"code": true, "root": true, "invite": true, "at": true,
+	"code": true, "root": true, "invite": true, "at": true, "for": true,
 	"capability": true, "authority": true, "account": true, "scope": true, "since": true, "tag": true,
 	"node": true, "limit": true, "lines": true, "every": true, "once": false, "select": true, "health": false,
 }
@@ -1567,18 +1573,11 @@ func edgeConfirmed() bool {
 // is the real pinned TLS dial from internal/edge.
 var edgeDialPeer = edge.DialTLS
 
+// cmdEdgeAdopt is the old name for approve (features/edge/empty_edge_simple.feature §7): it does
+// exactly what approve does, and says once what the commands are called now.
 func cmdEdgeAdopt(cfg config, args []string) error {
-	leaf, _ := edgeLeaf("adopt")
-	argv, err := parseEdgeArgv(leaf, args)
-	if err != nil {
-		return err
-	}
-	msg, err := edgeAdoptWant(argv.pos[0])
-	if err != nil {
-		return err
-	}
-	fmt.Println(msg)
-	return nil
+	fmt.Println(look.AdoptDeprecated)
+	return cmdEdgeApprove(cfg, args)
 }
 
 // edgeAdoptWant adopts the candidate the owner named and returns the line that says what

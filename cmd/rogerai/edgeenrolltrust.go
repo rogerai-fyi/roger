@@ -205,9 +205,12 @@ func edgeBrokerAuthenticated(broker string) bool {
 
 // edgeInvite renders an Edge invite in the one join scheme (internal/joininvite): the
 // authority's address, its root's full fingerprint and the one-time code, in one string.
-func edgeInvite(at, fingerprint, code string) string {
+func edgeInvite(at, fingerprint, code string) string { return edgeInviteFor(at, fingerprint, code, "") }
+
+// edgeInviteFor is edgeInvite bound to one node id (for=); an empty nodeID is the plain invite.
+func edgeInviteFor(at, fingerprint, code, nodeID string) string {
 	return joininvite.Invite{Kind: joininvite.Edge, Addrs: []string{at},
-		FP: strings.TrimPrefix(fingerprint, "sha256:"), Code: strings.ReplaceAll(code, "-", "")}.String()
+		FP: strings.TrimPrefix(fingerprint, "sha256:"), Code: strings.ReplaceAll(code, "-", ""), For: nodeID}.String()
 }
 
 // edgeParseInvite reads an Edge invite (or one from before the one scheme) back into an address,
