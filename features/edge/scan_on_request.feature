@@ -138,6 +138,21 @@ Feature: A machine that has not joined an Edge scans the LAN only while someone 
     When the Edge host has run several passes
     Then this process browses the LAN on UDP port 5353
 
+  # RULED 2026-10-13 (founder): yes. The honest iOS form of "enrolled machines keep browsing". iOS
+  # suspends an app that leaves the front, so a phone cannot browse in the background whatever it
+  # is enrolled in; that is a platform fact, not a gap. Membership does not need a browse: the phone
+  # dials out its presence (features/edge/presence.feature) while the Edge tab is in front, and its
+  # last presence is what the authority holds while the app is suspended. No Go runner selects @ios.
+  @ios
+  Scenario: a phone member browses only while its Edge tab is in front
+    Given the phone has joined an Edge
+    When the Edge tab is in front
+    Then the phone browses the LAN for the Edge and posts its presence
+    When the app leaves the front and the system suspends it
+    Then the phone makes no mDNS traffic at all
+    And it stays a member of the Edge by the presence it dialed out, not by browsing
+    And the Edge's authority draws it by its last presence, as fleet_window.feature section 8 says
+
   @cli
   Scenario: an enrolled machine's LAN dial still browses for advertised Towers in the background
     Given this machine has joined an Edge
