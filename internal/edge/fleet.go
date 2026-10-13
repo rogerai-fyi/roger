@@ -531,6 +531,8 @@ type Observation struct {
 	InstancesTruncated bool
 	// Phone is a phone's own signed vitals, when its presence carried them (nil leaves the last).
 	Phone *store.EdgePhone
+	// Power is a node's own power from a v3 presence, any kind.
+	Power *store.EdgePower
 }
 
 // Observe records a verified sighting. It is the ONLY way discovery writes to the
@@ -560,6 +562,7 @@ func (f *Fleet) Observe(id string, obs Observation) (store.EdgeNode, error) {
 		}
 		applyInstances(&n, obs)
 		n.Phone = obs.Phone
+		n.Power = obs.Power
 		n.Transports = []store.EdgeTransport{{Kind: "lan", Addr: obs.Addr, Fingerprint: obs.Fingerprint}}
 		n.Presence = string(PresenceVerified)
 		n.LastSeen = now
@@ -590,6 +593,9 @@ func (f *Fleet) Observe(id string, obs Observation) (store.EdgeNode, error) {
 		applyInstances(n, obs)
 		if obs.Phone != nil {
 			n.Phone = obs.Phone
+		}
+		if obs.Power != nil {
+			n.Power = obs.Power
 		}
 		n.Presence = string(PresenceVerified)
 		n.LastSeen = now

@@ -52,12 +52,16 @@ type PresenceRequest struct {
 	TS     int64    `json:"ts"`
 	Sig    string   `json:"sig"` // hex ed25519 signature over canonical(), by the node key
 	// V is the presence version: absent or 1 is the original form; 2 adds the phone's vitals INSIDE
-	// the signature. Vitals on anything but a v2 presence are unsigned, and are refused.
+	// the signature; 3 (ruled 2026-10-13) adds Power, for ANY kind of node. Vitals or power outside the
+	// version that signs them are unsigned, and are refused.
 	V      int          `json:"v,omitempty"`
 	Vitals *PhoneVitals `json:"vitals,omitempty"`
+	Power  *PowerVitals `json:"power,omitempty"`
 }
 
 // PhoneVitals is what a phone can honestly report about itself (features/edge/fleet_window.feature).
+// In v3 a phone's battery and charging travel in Power, like every other node's, and these two
+// fields are refused there; thermal and foreground stay phone-only.
 type PhoneVitals struct {
 	BatteryPct *int   `json:"battery_pct,omitempty"`
 	Charging   *bool  `json:"charging,omitempty"`
@@ -65,22 +69,63 @@ type PhoneVitals struct {
 	Foreground *bool  `json:"foreground,omitempty"`
 }
 
+// PowerVitals is a node's power, any kind (presence v3; store.EdgePower once recorded).
+type PowerVitals struct {
+	BatteryPct  *int   `json:"battery_pct,omitempty"`  // 0..100, absent = no battery or unknown
+	Charging    *bool  `json:"charging,omitempty"`     // charging, or full on external power
+	Source      string `json:"source,omitempty"`       // "ac" | "battery" | "unknown"; absent = not reported
+	LowPower    *bool  `json:"low_power,omitempty"`    // energy saver / Low Power Mode on
+	MinutesLeft *int   `json:"minutes_left,omitempty"` // OS estimate of time remaining, minutes
+}
+
+// powerSources is the closed vocabulary of a power source. "solar" and "ups" are not in it: no
+// operating system this reads reports them as a source, and a word nobody can report is a guess.
+var powerSources = map[string]bool{"": true, "ac": true, "battery": true, "unknown": true}
+
+// presenceVersionRefusal is the exact words an authority uses for a version it does not read; a
+// sender detects them to fall back (v3 to v2 to v1). An authority from before v3 says the same.
+const presenceVersionRefusal = "that presence version is not one this authority reads"
+
+// presencePrefixV3 domain-separates the v3 form, which signs the vitals and the power.
+const presencePrefixV3 = "rogerai-edge-present/v3"
+
 // presencePrefixV2 domain-separates the v2 form, which signs the vitals too.
 const presencePrefixV2 = "rogerai-edge-present/v2"
 
 var thermalStates = map[string]bool{"": true, "nominal": true, "fair": true, "serious": true, "critical": true}
 
-// vitalsRefusal is why a presence's version or vitals cannot be believed, or "".
+// vitalsRefusal is why a presence's version, vitals or power cannot be believed, or "".
 func (p PresenceRequest) vitalsRefusal() string {
 	switch p.V {
 	case 0, 1:
 		if p.Vitals != nil {
 			return "vitals arrive only in a v2 presence, where they are signed"
 		}
+		if p.Power != nil {
+			return "power arrives only in a v3 presence, where it is signed"
+		}
 		return ""
 	case 2:
+		if p.Power != nil {
+			return "power arrives only in a v3 presence, where it is signed"
+		}
+	case 3:
+		if v := p.Vitals; v != nil && (v.BatteryPct != nil || v.Charging != nil) {
+			return "in a v3 presence the battery is reported under power"
+		}
+		if w := p.Power; w != nil {
+			if w.BatteryPct != nil && (*w.BatteryPct < 0 || *w.BatteryPct > 100) {
+				return "a battery reading outside 0-100"
+			}
+			if !powerSources[w.Source] {
+				return "a power source that does not exist"
+			}
+			if w.MinutesLeft != nil && *w.MinutesLeft < 0 {
+				return "a negative time remaining"
+			}
+		}
 	default:
-		return "that presence version is not one this authority reads"
+		return presenceVersionRefusal
 	}
 	if v := p.Vitals; v != nil {
 		if Kind(p.Kind) != Mobile {
@@ -117,6 +162,23 @@ func optBool(p *bool) string {
 // recorded is in it; the certificate is bound separately, by Authenticate deriving the same id and
 // the signature being checked against the certificate's own key.
 func (p PresenceRequest) canonical() []byte {
+	if p.V == 3 {
+		v := p.Vitals
+		if v == nil {
+			v = &PhoneVitals{}
+		}
+		w := p.Power
+		if w == nil {
+			w = &PowerVitals{}
+		}
+		// Every reading is a line; an absent one is an empty line, never a zero. Golden vectors:
+		// internal/edge/testdata/presence_v3_vectors.json.
+		return []byte(strings.Join([]string{
+			presencePrefixV3, p.NodeID, p.Name, p.Kind, strings.Join(p.Caps, ","), p.Addr, p.Nonce,
+			timeString(p.TS), v.Thermal, optBool(v.Foreground),
+			optInt(w.BatteryPct), optBool(w.Charging), w.Source, optBool(w.LowPower), optInt(w.MinutesLeft),
+		}, "\n"))
+	}
 	if p.V == 2 {
 		v := p.Vitals
 		if v == nil {
@@ -235,6 +297,17 @@ func PresenceHandlerFunc(fleet *Fleet, trust func() *cert.Authority, now func() 
 		if v := req.Vitals; v != nil {
 			obs.Phone = &store.EdgePhone{BatteryPct: v.BatteryPct, Charging: v.Charging, Thermal: v.Thermal,
 				Foreground: v.Foreground, ReadAt: now().Unix()}
+		}
+		if w := req.Power; w != nil {
+			pw := &store.EdgePower{BatteryPct: w.BatteryPct, Charging: w.Charging, Source: w.Source,
+				LowPower: w.LowPower, MinutesLeft: w.MinutesLeft, ReadAt: now().Unix()}
+			if !pw.Empty() {
+				obs.Power = pw
+			}
+			// A phone's battery stays on its phone line too, so every surface that reads it still does.
+			if Kind(req.Kind) == Mobile && obs.Phone != nil {
+				obs.Phone.BatteryPct, obs.Phone.Charging = w.BatteryPct, w.Charging
+			}
 		}
 		if _, err := fleet.Observe(req.NodeID, obs); err != nil {
 			http.Error(w, "the fleet could not be written", http.StatusInternalServerError)

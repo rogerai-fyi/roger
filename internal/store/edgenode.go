@@ -146,7 +146,27 @@ type EdgeResources struct {
 	// happening NOW (under-voltage, capped, throttled, soft limit), bits 16-19 what has happened
 	// since boot. nil on anything that is not a Pi; 0 is a real, healthy reading.
 	PiPower *uint32 `json:"pi_power,omitempty"`
-	ReadAt  int64   `json:"read_at,omitempty"`
+	// Power is the machine's own battery and power source, when the platform reports one
+	// (features/edge/fleet_window.feature, power; ruled 2026-10-13). nil on a machine with no battery
+	// and nothing to say: mains power is never claimed, only reported when the platform says so.
+	Power  *EdgePower `json:"power,omitempty"`
+	ReadAt int64      `json:"read_at,omitempty"`
+}
+
+// EdgePower is a node's power, from any kind of node: a phone, a laptop, a Pi on a UPS HAT, a sensor
+// on a long-life battery. Absent is nil or empty, never zero.
+type EdgePower struct {
+	BatteryPct  *int   `json:"battery_pct,omitempty"`  // 0..100
+	Charging    *bool  `json:"charging,omitempty"`     // the battery is charging (or full on external power)
+	Source      string `json:"source,omitempty"`       // "ac" | "battery" | "unknown"; "" is not reported
+	LowPower    *bool  `json:"low_power,omitempty"`    // the OS energy-saver / Low Power Mode is on
+	MinutesLeft *int   `json:"minutes_left,omitempty"` // the OS estimate of time remaining, when it gives one
+	ReadAt      int64  `json:"read_at,omitempty"`
+}
+
+// Empty reports whether p says nothing at all.
+func (p *EdgePower) Empty() bool {
+	return p == nil || (p.BatteryPct == nil && p.Charging == nil && p.Source == "" && p.LowPower == nil && p.MinutesLeft == nil)
 }
 
 // EdgeDisk is one mounted filesystem's used and total, in GB.
@@ -209,6 +229,9 @@ type EdgeNode struct {
 	// fleet_window.feature): battery, charging, thermal state, whether the app was in front. nil
 	// for anything that is not a phone, and for a phone whose app does not report them yet.
 	Phone *EdgePhone `json:"phone,omitempty"`
+	// Power is what a node last reported about its power in a signed v3 presence (any kind). A node
+	// that is dialed reports it in its Resources instead.
+	Power *EdgePower `json:"power,omitempty"`
 }
 
 // EdgePhone is a phone's own vitals. Absent is nil or empty, never zero: iOS gives no processor

@@ -2583,6 +2583,7 @@
     // What it serves of its own and what it is fetching, in the words every surface uses.
     if (n.model) edgeKV(card, "model", n.model);
     if (n.phone) edgeKV(card, "phone", n.phone);
+    if (n.supply) edgeKV(card, "battery", n.supply);
     // The shared state word with its age, then the raw presence for the owner who wants the record.
     if (n.state) edgeKV(card, "state", n.state, /^(TROUBLE|DARK|RE-ENROLL)/.test(n.state) ? "edge-alert" : "");
     edgeKV(card, "presence", (n.presence || "—") + (n.age ? "  ·  last seen " + n.age + " ago" : ""));
@@ -2909,7 +2910,7 @@
     if (!box || box.dataset.built === "1") return; // build once; polling must not wipe a half-filled form
     box.dataset.built = "1";
     var metric = el("select", "edge-rule-metric");
-    ["cpu_temp", "cpu_load", "memory", "disk", "sd_wear", "throttled", "offline"].forEach(function (m) {
+    ["cpu_temp", "cpu_load", "memory", "disk", "sd_wear", "throttled", "offline", "battery", "battery_critical", "on_battery", "low_power"].forEach(function (m) {
       var o = el("option", null, m); o.value = m; metric.appendChild(o);
     });
     var op = el("select", "edge-rule-op");

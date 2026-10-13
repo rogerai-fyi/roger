@@ -214,6 +214,7 @@ func edgeFleetSource() (fleetview.FleetSnapshot, error) {
 		it.Maintain = edge.Declares(n, edge.Maintain)
 		it.Controllable = edge.Controllable(n)
 		it.Phone = n.Phone
+		it.Power = edge.NodePower(n)
 		if j, ok := joiners[n.ID]; ok {
 			it.Codes = "old"
 			if j.ChecksRoot {

@@ -113,6 +113,8 @@ type FleetItem struct {
 	Serving string
 	// Phone is a phone's own signed vitals (battery, charging, thermal, app in front); nil otherwise.
 	Phone *store.EdgePhone
+	// Power is any node's battery and power source (edge.NodePower); nil when it reports none.
+	Power *store.EdgePower
 	// Codes is what the member said, when it joined, about checking this Edge's code (ruling D9):
 	// "checks" when it said, with a signature, that it verifies the root proof, "old" when it joined without saying so (a
 	// roger or app from before root proofs), "" when this machine never heard it join.
@@ -1609,6 +1611,13 @@ func (f *Fleet) drawReadout(fr *lm.Frame, area lm.Rect) int {
 				label = ""
 			}
 			row("", span(edge.Age(now.Sub(time.Unix(it.Phone.ReadAt, 0)))+" ago", muted))
+		}
+		if sl := edge.SupplyLine(it.Power); sl != "" {
+			label := "battery"
+			for _, piece := range wrapDots(sl, 46) {
+				row(label, span(piece, ink))
+				label = ""
+			}
 		}
 		if !it.LastRead.IsZero() {
 			row("hears", span("hears the Edge · read the feed "+edge.Age(now.Sub(it.LastRead))+" ago", signal))

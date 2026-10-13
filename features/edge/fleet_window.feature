@@ -309,11 +309,11 @@ Feature: From the authority, every unit can be seen, judged and acted on without
 
   # RULED 2026-10-13 (founder): "ok, enhance" the phone's vitals. Checked against this build: the
   # Edge side draws ASLEEP from a phone's last signed beat that said its app was in the background,
-  # for the liveness window, then DARK, and the default offline rule (offline gt 5 minutes) alerts at
-  # the same moment (review 2026-10-01, unitword_test.go). A phone with no battery reading yet drew
-  # the temperature and memory placeholders on its row; it now draws its battery column absent and
-  # never those columns (fleetview, TestAPhoneWithNoBatteryReadingHasNoProcessorColumns).
-  # The scenarios below are PROPOSED, not built.
+  # for the liveness window, then DARK (review 2026-10-01, unitword_test.go); the default offline rule
+  # no longer calls it (ruled 2026-10-13, below). A phone with no battery reading yet drew the
+  # temperature and memory placeholders on its row; it now draws its battery column absent and never
+  # those columns (fleetview, TestAPhoneWithNoBatteryReadingHasNoProcessorColumns).
+  # The next scenario is PROPOSED: it is an app change.
 
   # PROPOSED: today the app beats only while the Edge tab is in front and sends no beat as it leaves,
   # so its last beat says "app in front" and the window reads HEARD, then DARK, never ASLEEP.
@@ -321,30 +321,80 @@ Feature: From the authority, every unit can be seen, judged and acted on without
   Scenario: a phone says it is going to sleep as its app leaves the front
     Given a phone member whose Edge tab is in front
     When the app moves to the background
-    Then it sends one last signed v2 presence with foreground false before it is suspended
+    Then it sends one last signed v3 (or v2) presence with foreground false before it is suspended
     And the window reads ASLEEP with when it was last heard
 
-  # PROPOSED: a phone is asleep most of the day; the default offline rule then calls it offline five
-  # minutes after every use. Founder to rule: should the default offline rule skip a phone whose last
-  # beat said it was going to sleep, leaving an owner-written rule for phones?
+  # RULED 2026-10-13 (founder): the DEFAULT offline rule skips a phone whose last beat said its app
+  # went to the background. An owner's own offline rule (scoped to the phone, a tag it carries, or
+  # kind:mobile) still judges it. Built: Evaluate (alert.go), TestTheDefaultOfflineRuleSkipsASleepingPhone.
   @ios @edge
   Scenario: the default offline rule does not call a sleeping phone offline
     Given a phone whose last beat said its app went to the background
     When it has not been heard for longer than the liveness window
-    Then it reads ASLEEP with when it was last heard, not DARK
-    And only an offline rule the owner wrote for it raises an alert
+    Then the default offline rule raises nothing for it
+    And an offline rule the owner wrote for that phone, a tag it carries, or kind:mobile still does
+    And a phone that went silent with its app in front is called offline as before
 
-  # PROPOSED: Low Power Mode (ProcessInfo.isLowPowerModeEnabled) is honest and cheap on iOS and
-  # explains a slow or quiet phone. It cannot ride presence v2: v2's signed bytes are fixed, and an
-  # authority from before a new field would fail the signature. So it needs a v3 form (prefix
-  # rogerai-edge-present/v3, the v2 lines plus one line "1", "0" or ""), and the phone falls back to
-  # v2 when an authority answers 403 "that presence version is not one this authority reads".
-  @ios @edge
-  Scenario: a phone in Low Power Mode says so
-    Given a phone with Low Power Mode on
-    Then its presence is v3 and carries low_power true inside the signature
-    And the window draws "low power" beside its battery
-    And an authority that does not read v3 refuses it and the phone sends v2 instead
+  # =========================================================================
+  # 8b. POWER, FOR EVERY KIND OF NODE
+  # =========================================================================
+
+  # RULED 2026-10-13 (founder): "low power alert is probably valuable on all devices and edge systems
+  # ... something we keep track of since many edge devices might be running on long term batteries".
+  # Power is a first-class reading for EVERY kind of node, not a phone's alone:
+  #   battery_pct (0..100), charging, source ("ac" | "battery" | "unknown"; solar and ups are not
+  #   words: no operating system this reads reports them), low_power (the OS energy saver), and
+  #   minutes_left when the OS estimates it. Absent is absent, never zero; a machine with no battery
+  #   reports nothing, and mains is never claimed on its behalf.
+  # A node that dials out says it in presence v3 (presence.feature); a node the authority dials says it
+  # in its health readings (roger reads /sys/class/power_supply on Linux, pmset on macOS; Windows is
+  # not read yet). Thermal and "app in front" stay a phone's: a host's temperature is its CPU reading.
+  @edge
+  Scenario Outline: any node reports its power, and the window draws it
+    Given a <kind> whose power report says <report>
+    Then its page carries a battery line reading "<line>"
+    And nothing it did not report is drawn
+
+    Examples:
+      | kind               | report                                              | line                                           |
+      | phone              | 64%, not charging, on battery, low power            | battery 64% · not charging · on battery · low power mode |
+      | laptop host        | 57%, charging, on external power                    | battery 57% · charging · on external power     |
+      | Pi on a UPS HAT    | 81%, not charging, on battery, about 2 hours left   | battery 81% · not charging · on battery · about 2h left |
+
+  @edge
+  Scenario: a machine with no battery reports no power at all
+    Given a desktop host with mains power and no battery
+    Then its health readings carry no power block
+    And no power rule judges it
+
+  @edge
+  Scenario Outline: the default power rules, for every kind of node, with hysteresis
+    Given the default rules
+    When a node's power reads <reading>
+    Then the call "<rule>" <happens>
+
+    Examples:
+      | reading                                          | rule             | happens                                          |
+      | battery 19%, not charging                        | battery          | fires                                            |
+      | battery 22% after firing at 19%                  | battery          | stands: it clears only at 25%                    |
+      | battery 9%, not charging                         | battery_critical | fires                                            |
+      | the same battery, plugged in and charging        | battery          | clears at once: a charging battery is never low  |
+      | source battery on a host or a Pi                 | on_battery       | fires: external power was lost                   |
+      | source battery on a phone                        | on_battery       | does not fire: phones run on battery by nature   |
+      | low power mode on, any kind                      | low_power        | fires                                            |
+
+  @edge
+  Scenario: the owner sets power thresholds per node, per tag or per kind
+    Given a rule "battery lt 40" scoped to the sensor "sensor-1"
+    And a rule "on_battery gt 0" scoped to "kind:mobile"
+    Then sensor-1 is judged at 40%, every other node at the default 20%
+    And phones are now called when they leave external power
+
+  @edge
+  Scenario: power calls reach the phone through the trouble feed, with no new transport
+    When a power rule fires or clears
+    Then it is one line in the Edge's alert log, in words ("pi lost external power and is running on battery")
+    And the phone's trouble feed carries it like any other call (trouble_feed.feature)
 
   @edge
   Scenario: a Pi's power, card wear and temperature are on its row and its page

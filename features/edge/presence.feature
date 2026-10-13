@@ -81,3 +81,35 @@ Feature: A node can present itself to the authority by dialing out, and be recor
     Given a node whose certificate the authority has revoked
     When it presents
     Then it is refused, so a node taken off the Edge cannot re-appear by pushing
+
+  # =========================================================================
+  # PRESENCE v3: POWER, FOR ANY KIND OF NODE
+  # =========================================================================
+  # RULED 2026-10-13 (founder). JSON: "v": 3, and beside "vitals" (phone only: "thermal", "foreground")
+  # a "power" object valid for ANY kind: "battery_pct" (0..100), "charging" (bool), "source" ("ac" |
+  # "battery" | "unknown"), "low_power" (bool), "minutes_left" (int >= 0); every field optional,
+  # absent is absent. In v3 a phone's battery and charging travel under "power", and under "vitals"
+  # they are refused. Signed by the node key over these lines joined by "\n", an absent reading an
+  # EMPTY line:
+  #   "rogerai-edge-present/v3", node_id, name, kind, caps (comma-joined), addr, nonce, ts,
+  #   thermal, foreground ("1"/"0"/""), battery_pct, charging ("1"/"0"/""), source,
+  #   low_power ("1"/"0"/""), minutes_left
+  # Golden vectors: internal/edge/testdata/presence_v3_vectors.json (pure-Python RFC 8032 generator).
+  # Also served on the authority's TLS listener (docs/edge-authority-https.md).
+  @security
+  Scenario: a v3 presence carries any node's power, signed
+    Given a host on a UPS HAT that dials out
+    When it presents v3 with power: battery 81%, not charging, source battery, 120 minutes left
+    Then it is recorded with that power, and the window and the power rules read it
+
+  @security
+  Scenario: power outside the version that signs it is refused
+    When a v1 or v2 presence carries a power object, or a v3 one carries a battery under vitals
+    Then it is refused, because those readings would not be signed
+
+  @security
+  Scenario: an authority that does not read v3 says so, and the sender falls back
+    Given an authority from before v3
+    When a node presents v3
+    Then it is refused with 403 and the exact words "that presence version is not one this authority reads"
+    And the node sends the same beat as v2 (a phone) or v1 (anything else), without the power block

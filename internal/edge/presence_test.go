@@ -280,7 +280,7 @@ func TestAPhonesVitalsArriveSignedAndAreRecorded(t *testing.T) {
 	for _, bad := range []func(*PresenceRequest){
 		func(p *PresenceRequest) { b := 140; p.Vitals = &PhoneVitals{BatteryPct: &b} },
 		func(p *PresenceRequest) { p.Vitals = &PhoneVitals{Thermal: "volcanic"} },
-		func(p *PresenceRequest) { p.V = 3 },
+		func(p *PresenceRequest) { p.V = 4 },
 	} {
 		p := validPresence(id, certPEM)
 		p.V = 2

@@ -374,6 +374,7 @@ func edgeReadResourcesFrom(root string, now time.Time) *store.EdgeResources {
 		r.PiPower == nil && r.SDWearPct == nil {
 		return nil // nothing could be read: no record, rather than a record of zeros
 	}
+	r.Power = edgeReadPower(root, now)
 	r.ReadAt = now.Unix()
 	return r
 }
