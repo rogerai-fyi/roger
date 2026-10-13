@@ -314,12 +314,17 @@ func runHubInBackground(st *tower.State, opt hubOptions, out io.Writer, stop <-c
 					admit(p)
 				}
 			case now := <-tick:
-				// THE TICK'S OWN TIME, as a time.Ticker delivers it, decides this pass - not a
-				// fresh clock read per receipt. One pass, one instant: a receipt cannot be
-				// judged against two different "nows" in the same sweep, and a test driving
-				// the tick decides exactly which instant a pass sees.
+				// THE TICK'S OWN TIME, as a time.Ticker delivers it, is the earliest instant
+				// this pass judges by, so a test driving the tick decides what a pass sees.
+				// But a pass over a large backlog against an unreachable Core can run for many
+				// forward timeouts, so each receipt is judged by the LATER of that time and the
+				// clock: one whose settle window closed mid-pass is abandoned, not forwarded at
+				// the cost of one more timeout. "now" only ever moves forward within a pass.
 				drainOverflow()
 				for id, p := range retries {
+					if n := settleNow(); n.After(now) {
+						now = n
+					}
 					if now.After(p.deadline) {
 						fmt.Fprintf(out, "hub: settle for %s ABANDONED - the settle window closed before Core answered\n", id)
 						spool.drop(id)

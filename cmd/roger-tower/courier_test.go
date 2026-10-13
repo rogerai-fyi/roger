@@ -614,3 +614,63 @@ func TestCourierClockReleasesEveryWaitAtCleanup(t *testing.T) {
 		}
 	}
 }
+
+// A RECEIPT THAT EXPIRES PART-WAY THROUGH A PASS IS ABANDONED, NOT FORWARDED. Each pass judges
+// its backlog by its tick's time, but a pass over a large backlog against an unreachable Core
+// can run for many forward timeouts, and a receipt whose settle window closes while the pass is
+// still running must not cost one more of them. The pass therefore uses the later of its
+// tick's time and the clock.
+//
+// Here Core's answer to the first forward is where the clock moves past both receipts' window:
+// whichever receipt the pass meets second has expired by then and must be abandoned on the
+// spot. The barrier tick that follows carries the pass's original time and changes nothing,
+// because the clock is ahead of it.
+func TestAReceiptThatExpiresMidPassIsAbandonedNotForwarded(t *testing.T) {
+	clock := installCourierClock(t)
+	core := newCoreStub(t)
+	core.answerDispatchKey(t)
+	core.answerHubNodes(`{"nodes":[]}`)
+	core.reply["/tower/edge/settle"] = func(w http.ResponseWriter, call int) bool {
+		if call == 1 {
+			clock.Advance(settleRetryWindow + time.Minute) // the window closes during this forward
+		}
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"error":{"message":"unreachable"}}`))
+		return true
+	}
+	st := servingTower(t)
+	spool, err := newSettleSpool(st.Dir())
+	require.NoError(t, err)
+	start := clock.Now()
+	for _, id := range []string{"att-one", "att-two"} {
+		require.NoError(t, spool.put(pendingSettle{
+			stationID: "st-1", attemptID: id, receipt: []byte("r-" + id),
+			deadline: start.Add(settleRetryWindow),
+		}))
+	}
+
+	out := &syncBuffer{}
+	stop := make(chan struct{})
+	wait, err := runHubInBackground(st, hubOptions{Addr: "127.0.0.1:0"}, out, stop)
+	require.NoError(t, err)
+	var stopOnce sync.Once
+	t.Cleanup(func() {
+		stopOnce.Do(func() { close(stop) })
+		clock.end()
+		wait()
+	})
+
+	clock.tick <- start
+	clock.tick <- start // barrier: the first pass has finished
+	require.Equal(t, 1, core.called("/tower/edge/settle"),
+		"the receipt met after the window closed mid-pass was forwarded anyway: one more full "+
+			"timeout spent on a receipt Core can no longer accept")
+	require.Contains(t, out.String(), "ABANDONED - the settle window closed before Core answered")
+
+	stopOnce.Do(func() { close(stop) })
+	awaitClosed(t, clock.inQuiet, "reached its final drain")
+	clock.end()
+	wait()
+	require.Equal(t, 1, core.called("/tower/edge/settle"), "an expired receipt is never forwarded")
+	require.Empty(t, spooledIDs(t, spool), "both receipts expired, so both leave the spool")
+}
