@@ -80,10 +80,10 @@ type Serving struct {
 func (s *Server) SetServing(sv Serving) {
 	s.serving = &sv
 	if s.invokeSeen == nil { // any server that can be invoked has a replay cache (NewServer sets it too)
-		s.invokeSeen = &nonceCache{seen: map[string]int64{}}
+		s.invokeSeen = newNonceCache()
 	}
 	if s.phoneSeen == nil {
-		s.phoneSeen = &nonceCache{seen: map[string]int64{}}
+		s.phoneSeen = newNonceCache()
 	}
 }
 

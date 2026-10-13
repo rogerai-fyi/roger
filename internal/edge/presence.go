@@ -19,7 +19,6 @@ import (
 	"rogerai.fm/roger/v6/internal/store"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"rogerai.fm/roger/v6/internal/towercore/cert"
@@ -152,7 +151,7 @@ func PresenceHandlerFunc(fleet *Fleet, trust func() *cert.Authority, now func() 
 	if now == nil {
 		now = time.Now
 	}
-	seen := &nonceCache{seen: map[string]int64{}}
+	seen := newNonceCache()
 	mux := http.NewServeMux()
 	mux.HandleFunc(PresencePath, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -217,7 +216,7 @@ func PresenceHandlerFunc(fleet *Fleet, trust func() *cert.Authority, now func() 
 		//    request with a near-future TS stays acceptable until TS+window; expiring its nonce at
 		//    now+window would prune it while the very same bytes are still fresh, opening a replay
 		//    window (audit 2026-09-24).
-		if !seen.admit(req.Nonce, time.Unix(req.TS, 0).Add(presenceFreshness).Unix(), now().Unix()) {
+		if !seen.admit(req.NodeID, req.Nonce, time.Unix(req.TS, 0).Add(presenceFreshness).Unix(), now().Unix()) {
 			refusePresence(w, "that presence was already seen")
 			return
 		}
@@ -264,45 +263,4 @@ func (e *presenceError) Error() string { return e.s }
 
 func refusePresence(w http.ResponseWriter, reason string) {
 	http.Error(w, reason, http.StatusForbidden)
-}
-
-// nonceCache is a small, self-pruning set of presence nonces already spent, so a captured presence
-// cannot be replayed within its freshness window. Bounded implicitly: only enrolled nodes get this
-// far, and each nonce expires.
-// maxNonces bounds the replay cache, so a flood of fresh nonces within one window cannot exhaust
-// memory. Comfortably above any real fleet's presence rate over the 5-minute window.
-const maxNonces = 100000
-
-type nonceCache struct {
-	mu   sync.Mutex
-	seen map[string]int64 // nonce -> unix expiry
-}
-
-// admit returns true the FIRST time a nonce is seen, false on a repeat. It prunes expired entries
-// as it goes so the map cannot grow without bound.
-func (n *nonceCache) admit(nonce string, expiry, nowUnix int64) bool {
-	// A too-short nonce is a small space an attacker could exhaust or collide; presence nonces are a
-	// 16-byte random rendered as 32 hex chars, so require a floor rather than accept any non-empty
-	// string (audit 2026-09-24).
-	if len(nonce) < 16 {
-		return false
-	}
-	n.mu.Lock()
-	defer n.mu.Unlock()
-	for k, exp := range n.seen {
-		if exp < nowUnix {
-			delete(n.seen, k)
-		}
-	}
-	if _, ok := n.seen[nonce]; ok {
-		return false
-	}
-	// Bound the cache: within one freshness window an attacker (or a storm of members) could grow it
-	// without limit. Once full of still-live nonces, refuse rather than admit and grow unbounded -
-	// fail closed on memory (audit 2026-09-24).
-	if len(n.seen) >= maxNonces {
-		return false
-	}
-	n.seen[nonce] = expiry
-	return true
 }

@@ -6,8 +6,10 @@ package edge
 
 import (
 	"bufio"
+	"crypto"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/hex"
@@ -123,6 +125,7 @@ func newPhoneRig(t *testing.T) *phoneRig {
 		Trust:  func() *cert.Authority { return a },
 		Member: func(id string) bool { _, ok, err := rig.fleet.Get(id); return err == nil && ok },
 		Self:   func() *tls.Certificate { return &self },
+		Root:   a.RootKey(),
 	})
 	return rig
 }
@@ -264,19 +267,20 @@ func TestANonMemberIsRefused(t *testing.T) {
 	key, id, c, _ := issueMember(t, other)
 	w := rig.ask(t, http.MethodPost, PhoneInferPath, chatBody, signed{action: ActionInfer, key: key, nodeID: id,
 		certB64: base64.StdEncoding.EncodeToString(c.Certificate[0])})
-	require.Equal(t, http.StatusUnauthorized, w.Code)
-	require.Contains(t, w.Body.String(), "not under this Edge's root")
+	require.Equal(t, http.StatusForbidden, w.Code)
+	require.Contains(t, w.Body.String(), errNotVerified)
 
 	// Under this root, but not a member of this Edge's fleet (forgotten here).
 	key, id, c, _ = issueMember(t, rig.a)
 	w = rig.ask(t, http.MethodPost, PhoneInferPath, chatBody, signed{action: ActionInfer, key: key, nodeID: id,
 		certB64: base64.StdEncoding.EncodeToString(c.Certificate[0])})
 	require.Equal(t, http.StatusForbidden, w.Code)
-	require.Contains(t, w.Body.String(), "not a member of this Edge")
+	require.Contains(t, w.Body.String(), errNotVerified, "the same words as any other stranger")
 
 	// No certificate at all.
 	w = rig.ask(t, http.MethodPost, PhoneBandsPath, "", signed{action: ActionBands, key: rig.phoneKey, nodeID: rig.phoneID, certB64: ""})
-	require.Equal(t, http.StatusUnauthorized, w.Code)
+	require.Equal(t, http.StatusForbidden, w.Code)
+	require.Contains(t, w.Body.String(), errNotVerified)
 	require.Empty(t, len(rig.got), "nothing reached a model")
 }
 
@@ -284,8 +288,15 @@ func TestARevokedPhoneIsRefused(t *testing.T) {
 	rig := newPhoneRig(t)
 	require.NoError(t, rig.a.Revoke(rig.phoneSer))
 	w := rig.ask(t, http.MethodPost, PhoneInferPath, chatBody, signed{action: ActionInfer})
-	require.Equal(t, http.StatusUnauthorized, w.Code)
-	require.Contains(t, w.Body.String(), "not under this Edge's root", "the same words as any other stranger")
+	require.Equal(t, http.StatusForbidden, w.Code)
+	require.Contains(t, w.Body.String(), errNotVerified, "the same words as any other stranger")
+
+	// A captured certificate without its key learns nothing either: a fresh request with a wrong
+	// signature gets the same answer from a revoked member as from a live one.
+	_, wrong, _ := ed25519.GenerateKey(rand.Reader)
+	w = rig.ask(t, http.MethodPost, PhoneInferPath, chatBody, signed{action: ActionInfer, key: wrong, nodeID: rig.phoneID, certB64: rig.phoneCert})
+	require.Equal(t, http.StatusForbidden, w.Code)
+	require.Contains(t, w.Body.String(), errNotVerified)
 }
 
 func TestAReplayIsRefused(t *testing.T) {
@@ -312,7 +323,7 @@ func TestATamperedBodyIsRefused(t *testing.T) {
 	w := rig.ask(t, http.MethodPost, PhoneInferPath, strings.Replace(chatBody, "hello", "hellp", 1),
 		signed{action: ActionInfer, signBody: []byte(chatBody)})
 	require.Equal(t, http.StatusForbidden, w.Code)
-	require.Contains(t, w.Body.String(), "signature does not check out")
+	require.Contains(t, w.Body.String(), errNotVerified)
 	require.Empty(t, len(rig.got))
 }
 
@@ -342,24 +353,128 @@ func TestOnlyPostIsServed(t *testing.T) {
 	require.Equal(t, http.StatusMethodNotAllowed, rig.ask(t, http.MethodGet, PhoneBandsPath, "", signed{action: ActionBands}).Code)
 }
 
-// The member checks the phone's proof itself: a relay that alters the body after the authority let it
-// through, or forges a phone's headers, is refused by the member, and nothing reaches its model.
+// relayed is one turn as the authority would relay it to the face at addr, with its attestation made
+// for faceID (the face it is meant for) and an optional body change after the phone signed.
+func (rig *phoneRig) relayed(t *testing.T, addr, pin, faceID, body string, attest bool) *http.Response {
+	t.Helper()
+	ts, nonce := time.Now().Unix(), freshNonce()
+	sig := hex.EncodeToString(ed25519.Sign(rig.phoneKey, ConsumeCanonical(rig.phoneID, ActionInfer, "", BodyHash([]byte(chatBody)), nonce, ts)))
+	p := memberProof{NodeID: rig.phoneID, Cert: rig.phoneCert, Nonce: nonce, TS: ts, Sig: sig}
+	resp, err := dialMember(t.Context(), addr, pin, &rig.selfCert, InferPath, []byte(body), func(h http.Header) {
+		p.set(h)
+		if attest {
+			sum := sha256.Sum256(RelayCanonical(faceID, sig))
+			a, err := rig.a.RootKey().Sign(rand.Reader, sum[:], crypto.SHA256)
+			require.NoError(t, err)
+			h.Set(HeaderRelay, base64.StdEncoding.EncodeToString(a))
+		}
+	})
+	require.NoError(t, err)
+	return resp
+}
+
+// The member checks the phone's proof itself, and credits it only when the Edge's root vouches the
+// turn was relayed to IT: a body changed after signing, a proof with no attestation, and a turn
+// attested for another face are all refused, and nothing reaches its model (audit 2026-10-13: a
+// member that captured a relayed turn could replay it to every other face serving the band).
 func TestTheMemberChecksTheRelayedProofItself(t *testing.T) {
 	rig := newPhoneRig(t)
-	ts := time.Now().Unix()
-	nonce := freshNonce()
-	sig := ed25519.Sign(rig.phoneKey, ConsumeCanonical(rig.phoneID, ActionInfer, "", BodyHash([]byte(chatBody)), nonce, ts))
-	p := memberProof{NodeID: rig.phoneID, Cert: rig.phoneCert, Nonce: nonce, TS: ts, Sig: hex.EncodeToString(sig)}
 	addr := strings.TrimPrefix(rig.face.URL, "https://")
 	jetson, ok, err := rig.fleet.Get(rig.memberID)
 	require.NoError(t, err)
 	require.True(t, ok)
-	resp, err := dialMember(t.Context(), addr, jetson.Transports[0].Fingerprint, &rig.selfCert, InferPath,
-		[]byte(strings.Replace(chatBody, "hello", "hellp", 1)), p.set)
-	require.NoError(t, err)
-	defer resp.Body.Close()
-	require.Equal(t, http.StatusForbidden, resp.StatusCode)
+	pin := jetson.Transports[0].Fingerprint
+
+	resp := rig.relayed(t, addr, pin, rig.memberID, strings.Replace(chatBody, "hello", "hellp", 1), true)
+	resp.Body.Close()
+	require.Equal(t, http.StatusForbidden, resp.StatusCode, "a body changed after the phone signed it")
+
+	resp = rig.relayed(t, addr, pin, rig.memberID, chatBody, false)
+	resp.Body.Close()
+	require.Equal(t, http.StatusForbidden, resp.StatusCode, "a member relaying with no attestation from the root")
+
+	resp = rig.relayed(t, addr, pin, "n_nas", chatBody, true)
+	resp.Body.Close()
+	require.Equal(t, http.StatusForbidden, resp.StatusCode, "a turn attested for another face")
 	require.Empty(t, len(rig.got))
+
+	resp = rig.relayed(t, addr, pin, rig.memberID, chatBody, true)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode, "the authority's own relay to this face is served")
+	rec, err := protocol.DecodeReceipt(resp.Header.Get("X-RogerAI-Receipt"))
+	require.NoError(t, err)
+	require.Equal(t, rig.phoneID, rec.User)
+}
+
+// The phone's X-Roger-Request is not signed, so it never reaches the receipt: the face names the turn.
+func TestAPhonesRequestIDDoesNotReachTheReceipt(t *testing.T) {
+	rig := newPhoneRig(t)
+	s := signed{action: ActionInfer}
+	s.nonce, s.ts = freshNonce(), time.Now().Unix()
+	sig := ed25519.Sign(rig.phoneKey, ConsumeCanonical(rig.phoneID, ActionInfer, "", BodyHash([]byte(chatBody)), s.nonce, s.ts))
+	r := httptest.NewRequest(http.MethodPost, PhoneInferPath, strings.NewReader(chatBody))
+	r.Header.Set(HeaderNode, rig.phoneID)
+	r.Header.Set(HeaderCert, rig.phoneCert)
+	r.Header.Set(HeaderNonce, s.nonce)
+	r.Header.Set(HeaderTS, fmt.Sprint(s.ts))
+	r.Header.Set(HeaderSig, hex.EncodeToString(sig))
+	r.Header.Set("X-Roger-Request", "chosen-by-someone-in-the-path")
+	w := httptest.NewRecorder()
+	rig.h.ServeHTTP(w, r)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	rec, err := protocol.DecodeReceipt(w.Header().Get("X-RogerAI-Receipt"))
+	require.NoError(t, err)
+	require.NotEqual(t, "chosen-by-someone-in-the-path", rec.RequestID)
+}
+
+// A stranger's body is never read: identity is settled from the headers first.
+func TestAStrangersBodyIsNotRead(t *testing.T) {
+	rig := newPhoneRig(t)
+	other, err := cert.NewAuthority(cert.Config{TTL: time.Hour})
+	require.NoError(t, err)
+	key, id, c, _ := issueMember(t, other)
+	body := &countingReader{r: strings.NewReader(chatBody)}
+	ts, nonce := time.Now().Unix(), freshNonce()
+	r := httptest.NewRequest(http.MethodPost, PhoneInferPath, body)
+	r.Header.Set(HeaderNode, id)
+	r.Header.Set(HeaderCert, base64.StdEncoding.EncodeToString(c.Certificate[0]))
+	r.Header.Set(HeaderNonce, nonce)
+	r.Header.Set(HeaderTS, fmt.Sprint(ts))
+	r.Header.Set(HeaderSig, hex.EncodeToString(ed25519.Sign(key, ConsumeCanonical(id, ActionInfer, "", BodyHash([]byte(chatBody)), nonce, ts))))
+	w := httptest.NewRecorder()
+	rig.h.ServeHTTP(w, r)
+	require.Equal(t, http.StatusForbidden, w.Code)
+	require.Zero(t, body.n, "not one byte of a stranger's body was read")
+}
+
+type countingReader struct {
+	r io.Reader
+	n int
+}
+
+func (c *countingReader) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	c.n += n
+	return n, err
+}
+
+// A band list is asked with an empty body; anything else is refused with the words that say so.
+func TestABandListTakesAnEmptyBody(t *testing.T) {
+	rig := newPhoneRig(t)
+	w := rig.ask(t, http.MethodPost, PhoneBandsPath, "{}", signed{action: ActionBands})
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	require.Contains(t, w.Body.String(), "empty body")
+}
+
+// Phone requests are bounded in flight: past the bound the answer is a 503 with Retry-After.
+func TestPhoneRequestsAreBoundedInFlight(t *testing.T) {
+	pc := &phoneConsume{PhoneConsume: PhoneConsume{Now: time.Now}, seen: newNonceCache(), slots: make(chan struct{}, 1)}
+	pc.slots <- struct{}{}
+	w := httptest.NewRecorder()
+	_, _, _, ok := pc.admit(w, httptest.NewRequest(http.MethodPost, PhoneBandsPath, nil), ActionBands, 0, "")
+	require.False(t, ok)
+	require.Equal(t, http.StatusServiceUnavailable, w.Code)
+	require.Equal(t, "2", w.Header().Get("Retry-After"))
 }
 
 // The golden vectors the Roger app pins its signer to: computed independently (pure-Python RFC 8032,
@@ -405,10 +520,24 @@ func TestConsumeSignatureGoldenVectors(t *testing.T) {
 	}
 }
 
-// The authority's own face is recorded as it listens ("[::]:port"); relaying to itself dials loopback.
+// The authority's own face is recorded as it listens ("[::]:port"); relaying to ITSELF dials loopback.
+// relay applies this only when the member is the authority's own node.
 func TestTheAuthorityDialsItsOwnFaceOnLoopback(t *testing.T) {
-	require.Equal(t, "127.0.0.1:8443", dialable("[::]:8443"))
-	require.Equal(t, "127.0.0.1:8443", dialable("0.0.0.0:8443"))
-	require.Equal(t, "127.0.0.1:8443", dialable(":8443"))
-	require.Equal(t, "192.168.1.9:8443", dialable("192.168.1.9:8443"))
+	require.Equal(t, "127.0.0.1:8443", loopback("[::]:8443"))
+	require.Equal(t, "127.0.0.1:8443", loopback("0.0.0.0:8443"))
+	require.Equal(t, "127.0.0.1:8443", loopback(":8443"))
+	require.Equal(t, "192.168.1.9:8443", loopback("192.168.1.9:8443"))
+}
+
+// A member that advertises a wildcard address is NOT redirected to the authority's own loopback; only
+// the authority's own node is.
+func TestAMembersWildcardAddressIsNotThisMachine(t *testing.T) {
+	loc := Located{Node: store.EdgeNode{ID: "n_member", Transports: []store.EdgeTransport{{Kind: "lan", Addr: "0.0.0.0:8443", Fingerprint: "ab"}}}}
+	addr, _ := relayAddr(loc, "n_authority")
+	require.Empty(t, addr, "never dialed: the system would connect a wildcard to this machine")
+	loc.Node.Transports[0].Addr = "[::]:8443"
+	addr, _ = relayAddr(loc, "n_authority")
+	require.Empty(t, addr)
+	addr, _ = relayAddr(loc, "n_member")
+	require.Equal(t, "127.0.0.1:8443", addr, "this machine's own face")
 }

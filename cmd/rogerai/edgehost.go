@@ -811,13 +811,21 @@ func (h *edgeHost) startAuthority() {
 	// under each path so they win over the "/" catch-all below.
 	phone := edge.PhoneConsumeHandler(edge.PhoneConsume{
 		Fleet: h.st.fleet,
+		// Verify-only, per request: the root certificate loaded once, and the revocation list as it is
+		// on disk now (a CLI forget beside this process is honoured at once). The root KEY is not
+		// re-read per request; it is held once, below, to sign the relay attestation.
 		Trust: func() *cert.Authority {
-			fresh, ok, err := edgeauth.OpenLocal(authDir)
-			if err != nil || !ok {
+			revoked, err := local.Revocations()
+			if err != nil {
 				return nil
 			}
-			return fresh.Authority()
+			v, err := cert.NewVerifier(local.Authority().Root(), revoked)
+			if err != nil {
+				return nil
+			}
+			return v
 		},
+		Root: local.Authority().RootKey(),
 		Member: func(id string) bool {
 			_, ok, err := h.st.fleet.Get(id)
 			return err == nil && ok

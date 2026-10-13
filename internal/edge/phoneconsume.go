@@ -8,30 +8,38 @@ package edge
 // type for Ed25519, so no SecIdentity can be built on iOS to present as a client certificate. Nor
 // can the phone count on finishing a TLS handshake with a face whose own certificate is an Ed25519
 // leaf. So the phone asks the AUTHORITY, on the listener it already reaches for presence, and proves
-// itself the way presence and the authority-side trouble feed do: its member certificate travels
-// with the request, and the request is signed by that certificate's key over a canonical form.
+// itself the way presence does: its member certificate travels with the request, and the request is
+// signed by that certificate's key over a canonical form that covers a hash of the body.
 //
-// THE AUTHORITY RELAYS. It checks the phone exactly as a face checks a peer (chains to this root, in
-// date, not revoked - read fresh - the id its key derives, a member of this Edge) plus fresh and not
-// a replay, finds the member that serves the band, and relays the very bytes the phone signed to
-// that member's /edge/infer over the authority's own mutual-TLS connection, pinned to the member's
-// recorded fingerprint. It forwards the phone's proof headers too, and a member that reads them
-// checks the phone's signature ITSELF and receipts the turn to the phone (infer.go); one from before
-// this reads nothing new and receipts it to the authority. The reply, streamed or not, receipt and
-// all, comes back unchanged.
+// THE AUTHORITY RELAYS. It checks the phone (fresh, under this root and not revoked - read fresh - the
+// id its key derives, a member of this fleet, the signature, a nonce not seen), finds the member that
+// serves the band, and relays the very bytes the phone signed to that member's face over its own
+// pinned mutual TLS. With them go the phone's proof and the authority's RELAY ATTESTATION: the Edge
+// root's signature over the face's node id and the phone's signature. A face credits a turn to a
+// phone only with that attestation naming ITSELF (onBehalf), so a member that captures a relayed turn
+// cannot replay it to another face, and only the authority, the one holder of the root key, can
+// relay at all. A face from before this reads nothing new and receipts the turn to the authority.
 //
-// WHAT THIS DOES NOT PROTECT, SAID OUT LOUD. The authority listener is plain HTTP. A prompt and its
-// answer cross the LAN between the phone and the authority in the clear: anyone on that network can
-// read them, though nobody can forge, alter or replay a request (the signature covers a hash of the
-// body). The trouble feed already travels this way; prompts are more private than alerts. The fix
-// is proposed in the spec for the founder: an HTTPS authority listener whose server certificate is a
-// P-256 leaf under the Edge root (which iOS's TLS stack does handshake with, and which the phone
-// checks against the root it already holds), or the body sealed to the authority's key.
+// WHAT THIS DOES NOT PROTECT, SAID OUT LOUD (audit 2026-10-13). The authority listener is plain HTTP.
+//   - Confidentiality: a prompt and its answer cross the LAN between the phone and the authority in
+//     the clear. Anyone on that network can read them.
+//   - Reply integrity: nothing authenticates the REPLY. A device in the path can rewrite an answer, a
+//     band list or a receipt header, and the phone cannot tell.
+//   - Authority authenticity: the phone reaches the authority by an address it was given or saw
+//     advertised; an impostor answering there (mDNS spoofing) can read the turn and answer it.
+//   - The request itself cannot be forged or altered (the signature covers its body, target and
+//     action), and it is refused if replayed to the authority or relayed to a face it was not made for.
+//     Within five minutes a captured request can still be presented ONCE where it has not been seen,
+//     which the authority's nonce cache refuses; a restart of the authority empties that cache.
+// The fix is docs/edge-authority-https.md, pending the founder's ruling.
 
 import (
 	"bytes"
 	"context"
+	"crypto"
+	"crypto/ecdsa"
 	"crypto/ed25519"
+	"crypto/rand"
 	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
@@ -40,7 +48,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"sort"
@@ -61,6 +68,9 @@ const (
 // consumePrefix domain-separates a consume signature from presence, claim, enrol and trouble.
 const consumePrefix = "rogerai-edge-infer/v1"
 
+// relayPrefix domain-separates the authority's relay attestation from every other root signature.
+const relayPrefix = "rogerai-edge-relay/v1"
+
 // The actions a consume signature is bound to, one per path, so a signature made to list the bands
 // cannot be presented as a turn.
 const (
@@ -77,7 +87,24 @@ const (
 	HeaderNonce  = "Roger-Nonce"  // hex, 16 random bytes
 	HeaderTS     = "Roger-TS"     // unix seconds
 	HeaderSig    = "Roger-Sig"    // hex Ed25519 signature over ConsumeCanonical, by the certificate's key
+	// HeaderRelay is set by the AUTHORITY on a relayed turn, never by a phone: base64 of the Edge
+	// root's ECDSA (ASN.1) signature over SHA-256 of RelayCanonical(face node id, Roger-Sig).
+	HeaderRelay = "Roger-Relay"
 )
+
+// phoneBodyDeadline bounds how long a phone may take to send its body: a slow sender does not hold a
+// relay slot for the length of a stream.
+const phoneBodyDeadline = 30 * time.Second
+
+// phoneMaxInFlight bounds the phone requests the authority serves at once.
+const phoneMaxInFlight = 8
+
+// errNotVerified is the ONE refusal for every way a caller's identity can fail - no certificate, not
+// this root, revoked, expired, a key that does not derive the id, not in this fleet, a bad signature -
+// so a captured certificate without its key cannot tell a live member from a removed one (audit
+// 2026-10-13). The authority-side trouble feed (f3cec7d1, not on this branch) still answers these
+// apart and checks the certificate before the signature; it should take the same order and words.
+const errNotVerified = "that request could not be verified as a member of this Edge"
 
 // ConsumeCanonical is exactly what a phone signs: the domain, its node id, the action, the target
 // ("" for any member), the lowercase hex SHA-256 of the exact body bytes, the nonce and the time,
@@ -86,6 +113,11 @@ func ConsumeCanonical(nodeID, action, target, bodySHA256, nonce string, ts int64
 	return []byte(strings.Join([]string{
 		consumePrefix, nodeID, action, target, bodySHA256, nonce, strconv.FormatInt(ts, 10),
 	}, "\n"))
+}
+
+// RelayCanonical is what the authority's root signs when it relays a phone's turn to one face.
+func RelayCanonical(faceNodeID, phoneSigHex string) []byte {
+	return []byte(relayPrefix + "\n" + faceNodeID + "\n" + phoneSigHex)
 }
 
 // BodyHash is the lowercase hex SHA-256 a consume signature covers.
@@ -110,7 +142,7 @@ func proofFrom(h http.Header) memberProof {
 }
 
 // hasProof reports whether a request carries a consume proof at all.
-func hasProof(h http.Header) bool { return h.Get(HeaderSig) != "" }
+func hasProof(h http.Header) bool { return h.Get(HeaderSig) != "" || h.Get(HeaderRelay) != "" }
 
 func (p memberProof) set(h http.Header) {
 	h.Set(HeaderNode, p.NodeID)
@@ -123,11 +155,53 @@ func (p memberProof) set(h http.Header) {
 	h.Set(HeaderSig, p.Sig)
 }
 
-// onBehalf is the face's side of a relayed turn (infer.go, speech.go): when the member that relayed
-// it forwarded a phone's proof, the face checks that proof ITSELF - the phone's certificate under the
-// root it trusts now, its signature over these very bytes, fresh, not a replay - and the turn is the
-// phone's, receipted to it. It does not ask whether the phone is in THIS node's fleet: a phone dials
-// only its authority, and the relaying member (already admitted by caller()) answered that.
+func (p memberProof) fresh(now time.Time) bool {
+	d := now.Sub(time.Unix(p.TS, 0))
+	return p.tsOK && d <= presenceFreshness && d >= -presenceFreshness
+}
+
+// leaf parses the proof's certificate and checks its key derives the id it claims. It needs no trust.
+func (p memberProof) leaf() (*x509.Certificate, ed25519.PublicKey, bool) {
+	der, err := base64.StdEncoding.DecodeString(p.Cert)
+	if err != nil || len(der) == 0 {
+		return nil, nil, false
+	}
+	leaf, err := x509.ParseCertificate(der)
+	if err != nil {
+		return nil, nil, false
+	}
+	pub, ok := leaf.PublicKey.(ed25519.PublicKey)
+	if !ok || NodeID(pub) != p.NodeID {
+		return nil, nil, false
+	}
+	return leaf, pub, true
+}
+
+func (p memberProof) signed(pub ed25519.PublicKey, action string, body []byte) bool {
+	sig, err := hex.DecodeString(p.Sig)
+	return err == nil && ed25519.Verify(pub, ConsumeCanonical(p.NodeID, action, p.Target, BodyHash(body), p.Nonce, p.TS), sig)
+}
+
+// verifyRelay checks the authority's attestation that it relayed this phone's turn to THIS face.
+func verifyRelay(root *x509.Certificate, faceID string, h http.Header) bool {
+	pub, ok := root.PublicKey.(*ecdsa.PublicKey)
+	if !ok {
+		return false
+	}
+	sig, err := base64.StdEncoding.DecodeString(h.Get(HeaderRelay))
+	if err != nil || len(sig) == 0 {
+		return false
+	}
+	sum := sha256.Sum256(RelayCanonical(faceID, h.Get(HeaderSig)))
+	return ecdsa.VerifyASN1(pub, sum[:], sig)
+}
+
+// onBehalf is the face's side of a relayed turn (infer.go, speech.go). A turn with no proof is the
+// caller's own. One with a proof is credited to the phone only when the Edge's root vouches that the
+// authority relayed it to THIS face, and the phone's own proof holds here too: fresh, signed over
+// these very bytes, its certificate under the root this face trusts now, its nonce new here. The
+// authority checked that the phone is a member of the Edge's fleet before it signed the attestation;
+// a phone dials only its authority, so it is in no other member's fleet to check.
 func (s *Server) onBehalf(r *http.Request, action string, body []byte, relayer string) (string, int, string) {
 	if !hasProof(r.Header) {
 		return relayer, 0, ""
@@ -138,59 +212,40 @@ func (s *Server) onBehalf(r *http.Request, action string, body []byte, relayer s
 			return "", http.StatusServiceUnavailable, "this node cannot verify callers right now"
 		}
 	}
-	return verifyProof(trust, proofFrom(r.Header), action, body, s.now(), s.phoneSeen)
-}
-
-// verifyProof settles who signed a consume request, in the order presence and the trouble feed use:
-// the certificate parses, chains to this root, is in date and not revoked (trust is read fresh by the
-// caller), names the id its key derives, the time is fresh, the signature covers exactly this action,
-// target and body, and the nonce is new. It returns the node id, or the status and words to refuse with.
-func verifyProof(trust *cert.Authority, p memberProof, action string, body []byte, now time.Time, seen *nonceCache) (string, int, string) {
-	der, err := base64.StdEncoding.DecodeString(p.Cert)
-	if err != nil || len(der) == 0 {
-		return "", http.StatusUnauthorized, "a turn from a phone needs its node certificate"
+	if trust == nil || !verifyRelay(trust.Root(), s.serving.NodeID, r.Header) {
+		return "", http.StatusForbidden, "a relayed turn needs this Edge's authority to vouch for it, to this node"
 	}
-	leaf, err := x509.ParseCertificate(der)
-	if err != nil {
-		return "", http.StatusUnauthorized, "a turn from a phone needs its node certificate"
-	}
-	if trust == nil {
-		return "", http.StatusServiceUnavailable, "this node cannot verify callers right now"
-	}
-	id, err := trust.Authenticate(leaf)
-	if err != nil {
-		// The same words for a foreign root, an expired certificate and a revoked one, as caller()
-		// says them: telling them apart would tell a stranger who is enrolled here.
-		return "", http.StatusUnauthorized, "that certificate is not under this Edge's root"
-	}
-	pub, ok := leaf.PublicKey.(ed25519.PublicKey)
-	if !ok || id != p.NodeID || NodeID(pub) != p.NodeID {
-		return "", http.StatusForbidden, "that request's identity does not match its certificate"
-	}
-	if d := now.Sub(time.Unix(p.TS, 0)); !p.tsOK || d > presenceFreshness || d < -presenceFreshness {
+	p := proofFrom(r.Header)
+	if !p.fresh(s.now()) {
 		return "", http.StatusForbidden, "that request is stale: check this device's clock"
 	}
-	sig, err := hex.DecodeString(p.Sig)
-	if err != nil || !ed25519.Verify(pub, ConsumeCanonical(p.NodeID, action, p.Target, BodyHash(body), p.Nonce, p.TS), sig) {
-		return "", http.StatusForbidden, "that request's signature does not check out"
+	leaf, pub, ok := p.leaf()
+	if !ok || !p.signed(pub, action, body) {
+		return "", http.StatusForbidden, errNotVerified
 	}
-	if !seen.admit(p.Nonce, time.Unix(p.TS, 0).Add(presenceFreshness).Unix(), now.Unix()) {
+	if id, err := trust.Authenticate(leaf); err != nil || id != p.NodeID {
+		return "", http.StatusForbidden, errNotVerified
+	}
+	if !s.phoneSeen.admit(p.NodeID, p.Nonce, time.Unix(p.TS, 0).Add(presenceFreshness).Unix(), s.now().Unix()) {
 		return "", http.StatusForbidden, "that request was already seen"
 	}
-	return id, 0, ""
+	return p.NodeID, 0, ""
 }
 
 // PhoneConsume is what the authority needs to serve a phone the Edge's bands.
 type PhoneConsume struct {
 	Fleet *Fleet
-	// Trust returns this Edge's authority FRESH per request, so a node revoked while this runs is
-	// refused at once; nil (it cannot be read) refuses every request.
+	// Trust returns a VERIFY-ONLY authority for this Edge, built per request from the root
+	// certificate and the revocation list as they are now, so a node revoked while this runs is
+	// refused at once. nil (it cannot be read) refuses every request.
 	Trust func() *cert.Authority
-	// Member reports whether a node is a member of this Edge (in this authority's fleet). nil admits
-	// any certificate that verifies.
+	// Member reports whether a node is a member of this Edge (in this authority's fleet).
 	Member func(nodeID string) bool
 	// Self is this machine's own member identity, presented to the member a turn is relayed to.
 	Self func() *tls.Certificate
+	// Root signs the relay attestation a face checks: the Edge root's private key, which only the
+	// authority holds.
+	Root crypto.Signer
 	Now  func() time.Time
 }
 
@@ -199,7 +254,7 @@ func PhoneConsumeHandler(pc PhoneConsume) http.Handler {
 	if pc.Now == nil {
 		pc.Now = time.Now
 	}
-	h := &phoneConsume{PhoneConsume: pc, seen: &nonceCache{seen: map[string]int64{}}}
+	h := &phoneConsume{PhoneConsume: pc, seen: newNonceCache(), slots: make(chan struct{}, phoneMaxInFlight)}
 	mux := http.NewServeMux()
 	mux.HandleFunc(PhoneBandsPath, h.bands)
 	mux.HandleFunc(PhoneInferPath, func(w http.ResponseWriter, r *http.Request) { h.relay(w, r, ActionInfer) })
@@ -209,35 +264,84 @@ func PhoneConsumeHandler(pc PhoneConsume) http.Handler {
 
 type phoneConsume struct {
 	PhoneConsume
-	seen *nonceCache
+	seen  *nonceCache
+	slots chan struct{}
 }
 
-// admit reads the body up to its cap and settles who is asking, writing every refusal itself.
-func (h *phoneConsume) admit(w http.ResponseWriter, r *http.Request, action string, limit int64, tooBig string) (memberProof, []byte, bool) {
+// admit settles who is asking before the body is read, then reads the body and checks the
+// signature over it, writing every refusal itself. The caller must call release when ok.
+func (h *phoneConsume) admit(w http.ResponseWriter, r *http.Request, action string, limit int64, tooBig string) (memberProof, []byte, func(), bool) {
 	if r.Method != http.MethodPost {
 		inferError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return memberProof{}, nil, false
+		return memberProof{}, nil, nil, false
 	}
-	body, err := io.ReadAll(io.LimitReader(r.Body, limit+1))
-	if err != nil || int64(len(body)) > limit {
-		inferError(w, http.StatusRequestEntityTooLarge, tooBig)
-		return memberProof{}, nil, false
+	select {
+	case h.slots <- struct{}{}:
+	default:
+		w.Header().Set("Retry-After", "2")
+		inferError(w, http.StatusServiceUnavailable, "this Edge is answering as many phone requests as it can; try again shortly")
+		return memberProof{}, nil, nil, false
 	}
+	release := func() { <-h.slots }
+	fail := func(status int, msg string) (memberProof, []byte, func(), bool) {
+		release()
+		inferError(w, status, msg)
+		return memberProof{}, nil, nil, false
+	}
+	now := h.Now()
 	p := proofFrom(r.Header)
+	// 1. Fresh, before anything that depends on who is asking.
+	if !p.fresh(now) {
+		return fail(http.StatusForbidden, "that request is stale: check this device's clock")
+	}
+	// 2. Who, from the headers alone, so a stranger never makes this machine read a body: the
+	//    certificate's key derives the id, it is under this root and not revoked, and it is in the fleet.
+	leaf, pub, ok := p.leaf()
+	if !ok {
+		return fail(http.StatusForbidden, errNotVerified)
+	}
 	var trust *cert.Authority
 	if h.Trust != nil {
 		trust = h.Trust()
 	}
-	id, status, msg := verifyProof(trust, p, action, body, h.Now(), h.seen)
-	if status != 0 {
-		inferError(w, status, msg)
-		return memberProof{}, nil, false
+	if trust == nil {
+		return fail(http.StatusServiceUnavailable, "this node cannot verify callers right now")
 	}
-	if h.Member != nil && !h.Member(id) {
-		inferError(w, http.StatusForbidden, "that node is not a member of this Edge")
-		return memberProof{}, nil, false
+	if id, err := trust.Authenticate(leaf); err != nil || id != p.NodeID || h.Member == nil || !h.Member(id) {
+		return fail(http.StatusForbidden, errNotVerified)
 	}
-	return p, body, true
+	// 3. The body, bounded in size and in time.
+	rc := http.NewResponseController(w)
+	_ = rc.SetReadDeadline(now.Add(phoneBodyDeadline))
+	var body []byte
+	if limit > 0 {
+		b, err := readAllLimited(w, r, limit)
+		if err != nil {
+			var mbe *http.MaxBytesError
+			if errors.As(err, &mbe) {
+				return fail(http.StatusRequestEntityTooLarge, tooBig)
+			}
+			return fail(http.StatusBadRequest, "that request's body could not be read")
+		}
+		body = b
+	} else if n, _ := r.Body.Read(make([]byte, 1)); n > 0 {
+		return fail(http.StatusBadRequest, tooBig)
+	}
+	_ = rc.SetReadDeadline(time.Time{})
+	// 4. Signed over exactly this action, target and body; 5. not a replay.
+	if !p.signed(pub, action, body) {
+		return fail(http.StatusForbidden, errNotVerified)
+	}
+	if !h.seen.admit(p.NodeID, p.Nonce, time.Unix(p.TS, 0).Add(presenceFreshness).Unix(), now.Unix()) {
+		return fail(http.StatusForbidden, "that request was already seen")
+	}
+	return p, body, release, true
+}
+
+func readAllLimited(w http.ResponseWriter, r *http.Request, limit int64) ([]byte, error) {
+	var buf bytes.Buffer
+	_, err := buf.ReadFrom(http.MaxBytesReader(w, r.Body, limit))
+	return buf.Bytes(), err
 }
 
 // ConsumeServer is one member serving a band, as the phone's band list names it.
@@ -309,11 +413,13 @@ func (h *phoneConsume) offered() ([]ConsumeBand, error) {
 	return out, nil
 }
 
-// bands answers the phone's "what can I use here".
+// bands answers the phone's "what can I use here". It is asked with an empty body.
 func (h *phoneConsume) bands(w http.ResponseWriter, r *http.Request) {
-	if _, _, ok := h.admit(w, r, ActionBands, 1<<10, "a band list asks with an empty body"); !ok {
+	_, _, release, ok := h.admit(w, r, ActionBands, 0, "a band list is asked with an empty body")
+	if !ok {
 		return
 	}
+	defer release()
 	got, err := h.offered()
 	if err != nil {
 		inferError(w, http.StatusInternalServerError, "the fleet could not be read")
@@ -329,10 +435,11 @@ func (h *phoneConsume) relay(w http.ResponseWriter, r *http.Request, action stri
 	if action == ActionSpeech {
 		limit, tooBig, path = speechBodyCap, "speech request exceeds the 64 KiB limit", SpeechPath
 	}
-	p, body, ok := h.admit(w, r, action, limit, tooBig)
+	p, body, release, ok := h.admit(w, r, action, limit, tooBig)
 	if !ok {
 		return
 	}
+	defer release()
 	var req struct {
 		Model string `json:"model"`
 	}
@@ -345,22 +452,32 @@ func (h *phoneConsume) relay(w http.ResponseWriter, r *http.Request, action stri
 		inferError(w, status, msg)
 		return
 	}
-	self := (*tls.Certificate)(nil)
+	var self *tls.Certificate
 	if h.Self != nil {
 		self = h.Self()
 	}
-	if self == nil {
+	selfID := certNodeID(self)
+	if self == nil || selfID == "" || h.Root == nil {
 		inferError(w, http.StatusServiceUnavailable, "this Edge's authority has no member identity to ask another member with")
 		return
 	}
-	addr, pin := lanTransport(loc)
+	sum := sha256.Sum256(RelayCanonical(loc.Node.ID, p.Sig))
+	attest, err := h.Root.Sign(rand.Reader, sum[:], crypto.SHA256)
+	if err != nil {
+		inferError(w, http.StatusServiceUnavailable, "this Edge's authority could not vouch for the turn")
+		return
+	}
+	addr, pin := relayAddr(loc, selfID)
+	if addr == "" {
+		inferError(w, http.StatusBadGateway, loc.Node.Name+" has no address this Edge can reach")
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), inferTimeout)
 	defer cancel()
-	resp, err := dialMember(ctx, dialable(addr), pin, self, path, body, func(hd http.Header) {
+	// X-Roger-Request is not forwarded: it is not signed, so the face names the turn itself.
+	resp, err := dialMember(ctx, addr, pin, self, path, body, func(hd http.Header) {
 		p.set(hd)
-		if id := r.Header.Get("X-Roger-Request"); id != "" {
-			hd.Set("X-Roger-Request", id)
-		}
+		hd.Set(HeaderRelay, base64.StdEncoding.EncodeToString(attest))
 	})
 	if err != nil {
 		inferError(w, http.StatusBadGateway, loc.Node.Name+" did not answer")
@@ -452,9 +569,42 @@ func lanTransport(l Located) (addr, pin string) {
 	return "", ""
 }
 
-// dialable turns a face's listen address into one to dial: a wildcard host (this machine's own
-// face, recorded as it listens) is this machine.
-func dialable(addr string) string {
+// relayAddr is where to dial the member: its recorded LAN face, turned to loopback only when the
+// member is this machine itself. Another member recorded at a wildcard address is not dialed at all
+// ("" here): the operating system would connect that to THIS machine. (The pin would refuse the
+// answer anyway; this does not get as far as asking.)
+func relayAddr(loc Located, selfID string) (addr, pin string) {
+	addr, pin = lanTransport(loc)
+	if loc.Node.ID == selfID {
+		return loopback(addr), pin
+	}
+	host, _, err := net.SplitHostPort(addr)
+	if ip := net.ParseIP(host); err != nil || host == "" || (ip != nil && ip.IsUnspecified()) {
+		return "", pin
+	}
+	return addr, pin
+}
+
+// certNodeID is the node id a member certificate's key derives, or "".
+func certNodeID(c *tls.Certificate) string {
+	if c == nil || len(c.Certificate) == 0 {
+		return ""
+	}
+	leaf, err := x509.ParseCertificate(c.Certificate[0])
+	if err != nil {
+		return ""
+	}
+	pub, ok := leaf.PublicKey.(ed25519.PublicKey)
+	if !ok {
+		return ""
+	}
+	return NodeID(pub)
+}
+
+// loopback turns THIS machine's own face address, recorded as it listens ("[::]:port"), into one to
+// dial. It is applied only to the authority's own node: a member that advertises a wildcard address
+// is dialed as advertised, never redirected to this machine (audit 2026-10-13).
+func loopback(addr string) string {
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
 		return addr

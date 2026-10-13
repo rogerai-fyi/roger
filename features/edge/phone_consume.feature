@@ -16,16 +16,17 @@
 # here depends on it.
 #
 # THE DESIGN (PROPOSED; the transport choice is for founder review). The phone asks the Edge's
-# AUTHORITY, on the listener it already reaches for presence, and proves itself the way presence and
-# the authority-side trouble feed do: its member certificate travels with the request, and the
-# request is signed by that certificate's key over a canonical form that covers a hash of the body.
-# The authority checks it exactly as a face checks a peer, then relays the very bytes the phone
-# signed to the member that serves the band, over its own pinned mutual-TLS connection, forwarding the
-# phone's proof. A member that reads the proof checks the phone's signature itself and receipts the
-# turn to the phone; a member from before this receipts it to the authority. The other candidate, the
-# member's face accepting a signed request with no client certificate, was not chosen: it puts the
-# phone on a TLS handshake with an Ed25519 server key (above), and it opens every member's face to
-# requests that are not mutually authenticated.
+# AUTHORITY, on the listener it already reaches for presence, and proves itself the way presence does:
+# its member certificate travels with the request, and the request is signed by that certificate's key
+# over a canonical form that covers a hash of the body. The authority checks it as a face checks a peer,
+# then relays the very bytes the phone signed to the member that serves the band, over its own pinned
+# mutual-TLS connection, forwarding the phone's proof and a RELAY ATTESTATION: the Edge root's ECDSA
+# signature over "rogerai-edge-relay/v1" \n <face node id> \n <the phone's Roger-Sig>. A face credits a
+# turn to a phone only with that attestation naming ITSELF, and checks the phone's proof again; a face
+# from before this receipts it to the authority. The other candidate, the member's face accepting a
+# signed request with no client certificate, was not chosen: it puts the phone on a TLS handshake with
+# an Ed25519 server key (above), and it opens every member's face to requests that are not mutually
+# authenticated.
 #
 # THE WIRE. Paths on the authority listener (the address and port the phone posts presence to), each
 # POST, each answered with JSON errors shaped {"error":{"message":...,"type":"edge_error"}}:
@@ -36,19 +37,36 @@
 # (optional: "jetson" or "jetson/serve", as `roger use` names a member), Roger-Nonce (hex of 16 random
 # bytes), Roger-TS (unix seconds), Roger-Sig (hex Ed25519 by the node key over):
 #   "rogerai-edge-infer/v1" \n node_id \n action \n target \n hex(SHA-256(body)) \n nonce \n ts
-# where action is bands, infer or speech by path, and target is "" when the header is absent. The
-# reply carries the serving member's local receipt exactly as /edge/infer does (X-RogerAI-Receipt on
+# where action is bands, infer or speech by path, and target is "" when the header is absent.
+# Refusals: 405 not POST; 503 with Retry-After: 2 when eight phone requests are already in flight;
+# 403 "that request is stale: check this device's clock" (checked first); 403 "that request could not
+# be verified as a member of this Edge" for EVERY identity failure (no or bad certificate, another
+# root, expired, revoked, a key that does not derive the id, not in this fleet, a bad signature), so a
+# captured certificate cannot tell a live member from a removed one; 403 "that request was already
+# seen"; 413 over the cap; 400 a band list with a body, or a turn naming no band; 404/409/502/503 for
+# the band and target refusals below. Identity is settled from the headers BEFORE the body is read, and
+# the body must arrive within 30 seconds. The reply carries the serving member's local receipt exactly as /edge/infer does (X-RogerAI-Receipt on
 # a plain reply, ": rogerai-receipt=" at a stream's end), X-RogerAI-Provider and X-RogerAI-Cost: 0.
 #
-# KNOWN LIMITATION, FOR FOUNDER REVIEW: the authority listener is plain HTTP. A prompt and its answer
-# cross the LAN between the phone and the authority in the clear; anyone on that network can READ
-# them, though nobody can forge, alter, retarget or replay a request. The trouble feed and presence
-# already travel this way, but prompts are more private than alerts. Proposed fix, in order of
-# preference: (1) an HTTPS listener on the authority whose server certificate is a P-256 leaf issued
-# under the Edge root, which iOS's TLS stack handshakes with and the app checks against the root it
-# already holds (no client certificate needed; the signature stays the caller's proof); (2) the body
-# sealed to the authority with an ephemeral key exchange. Until one is ruled and built, the app should
-# say on its ask screen that a turn on this Edge is readable on the local network.
+# KNOWN LIMITATIONS, FOR FOUNDER REVIEW (restated after the 2026-10-13 audit). The authority listener
+# is plain HTTP, so until the fix below:
+#   - Confidentiality: a prompt and its answer cross the LAN between the phone and the authority in the
+#     clear; anyone on that network can read them.
+#   - Reply integrity: nothing authenticates the REPLY. A device in the path can rewrite an answer, a
+#     band list or a receipt header, and the phone cannot tell. (A receipt is signed by the serving
+#     member's node key, but the phone holds no copy of that member's certificate to check it with.)
+#   - Authority authenticity: the phone reaches the authority by an address it holds or saw advertised;
+#     an impostor answering there (an mDNS spoof, a taken address) can read a turn and answer it.
+#   - What does hold: a request cannot be forged, altered or retargeted (the signature covers its
+#     action, target and body); presented twice to the authority it is refused; relayed to a face it
+#     was not attested for, it is refused. A captured request can still be presented ONCE, within its
+#     five minutes, to an authority that restarted and so forgot the nonce.
+#   - X-Roger-Request is not signed, so the authority does not forward it: the face names the turn and
+#     that name is what the receipt carries.
+# The fix, pending the founder's ruling: docs/edge-authority-https.md (an HTTPS authority listener
+# whose server certificate is a P-256 leaf under the Edge root, pinned by the phone to that root).
+# Until it is built, the app should say on its ask screen that a turn on this Edge is readable, and its
+# answer changeable, by others on the local network.
 
 Feature: a phone uses the Edge's models through its authority
 
@@ -92,13 +110,14 @@ Feature: a phone uses the Edge's models through its authority
     Given a device whose certificate is under another Edge's root, or under this root but no longer in its fleet
     When it asks for a turn
     Then it is refused, and the words do not say which
-    And nothing reaches a model
+    And not one byte of its body is read, and nothing reaches a model
 
   @ios @security
   Scenario: a revoked phone is refused
     Given the owner forgot "pocket"
     When it asks for a turn with its old certificate
     Then it is refused at once, without a restart, in the same words as any stranger
+    And a device that captured that certificate, without its key, gets the same answer whether or not it was revoked
 
   @ios @security
   Scenario: a replay is refused
@@ -127,6 +146,29 @@ Feature: a phone uses the Edge's models through its authority
     When a relay changes the body after the authority let the turn through
     Then jetson refuses it, because the phone's proof does not cover those bytes
 
+  # Audit 2026-10-13: before the attestation, a member that captured a relayed turn could replay it to
+  # every other face serving the band within five minutes, receipted to the phone.
+  @ios @security
+  Scenario: only the authority can relay a phone's turn, and only to the face it named
+    When a member forwards a phone's proof to jetson with no attestation from the Edge's root, or a turn the root attested for another face
+    Then jetson refuses it, and nothing reaches its model
+
+  @ios @security
+  Scenario: the receipt names the turn the face named
+    When the phone's request carries an X-Roger-Request of its own choosing
+    Then the receipt's request id is the face's, not that one
+
+  @ios
+  Scenario: a member recorded at a wildcard address is not dialed on the authority's own machine
+    Given a member whose recorded face address is 0.0.0.0 or [::]
+    When the phone asks it for a turn
+    Then the authority refuses with "has no address this Edge can reach", and dials nothing
+
+  @ios
+  Scenario: a band list is asked with an empty body
+    When the phone asks for the band list with a body
+    Then it is refused, saying a band list is asked with an empty body
+
   @ios @security
   Scenario: a member from before this change still serves the relayed turn
     Given "jetson" runs a roger that does not read the phone's proof
@@ -136,4 +178,4 @@ Feature: a phone uses the Edge's models through its authority
   @ios @security
   Scenario: what a phone's turn on this Edge exposes is said, not hidden
     When the phone shows the ask screen for an Edge band
-    Then it says the turn is readable by others on the local network until the authority serves HTTPS
+    Then it says the turn is readable, and its answer changeable, by others on the local network until the authority serves HTTPS
