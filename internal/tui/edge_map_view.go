@@ -289,6 +289,57 @@ func (m *model) edgeMoveNetSel(delta int) {
 	}
 }
 
+// edgeNetKey names a map item across re-reads: a device or member by its node id, anything else
+// by what it is and its name.
+func edgeNetKey(it edgeNetItem) string {
+	switch {
+	case it.id != "":
+		return "id " + it.id
+	case it.machine:
+		return "machine"
+	case it.agent:
+		return "agent " + it.name
+	}
+	return "roger " + it.name
+}
+
+// edgeHeldNet is the map highlight a re-read must keep on the same item: one the owner moved to,
+// or a nearby device the default put it on. The highlight is on a device, not a slot, so a device
+// appearing above it, or the highlighted one leaving, never moves i or a onto another device.
+func (m model) edgeHeldNet() (string, bool) {
+	if m.edge.status == nil || !m.edgeMapActive() {
+		return "", false
+	}
+	it, _ := m.edgeSelectedNet()
+	if !m.edge.netSelSet && !it.cand {
+		return "", false
+	}
+	return edgeNetKey(it), true
+}
+
+// edgeHoldNet puts the highlight back on the item named key, or on this roger (else the machine)
+// when that item has gone.
+func (m *model) edgeHoldNet(key string) {
+	items := m.edgeNetItems()
+	at := -1
+	for i, it := range items {
+		if edgeNetKey(it) == key {
+			at = i
+			break
+		}
+	}
+	if at < 0 {
+		at = 0
+		for i, it := range items {
+			if it.self {
+				at = i
+				break
+			}
+		}
+	}
+	m.edge.netSel, m.edge.netSelSet = at, true
+}
+
 // edgeDefaultNetSel is the highlight before the owner moves: THIS roger if one is running here,
 // else the machine. It puts the commonest actions (Make Agent, Rename) under the cursor at once.
 func edgeDefaultNetSel(items []edgeNetItem) int {

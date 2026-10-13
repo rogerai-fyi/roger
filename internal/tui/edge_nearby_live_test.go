@@ -61,3 +61,80 @@ func TestEnrolledViewPicksUpANewNearbyDevice(t *testing.T) {
 	require.Nil(t, cmd)
 	require.False(t, tm.(model).edge.statusTicking)
 }
+
+// The highlight is on a device, not on a slot. A re-read can drop the highlighted device (i on a
+// phone grants its claim, so the host stops listing it as a candidate) or add one above it; either
+// way a and i must never land on a device the owner did not pick. Found live on 6.10.0-test: i on
+// the second of two phones, esc, a, and the FIRST phone's claim was granted.
+func TestTheNearbyHighlightStaysOnTheDeviceItWasOn(t *testing.T) {
+	now := time.Date(2026, 10, 12, 12, 0, 0, 0, time.UTC)
+	dev := func(id, name string) store.EdgeNode {
+		return store.EdgeNode{ID: "n_" + id + strings.Repeat("0", 36), Name: name, Kind: "mobile", Presence: "CANDIDATE", LastSeen: now.Unix()}
+	}
+	a, b, c := dev("aaaaaaaaaaaa", "quiet-heron-22"), dev("bbbbbbbbbbbb", "calm-otter-7"), dev("cccccccccccc", "brave-lynx-3")
+	open := func(t *testing.T, cands *[]store.EdgeNode, self *edge.SelfStatus) model {
+		fl := edge.NewFleet(store.NewMem(), "acct-1")
+		fl.SetClock(func() time.Time { return now })
+		*self = edge.SelfStatus{Root: edge.RootLocal, Authority: "shed", AuthorityLocal: true, AuthorityHere: true,
+			AuthorityAddr: "http://192.168.1.5:8791", Enrolled: true, Name: "shed", Discovery: edge.DiscoveryScanning,
+			IntervalS: 30, LastPass: now.Unix()}
+		h := Hooks{Station: "gm-93", EdgeFleet: fl, EdgeSelf: self.Name,
+			EdgeCandidates: func() []store.EdgeNode { return *cands },
+			EdgeStatus:     func() edge.SelfStatus { return *self },
+		}
+		var tm tea.Model = NewWithHooks("http://b", "t", nil, h)
+		tm, _ = tm.Update(tea.WindowSizeMsg{Width: 100, Height: 44})
+		tm, _ = tm.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("3")})
+		m := tm.(model)
+		m.edgeClock = func() time.Time { return now }
+		require.True(t, m.edgeMapActive())
+		return m
+	}
+	pass := func(t *testing.T, m model, self *edge.SelfStatus) model {
+		self.LastPass += 30
+		tm, _ := m.Update(edgeStatusTickMsg{})
+		return tm.(model)
+	}
+	pick := func(t *testing.T, m model, id string) model {
+		for range 12 {
+			if m.edgeNearbySelectedID() == id {
+				return m
+			}
+			tm, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+			m = tm.(model)
+		}
+		require.Equal(t, id, m.edgeNearbySelectedID(), "could not move the highlight onto the device")
+		return m
+	}
+
+	t.Run("the picked device leaves: nothing nearby is highlighted", func(t *testing.T) {
+		cands, self := []store.EdgeNode{a, b}, edge.SelfStatus{}
+		m := pick(t, open(t, &cands, &self), b.ID)
+		cands = []store.EdgeNode{a}
+		m = pass(t, m, &self)
+		require.Empty(t, m.edgeNearbySelectedID(), "the highlight slid onto %s", m.edgeNearbySelectedID())
+	})
+	t.Run("a device appears above the picked one: the highlight stays", func(t *testing.T) {
+		cands, self := []store.EdgeNode{a, b}, edge.SelfStatus{}
+		m := pick(t, open(t, &cands, &self), b.ID)
+		cands = []store.EdgeNode{c, a, b}
+		m = pass(t, m, &self)
+		require.Equal(t, b.ID, m.edgeNearbySelectedID())
+	})
+	t.Run("the owner never moved: a device appearing first does not take the highlight", func(t *testing.T) {
+		cands, self := []store.EdgeNode{a}, edge.SelfStatus{}
+		m := open(t, &cands, &self)
+		require.Equal(t, a.ID, m.edgeNearbySelectedID(), "a device pinging is highlighted on arrival")
+		cands = []store.EdgeNode{c, a}
+		m = pass(t, m, &self)
+		require.Equal(t, a.ID, m.edgeNearbySelectedID())
+	})
+	t.Run("the first device to ping still takes the highlight", func(t *testing.T) {
+		var cands []store.EdgeNode
+		self := edge.SelfStatus{}
+		m := open(t, &cands, &self)
+		cands = []store.EdgeNode{a}
+		m = pass(t, m, &self)
+		require.Equal(t, a.ID, m.edgeNearbySelectedID())
+	})
+}

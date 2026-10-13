@@ -184,6 +184,12 @@ func (m *model) leaveEdge() {
 // nothing the view draws is read live - that is what makes a frame internally consistent
 // even when the fleet moves underneath it.
 func (m *model) refreshEdge() {
+	held, holding := m.edgeHeldNet()
+	defer func() {
+		if holding {
+			m.edgeHoldNet(held)
+		}
+	}()
 	m.edge.at = m.edgeNow()
 	m.edge.err = ""
 	m.edge.status = nil
