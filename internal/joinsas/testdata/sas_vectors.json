@@ -1,0 +1,93 @@
+{
+  "domain": "join-sas/v1",
+  "commit_preimage": "sha256(domain + \"/commit\\n\" + client_nonce_hex)",
+  "phrase_derivation": "sha256 over, for each field in order [domain, client_key, tower_key, client_eph, tower_eph, client_nonce, tower_nonce]: 4-byte big-endian byte length then the field's ASCII hex; v = first 8 digest bytes big-endian; words[v>>53&2047]-words[v>>42&2047]-words[v>>31&2047]-((v & (2^31-1)) % 100 as two digits)",
+  "words_sha256": "2f5eed53a4727b4bf8880d8f3f199efc90e58503646d9ff8eff3a2ed3b24dbda",
+  "words_count": 2048,
+  "generated_by": "python3 hashlib, independently of the Go package",
+  "vectors": [
+    {
+      "name": "short fields (the package test's sample)",
+      "transcript": {
+        "client_key": "aa",
+        "tower_key": "bb",
+        "client_eph": "cc",
+        "tower_eph": "dd",
+        "client_nonce": "01",
+        "tower_nonce": "02"
+      },
+      "phrase": "tourist-acid-same-89",
+      "client_commit": "9e1c5fce161934d983c870b8535b8e18d6cd675af07a9d7f476f5dfc655e6ee7"
+    },
+    {
+      "name": "realistic: ed25519 keys, x25519 ephemerals, 32-byte nonces",
+      "transcript": {
+        "client_key": "64dbdc38ede19b85cac8beccc15d52debb1a30e42c2fa15716ce95ac0913ad09",
+        "tower_key": "293b1186e4eddc2c56cc08582f8236981d633d1023691c7d637bae459f377c8c",
+        "client_eph": "32f082ab89c8db3363b293220f78fc0778d5b5a94229579796c827dbf2936f82",
+        "tower_eph": "01da896f83d25b6b0dbf6e04b2b93b1634368a1e93a0d6bf050946a12139ee41",
+        "client_nonce": "ec171061adabf7194b3176daf1a7ea4428cf15fc6dd8f092413b5f7b90f26763",
+        "tower_nonce": "34c34fdaae7513ba2d488c8aa78c6e6ddfc5b78422be761513484d1b8cc60eb9"
+      },
+      "phrase": "better-direct-pudding-97",
+      "client_commit": "a2abc2fa2ac2aee0a39d27322b16338e57025a4c1c8598304997a21ba745c376"
+    },
+    {
+      "name": "all fields empty",
+      "transcript": {
+        "client_key": "",
+        "tower_key": "",
+        "client_eph": "",
+        "tower_eph": "",
+        "client_nonce": "",
+        "tower_nonce": ""
+      },
+      "phrase": "vague-marine-noodle-80",
+      "client_commit": "28d7d77d5a13732ea4fe5aa2663776946e5616c7601d88224deecc71f5b5248d"
+    },
+    {
+      "name": "field boundary: ab|c",
+      "transcript": {
+        "client_key": "ab",
+        "tower_key": "c",
+        "client_eph": "",
+        "tower_eph": "",
+        "client_nonce": "",
+        "tower_nonce": ""
+      },
+      "phrase": "target-thumb-taxi-66",
+      "client_commit": "28d7d77d5a13732ea4fe5aa2663776946e5616c7601d88224deecc71f5b5248d"
+    },
+    {
+      "name": "field boundary: a|bc",
+      "transcript": {
+        "client_key": "a",
+        "tower_key": "bc",
+        "client_eph": "",
+        "tower_eph": "",
+        "client_nonce": "",
+        "tower_nonce": ""
+      },
+      "phrase": "gift-eye-melt-60",
+      "client_commit": "28d7d77d5a13732ea4fe5aa2663776946e5616c7601d88224deecc71f5b5248d"
+    },
+    {
+      "name": "realistic with client and tower keys swapped",
+      "transcript": {
+        "client_key": "293b1186e4eddc2c56cc08582f8236981d633d1023691c7d637bae459f377c8c",
+        "tower_key": "64dbdc38ede19b85cac8beccc15d52debb1a30e42c2fa15716ce95ac0913ad09",
+        "client_eph": "32f082ab89c8db3363b293220f78fc0778d5b5a94229579796c827dbf2936f82",
+        "tower_eph": "01da896f83d25b6b0dbf6e04b2b93b1634368a1e93a0d6bf050946a12139ee41",
+        "client_nonce": "ec171061adabf7194b3176daf1a7ea4428cf15fc6dd8f092413b5f7b90f26763",
+        "tower_nonce": "34c34fdaae7513ba2d488c8aa78c6e6ddfc5b78422be761513484d1b8cc60eb9"
+      },
+      "phrase": "rebuild-wagon-blouse-63",
+      "client_commit": "a2abc2fa2ac2aee0a39d27322b16338e57025a4c1c8598304997a21ba745c376"
+    }
+  ],
+  "wrong_domain_phrase": {
+    "domain": "join-sas/v2",
+    "vector": "realistic: ed25519 keys, x25519 ephemerals, 32-byte nonces",
+    "phrase": "fault-track-elevator-62"
+  }
+}

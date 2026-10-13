@@ -40,6 +40,7 @@ func writeAuthError(w http.ResponseWriter, what string, err error) {
 		errors.Is(err, edgeauth.ErrKeyMismatch),
 		errors.Is(err, edgeauth.ErrMalformed),
 		errors.Is(err, edgeauth.ErrUnknownMachine),
+		errors.Is(err, edgeauth.ErrInviteForOther),
 		errors.Is(err, edgeauth.ErrForeignAccount),
 		errors.Is(err, edgeauth.ErrNotAdopted):
 		http.Error(w, err.Error(), http.StatusForbidden)

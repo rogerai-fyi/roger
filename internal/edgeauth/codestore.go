@@ -17,9 +17,12 @@ import (
 
 // enrollCode is one live code and the join it vouches for.
 type enrollCode struct {
-	Join string `json:"join"` // "key:<user key hex>" or "node:<node id>"
+	Join string `json:"join"` // "key:<user key hex>", "node:<node id>" or "bearer:<random>"
 	Code string `json:"code"` // canonical
 	At   int64  `json:"at"`   // minted, unix seconds, on this authority's clock
+	// For binds a bearer code to ONE node id (the id a nearby device advertised, derived from its node
+	// key): only a request presenting that node is admitted with it (empty_edge_simple.feature §7).
+	For string `json:"for,omitempty"`
 	// Fails counts wrong guesses at a bearer code (bearer.go); a bearer code is void at the budget.
 	Fails int `json:"fails,omitempty"`
 }

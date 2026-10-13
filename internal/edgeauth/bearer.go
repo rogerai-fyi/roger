@@ -11,6 +11,7 @@ package edgeauth
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"strings"
 
 	"rogerai.fm/roger/v6/internal/joincode"
@@ -24,6 +25,10 @@ const (
 	bearerPrefix   = "bearer:"
 )
 
+// ErrInviteForOther is a correct proof of a bound invite from a node it was not minted for: the
+// invite is for another device, and it is neither spent nor counted as a guess.
+var ErrInviteForOther = errors.New("that invite is for another device")
+
 // JoinProof is the device's proof that it holds code, for the Edge whose root hashes to rootFP.
 func JoinProof(code, rootFP string, r Request) string {
 	return joincode.EdgeJoin.Proof(code, r.Nonce, joinFields(rootFP, r)...)
@@ -34,7 +39,12 @@ func joinFields(rootFP string, r Request) []string {
 }
 
 // MintBearerCode mints a key-less invite code: it admits whichever device proves it, once.
-func (l *Local) MintBearerCode() (string, error) {
+func (l *Local) MintBearerCode() (string, error) { return l.MintBearerCodeFor("") }
+
+// MintBearerCodeFor mints a bearer code bound to one node id (features/edge/empty_edge_simple.feature
+// §7, "i on a nearby row mints an invite bound to that device"): only that node is admitted with it.
+// An empty nodeID is the plain, unbound invite.
+func (l *Local) MintBearerCodeFor(nodeID string) (string, error) {
 	var id [8]byte
 	if _, err := rand.Read(id[:]); err != nil {
 		return "", err
@@ -62,7 +72,7 @@ func (l *Local) MintBearerCode() (string, error) {
 				}
 			}
 		}
-		return l.writeJSON(CodesFile, append(got, enrollCode{Join: join, Code: code, At: l.now().Unix()}))
+		return l.writeJSON(CodesFile, append(got, enrollCode{Join: join, Code: code, At: l.now().Unix(), For: strings.TrimSpace(nodeID)}))
 	})
 	if err != nil {
 		return "", err
@@ -71,7 +81,9 @@ func (l *Local) MintBearerCode() (string, error) {
 }
 
 // bearerMatch finds the live bearer code r's join proof was made with. A proof that matches none
-// counts as one wrong guess against every live bearer code. Unlocked; the caller holds the lock.
+// counts as one wrong guess against every live bearer code. A proof that matches a code bound to a
+// DIFFERENT node is ErrInviteForOther: the holder knows the code, so it is not a guess, and the
+// device it is for can still use it. Unlocked; the caller holds the lock.
 func (l *Local) bearerMatch(r Request) (string, bool, error) {
 	got, err := l.readCodes()
 	if err != nil {
@@ -81,6 +93,9 @@ func (l *Local) bearerMatch(r Request) (string, bool, error) {
 	for _, c := range got {
 		if strings.HasPrefix(c.Join, bearerPrefix) &&
 			joincode.EdgeJoin.Check(c.Code, r.JoinProof, r.Nonce, fields...) == nil {
+			if c.For != "" && c.For != r.NodeID {
+				return "", false, ErrInviteForOther
+			}
 			return c.Join, true, nil
 		}
 	}
