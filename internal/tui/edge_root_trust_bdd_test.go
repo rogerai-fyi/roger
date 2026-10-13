@@ -148,7 +148,7 @@ func (s *rootTrustTUI) phoneCandidate(name string) error {
 }
 
 func (s *rootTrustTUI) adoptsIt() error {
-	s.am.adoptEdgeCandidate()
+	s.am.edgeNearbyApprove()
 	return nil
 }
 
@@ -168,12 +168,12 @@ func (s *rootTrustTUI) expiredPanelOffersFresh() error {
 	if strings.Contains(out, "7KQ2M-9XH4P") {
 		return fmt.Errorf("an expired code is still shown:\n%s", out)
 	}
-	return contains(out, "code expired", "roger edge adopt pocket", "fresh code")
+	return contains(out, "code expired", "roger edge invite --for pocket", "fresh code") // the fresh code is a bound invite (2026-10-12)
 }
 
 func (s *rootTrustTUI) adoptingPanelShowingCode() error {
 	s.adoptFixture()
-	s.am.adoptEdgeCandidate()
+	s.am.edgeNearbyApprove()
 	return nil
 }
 

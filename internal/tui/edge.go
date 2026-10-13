@@ -88,6 +88,9 @@ type edgeState struct {
 	// status re-read loop is armed (edge_empty_simple.go).
 	join          edgeJoinState
 	statusTicking bool
+	// nearby is what the owner did from the NEARBY rows (edge_nearby.go): the open invite panel,
+	// the devices invited from here, the device a primed for approval.
+	nearby edgeNearbyState
 	// renaming + renameBuf drive the inline "Rename" prompt. renameNodeID is empty when renaming THIS
 	// roger (EdgeRenameSelf) and a node id when renaming a MEMBER device (EdgeName).
 	renaming     bool
@@ -221,6 +224,7 @@ func (m *model) refreshEdge() {
 	}
 	m.edge.sessions = m.edgeSessions()
 	m.clampEdgeSel()
+	m.edgeNearbyJoined()
 }
 
 // edgeNodes is the snapshot the current frame draws, in draw order.
@@ -321,6 +325,10 @@ func (m *model) onEdgeKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.edge.join.open {
 		return m.onEdgeJoinKey(k)
 	}
+	// And the NEARBY invite panel (§7): the QR and the join line, until esc.
+	if m.edge.nearby.invite != nil {
+		return m.onEdgeNearbyInviteKey(k)
+	}
 	// The inline Rename prompt owns every key while it is open.
 	if m.edge.renaming {
 		m.onEdgeRenameKey(k)
@@ -373,6 +381,23 @@ func (m *model) onEdgeKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "j":
 			m.openEdgeJoin()
 			return m, nil
+		case "up", "k":
+			m.moveEdgeSel(-1) // along the NEARBY rows
+			return m, nil
+		case "down":
+			m.moveEdgeSel(+1)
+			return m, nil
+		case "i":
+			return m, m.edgeNearbyInvite()
+		case "a":
+			m.edgeNearbyApprove()
+			return m, nil
+		}
+	}
+	// i on a NEARBY row of the enrolled map invites that device (§7); anywhere else i opens.
+	if key == "i" && m.edgeMapActive() && !m.edge.actionFocused {
+		if it, _ := m.edgeSelectedNet(); it.cand {
+			return m, m.edgeNearbyInvite()
 		}
 	}
 	// Navigation and the action buttons own the arrow keys on THIS screen, so a stray left/right
@@ -407,7 +432,7 @@ func (m *model) onEdgeKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if !m.edgeSetupState().Enrolled {
 			m.openEdgeSetup()
 		}
-	case "g", "+", "s", "n", "y", "u", "x", "b", "a", "h", "o", "f", "p", "c", "M":
+	case "g", "+", "s", "n", "y", "u", "x", "b", "a", "h", "o", "f", "p", "c", "M", "i":
 		// The lettered actions - each also reachable by focusing its button (Tab / down) and
 		// pressing enter. One dispatch, so a key press and a button press do the same thing.
 		return m.edgeDispatchAction(key)
@@ -576,11 +601,11 @@ func (m *model) edgeDispatchAction(key string) (tea.Model, tea.Cmd) {
 	case "p":
 		m.edgeStartAsk()
 	case "a":
-		if m.edgeMapActive() {
-			m.edgeAdoptSelectedNet()
-		} else {
-			m.adoptEdgeCandidate()
-		}
+		// a on a NEARBY row approves that device (§7): a claim-only device is granted its claim, a
+		// device that can ask is waited for, with the phrase.
+		m.edgeNearbyApprove()
+	case "i":
+		return m, m.edgeNearbyInvite()
 	}
 	return m, nil
 }
@@ -898,26 +923,6 @@ func (m *model) edgeShowAllowKey() {
 	m.status = stKey.Render("allow this on another machine's owner: ") + stEmber.Render("roger edge authority allow "+m.hooks.EdgeSetup.UserKeyHex())
 }
 
-// adoptEdgeCandidate is the owner's explicit action that turns a candidate into a member.
-// Nothing else does: seeing a machine on your network is not deciding it is yours.
-func (m *model) adoptEdgeCandidate() {
-	n, isCand, ok := m.edgeSelected()
-	if !ok || !isCand {
-		m.status = stDim.Render("a adopts a CANDIDATE - select one first")
-		return
-	}
-	if m.hooks.EdgeAdopt == nil {
-		m.status = stEmber.Render("this build cannot adopt - no fleet is wired to the Edge screen")
-		return
-	}
-	if err := m.hooks.EdgeAdopt(n.ID, n.Name); err != nil {
-		m.status = stEmber.Render("adopt " + n.Name + ": " + err.Error())
-		return
-	}
-	m.refreshEdge()
-	m.status = edgeAdoptedMessage(n.Name, n.Pin) + m.edgeAdoptCodeNote(n.ID, n.Pin)
-}
-
 // edgeAdoptCodeNote is the one-time enrollment code a device that joins by claim enters to finish
 // joining, said at the moment of adopting (features/edge/enrollment_root_trust.feature).
 func (m *model) edgeAdoptCodeNote(id, pin string) string {
@@ -939,31 +944,6 @@ func edgeMinutesLeft(d time.Duration) string {
 		n = 1
 	}
 	return fmt.Sprintf("%d min", n)
-}
-
-// edgeAdoptSelectedNet adopts the candidate the network-map highlight is on - the UniFi moment for
-// a phone or machine discovered on the LAN. It acts only on a DISCOVERED node; anything else is a
-// no-op with a nudge, so a stray press never adopts the wrong thing.
-func (m *model) edgeAdoptSelectedNet() {
-	it, _ := m.edgeSelectedNet()
-	if !it.cand {
-		m.status = stDim.Render("a adopts a DISCOVERED machine - select one in that band first")
-		return
-	}
-	if m.hooks.EdgeAdopt == nil {
-		m.status = stEmber.Render("this build cannot adopt - no fleet is wired to the Edge screen")
-		return
-	}
-	if err := m.hooks.EdgeAdopt(it.id, it.name); err != nil {
-		m.status = stEmber.Render("adopt " + it.name + ": " + err.Error())
-		return
-	}
-	m.refreshEdge()
-	pin := ""
-	if it.node != nil {
-		pin = it.node.Pin
-	}
-	m.status = edgeAdoptedMessage(it.name, pin) + m.edgeAdoptCodeNote(it.id, pin)
 }
 
 // edgeAdoptedMessage is the confirmation after adopting a candidate. A candidate that advertised no

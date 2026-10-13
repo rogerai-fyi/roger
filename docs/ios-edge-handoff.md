@@ -422,9 +422,9 @@ not. Ruling 2026-10-12: from a sighting on [3] EDGE the authority offers BOTH
 - `i`: mint an invite for that device and show the QR plus the `roger join` line, and
 - `a`: request-and-approve, the matching phrase on both screens and `y` to approve.
 
-Nobody types an address. The Go side of `i` and `a` on a sighting is being built on this branch; this
-section says what the phone must do for each, what is already there, and what is still missing on
-the Linux side (flagged for the Go agent; nothing here changes Go).
+Nobody types an address. The Go side of `i` and `a` on a sighting is BUILT on `wt/simple-join`
+(TUI, CLI and console; `features/edge/empty_edge_simple.feature` section 7); this section says what
+the phone must do for each and what is already there on the Linux side.
 
 ### 3b.1 The two flows from the phone's side
 
@@ -435,18 +435,24 @@ the Linux side (flagged for the Go agent; nothing here changes Go).
 | 1 | Edge tab in front, "Start pinging" (the advert, `EdgeAdvertiser.swift:44`) | `NEARBY  gentle-ibex-14  phone  i invite  a approve` |
 | 2 | nothing | owner presses `i`: the QR and the `roger join '...'` line, "works once, for the next 15 minutes" |
 | 3 | "Scan invite" (3b.5) or paste the line; the app shows "join the Edge <name>, root XXXX-XXXX-XXXX-XXXX?" and one Join button | unchanged |
-| 4 | POST `/edge/enroll` with `join_proof` (ask d); verify `root_proof` and the invite's `fp`; chain check; keep | `gentle-ibex-14 joined` on the screen; the invite shows spent in `roger edge invite --list` |
+| 4 | POST `/edge/enroll` with `join_proof` (ask d); verify `root_proof` and the invite's `fp`; chain check; keep | `gentle-ibex-14 joined` on the status line; the row leaves NEARBY and is drawn as a member |
 | 5 | Edge tab shows member state; presence starts | the phone's row under its enrolled name |
 
-**Approve from a sighting (`a`):**
+**Approve from a sighting (`a`) on a PHONE.** A phone advertises no certificate, so on its row `a`
+grants its claim and shows the one-time code, exactly the adopt-and-claim path of asks (a) and (b)
+(spec scenario "a on a claim-only device grants its claim"). The phone's claim poll is answered;
+nothing new is needed on the phone for this.
+
+**Approve by asking (request-and-approve, the phrase).** For a roger device on the row, `a` waits
+for it to ask. A phone that ASKS on its own (the app's "Ask to join", 3b.3) appears on the owner's
+screen as a join request with the phrase, answered with `y` or `n`, whether or not anyone pressed `a`:
 
 | Step | Phone | Authority's screen |
 |---|---|---|
-| 1 | Edge tab in front, pinging | `NEARBY  gentle-ibex-14  phone  i invite  a approve` |
-| 2 | nothing | owner presses `a`: "waiting for gentle-ibex-14 to ask" (the authority cannot push to the phone; the phone must ask) |
-| 3 | the app asks the authority it saw: `pair/start` (commit), then `pair/reveal` (3b.3) | `gentle-ibex-14 wants to join · amber-river-71 · y approves, n refuses` |
-| 4 | shows `amber-river-71` and "the owner should see the same phrase; waiting for the owner (1m59s)" | the owner compares and presses `y` |
-| 5 | `pair/wait` returns the enroll answer; the phone verifies the chain against the root the phrase covered; keeps | `gentle-ibex-14 joined` |
+| 1 | Edge tab in front, pinging | `NEARBY  gentle-ibex-14  mobile · seen 3s ago · key 8eda6e1a92c9` |
+| 2 | "Ask to join": `pair/start` (commit), then `pair/reveal` (3b.3) | `gentle-ibex-14 wants to join · amber-river-71 · y approves, n refuses` |
+| 3 | shows `amber-river-71` and "the owner should see the same phrase; waiting for the owner (1m59s)" | the owner compares and presses `y` |
+| 4 | `pair/wait` answers `approved`; the phone then enrolls (POST `/edge/enroll`, signed with the SAME key it paired with), checking the chain against the root the phrase covered; keeps | `gentle-ibex-14 joined` |
 
 Where the authority learns the phone's address: from the advert the phone already sends (its `port`
 is the phone's TLS face, `EdgeAdvertiser.swift:107`). The pairing itself is phone-initiated, so the
@@ -458,37 +464,27 @@ approve flow too, as long as the phone can reach the hub's address.
 Everything in ask (d) stands: the parser, the bearer `join_proof` in `rogerai-edge-join/v1`, the
 `root_proof` check, the `fp` check, the chain check, and the golden vectors. Two things are new.
 
-**The invite can be bound to the device.** The invite format already carries an optional `for=<name>`
-(`internal/joininvite/joininvite.go:3`, `:47`, `:71`, `:118`). Today the Edge side mints only bearer
-codes (`internal/edgeauth/bearer.go:1-10`: "whichever device proves it holds that code is admitted,
-once"), and `roger edge invite` has no `--for` (`cmd/rogerai/edgeinvite.go`). An invite minted from a
-sighting should be bound to THAT device, so a copied QR cannot admit a different phone. The natural
-binding is the node key the proof is made over (`join_proof` covers `node_key`, `bearer.go:27-33`).
+**The invite is bound to the device (BUILT).** Option 1 of the earlier draft is what was built:
+bind by node id. The advert stays key-free (`internal/edge/wire/advert.go`: `id`, `acct`, `kind`,
+`caps`, `port`, `fp`, `auth`, `nm`); `id` derives from the node key, and the join proof already
+covers `node_id`, so the binding needs nothing new from the phone.
 
-**The advert does not carry the node key.** This is the gap. The authority's advert fields are
-exactly `id`, `acct`, `kind`, `caps`, `port`, `fp`, `auth`, `nm` (`internal/edge/wire/advert.go:36-45`;
-the app mirrors them, `EdgeAdvert.swift:49-53`), and the comment at `advert.go:49-53` says on purpose
-that no key travels in an advert. `id` is derived from the node key but is not the key, and `fp` is
-the hash of the TLS certificate the phone would present, which an unenrolled phone does not have a
-member cert for. So from a sighting alone the authority cannot bind an invite to the phone's node
-key.
-
-Two ways to close it; the Go agent picks and builds, the app follows:
-
-1. Bind by node id, not node key (recommended). The authority mints `for=<node id>`, the join proof
-   already covers `node_id` (`bearer.go:33`), and the authority refuses the proof when the request's
-   `node_id` is not the invite's `for`. The phone changes nothing in its advert: it already sends
-   `id`. Risk accepted: a node id is public, so a device that forges the same id AND steals the code
-   could join; the code is the secret, the id only narrows it. Marked here as a GO-SIDE TASK for the
-   other agent: `for=` honoured on Edge invites by node id, `roger edge invite --for <node id>`
-   (and `i` on a sighting fills it in), one appended scenario in `features/join/invite.feature`.
-2. Add the node key to the advert (`nk=<hex>` on both sides). Stronger binding, but it widens an
-   advert the code deliberately keeps key-free, every advert grows by 64 bytes, and the key is still
-   public. Not recommended unless option 1 is refused.
-
-Until option 1 lands on Linux, `i` on a sighting mints a bearer invite exactly like `roger edge
-invite` today, and the phone's flow in 3b.1 is unchanged: only the binding is missing. The phone's
-code is the same either way: parse, prove, verify, keep.
+- `i` on a sighting, `roger edge invite --for <node id>` and the console's Invite all mint through
+  one function (`edgeMintInvite`, `cmd/rogerai/edgeinvite.go`), which calls
+  `MintBearerCodeFor(<node id>)` (`internal/edgeauth/bearer.go`) and writes
+  `roger://join?kind=edge&at=<host:port>&code=<10 symbols>&for=<node id>&fp=sha256:<64 hex>`.
+  For a phone (no certificate) it also grants the phone's claim, so the claim poll the app is
+  already running is answered too.
+- The authority refuses a correct proof from any other node id: HTTP 403 with the body
+  `that invite is for another device` (`edgeauth.ErrInviteForOther`, `enrollhttp.go` `writeAuthError`).
+  The invite is NOT spent by that refusal: the device it was minted for can still use it. The app
+  should show "that invite is for another device: ask for one for this one" (the CLI's words,
+  `look.JoinSaysForOther`).
+- The phone's side: when an invite carries `for=`, compare it to the phone's own node id before
+  sending anything, and say the same line if they differ (no request needed). Then the flow is
+  ask (d) unchanged: parse, prove, verify, keep.
+- Risk accepted (founder-visible): a node id is public, so a device that forges the same id AND
+  holds the code could join; the code is the secret, the id only narrows it.
 
 ### 3b.3 Approve flow: the SAS exchange the phone must implement
 
@@ -497,21 +493,41 @@ for Towers and for an Edge authority, `approve.feature:49-54`; the Edge's own `j
 `cmd/rogerai/edgejoinprompt.go:42-70`). The math is `internal/joinsas/joinsas.go`, which imports
 nothing from the rest of roger, so it ports cleanly.
 
-**Routes** (served by the authority; the Tower's are at `internal/localplane/plane.go:177-179`, the
-Edge authority answers the same three under its own prefix, confirm the exact path with the Go
-agent before coding; today the Edge side calls them through `pairStart` in `edgejoinprompt.go:70`):
+**Routes (CONFIRMED).** The Edge authority serves the same three routes as a Tower, on its
+authority listener (plain HTTP on the LAN, the same `host:port` as `POST /edge/enroll`,
+`POST /edge/claim` and `GET /edge/root`; the advert's authority address, `http://<lan ip>:<port>`).
+`cmd/rogerai/edgehost.go` mounts them at `/local/pair/`, and the wire is written down, for citing,
+at `internal/localplane/pair.go:40-58`. Pinned by `cmd/rogerai/edgepair_routes_test.go`.
 
 ```
-POST /local/pair/start    {kind, name, models?, client_eph, commit}
-   -> {id, tower_eph, tower_nonce, tower, seconds}      or {already_member: true}
-POST /local/pair/reveal   {id, client_nonce}
-   -> 200 when the nonce matches the commitment, else the pairing is void
-GET  /local/pair/wait?id= -> {status: pending|approved|refused|expired, answer?}  (long poll)
+POST /local/pair/start   {"kind":"client","name":"<display name>","client_eph":"<64 hex>","commit":"<64 hex>"}
+   -> 200 {"id":"<16 hex>","tower_eph":"<64 hex>","tower_nonce":"<64 hex>","tower":"<authority name>","seconds":120}
+POST /local/pair/reveal  {"id":"<id>","client_nonce":"<64 hex>"}
+   -> 200 {"waiting":<seconds left>}            (a nonce that breaks the commitment voids the pairing: 401)
+POST /local/pair/wait    {"id":"<id>"}           (long poll, held open up to 25 s; call again on "pending")
+   -> 200 {"status":"pending"|"approved"|"refused"|"expired","answer":{"joined":"edge","tower":"<name>"}}
 ```
 
-Field names from `internal/localplane/pair.go:42-75`: `kind` is `"client"` for a phone, `name` is
-the phone's display name, `client_eph` and `tower_eph` are X25519 public keys in hex, `commit` is the
-client's nonce commitment, `seconds` is the remaining lifetime.
+`wait` is a POST with a JSON body, not a GET with a query (the earlier draft was wrong). `models` is
+optional and only for a station. A client whose key is already admitted gets
+`{"already_member":true,"tower":"<name>"}` from `start` and no request is made.
+
+**Every call is signed**, with the same ed25519 key each time (`internal/protocol/auth.go`):
+
+```
+X-Roger-Pubkey: <hex ed25519 public key>      (this key is the phrase's ClientKey)
+X-Roger-TS:     <unix seconds, within 5 minutes of the authority's clock>
+X-Roger-Nonce:  <32 lowercase hex, fresh per request; REQUIRED on these routes>
+X-Roger-Sig:    hex( ed25519.sign( "POST\n" + path + "\n" + ts + "\n" + hex(sha256(body)) + "\n" + nonce ) )
+```
+
+A bad, stale or replayed signature, an unknown id or a broken commitment is one uniform
+`401 {"error":"unauthorized"}`; a sixth `start` from one address within a minute is `429` with
+`Retry-After: 60`; a ninth pending request is `503`. On an Edge authority, `TowerKey` in the phrase is
+the root fingerprint: lowercase hex SHA-256 of the root certificate's DER, read first from
+`GET /edge/root` (that is what `roger join <address>` does, `cmd/rogerai/edgejoinprompt.go`).
+Approving puts the asking key on the authority's allow-list as a USER key, so after `approved` the
+phone enrolls (`POST /edge/enroll`) with `user_key` = that same signing key, pinning that root.
 
 **The exchange, in order, from the phone:**
 
@@ -532,18 +548,17 @@ client's nonce commitment, `seconds` is the remaining lifetime.
    phrase  = words[w1] + "-" + words[w2] + "-" + words[w3] + "-" + two-digit(digits)
    ```
 
-   `clientKey` is the phone's long-term signing key (hex, the same `user_key`/`node_key` form the
-   enroll request uses; confirm which of the two the Edge authority puts in `ClientKey` with the Go
-   agent, the Tower path uses the client's signing key), `towerKey` is the authority's root
-   fingerprint as presented on this connection (hex, no `sha256:`), the ephemerals are the raw
+   `clientKey` is the hex public key the phone signs the pairing requests with (`X-Roger-Pubkey`),
+   which is the `user_key` it then enrolls with; `towerKey` is the authority's root fingerprint from
+   `GET /edge/root` (hex, no `sha256:`), the ephemerals are the raw
    32-byte X25519 public keys in hex, nonces as sent. Every field is length-prefixed, so no field
    can bleed into the next. `words` is the BIP-39 English list shipped as
    `internal/joinsas/words.txt` (2048 words, SHA-256
    `2f5eed53a4727b4bf8880d8f3f199efc90e58503646d9ff8eff3a2ed3b24dbda`, `joinsas.go:27`); bundle the
    same file in the app and check its hash on load.
-5. Show the phrase. Poll `pair/wait`. On `approved`, the `answer` is an enroll answer: run the
-   root-trust checks of asks (a) and (c) against the ROOT THE PHRASE COVERED (`towerKey`), not a
-   root read later from the wire, then keep. On `refused`: "the owner refused". On `expired` (2
+5. Show the phrase. Poll `pair/wait`. On `approved`, enroll (`POST /edge/enroll`, signed by the
+   same key) and run the root-trust checks of asks (a) and (c) against the ROOT THE PHRASE COVERED
+   (`towerKey`), not a root read later from the wire, then keep. On `refused`: "the owner refused". On `expired` (2
    minutes, `approve.feature:96-100`): "did not answer in 2 minutes; ask the owner to open roger, or
    use an invite".
 
@@ -553,13 +568,12 @@ pending per authority ("busy with other join requests, try again in a minute"); 
 address per minute, the sixth gets a retry-after. A request grants nothing until approved
 (`:128-131`): the phone keeps nothing before `approved`.
 
-**Worked example.** `internal/joinsas/joinsas_test.go` builds transcripts and asserts the shape
-(three words, two digits) and that any one changed field changes the phrase; there is no fixed
-vector file for the SAS yet. Linux-side gap, added to section 5: a `sas_vectors.json` beside the
-root and join vectors (transcript fields in, phrase out, plus one commit/reveal pair), generated
-the same independent way, so the Swift port can be checked offline. Until it exists, the Mac
-session checks the phrase live: the phone's phrase must equal the authority's, for the same
-pairing, every time.
+**Worked example (vectors DONE).** `internal/joinsas/testdata/sas_vectors.json`: six transcripts
+(transcript fields in, phrase out, each with its `client_commit`), the word list's SHA-256, the exact
+derivation in words, and one wrong-domain phrase that must NOT match. Generated with python3
+hashlib independently of the Go package, and checked against it by
+`internal/joinsas/vectors_test.go`. Port the Swift check against this file before any live pairing;
+in the Mac session the phone's phrase must still equal the authority's for the same pairing.
 
 **UI on the phone:** one card: the phrase large, "the owner should see the same phrase; if it
 differs, someone is in the middle: do not continue" (`approve.feature:137-140`), a countdown from
@@ -570,8 +584,8 @@ with one next step. No typing.
 in the first Mac session and leave approve for the second. Invite needs the parser and a proof the
 root-trust doc already specifies in Swift; approve needs the whole SAS stack (X25519 agreement,
 commit/reveal, the word list, the three routes, the long poll) and has no offline vectors yet.
-The authority offers `a` regardless; a phone that does not implement it simply never asks, and the
-owner's screen keeps saying "waiting for gentle-ibex-14 to ask".
+For a phone the authority's `a` is the claim path (no asking needed), and its `i` is the bound
+invite, so a phone that never implements asking still joins from a sighting both ways.
 
 ### 3b.4 What the ping-and-adopt code becomes
 
@@ -583,13 +597,16 @@ Keep, as is:
 - `startPinging` / `stopPinging` and the foreground/background handling
   (`EdgeService.swift:130-137`, `:283-301`): unchanged, and they are what ask (h) measures.
 - `EdgeClaim.swift` and `claimOnce` (`EdgeService.swift:192-216`): keep for adopt-and-claim with a
-  code (asks a and b; the root-trust doc's hold-then-ask patch applies here). Adopt is not removed on
-  the Go side; `i` and `a` are offered beside it.
+  code (asks a and b; the root-trust doc's hold-then-ask patch applies here). On the Go side `a` on a
+  phone's row IS this path; `roger edge approve <id>` is its command, and `roger edge adopt` stays
+  one release as an alias that prints "adopt is now: roger edge invite --for <id>, or roger edge
+  approve <id>".
 
 Change:
 
 - `EdgeView.swift:203-209`, the "ON YOUR ROGER MACHINE  roger edge adopt <id>" card: replace the
-  copy with "On your Roger machine, open Edge and press i to invite this phone, or a to approve it",
+  copy with "On your Roger machine, open Edge and press i to invite this phone, or a to approve it"
+  (the terminal equivalents: `roger edge invite --for <id>`, `roger edge approve <id>`),
   keep the node id visible (short form) since the owner's screen names the device by it. The Copy
   button copies the id only.
 - `EdgeView.swift:306-339`, "JOIN BY ADDRESS": keep under Advanced as the fallback for a hub the
@@ -605,7 +622,7 @@ first-answer trust, which the root-trust doc already removes.
 The app has no scanner today: no `AVCaptureMetadataOutput`, `DataScannerViewController` or VisionKit
 use anywhere under `RogerAI/`, and the shipping `RogerAI/Resources/Info.plist` has NO
 `NSCameraUsageDescription` (it has microphone, speech, calendar, reminders and local-network strings
-only). A side worktree (`.claude/worktrees/ios-operator-status`) carries a camera string for a
+only). Another in-progress app branch carries a camera string for a
 different feature ("Scan a QR code to move your connection details to another device"); do not
 reuse that wording.
 
@@ -658,22 +675,25 @@ itself but the sighting does not cross the podman boundary.
 Run (host): `XDG_CONFIG_HOME=/tmp/rbk/phone-auth ROGERAI_NO_UPDATE_CHECK=1 <the test build folder>/roger`,
 press 3. Run (phone): Edge tab, Start pinging.
 You should see (host): the phone under NEARBY by its callsign (`gentle-ibex-14`), kind phone,
-with `i invite  a approve` on its row. If instead the row says `roger edge adopt ...`: the build
-predates the sighting work; this handoff's 3b flows need the next build.
+with `i invite · a approve` above the rows, and `mobile · seen Ns ago · key <12 hex>` on the phone's.
+The same list: `roger edge nearby` (it prints the whole node id and the two commands). If instead the
+row says `roger edge adopt ...`: the build predates the sighting work; use the newer test build.
 
 **Step S2. Invite from the sighting (3b.2, 3b.5).**
 Run (host): select the phone's row, press `i`. Run (phone): Scan invite, point at the terminal.
 You should see (phone): the confirm sheet with the Edge's name and root; Join; "joined". (Host): the
-row moves from NEARBY to members, named; `roger edge invite --list` shows it spent. Then scan the
-same QR on a second phone or after Leave: "already used".
+row moves from NEARBY to members, named, and the status line says it joined. Then scan the same QR
+on a second phone or after Leave: "already used".
 
-**Step S3. Binding (once the Go-side `for=` lands).**
-Run (host): `i` on phone A's row; scan that QR on phone B. You should see (phone B): refused, "this
-invite is for another device". If the Go side has not landed `for=`, record that B joined (bearer
-behaviour) and move on.
+**Step S3. Binding (`for=` is built).**
+Run (host): `i` on phone A's row; scan that QR on phone B. You should see (phone B): refused, "that
+invite is for another device: ask for one for this one" (the app's own check of `for=`, or the
+authority's 403). Then scan the same QR on phone A: it still joins (the refusal did not spend it).
 
-**Step S4. Approve from the sighting (3b.3; second session if DECISION 5 is taken).**
-Run (host): `a` on the phone's row. Run (phone): "Ask to join" on the Edge tab.
+**Step S4. Approve: the claim, then asking (3b.3; asking in a second session if DECISION 5 is taken).**
+Run (host): `a` on the phone's row. You should see (host): the claim granted and its code; (phone)
+the claim poll answered, the code prompt, "joined". Then, with asking built, on a fresh phone config:
+Run (phone): "Ask to join" on the Edge tab.
 You should see: the same phrase on both screens; (host) `y`; (phone) "joined"; (host) the row named.
 Then: `a` again on a fresh phone config and press `n`: (phone) "the owner refused", nothing kept.
 Then: `a`, and let 2 minutes pass: (phone) the did-not-answer line; (host) the request gone.
@@ -749,8 +769,7 @@ $SIM roger hub edge invite --at 192.168.1.69:39019
 **You should see:**
 - Phone: "joining the Edge hub at 192.168.1.69:39019 (root <the 16 hex the host printed>)", then
   "joined". Status: member, presence live within 30 s.
-- Host: `$SIM status` lists the phone by its name, `lan`, seen seconds ago. `$SIM roger hub edge
-  invite --list` shows the invite spent.
+- Host: `$SIM status` lists the phone by its name, `lan`, seen seconds ago.
 
 **If instead you see:**
 - "that invite was already used": mint a new one (single use).
@@ -854,14 +873,21 @@ rm -rf /tmp/rbk/phone-auth
   and still unnecessary.
 - The Tower side (`roger join` to a Tower, Tower TLS pins) is computer-only; a Tower invite on the
   phone must be refused with a clear line.
-- Sighting-to-join (section 3b): the advert carries no node key, so an Edge invite minted from a
-  sighting cannot yet be bound to the device; the Go side needs `for=` honoured by node id on Edge
-  invites (`roger edge invite --for`, `i` on a sighting). Until then `i` mints a bearer invite.
-- The SAS phrase has no offline vectors: a `sas_vectors.json` beside the root and join vectors
-  (transcript in, phrase out, plus a commit/reveal pair) is a Linux-side task before the Swift
-  port can be checked without a live pairing.
-- The Edge authority's pairing routes: confirm the exact paths the Edge serves for
-  `pair/start`, `pair/reveal` and `pair/wait` with the Go agent before the phone codes them.
+- DONE: `for=` by node id on Edge invites. `i` on a sighting, `roger edge invite --for <node id>`
+  and the console's Invite mint through `edgeMintInvite` (`cmd/rogerai/edgeinvite.go`) into
+  `edgeauth.MintBearerCodeFor` (`internal/edgeauth/bearer.go`); another node id gets HTTP 403
+  `that invite is for another device` and the invite is not spent (section 3b.2).
+- DONE: SAS vectors at `internal/joinsas/testdata/sas_vectors.json` (six transcripts with their
+  commits, the word list hash, one wrong-domain negative), checked by
+  `internal/joinsas/vectors_test.go`.
+- DONE: the Edge authority's pairing routes, confirmed: `POST /local/pair/start`,
+  `POST /local/pair/reveal`, `POST /local/pair/wait` on the authority listener
+  (`http://<lan ip>:<authority port>`, beside `/edge/enroll`, `/edge/claim`, `/edge/root`), all
+  signed with `X-Roger-Pubkey`/`X-Roger-TS`/`X-Roger-Nonce`/`X-Roger-Sig`. Wire comment:
+  `internal/localplane/pair.go:40-58`; route test: `cmd/rogerai/edgepair_routes_test.go`; full
+  bodies in section 3b.3.
+- `a` on a PHONE's row is the claim path (asks a, b), not asking: a phone never has a certificate to
+  advertise. A phone that asks on its own is answered from the join banner with `y`/`n`.
 
 **Paste back, per step:**
 

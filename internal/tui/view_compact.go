@@ -242,7 +242,7 @@ func (m model) compactFooter(w int) string {
 	case modeLimits:
 		keys = "↑↓ · ⏎ edit · d clear · esc"
 	case modeEdge:
-		keys = "↑↓ · ⏎ detail · a adopt · esc"
+		keys = "↑↓ · ⏎ detail · i invite · a approve · esc"
 		if m.edgeEmptySimple() {
 			keys = look.ActionsPlain(look.EmptyEdgeActions)
 		}

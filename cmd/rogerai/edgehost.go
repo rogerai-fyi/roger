@@ -206,6 +206,7 @@ func (h *edgeHost) wire(hooks *tui.Hooks) {
 	hooks.EdgeRemoveAgent = h.removeAgentLive
 	hooks.EdgeAdopting = h.adopting
 	hooks.EdgeAdoptCode = edgeAdoptCode
+	hooks.EdgeInviteFor = edgeInviteForNode
 	hooks.EdgeAgentJobs = func() []edge.AgentJob { return edge.AgentJobs(edgeJobsDir()) }
 	hooks.EdgeSetAgentJob = h.setAgentJobLive
 	hooks.EdgeClearAgentJob = h.clearAgentJobLive
@@ -827,6 +828,8 @@ func (h *edgeHost) startAuthority() {
 		authMux.Handle(p, phone)
 	}
 	authMux.Handle("/", enrollhttp.Handler(local))
+	// Request-and-approve: POST /local/pair/start, /local/pair/reveal and /local/pair/wait on THIS
+	// listener, the wire documented at internal/localplane/pair.go (the iOS handoff cites it).
 	pair := edgePairing(local)
 	authMux.Handle("/local/pair/", pair.Handler())
 	// Access log for the authority (claim/enroll/present), gated on ROGERAI_EDGE_AUTHLOG=1. It records

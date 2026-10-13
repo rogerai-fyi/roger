@@ -30,7 +30,7 @@ type edgeNetItem struct {
 	status  *edge.SelfStatus // this machine's status, when this node is the machine
 	job     string           // a one-word job label (serve/watch/relay) when assigned, for the card
 	member  bool             // another machine already on this Edge (a member node)
-	cand    bool             // a discovered machine not yet on this Edge (adopt with a)
+	cand    bool             // a device pinging nearby, not yet on this Edge (i invite · a approve)
 	node    *store.EdgeNode  // the fleet/candidate node record, for member and candidate items
 	id      string           // the node id, for adopt/detail of a member or candidate
 	kind    string           // host | board | mobile, for a member/candidate emblem
@@ -141,7 +141,7 @@ func (it edgeNetItem) subBase() string {
 		// and two lines with the same words is exactly how this screen got confusing.
 		return "YOU ARE HERE · " + it.role
 	case it.cand:
-		return it.kindWord() + " · adopt with a"
+		return it.kindWord() + " · nearby · i invite · a approve"
 	case it.member:
 		// WHAT IT IS and HOW IT IS, with its age (features/edge/fleet_window.feature): the kind, the
 		// hardware when it fits, the relay it is reached through, and the shared state word - never
@@ -243,7 +243,7 @@ func (m model) edgeNetItems() []edgeNetItem {
 			dark: edge.Presence(n.Presence) == edge.PresenceDark, alerts: m.edge.alerts[n.ID],
 			via: r.Via, hops: r.Depth, at: m.edge.at})
 	}
-	// The DISCOVERED machines not yet on this Edge - candidates, adopt with a.
+	// The devices pinging NEARBY, not yet on this Edge - i invites one, a approves it.
 	for i := range m.edge.cands {
 		n := m.edge.cands[i]
 		items = append(items, edgeNetItem{name: names[n.ID], cand: true, node: &m.edge.cands[i], id: n.ID, kind: n.Kind})
@@ -253,8 +253,8 @@ func (m model) edgeNetItems() []edgeNetItem {
 
 // edgeMapActive reports whether the navigable network map (not the multi-node graph) is on screen.
 // The map is the home view of a SET-UP machine: it draws this machine's hub, the rogers on it, the
-// other member machines on the Edge, and the discovered candidates waiting to be adopted - so a
-// phone that appears on the LAN shows up here to adopt (2026-09-21). Past edgeMaxGraphNodes the
+// other member machines on the Edge, and the devices pinging NEARBY, not on it yet - so a phone
+// that appears on the LAN shows up here to invite or approve (2026-09-21, 2026-10-12). Past edgeMaxGraphNodes the
 // map would stop being a picture, so a large fleet falls back to the graph/list until the manual
 // grid/list switch lands (features/edge/map_scale.feature).
 func (m model) edgeMapActive() bool {
@@ -292,8 +292,8 @@ func (m *model) edgeMoveNetSel(delta int) {
 // edgeDefaultNetSel is the highlight before the owner moves: THIS roger if one is running here,
 // else the machine. It puts the commonest actions (Make Agent, Rename) under the cursor at once.
 func edgeDefaultNetSel(items []edgeNetItem) int {
-	// A DEVICE WAITING TO BE ADOPTED wins: it is why the owner came to this screen, and landing on it
-	// puts "a adopt" one keystroke away instead of behind several arrow presses. Nothing is waiting
+	// A DEVICE PINGING NEARBY wins: it is why the owner came to this screen, and landing on it puts
+	// "i invite · a approve" one keystroke away instead of behind several arrow presses. Nothing is waiting
 	// most of the time, so this changes nothing on an ordinary day.
 	for i, it := range items {
 		if it.cand {
@@ -334,15 +334,15 @@ func (m model) edgeMapTopology(cw int, line func(string)) {
 	trunk := mLead + mW/2
 
 	// Partition the rest into the rogers ON this machine (hung under the hub), the other member
-	// machines (the fleet band), and the discovered candidates (the adopt band). Each card keeps
+	// machines (the fleet band), and the devices pinging nearby (drawn as NEARBY rows). Each card keeps
 	// its GLOBAL index so the highlight lands on the right one wherever it is drawn.
-	var hubIt, memIt, candIt []edgeNetItem
-	var hubIx, memIx, candIx []int
+	var hubIt, memIt []edgeNetItem
+	var hubIx, memIx []int
 	for g := 1; g < len(items); g++ {
 		it := items[g]
 		switch {
 		case it.cand:
-			candIt, candIx = append(candIt, it), append(candIx, g)
+			// drawn below as NEARBY rows, not cards
 		case it.member:
 			memIt, memIx = append(memIt, it), append(memIx, g)
 		default:
@@ -376,12 +376,14 @@ func (m model) edgeMapTopology(cw int, line func(string)) {
 		line("  " + edgeSetupCenter(edgeWireLegend(memIt), cw))
 	}
 
-	// The discovered machines not yet adopted - the adopt band. No wire: they are not on the Edge
-	// until the owner adopts one. This is the UniFi moment - a phone on the LAN shows up here.
-	if len(candIt) > 0 {
+	// The devices pinging nearby, not on this Edge - NEARBY rows (empty_edge_simple.feature §7).
+	// No wire: they are not on the Edge until the owner invites one (i) or approves it (a). This is
+	// the UniFi moment - a phone on the LAN shows up here, and the owner acts from the sighting.
+	if rows := m.edgeNearbyLines(cw, lookMono()); len(rows) > 0 {
 		line("")
-		line("  " + edgeSetupCenter(stKey.Render("DISCOVERED")+stDim.Render("  on your network, not yet on your Edge · press a to adopt"), cw))
-		_ = m.edgeCardBand(cw, -1, candIt, candIx, sel, line)
+		for _, ln := range rows {
+			line(ln)
+		}
 	}
 }
 
@@ -757,7 +759,7 @@ func (m model) edgeNetDetailView(w int, line func(string)) {
 	if it.node != nil {
 		n := it.node
 		if it.cand {
-			label("STATUS", stEmber.Render("not on your Edge")+stDim.Render(" · press ")+lampStyle(roleLive).Render("a")+stDim.Render(" to adopt it"))
+			label("STATUS", stEmber.Render("not on your Edge")+stDim.Render(" · press ")+lampStyle(roleLive).Render("i")+stDim.Render(" to invite it, ")+lampStyle(roleLive).Render("a")+stDim.Render(" to approve it"))
 		} else {
 			// The shared state word with its age, and the missing channel named when it is heard but
 			// cannot be controlled (features/edge/fleet_window.feature).
@@ -1060,6 +1062,9 @@ func (m model) edgeMapList(cw int, line func(string)) {
 	kindW := 9
 	line("  " + stDim.Render(pad("  NODE", nameW+4)+pad("KIND", kindW)+"STATE"))
 	for i, it := range items {
+		if it.cand {
+			continue // drawn below as NEARBY rows, as on the map
+		}
 		glyph, gs := it.icon()
 		name := edgeTrunc(it.name, nameW-2)
 		state := it.sub()
@@ -1073,6 +1078,12 @@ func (m model) edgeMapList(cw int, line func(string)) {
 		row := marker + gs.Render(glyph) + " " + stKey.Render(pad(name, nameW)) +
 			stDim.Render(pad(it.kindLabel(), kindW)+state)
 		line("  " + truncVisible(row, cw))
+	}
+	if rows := m.edgeNearbyLines(cw, lookMono()); len(rows) > 0 {
+		line("")
+		for _, ln := range rows {
+			line(ln)
+		}
 	}
 }
 

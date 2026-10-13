@@ -43,6 +43,9 @@ type EdgeHooks struct {
 	Fleet      *edge.Fleet
 	Candidates func() []store.EdgeNode
 	Adopt      func(id, name string) error
+	// InviteFor mints an invite bound to one nearby device's node id (empty_edge_simple.feature §7),
+	// the TUI's i: the invite (roger://join form) and when it runs out. Nil = Invite disabled.
+	InviteFor func(n store.EdgeNode) (invite string, until time.Time, err error)
 	// Name renames a node and Forget removes it - the same host operations the TUI and CLI perform,
 	// so the console manages the fleet, it does not just watch it (features/edge/manage_web.feature).
 	// Nil leaves that action honestly disabled in the console.
@@ -334,9 +337,12 @@ type edgeSnap struct {
 	At         int64          `json:"at,omitempty"`
 	Nodes      []edgeNodeJSON `json:"nodes"`
 	Candidates []edgeNodeJSON `json:"candidates"`
-	Sessions   []edgeSessJSON `json:"sessions"`
-	TooMany    bool           `json:"too_many"`
-	GraphMax   int            `json:"graph_max"`
+	// Nearby is the same devices as NEARBY rows in the TUI's words, with Invite and Approve (§7).
+	Nearby     []edgeNearbyJSON `json:"nearby"`
+	NearbyHead edgeNearbyHead   `json:"nearby_head"`
+	Sessions   []edgeSessJSON   `json:"sessions"`
+	TooMany    bool             `json:"too_many"`
+	GraphMax   int              `json:"graph_max"`
 	// Manage is true when this build wired the fleet-management hooks (Name + Forget), so the console
 	// shows those actions on a member exactly when they would work, and never when they would 501.
 	Manage bool `json:"manage"`
@@ -715,10 +721,15 @@ func (s *Server) edgeSnapshot() (edgeSnap, error) {
 			}
 		}
 	}
+	snap.Nearby = []edgeNearbyJSON{}
+	snap.NearbyHead = edgeNearbyHead{Eyebrow: look.Eyebrow(look.NearbyEyebrow), Actions: look.NearbyActions,
+		Invite: h.InviteFor != nil, Approve: h.Adopt != nil || s.opts.Owner != nil}
 	if h.Candidates != nil {
-		for _, c := range h.Candidates() {
+		cands := h.Candidates()
+		for _, c := range cands {
 			snap.Candidates = append(snap.Candidates, edgeNodeOf(c, now, append(append([]store.EdgeNode(nil), list...), c)))
 		}
+		snap.Nearby = s.edgeNearbyOf(cands, now)
 	}
 	snap.Adopting = []edgeNodeJSON{}
 	if h.Adopting != nil {

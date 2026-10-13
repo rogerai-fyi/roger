@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"rogerai.fm/roger/v6/internal/edge"
+	"rogerai.fm/roger/v6/internal/look"
 	"rogerai.fm/roger/v6/internal/store"
 )
 
@@ -273,32 +274,51 @@ func TestEdgeKeysMoveAndOpen(t *testing.T) {
 	require.Len(t, m.edge.rows, 3)
 }
 
-func TestEdgeAdoptRefusesHonestly(t *testing.T) {
+// a on a NEARBY row refuses honestly (features/edge/empty_edge_simple.feature §7): nothing selected,
+// no Edge here yet, no way to approve in this build, or the host's own refusal, each said as it is.
+func TestEdgeApproveRefusesHonestly(t *testing.T) {
 	cand := store.EdgeNode{ID: "n_cand", Name: "new-pi5",
 		Transports: []store.EdgeTransport{{Kind: "lan", Addr: "10.0.0.9"}}}
+	rooted := func() edge.SelfStatus {
+		return edge.SelfStatus{Root: edge.RootLocal, AuthorityHere: true, Enrolled: true, Name: "shed"}
+	}
 
-	// Nothing to adopt: the selection is a member, not a candidate.
-	m, f, _ := edgeFixture(t, Hooks{})
+	// Nothing to approve: the selection is a member, not a nearby device.
+	m, f, _ := edgeFixture(t, Hooks{EdgeStatus: rooted})
 	edgeAddNode(t, f, "a-node", []store.EdgeTransport{{Kind: "lan", Addr: "10.0.0.1"}}, edge.Sense)
 	m.enterEdge()
-	m.adoptEdgeCandidate()
-	require.Contains(t, stripANSI(m.status), "adopts a CANDIDATE")
+	m.edgeNearbyApprove()
+	require.Contains(t, stripANSI(m.status), "approves a NEARBY device")
 
-	// A candidate, but no way to adopt it: say so, do not pretend.
-	m2, _, _ := edgeFixture(t, Hooks{EdgeCandidates: func() []store.EdgeNode { return []store.EdgeNode{cand} }})
+	// No Edge here yet: start one first.
+	m1, _, _ := edgeFixture(t, Hooks{EdgeCandidates: func() []store.EdgeNode { return []store.EdgeNode{cand} }})
+	m1.enterEdge()
+	m1.edgeNearbyApprove()
+	require.Contains(t, stripANSI(m1.status), look.NearbyNoEdgeYet)
+
+	// A device, but no way to approve it in this build: say so, with the command that can.
+	m2, _, _ := edgeFixture(t, Hooks{EdgeStatus: rooted, EdgeCandidates: func() []store.EdgeNode { return []store.EdgeNode{cand} }})
 	m2.enterEdge()
-	m2.adoptEdgeCandidate()
-	require.Contains(t, stripANSI(m2.status), "cannot adopt")
+	m2.edgeNearbyApprove()
+	require.Contains(t, stripANSI(m2.status), "roger edge approve n_cand")
 
 	// The host refuses: the refusal is shown, and nothing joins the Edge.
-	m3, _, _ := edgeFixture(t, Hooks{
+	m3, _, _ := edgeFixture(t, Hooks{EdgeStatus: rooted,
 		EdgeCandidates: func() []store.EdgeNode { return []store.EdgeNode{cand} },
 		EdgeAdopt:      func(string, string) error { return errAdoptRefused },
 	})
 	m3.enterEdge()
-	m3.adoptEdgeCandidate()
+	m3.edgeNearbyApprove()
 	require.Contains(t, stripANSI(m3.status), "already belongs")
 	require.Empty(t, m3.edge.rows)
+
+	// A roger device (it serves a certificate) with no authority answering: said, not waited on.
+	desk := cand
+	desk.Pin = "beef"
+	m4, _, _ := edgeFixture(t, Hooks{EdgeStatus: rooted, EdgeCandidates: func() []store.EdgeNode { return []store.EdgeNode{desk} }})
+	m4.enterEdge()
+	m4.edgeNearbyApprove()
+	require.Contains(t, stripANSI(m4.status), look.NearbyNotServing)
 }
 
 var errAdoptRefused = errAdopt("that node already belongs to another Edge")
@@ -306,29 +326,6 @@ var errAdoptRefused = errAdopt("that node already belongs to another Edge")
 type errAdopt string
 
 func (e errAdopt) Error() string { return string(e) }
-
-func TestEdgeAdoptEnrolls(t *testing.T) {
-	var f *edge.Fleet
-	cand := store.EdgeNode{ID: "n_cand", Name: "new-pi5", Kind: string(edge.Host), Pin: "beef",
-		Transports: []store.EdgeTransport{{Kind: "lan", Addr: "10.0.0.9", Fingerprint: "beef"}}}
-	live := []store.EdgeNode{cand}
-	m, fleet, _ := edgeFixture(t, Hooks{
-		EdgeCandidates: func() []store.EdgeNode { return live },
-		EdgeAdopt: func(id, name string) error {
-			c := cand
-			c.Name, c.Presence = name, string(edge.PresenceVerified)
-			_, err := f.Enroll(c)
-			live = nil
-			return err
-		},
-	})
-	f = fleet
-	m.enterEdge()
-	m.adoptEdgeCandidate()
-	require.Contains(t, stripANSI(m.status), "adopted onto your Edge")
-	require.Len(t, m.edge.rows, 1)
-	require.Empty(t, m.edge.cands)
-}
 
 // A heartbeat from a node the graph does not draw animates nothing: the screen never moves
 // for a link it cannot see.

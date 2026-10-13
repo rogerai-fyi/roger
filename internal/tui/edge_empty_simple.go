@@ -47,10 +47,12 @@ func (m *model) armEdgeStatusTick() tea.Cmd {
 
 // edgeEmptySimple reports whether the frame shows the simple empty state: the fleet could be
 // read and holds nothing, and this machine is neither enrolled nor rooting an Edge. An unread
-// fleet or status, or a host that did not start, is never drawn as "not set up yet".
+// fleet or status, or a host that did not start, is never drawn as "not set up yet". A device
+// pinging nearby does not change this machine's state: it is drawn as a NEARBY row on this
+// screen (§7), never by falling back to the old facts view.
 func (m model) edgeEmptySimple() bool {
 	st := m.edge
-	if m.hooks.EdgeFleet == nil || st.err != "" || len(st.rows) > 0 || len(st.cands) > 0 {
+	if m.hooks.EdgeFleet == nil || st.err != "" || len(st.rows) > 0 {
 		return false
 	}
 	if st.status == nil {
@@ -78,6 +80,12 @@ func (m model) edgeEmptySimpleView(w int, line func(string)) {
 
 	if m.edge.join.open {
 		for _, ln := range m.edgeJoinLines(w, mono) {
+			line(ln)
+		}
+		return
+	}
+	if m.edge.nearby.invite != nil {
+		for _, ln := range m.edgeNearbyInviteLines(w, mono) {
 			line(ln)
 		}
 		return
@@ -124,6 +132,13 @@ func (m model) edgeEmptySimpleView(w int, line func(string)) {
 	}
 	line("     " + muted.Render(second))
 	line("")
+	// The devices pinging nearby, each a row the owner acts on (§7).
+	if rows := m.edgeNearbyLines(w, mono); len(rows) > 0 {
+		for _, ln := range rows {
+			line(ln)
+		}
+		line("")
+	}
 	line(lookActionBar(look.EmptyEdgeActions))
 }
 

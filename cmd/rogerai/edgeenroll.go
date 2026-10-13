@@ -500,6 +500,11 @@ func edgeClassifyEnrollErr(err error) error {
 	if err != nil && strings.Contains(err.Error(), edgeauth.ErrUnknownMachine.Error()) {
 		return fmt.Errorf("%w", edgeauth.ErrUnknownMachine)
 	}
+	// An invite minted for another device (empty_edge_simple.feature §7) says what to do about it.
+	if err != nil && strings.Contains(err.Error(), edgeauth.ErrInviteForOther.Error()) {
+		// Reads as look.JoinSaysForOther, and is still edgeauth.ErrInviteForOther to a caller.
+		return fmt.Errorf("%w: ask for one for this one", edgeauth.ErrInviteForOther)
+	}
 	return err
 }
 

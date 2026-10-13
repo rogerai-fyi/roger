@@ -218,6 +218,19 @@ func TestEmptyEdgeSimpleFeatureConsole(t *testing.T) {
 			sc.When(`^the owner clicks join an Edge you started elsewhere$`, st.clicksJoin)
 			sc.Then(`^one field accepts an invite or an address, with the same outcomes as the TUI's j prompt$`, st.oneField)
 			sc.Then(`^it does not say "([^"]*)", "([^"]*)", "([^"]*)" or "([^"]*)"$`, st.noOldFacts)
+
+			// §7 @console: NEARBY with Invite and Approve.
+			nb := &nearbyConsoleBDD{}
+			t.Cleanup(func() {
+				if nb.srv != nil {
+					nb.srv.Close()
+				}
+			})
+			sc.Before(func(c context.Context, _ *godog.Scenario) (context.Context, error) { nb.reset(t); return c, nil })
+			sc.Given(`^a phone advertises itself with node id "([^"]*)"$`, nb.phonePings)
+			sc.When(`^the owner opens the console's Edge view$`, nb.opens)
+			sc.Then(`^a NEARBY list shows the row with Invite and Approve buttons$`, nb.listWithButtons)
+			sc.Then(`^Invite shows the join line and the QR, and Approve waits for the ask and shows the phrase$`, nb.inviteAndApprove)
 		},
 		Options: &godog.Options{
 			Format: "pretty", TestingT: t, Strict: true, Tags: "@console",

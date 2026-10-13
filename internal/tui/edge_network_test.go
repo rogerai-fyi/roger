@@ -494,7 +494,7 @@ func TestMapAdoptPhone(t *testing.T) {
 		t.Fatalf("the map is not active with a candidate present")
 	}
 	out := stripANSI(m.edgeView(100))
-	for _, want := range []string{"DISCOVERED", "▯ pixel-8", "adopt with a", "YOUR EDGE NETWORK"} {
+	for _, want := range []string{"NEARBY", "pixel-8", "i invite · a approve", "YOUR EDGE NETWORK"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the phone candidate is not drawn on the map: missing %q\n%s", want, out)
 		}
@@ -514,13 +514,13 @@ func TestMapAdoptPhone(t *testing.T) {
 	}
 	m.edge.netDetail = false
 
-	// The panel offers Adopt for the selected candidate.
+	// The panel offers Approve (and Invite) for the selected device (ruling 2026-10-12).
 	out = stripANSI(m.edgeView(100))
-	if !strings.Contains(out, "pixel-8 · PHONE · discovered") || !strings.Contains(out, "Adopt") {
-		t.Errorf("no Adopt action for the selected candidate:\n%s", out)
+	if !strings.Contains(out, "pixel-8 · PHONE · nearby") || !strings.Contains(out, "Approve") {
+		t.Errorf("no Approve action for the selected device:\n%s", out)
 	}
 
-	// a adopts it.
+	// a approves it: a phone has no certificate, so it is granted its claim through the host.
 	tm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
 	m = asModel(tm)
 	if adopted != "pixel-8" {
@@ -638,7 +638,7 @@ func TestEdgeFindDevicesHint(t *testing.T) {
 	m.hooks.EdgeSelfInstance = func() string { return "hub" }
 	m.enterEdge()
 	out := stripANSI(m.edgeView(100))
-	for _, want := range []string{"NO DEVICES YET", "running roger on this network appears here to adopt"} {
+	for _, want := range []string{"NO DEVICES YET", "running roger nearby shows here, to invite or approve"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing find-devices hint %q:\n%s", want, out)
 		}
@@ -685,7 +685,7 @@ func TestMapListView(t *testing.T) {
 		t.Fatalf("v did not switch to the list view")
 	}
 	out := stripANSI(m.edgeView(92))
-	for _, want := range []string{"NODE", "KIND", "STATE", "◉ hub", "▯ gentle-ibex-14", "phone", "adopt with a", "▸ "} {
+	for _, want := range []string{"NODE", "KIND", "STATE", "◉ hub", "NEARBY", "> gentle-ibex-14", "mobile", "i invite · a approve"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("list view missing %q:\n%s", want, out)
 		}

@@ -2,6 +2,7 @@ package look
 
 import (
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -102,6 +103,84 @@ const (
 	// SetupNoBuildLine is what e says on a build that cannot run setup.
 	SetupNoBuildLine = "this build cannot set up an Edge here: run roger edge setup to start one, or roger join <invite or address> to join one"
 )
+
+// NEARBY (empty_edge_simple.feature §7, founder ruling 2026-10-12): a device that pings is a row
+// the owner acts on from the sighting. i mints an invite bound to that device, a approves it when
+// it asks (a claim-only device, a phone, is granted its claim instead). No address is typed.
+const (
+	NearbyEyebrow    = "nearby"
+	NearbyActions    = "i invite · a approve"
+	NearbyInvited    = "invited · waiting"
+	NearbyNoCert     = "no certificate yet · joins by claim"
+	NearbyComeBack   = "it must come back on the network to use it"
+	NearbyInviteNext = "scan the QR with the device, or paste the line on it: it joins once, and only this device can"
+	NearbyNoEdgeYet  = "start an Edge here first (e), then i invites it"
+	NearbyNotServing = "this machine's authority is not answering on the network yet"
+	NearbyCLIHead    = "nearby (pinging on this network, not on an Edge yet):"
+	NearbyCLINone    = "no device is pinging on this network right now."
+	// AdoptDeprecated is the one line `roger edge adopt` prints while it stays as an alias.
+	AdoptDeprecated = "adopt is now: roger edge invite --for <id>, or roger edge approve <id>"
+	// JoinSaysForOther is a bound invite presented by a device it was not minted for.
+	JoinSaysForOther = "that invite is for another device: ask for one for this one"
+)
+
+// NearbyActionsBar is the nearby row's actions as an action bar.
+var NearbyActionsBar = []Action{{"i", "invite"}, {"a", "approve"}}
+
+// NearbySeen words how long ago a device was last heard: "seen 12s ago", or, once it has been quiet
+// for NearbyStaleAfter, "last seen 20m ago" so the owner knows it is not here now.
+func NearbySeen(since time.Duration) string {
+	if since >= NearbyStaleAfter {
+		return "last seen " + shortAge(since) + " ago"
+	}
+	return "seen " + shortAge(since) + " ago"
+}
+
+// NearbyStaleAfter is how long a device may be quiet before its row is marked stale.
+const NearbyStaleAfter = 5 * time.Minute
+
+// NearbyInviteHead is the invite panel's heading for one device.
+func NearbyInviteHead(name string) string { return "invite for " + name }
+
+// NearbyWaitAsk is what the screen says after a on a device that joins by asking.
+func NearbyWaitAsk(name string) string { return "waiting for " + name + " to ask" }
+
+// NearbyRunLine names what that device runs, against this authority's address.
+func NearbyRunLine(addr string) string { return "on it, run: roger join " + addr }
+
+// NearbyCLIInvite and NearbyCLIApprove are the two lines `roger edge nearby` prints under a row.
+func NearbyCLIInvite(id string) string  { return "invite it: roger edge invite --for " + id }
+func NearbyCLIApprove(id string) string { return "approve it when it asks: roger edge approve " + id }
+
+// NearbyKey is how a nearby row names a device's key: the fingerprint of the certificate it serves
+// ("fp"), or for a device with none (a phone) its node id, which derives from its node key ("key").
+// Twelve hex characters, never clipped, are what tell two same-named devices apart.
+func NearbyKey(pin, id string) (label, short string) {
+	if pin != "" {
+		return "fp", NearbyShort(pin)
+	}
+	return "key", NearbyShort(strings.TrimPrefix(id, "n_"))
+}
+
+// NearbyShort is the first twelve characters of a fingerprint or an id.
+func NearbyShort(s string) string {
+	if len(s) > 12 {
+		return s[:12]
+	}
+	return s
+}
+
+func shortAge(d time.Duration) string {
+	switch {
+	case d < time.Minute:
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	case d < time.Hour:
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh", int(d.Hours()))
+	}
+	return fmt.Sprintf("%dd", int(d.Hours()/24))
+}
 
 // The CLI's empty Edge (§7): the head line and the two next steps.
 const (
