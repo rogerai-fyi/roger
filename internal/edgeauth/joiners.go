@@ -104,25 +104,47 @@ func (b *joinerBudget) allow(now time.Time) bool {
 }
 
 // noteRefusedLocked notes a signed request refused because the owner has not adopted or allowed it
-// YET: a phone polling its claim, a machine that tried before it was allowed. It writes only a note
-// that is not there yet, within the budget. The caller holds the authority lock.
+// YET: a phone polling its claim, a machine that tried before it was allowed. A NEW joiner is noted
+// within the budget. A joiner already heard is changed only by a NEWER request that PROVES it checks
+// (an app updated since it was first heard); nothing a refused request says can take that back. The
+// caller holds the authority lock.
 func (l *Local) noteRefusedLocked(nodeID, userKey string, checks bool, ts int64, now time.Time) {
 	b, err := l.readJoiners()
 	if err != nil {
 		return
 	}
-	_, nodeHeard := b.HeardNodes[nodeID]
-	_, userHeard := b.HeardUsers[userKey]
-	if (nodeID == "" || nodeHeard) && (userKey == "" || userHeard) {
-		return
-	}
-	if !l.heard.allow(now) {
-		return
-	}
 	n := JoinerNote{ChecksRoot: checks, At: ts}
-	changed := put(b.HeardNodes, nodeID, n, true)
-	if put(b.HeardUsers, userKey, n, true) {
-		changed = true
+	changed := false
+	isNew := false
+	for _, kv := range []struct {
+		m   map[string]JoinerNote
+		key string
+	}{{b.HeardNodes, nodeID}, {b.HeardUsers, userKey}} {
+		if kv.key == "" {
+			continue
+		}
+		old, heard := kv.m[kv.key]
+		switch {
+		case !heard:
+			isNew = true
+		case checks && !old.ChecksRoot && ts > old.At:
+			kv.m[kv.key] = n
+			changed = true
+		}
+	}
+	if isNew {
+		if !l.heard.allow(now) {
+			if changed {
+				_ = l.writeJSON(JoinersFile, b)
+			}
+			return
+		}
+		if put(b.HeardNodes, nodeID, n, true) {
+			changed = true
+		}
+		if put(b.HeardUsers, userKey, n, true) {
+			changed = true
+		}
 	}
 	if changed {
 		_ = l.writeJSON(JoinersFile, b)

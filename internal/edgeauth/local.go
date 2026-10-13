@@ -196,6 +196,15 @@ func (l *Local) Issue(r Request) (Response, error) {
 		// each REFUSED attempt so the owner's request log answers "did that machine even ask" (a
 		// successful enrol is logged by iss.Issue itself) (audit 2026-09-24).
 		bearerJoin := ""
+		// An invite's proof is matched against invites that may be bound to a node id, so the id must be
+		// the one the presented node key derives BEFORE any invite is tried: an id copied from somebody
+		// else's advert must not reach an invite bound to that device (audit 2026-10-13).
+		if r.JoinProof != "" {
+			if pub, err := r.NodePublicKey(); err != nil || NodeID(pub) != r.NodeID {
+				l.iss.record(r)
+				return ErrKeyMismatch
+			}
+		}
 		if _, ok := l.registry()(r.UserKey); !ok {
 			// A key the owner never allowed may still hold a key-less invite's code (bearer.go).
 			if r.JoinProof == "" {

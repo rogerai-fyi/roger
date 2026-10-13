@@ -337,3 +337,11 @@ Feature: One invite, one paste, for Towers and Edge devices
     When a second device, whose key this Edge allows, presents a proof of the same invite
     Then its answer carries no root proof from that invite
     And the first device's retry with it is still proven
+
+  # Audit 2026-10-13: an invite bound to a device is bound to its KEY, through the id that key derives.
+  @security
+  Scenario: A bound invite cannot be reached by copying the device's node id
+    Given an invite bound to a nearby device's node id
+    When another device, whose key this Edge allows, presents that node id with a node key of its own
+    Then it is refused before any invite is tried
+    And the invite is untouched for the device it is for

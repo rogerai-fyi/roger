@@ -225,3 +225,21 @@ func TestRefusedRequestsCannotFloodTheNotes(t *testing.T) {
 	require.True(t, heard, "three hundred and sixty strangers did not evict a member's note")
 	require.True(t, checks)
 }
+
+// A phone heard as old that is updated is heard again: a NEWER claim that proves it checks moves the
+// note, and nothing unproven moves it back.
+func TestAnUpdatedAppIsHeardAgain(t *testing.T) {
+	local, pub, priv, id := claimFixture(t)
+	_, _ = local.Claim(signedClaim(t, pub, priv, time.Now().Add(-time.Minute)), time.Now())
+	checks, _ := local.NodeChecksRoot(id)
+	require.False(t, checks)
+	updated := signedClaim(t, pub, priv, time.Now())
+	updated.SignChecksRoot(priv)
+	_, _ = local.Claim(updated, time.Now())
+	checks, _ = local.NodeChecksRoot(id)
+	require.True(t, checks)
+	stale := signedClaim(t, pub, priv, time.Now().Add(time.Second))
+	_, _ = local.Claim(stale, time.Now())
+	checks, _ = local.NodeChecksRoot(id)
+	require.True(t, checks, "an unproven request does not take it back")
+}

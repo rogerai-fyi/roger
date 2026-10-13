@@ -129,3 +129,46 @@ func TestABoundInviteIsNotSpentByAnotherAllowedNode(t *testing.T) {
 	_, err = local.Issue(req)
 	require.NoError(t, err, "the device it is for still joins with it")
 }
+
+// Audit 2026-10-13: an invite bound to a device is bound to that device's KEY, through the id it
+// derives. An allowed key that names the victim's (public) node id with its own node key is refused
+// before any invite is tried, and the victim's invite is untouched.
+func TestABoundInviteCannotBeReachedWithACopiedNodeID(t *testing.T) {
+	local, err := edgeauth.Designate(t.TempDir(), "shed")
+	require.NoError(t, err)
+	userPub, user := keypair(t)
+	require.NoError(t, local.Allow(hexEncode(userPub)))
+	victim, _ := keypair(t)
+	code, err := local.MintBearerCodeFor(edgeauth.NodeID(victim))
+	require.NoError(t, err)
+
+	mine, _ := keypair(t)
+	req := enrollReq(user, mine, time.Now())
+	req.NodeID = edgeauth.NodeID(victim) // the victim's id, this machine's key
+	req.Sign(user)
+	req.JoinProof = edgeauth.JoinProof(code, local.Descriptor().Fingerprint, req)
+	_, err = local.Issue(req)
+	require.ErrorIs(t, err, edgeauth.ErrKeyMismatch)
+
+	_, other := keypair(t)
+	_, err = local.Issue(proven(t, local, other, victim, code))
+	require.NoError(t, err, "the device it is for still joins with it")
+}
+
+// A wrong proof from an allowed key costs a guess against an invite bound to its own node too.
+func TestAnAllowedKeysMissCountsAgainstAnInviteBoundToItsNode(t *testing.T) {
+	local, err := edgeauth.Designate(t.TempDir(), "shed")
+	require.NoError(t, err)
+	userPub, user := keypair(t)
+	require.NoError(t, local.Allow(hexEncode(userPub)))
+	node, _ := keypair(t)
+	code, err := local.MintBearerCodeFor(edgeauth.NodeID(node))
+	require.NoError(t, err)
+	for i := 0; i < edgeauth.BearerGuessBudget; i++ {
+		_, err := local.Issue(proven(t, local, user, node, edgeauth.NewCode()))
+		require.NoError(t, err)
+	}
+	resp, err := local.Issue(proven(t, local, user, node, code))
+	require.NoError(t, err)
+	require.Empty(t, resp.RootProof, "the invite was guessed at to its budget, and is void")
+}

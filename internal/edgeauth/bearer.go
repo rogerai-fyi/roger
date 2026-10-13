@@ -116,40 +116,40 @@ func (l *Local) bearerMatch(r Request) (string, bool, error) {
 // proof: a retry after the first answer was lost on the way back (the code is spent and the key
 // allowed by then), or a device whose key stayed allowed and rejoins with a fresh invite. Found so the
 // answer can be proven with it:
-//   - a code this same key spent, or a live code bound to this node: checked, never counted;
-//   - a live UNBOUND code: checked too, and a proof that matches nothing counts one guess against each
-//     such code, exactly as a stranger's does (audit 2026-10-13: an allowed key must not get free
-//     guesses at somebody else's invite).
+//   - a code this same key spent: checked, never counted (it is this key's own retry);
+//   - a live code, unbound or bound to this node (whose id the caller has already bound to the node
+//     key presented): checked, and a proof that matches none of them costs one guess against each,
+//     exactly as a stranger's does (audit 2026-10-13: an allowed key gets no free guesses).
 //
 // A code bound to another node, or spent by another key, is never checked at all. Unlocked; the
-// caller holds the lock.
+// caller holds the lock and has checked that r.NodeID is the one r.NodeKey derives.
 func (l *Local) bearerFind(r Request) (string, bool, error) {
 	got, err := l.readCodes()
 	if err != nil {
 		return "", false, err
 	}
 	fields := joinFields(l.Descriptor().Fingerprint, r)
-	unbound := false
+	tried := false
 	for _, c := range got {
 		if !strings.HasPrefix(c.Join, bearerPrefix) {
 			continue
 		}
-		mine := c.SpentBy == r.UserKey || (c.SpentBy == "" && c.For == r.NodeID)
-		fresh := c.SpentBy == "" && c.For == ""
-		if !mine && !fresh {
+		mine := c.SpentBy != "" && c.SpentBy == r.UserKey
+		live := c.SpentBy == "" && (c.For == "" || c.For == r.NodeID)
+		if !mine && !live {
 			continue
 		}
-		unbound = unbound || fresh
+		tried = tried || live
 		if joincode.EdgeJoin.Check(c.Code, r.JoinProof, r.Nonce, fields...) == nil {
 			return c.Join, true, nil
 		}
 	}
-	if !unbound {
+	if !tried {
 		return "", false, nil
 	}
 	out := got[:0]
 	for _, c := range got {
-		if strings.HasPrefix(c.Join, bearerPrefix) && c.SpentBy == "" && c.For == "" {
+		if strings.HasPrefix(c.Join, bearerPrefix) && c.SpentBy == "" && (c.For == "" || c.For == r.NodeID) {
 			c.Fails++
 			if c.Fails >= BearerGuessBudget {
 				continue
