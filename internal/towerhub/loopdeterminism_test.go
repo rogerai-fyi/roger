@@ -140,26 +140,68 @@ func fastEmptyHub(t *testing.T) (*Server, string) {
 	return s, srv.URL
 }
 
-// A HUB THAT ANSWERS EMPTY AT ONCE CANNOT SPIN THE WORKER: consecutive empty polls are at
-// least emptyPollFloor apart, however fast the tower answers. The floor is the production
-// constant, so the assertion is on real elapsed time between real requests - the one place
-// in this file where the clock is the subject rather than an accident.
+// pacer is the test's hand on ServeLoop's empty-poll pacing: it records every wait the loop
+// asks for and answers each at once. The assertion is then on the loop's own arithmetic - the
+// remainder of the floor it computed from its own start stamp - rather than on wall-clock
+// arrival times at a transport, which a slow first poll (the 401 learn and re-sign) on a loaded
+// runner could squeeze under any slack.
+type pacer struct {
+	mu    sync.Mutex
+	waits []time.Duration
+}
+
+func (p *pacer) after(d time.Duration) <-chan time.Time {
+	p.mu.Lock()
+	p.waits = append(p.waits, d)
+	p.mu.Unlock()
+	fired := make(chan time.Time, 1)
+	fired <- time.Time{}
+	return fired
+}
+
+func (p *pacer) recorded() []time.Duration {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]time.Duration(nil), p.waits...)
+}
+
+// A HUB THAT ANSWERS EMPTY AT ONCE CANNOT SPIN THE WORKER: after every empty answer the loop
+// asks its pacer to wait out the REMAINDER of emptyPollFloor - more than nothing, because the
+// poll took time, and less than the whole floor, because that time is subtracted. A worker that
+// skipped the wait, or waited a fixed floor regardless, fails here without a clock in sight.
 func TestAnEmptyPollIsPacedAtTheFloor(t *testing.T) {
 	id := newTestNode(t)
 	s, base := fastEmptyHub(t)
 	s.RegisterNode("st-1", id.auth())
+	p := &pacer{}
+	prev := emptyPollPace
+	emptyPollPace = p.after
 	clock := &emptyPollClock{inner: http.DefaultTransport}
 	node := id.client(base, 5*time.Second)
 	node.HTTP.Transport = clock
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go func() { _ = ServeLoop(ctx, node, "st-1", echoExec{}, nil) }()
+	done := make(chan error, 1)
+	go func() { done <- ServeLoop(ctx, node, "st-1", echoExec{}, nil) }()
+	defer func() {
+		// The real pacer comes back only once the loop has exited, so nothing reads the
+		// variable while it is written.
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Error("ServeLoop did not return after cancel")
+		}
+		emptyPollPace = prev
+	}()
 
 	require.Eventually(t, func() bool { return len(clock.stamps()) >= 3 },
 		5*time.Second, 5*time.Millisecond, "the worker stopped polling an empty hub")
-	st := clock.stamps()
-	require.GreaterOrEqual(t, st[2].Sub(st[0]), 2*emptyPollFloor-20*time.Millisecond,
-		"two empty cycles must take at least two floors: the worker is busy-spinning")
+	waits := p.recorded()
+	require.GreaterOrEqual(t, len(waits), 2, "every empty answer must be followed by a pacing wait")
+	for i, w := range waits {
+		require.Greater(t, w, time.Duration(0), "wait %d: the loop must pace an empty poll", i)
+		require.Less(t, w, emptyPollFloor, "wait %d: the poll's own duration is subtracted from the floor", i)
+	}
 }
 
 // A CANCEL THAT LANDS DURING THE FLOOR WAIT ENDS THE WORKER THERE. The hook cancels inside the

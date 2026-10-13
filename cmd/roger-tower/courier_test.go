@@ -29,6 +29,9 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -56,7 +59,15 @@ type courierClock struct {
 	// endQuiet ends the window when the test closes it.
 	inQuiet, endQuiet chan struct{}
 	quietOnce         sync.Once
+	// releaseOnce and endOnce guard the two signals the TEST closes: a test closes them where
+	// its scenario needs, and the cleanup closes whatever is still open, so no After goroutine
+	// outlives the test however far the courier got.
+	releaseOnce, endOnce sync.Once
 }
+
+// release ends the ack-grace wait; end closes the final drain's quiet window. Both are idempotent.
+func (c *courierClock) release() { c.releaseOnce.Do(func() { close(c.releaseGrace) }) }
+func (c *courierClock) end()     { c.endOnce.Do(func() { close(c.endQuiet) }) }
 
 func installCourierClock(t *testing.T) *courierClock {
 	t.Helper()
@@ -70,7 +81,14 @@ func installCourierClock(t *testing.T) *courierClock {
 	settleNow = c.Now
 	settleAfter = c.After
 	settleTicker = func(time.Duration) (<-chan time.Time, func()) { return c.tick, func() {} }
-	t.Cleanup(func() { settleNow, settleAfter, settleTicker = prevNow, prevAfter, prevTicker })
+	t.Cleanup(func() {
+		// Every wait the clock handed out is released before the real clocks come back: a
+		// run that never reached the grace or the quiet window would otherwise leave a
+		// goroutine parked on each for the life of the process.
+		c.release()
+		c.end()
+		settleNow, settleAfter, settleTicker = prevNow, prevAfter, prevTicker
+	})
 	return c
 }
 
@@ -216,6 +234,27 @@ func (r *hubRide) settled(t *testing.T) (stationID, attemptID string, receipt []
 	return s.StationID, s.AttemptID, s.Receipt
 }
 
+// spooledIDs lists the attempt ids on the spool's disk DIRECTLY, so a spool assertion cannot
+// pass vacuously. The spool's own loader also deletes every entry whose deadline has passed,
+// and the deadlines these tests write come from a clock pinned to one morning in October:
+// asserting on what the loader returned at the real time of day was true of an empty directory
+// and of a directory the loader had just emptied.
+func spooledIDs(t *testing.T, spool *settleSpool) []string {
+	t.Helper()
+	ents, err := os.ReadDir(spool.dir)
+	require.NoError(t, err)
+	var ids []string
+	for _, e := range ents {
+		raw, rerr := os.ReadFile(filepath.Join(spool.dir, e.Name()))
+		require.NoError(t, rerr)
+		var se spoolEntry
+		require.NoError(t, json.Unmarshal(raw, &se))
+		ids = append(ids, se.AttemptID)
+	}
+	sort.Strings(ids)
+	return ids
+}
+
 // stopAndDrain closes stop, lets the courier reach its quiet window, ends it, and waits for
 // every hub goroutine. It is the only way a run under courierClock ends: the quiet window
 // never closes on its own.
@@ -223,7 +262,7 @@ func (r *hubRide) stopAndDrain(t *testing.T, clock *courierClock) {
 	t.Helper()
 	close(r.stop)
 	awaitClosed(t, clock.inQuiet, "reached its final drain")
-	close(clock.endQuiet)
+	clock.end()
 	r.wait()
 }
 
@@ -261,7 +300,7 @@ func TestACompletedJobsReceiptRidesToCore(t *testing.T) {
 
 	spool, err := newSettleSpool(r.st.Dir())
 	require.NoError(t, err)
-	require.Empty(t, spool.load(time.Now()), "a settled receipt stayed in the spool")
+	require.Empty(t, spooledIDs(t, spool), "a settled receipt stayed in the spool")
 	require.Contains(t, r.out.String(), "carried ", "a settled receipt must print the carried-job line")
 	require.Contains(t, r.out.String(), "receipt settled")
 }
@@ -286,7 +325,7 @@ func TestATransientlyRefusedReceiptRetriesAfterTheAckGrace(t *testing.T) {
 	<-r.submitted
 
 	awaitClosed(t, clock.inGrace, "took the receipt into its ack-grace wait")
-	close(clock.releaseGrace) // the grace elapses; Core answers 503
+	clock.release() // the grace elapses; Core answers 503
 	require.Eventually(t, func() bool { return r.core.called("/tower/edge/settle") == 1 },
 		10*time.Second, 5*time.Millisecond, "the first forward never happened")
 	require.Eventually(t, func() bool { return strings.Contains(r.out.String(), "failed (will retry)") },
@@ -312,7 +351,7 @@ func TestATransientlyRefusedReceiptRetriesAfterTheAckGrace(t *testing.T) {
 		"a receipt already settled must not ride again at shutdown")
 	spool, err := newSettleSpool(r.st.Dir())
 	require.NoError(t, err)
-	require.Empty(t, spool.load(time.Now()))
+	require.Empty(t, spooledIDs(t, spool), "a receipt settled on the retry tick must be unspooled")
 }
 
 // --- the retry tick over recovered receipts -------------------------------------------------
@@ -350,6 +389,7 @@ func TestTheRetryTickSettlesAbandonsAndUnspoolsByTheClock(t *testing.T) {
 	wait, err := runHubInBackground(st, hubOptions{Addr: "127.0.0.1:0"}, out, stop)
 	require.NoError(t, err)
 
+	require.Equal(t, []string{"att-one", "att-two"}, spooledIDs(t, spool), "both receipts start on disk")
 	// The first tick forwards both; Core takes one and refuses the other. Which is which is
 	// the backlog's iteration order, and the assertions do not depend on it.
 	clock.tick <- clock.Now()
@@ -359,7 +399,7 @@ func TestTheRetryTickSettlesAbandonsAndUnspoolsByTheClock(t *testing.T) {
 		s := out.String()
 		return strings.Contains(s, "receipt settled") && strings.Contains(s, "failed (will retry)")
 	}, 10*time.Second, 5*time.Millisecond)
-	require.Len(t, spool.load(clock.Now()), 1, "the settled receipt is unspooled; the refused one is kept")
+	require.Len(t, spooledIDs(t, spool), 1, "the settled receipt is unspooled; the refused one is kept")
 
 	// The settle window closes before Core comes back: the kept receipt is abandoned by name.
 	clock.Advance(settleRetryWindow + time.Minute)
@@ -368,11 +408,11 @@ func TestTheRetryTickSettlesAbandonsAndUnspoolsByTheClock(t *testing.T) {
 		return strings.Contains(out.String(), "ABANDONED - the settle window closed before Core answered")
 	}, 10*time.Second, 5*time.Millisecond, "a receipt past the settle window was kept in the backlog")
 	require.Equal(t, 2, core.called("/tower/edge/settle"), "an abandoned receipt is not forwarded")
-	require.Empty(t, spool.load(time.Now()), "an abandoned receipt must leave the spool, or every restart re-presents it")
+	require.Empty(t, spooledIDs(t, spool), "an abandoned receipt must leave the spool, or every restart re-presents it")
 
 	close(stop)
 	awaitClosed(t, clock.inQuiet, "reached its final drain")
-	close(clock.endQuiet)
+	clock.end()
 	wait()
 	require.Equal(t, 2, core.called("/tower/edge/settle"), "nothing was left for the shutdown drain")
 }
@@ -485,7 +525,7 @@ func TestAReceiptCompletedDuringShutdownRidesTheFinalDrain(t *testing.T) {
 	awaitClosed(t, clock.inQuiet, "reached its final drain")
 	require.Eventually(t, func() bool { return r.core.called("/tower/edge/settle") == 1 },
 		10*time.Second, 5*time.Millisecond, "the receipt completed during shutdown was never couriered")
-	close(clock.endQuiet)
+	clock.end()
 	r.wait()
 
 	_, attempt, receipt := r.settled(t)
@@ -493,7 +533,7 @@ func TestAReceiptCompletedDuringShutdownRidesTheFinalDrain(t *testing.T) {
 	require.Equal(t, []byte("the-receipt"), receipt)
 	spool, err := newSettleSpool(r.st.Dir())
 	require.NoError(t, err)
-	require.Empty(t, spool.load(time.Now()), "a receipt settled in the final drain is unspooled")
+	require.Empty(t, spooledIDs(t, spool), "a receipt settled in the final drain is unspooled")
 	require.Contains(t, r.out.String(), "receipt settled")
 }
 
@@ -503,4 +543,24 @@ func consumerHubPub(t *testing.T) ed25519.PublicKey {
 	pub, _, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
 	return pub
+}
+
+// EVERY WAIT THE CLOCK HANDS OUT IS RELEASED AT CLEANUP. A run that never reaches its grace or
+// its quiet window used to leave one goroutine parked on each for the life of the process. The
+// proof is the waits themselves firing after the subtest's cleanup ran: a channel the After
+// goroutine was still parked behind could not deliver.
+func TestCourierClockReleasesEveryWaitAtCleanup(t *testing.T) {
+	var grace, quiet <-chan time.Time
+	t.Run("a run that reaches neither wait's release", func(t *testing.T) {
+		c := installCourierClock(t)
+		grace = c.After(settleAckGrace)
+		quiet = c.After(settleQuietWindow)
+	})
+	for name, ch := range map[string]<-chan time.Time{"ack grace": grace, "quiet window": quiet} {
+		select {
+		case <-ch:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("the %s wait never fired after cleanup: its goroutine is parked for good", name)
+		}
+	}
 }
