@@ -1704,7 +1704,9 @@
     });
     edgePrev = seen;
 
-    var empty = !d.nodes.length && !d.candidates.length;
+    // A device pinging nearby does not change this machine's state: a machine in no Edge keeps the
+    // simple empty state and the device is a NEARBY row under it (§7).
+    var empty = !d.nodes.length && (!d.candidates.length || !!d.empty);
     // A machine in no Edge gets the simple empty state, never the old facts block
     // (features/edge/empty_edge_simple.feature §6).
     show($("edge-empty"), empty && !d.empty);
@@ -1736,6 +1738,7 @@
         edgeRenderGraph(d);
       }
     }
+    edgeRenderNearby(d);
     edgeRenderCandidates(d);
     edgeRenderAdopting(d);
     edgeRenderSessions(d);
@@ -1919,6 +1922,22 @@
         ir.appendChild(el("td", "num", ""));
         body.appendChild(ir);
       });
+    });
+  }
+
+  var edgeNearbyCtl = null, edgeNearbyIDs = "";
+
+  // edgeRenderNearby draws the NEARBY rows with Invite and Approve. While an invite or a phrase is
+  // open under a row, a read with the same devices leaves it alone, so it is not wiped mid-compare.
+  function edgeRenderNearby(d) {
+    var box = $("edge-nearby");
+    if (!box || !window.RogerConsoleEdgeNearby) return;
+    var ids = JSON.stringify((d.nearby || []).map(function (n) { return n.id; }));
+    if (edgeNearbyCtl && edgeNearbyCtl.busy() && ids === edgeNearbyIDs) return;
+    edgeNearbyIDs = ids;
+    edgeNearbyCtl = window.RogerConsoleEdgeNearby.render(document, box, d, {
+      fetch: function (path, opts) { return fetch(withToken(path), opts); },
+      refresh: loadEdge,
     });
   }
 

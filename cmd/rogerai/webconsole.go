@@ -197,7 +197,7 @@ func edgeHooksFor(cfg config, h *tui.Hooks) webui.EdgeHooks {
 			return r, err
 		},
 		Self: h.EdgeSelf, Fleet: h.EdgeFleet, Candidates: h.EdgeCandidates,
-		Adopt: h.EdgeAdopt, Name: h.EdgeName, Forget: h.EdgeForget,
+		Adopt: h.EdgeAdopt, InviteFor: h.EdgeInviteFor, Name: h.EdgeName, Forget: h.EdgeForget,
 		ConfirmActuate: h.EdgeConfirmActuate,
 		SetAgent:       h.EdgeSetAgent, AddAgent: h.EdgeAddAgent,
 		AgentActive: h.EdgeAgentActive, SetPrefer: h.EdgeSetPrefer,

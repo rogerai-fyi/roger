@@ -1628,3 +1628,16 @@ body.is-chat .content { padding-bottom: var(--s-6); }
 .welcome__what { color: var(--ink-500); }
 .welcome__term { color: var(--ink-700); }
 .welcome__close { background: none; border: 1px solid var(--hairline-2); padding: 2px 10px; cursor: pointer; color: var(--ink-700); font: inherit; }
+
+/* NEARBY (console-edge-nearby.js, empty_edge_simple.feature §7): the TUI's rows, Invite and Approve. */
+.edgenearby { padding: var(--s-3) 0; max-width: 72ch; }
+.edgenearby__head { margin: 0 0 6px; }
+.edgenearby__eyebrow { color: var(--ink-400); letter-spacing: .08em; font-size: 12px; }
+.edgenearby__actions { color: var(--ink-400); font-size: 12px; }
+.edgenearby__row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; padding: 4px 0; }
+.edgenearby__row--stale .edgenearby__facts { color: var(--ink-400); }
+.edgenearby__facts { color: var(--ink-700); font-family: var(--font-mono); font-size: 13px; overflow-wrap: anywhere; }
+.edgenearby__panel { margin: 4px 0 10px; padding-left: 8px; border-left: 3px solid var(--live); }
+.edgenearby__line, .edgenearby__run { display: block; overflow-wrap: anywhere; white-space: pre-wrap; }
+.edgenearby__qr { margin: 6px 0; }
+.edgenearby__phrase { display: block; font-size: 18px; margin: 6px 0; }
