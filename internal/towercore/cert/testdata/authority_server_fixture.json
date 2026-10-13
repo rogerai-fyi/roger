@@ -1,0 +1,15 @@
+{
+  "note": "A real cert.Authority.IssueServer leaf and its Edge root. The phone evaluates the leaf with the root as its ONLY anchor at verify_at, and requires: ServerAuth as the only EKU, the one URI SAN equal to spiffe://rogerai.fm/tower/\u003cauthority node id\u003e, and an IP SAN equal to the address dialed.",
+  "authority_node_id": "n_21fe31dfa154a261626bf854046fd2271b7bed4b6abe45aa",
+  "uri_san": "spiffe://rogerai.fm/tower/n_21fe31dfa154a261626bf854046fd2271b7bed4b6abe45aa",
+  "ip_sans": [
+    "192.168.1.69",
+    "192.168.1.183"
+  ],
+  "eku": "serverAuth",
+  "chain": "leaf -\u003e root (no intermediate; the root's pathLen is 0)",
+  "verify_at": 1791999377,
+  "root_pem": "-----BEGIN CERTIFICATE-----\nMIIBjjCCATOgAwIBAgIQfBMVajGY3V4gPy1hvdc7bDAKBggqhkjOPQQDAjAlMSMw\nIQYDVQQDExpSb2dlckFJIFRvd2VyIEFkbWlzc2lvbiBDQTAeFw0yNjEwMTMxNzM1\nMTdaFw0zNjEwMTAxNzM2MTdaMCUxIzAhBgNVBAMTGlJvZ2VyQUkgVG93ZXIgQWRt\naXNzaW9uIENBMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEmIB/iQr3hnA5QIeT\neHihYNd+4Amx9NDCRAuILO42t/whhB24JM+n0q5rXpLymI2ggCkVrN4n4dT5VvwD\nPBsr/6NFMEMwDgYDVR0PAQH/BAQDAgEGMBIGA1UdEwEB/wQIMAYBAf8CAQAwHQYD\nVR0OBBYEFHfk2aZPJemin8CHs37CmCX1MW/mMAoGCCqGSM49BAMCA0kAMEYCIQD5\nChWYDwIRe6ILpjwPvPlt8cHA5qOKREK7r4KNlhsFZAIhAKMfs0Q4mJcTMvy64GxI\nFdgxP8YBxusJLmYBXiVrNQzW\n-----END CERTIFICATE-----\n",
+  "leaf_pem": "-----BEGIN CERTIFICATE-----\nMIICHjCCAcSgAwIBAgIRAN2dgmjcS32RsKvb8+ytvVwwCgYIKoZIzj0EAwIwJTEj\nMCEGA1UEAxMaUm9nZXJBSSBUb3dlciBBZG1pc3Npb24gQ0EwHhcNMjYxMDEzMTcz\nNTE3WhcNMzUxMDExMTczNjE3WjA9MTswOQYDVQQDDDJuXzIxZmUzMWRmYTE1NGEy\nNjE2MjZiZjg1NDA0NmZkMjI3MWI3YmVkNGI2YWJlNDVhYTBZMBMGByqGSM49AgEG\nCCqGSM49AwEHA0IABLvDtA3ufho0iHKGEJDdHyiAivfi1MgKLnacoYcJtTWTJIi2\nYEWmquJ/UOy9G069SbAO2jO1VutslQeiJZHndGKjgbwwgbkwDgYDVR0PAQH/BAQD\nAgeAMBMGA1UdJQQMMAoGCCsGAQUFBwMBMAwGA1UdEwEB/wQCMAAwHwYDVR0jBBgw\nFoAUd+TZpk8l6aKfwIezfsKYJfUxb+YwYwYDVR0RBFwwWocEwKgBRYcEwKgBt4ZM\nc3BpZmZlOi8vcm9nZXJhaS5mbS90b3dlci9uXzIxZmUzMWRmYTE1NGEyNjE2MjZi\nZjg1NDA0NmZkMjI3MWI3YmVkNGI2YWJlNDVhYTAKBggqhkjOPQQDAgNIADBFAiEA\niuYm4Oysj41cXya/ELTvkQJVFJCm0mJhMOxbIUgCLw4CIEVoLbhXSQ2S1wRgOODD\nEfakzXeiq5GOi+ZcPySdKbHD\n-----END CERTIFICATE-----\n",
+  "wrong_ip": "192.168.1.70"
+}

@@ -53,7 +53,15 @@
 # (X-RogerAI-Receipt on a plain reply, ": rogerai-receipt=" at a stream's end), X-RogerAI-Provider and
 # X-RogerAI-Cost: 0.
 #
-# KNOWN LIMITATIONS, FOR FOUNDER REVIEW (restated after the 2026-10-13 audit). The authority listener
+# RULED 2026-10-13 (founder): the authority serves these paths over TLS (docs/edge-authority-https.md).
+# On the plain listener, once the TLS listener is up, every /edge/phone/* request is refused with 421
+# Misdirected Request, {"error":{"message":"a phone's requests are served over TLS on port <port>"}},
+# and every plain answer carries Roger-Edge-TLS: <port> and Roger-Edge-Authority: <authority node id>.
+# The phone checks the server certificate against the Edge root it holds (ServerAuth only, the URI SAN
+# spiffe://rogerai.fm/tower/<authority node id>, an IP SAN equal to the address dialed). What follows
+# is what plain HTTP left open, and is now closed for a phone that speaks TLS.
+#
+# KNOWN LIMITATIONS OF PLAIN HTTP (restated after the 2026-10-13 audit). The authority listener
 # is plain HTTP, so until the fix below:
 #   - Confidentiality: a prompt and its answer cross the LAN between the phone and the authority in the
 #     clear; anyone on that network can read them.
@@ -198,6 +206,14 @@ Feature: a phone uses the Edge's models through its authority
     Given "jetson" runs a roger that does not read the phone's proof
     When the phone asks for a turn
     Then it is served, and the receipt is made out to the authority that relayed it
+
+  # RULED 2026-10-13 (founder): over TLS only.
+  @ios @security
+  Scenario: a phone's turn is refused on plain HTTP once the authority serves TLS
+    Given the authority's TLS listener is up on port 39443
+    When the phone sends any /edge/phone/* request to the plain listener
+    Then it is refused with 421, naming port 39443, and nothing is relayed
+    And the same request over TLS, to a server certificate that verifies under the Edge root, is served
 
   @ios @security
   Scenario: what a phone's turn on this Edge exposes is said, not hidden

@@ -87,7 +87,11 @@ type edgeHost struct {
 	cfg     config
 	auth    *http.Server
 	authLn  net.Listener
-	issuer  *edgeauth.Issuer
+	// authTLS serves the same authority mux over TLS (edgeauthtls.go); nil when this machine has no
+	// node identity to name in its server certificate.
+	authTLS   *http.Server
+	authTLSLn net.Listener
+	issuer    *edgeauth.Issuer
 	// pair answers `roger join <authority address>`: a device asks, the owner approves on their
 	// screen with the matching phrase (features/join/approve.feature).
 	pair     *localplane.Server
@@ -679,6 +683,7 @@ func (h *edgeHost) arm() bool {
 				self.AuthPort = tcp.Port
 			}
 		}
+		self.TLSPort = edgeAuthorityTLSPort(h.authTLSLn)
 		opts.Self = self
 	}
 	h.registerInstance(h.cfg)
@@ -834,9 +839,20 @@ func (h *edgeHost) startAuthority() {
 	if os.Getenv("ROGERAI_EDGE_AUTHLOG") == "1" {
 		handler = edgeAuthAccessLog(authMux)
 	}
-	auth := &http.Server{Handler: handler, ReadHeaderTimeout: 10 * time.Second}
+	// The same mux on a TLS listener (edgeauthtls.go, ruled 2026-10-13): a phone's turns, presence and
+	// trouble reads ride it, proven to the phone by a server certificate under the Edge root. Once it
+	// is up the plain listener names it on every answer and refuses the phone's paths.
+	tlsLn, tlsSrv := startAuthorityTLS(local, handler)
+	tlsPort := edgeAuthorityTLSPort(tlsLn)
+	authorityID := ""
+	if id, _, ok, _ := edgeIdentityStore().LoadIdentity(); ok {
+		authorityID = id.NodeID
+	}
+	plain := edgePlainAuthority(handler, func() int { return tlsPort }, authorityID)
+	auth := &http.Server{Handler: plain, ReadHeaderTimeout: 10 * time.Second}
 	h.mu.Lock()
 	h.authLn, h.issuer, h.auth, h.pair, h.pairDesc = ln, local.Issuer(), auth, pair, local.Descriptor()
+	h.authTLSLn, h.authTLS = tlsLn, tlsSrv
 	h.mu.Unlock()
 	go func() { _ = auth.Serve(ln) }()
 }
@@ -1155,10 +1171,10 @@ func (h *edgeHost) stop() {
 // a socket open leaves a machine advertising an identity nothing is behind.
 func (h *edgeHost) closeListeners() {
 	h.mu.Lock()
-	face, auth := h.face, h.auth
-	h.face, h.auth = nil, nil
+	face, auth, authTLS := h.face, h.auth, h.authTLS
+	h.face, h.auth, h.authTLS, h.authTLSLn = nil, nil, nil, nil
 	h.mu.Unlock()
-	for _, srv := range []*http.Server{face, auth} {
+	for _, srv := range []*http.Server{face, auth, authTLS} {
 		if srv != nil {
 			_ = srv.Close()
 		}

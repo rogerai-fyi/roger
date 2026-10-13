@@ -31,6 +31,9 @@ type Advert struct {
 	// advertises exactly the six keys it always did. It is what lets a phone that was adopted find
 	// where to send its claim without the owner reading an address to it (features/edge/claim.feature).
 	AuthPort int
+	// TLSPort is where THIS node's authority serves the same paths over TLS, with a server
+	// certificate under the Edge root (ruled 2026-10-13). 0, and no `tls` key, on anything else.
+	TLSPort int
 }
 
 // TXT keys. Short, because a TXT character-string is at most 255 bytes.
@@ -43,6 +46,7 @@ const (
 	txtFP     = "fp"
 	txtAuth   = "auth"
 	txtName   = "nm"
+	txtTLS    = "tls"
 )
 
 // TXT renders the advertisement's TXT record.
@@ -69,6 +73,9 @@ func (a Advert) TXT() []string {
 	// so its record stays the six keys every other node has (and byte-identical to the phone's).
 	if a.AuthPort > 0 {
 		out = append(out, txtAuth+"="+strconv.Itoa(a.AuthPort))
+	}
+	if a.TLSPort > 0 {
+		out = append(out, txtTLS+"="+strconv.Itoa(a.TLSPort))
 	}
 	return out
 }
@@ -100,6 +107,8 @@ func advertFromTXT(txt []string) Advert {
 			a.Fingerprint = strings.ToLower(v)
 		case txtAuth:
 			a.AuthPort, _ = strconv.Atoi(v)
+		case txtTLS:
+			a.TLSPort, _ = strconv.Atoi(v)
 		case txtName:
 			a.Name = v
 		}
