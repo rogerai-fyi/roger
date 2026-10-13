@@ -313,16 +313,20 @@ func runHubInBackground(st *tower.State, opt hubOptions, out io.Writer, stop <-c
 				if !forward(p, false) {
 					admit(p)
 				}
-			case <-tick:
+			case now := <-tick:
+				// THE TICK'S OWN TIME, as a time.Ticker delivers it, decides this pass - not a
+				// fresh clock read per receipt. One pass, one instant: a receipt cannot be
+				// judged against two different "nows" in the same sweep, and a test driving
+				// the tick decides exactly which instant a pass sees.
 				drainOverflow()
 				for id, p := range retries {
-					if settleNow().After(p.deadline) {
+					if now.After(p.deadline) {
 						fmt.Fprintf(out, "hub: settle for %s ABANDONED - the settle window closed before Core answered\n", id)
 						spool.drop(id)
 						delete(retries, id)
 						continue
 					}
-					if settleNow().Before(p.notBefore) {
+					if now.Before(p.notBefore) {
 						continue // the ack grace applies on the overflow path too (audit L-D)
 					}
 					if forward(p, false) {

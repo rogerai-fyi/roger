@@ -26,6 +26,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -137,6 +138,7 @@ type hubRide struct {
 	st       *tower.State
 	out      *syncBuffer
 	stop     chan struct{}
+	stopOnce sync.Once
 	wait     func()
 	addr     string
 	node     *towerhub.Client
@@ -151,7 +153,12 @@ type hubRide struct {
 // once the node has polled that job. nodeTransport, when not nil, is the node client's
 // transport from its very first request: a towerhub.Client copies its http.Client on first use,
 // so a transport installed later is never consulted.
-func startHubRide(t *testing.T, settle func(w http.ResponseWriter, call int) bool, nodeTransport http.RoundTripper) (*hubRide, towerhub.Job) {
+//
+// The hub is ALWAYS wound down when the test ends, pass or fail: a ride abandoned by a failed
+// assertion would otherwise keep its courier reading the clock seams while the clock's own
+// cleanup restores them. This cleanup is registered after installCourierClock's, so it runs
+// first.
+func startHubRide(t *testing.T, clock *courierClock, settle func(w http.ResponseWriter, call int) bool, nodeTransport http.RoundTripper) (*hubRide, towerhub.Job) {
 	t.Helper()
 	corePub, corePriv, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
@@ -177,6 +184,12 @@ func startHubRide(t *testing.T, settle func(w http.ResponseWriter, call int) boo
 		submitted: make(chan towerhub.Result, 1)}
 	r.wait, err = runHubInBackground(r.st, hubOptions{Addr: "127.0.0.1:0"}, r.out, r.stop)
 	require.NoError(t, err)
+	t.Cleanup(func() {
+		r.stopOnce.Do(func() { close(r.stop) })
+		clock.release()
+		clock.end()
+		r.wait()
+	})
 	require.Eventually(t, func() bool {
 		for _, line := range strings.Split(r.out.String(), "\n") {
 			if strings.HasPrefix(line, "hub: listening on ") {
@@ -203,10 +216,27 @@ func startHubRide(t *testing.T, settle func(w http.ResponseWriter, call int) boo
 	r.node = &towerhub.Client{BaseURL: base, TowerID: "tw-1", TowerKeyHash: hex.EncodeToString(sum[:]),
 		Sign: towerhub.SignWith(nodePriv), HTTP: &http.Client{Timeout: 30 * time.Second, Transport: nodeTransport}}
 
+	// THE SUBMIT WAITS FOR THE HUB TO KNOW THE STATION, by the hub's own answer. The refresher
+	// registers st-1 from Core's node list on its own goroutine, and a submit that arrives first
+	// is answered 404 (and triggers that very refresh) - so a consumer that gave up there left
+	// the node polling an empty queue forever, which a single-CPU run hit a dozen times in two
+	// hundred. A 404 is retried; any other answer is final.
 	go func() {
-		res, serr := r.consumer.SubmitJob(t.Context(), r.grant, []byte("sealed-request"))
-		if serr == nil {
-			r.submitted <- res
+		for {
+			res, serr := r.consumer.SubmitJob(t.Context(), r.grant, []byte("sealed-request"))
+			var he *towerhub.HTTPError
+			if errors.As(serr, &he) && he.Status == http.StatusNotFound {
+				select {
+				case <-t.Context().Done():
+					return
+				case <-time.After(5 * time.Millisecond):
+				}
+				continue
+			}
+			if serr == nil {
+				r.submitted <- res
+			}
+			return
 		}
 	}()
 	var job towerhub.Job
@@ -260,7 +290,7 @@ func spooledIDs(t *testing.T, spool *settleSpool) []string {
 // never closes on its own.
 func (r *hubRide) stopAndDrain(t *testing.T, clock *courierClock) {
 	t.Helper()
-	close(r.stop)
+	r.stopOnce.Do(func() { close(r.stop) })
 	awaitClosed(t, clock.inQuiet, "reached its final drain")
 	clock.end()
 	r.wait()
@@ -276,7 +306,7 @@ func (r *hubRide) stopAndDrain(t *testing.T, clock *courierClock) {
 // be inside it before stop is closed; nothing here is a race.
 func TestACompletedJobsReceiptRidesToCore(t *testing.T) {
 	clock := installCourierClock(t)
-	r, job := startHubRide(t, nil, nil)
+	r, job := startHubRide(t, clock, nil, nil)
 
 	require.NoError(t, r.node.CompleteResult(t.Context(), "st-1", towerhub.Result{
 		AttemptID: job.AttemptID, Envelope: []byte("sealed-answer"), Receipt: []byte("the-receipt"),
@@ -310,7 +340,7 @@ func TestACompletedJobsReceiptRidesToCore(t *testing.T) {
 // clock is frozen, so "inside" and "after" are the test's to decide.
 func TestATransientlyRefusedReceiptRetriesAfterTheAckGrace(t *testing.T) {
 	clock := installCourierClock(t)
-	r, job := startHubRide(t, func(w http.ResponseWriter, call int) bool {
+	r, job := startHubRide(t, clock, func(w http.ResponseWriter, call int) bool {
 		if call == 1 {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			_, _ = w.Write([]byte(`{"error":{"message":"briefly down"}}`))
@@ -326,22 +356,20 @@ func TestATransientlyRefusedReceiptRetriesAfterTheAckGrace(t *testing.T) {
 
 	awaitClosed(t, clock.inGrace, "took the receipt into its ack-grace wait")
 	clock.release() // the grace elapses; Core answers 503
-	require.Eventually(t, func() bool { return r.core.called("/tower/edge/settle") == 1 },
-		10*time.Second, 5*time.Millisecond, "the first forward never happened")
-	require.Eventually(t, func() bool { return strings.Contains(r.out.String(), "failed (will retry)") },
-		10*time.Second, 5*time.Millisecond)
-
-	// A tick while the clock still reads inside the grace: skipped, not forwarded. The second
-	// send is a barrier, not a second attempt: the courier takes a tick only from its select,
-	// so this send completes only after the first tick's whole loop body ran - with the clock
-	// still frozen, because it is advanced only after the barrier passes.
-	clock.tick <- clock.Now()
-	clock.tick <- clock.Now()
+	// EVERY STEP BELOW IS SEQUENCED BY THE TICK CHANNEL, not by watching for a side effect.
+	// The courier is inside the main path's grace wait (proved above), so it receives no tick
+	// until that body - the refused forward and the admit into the backlog - has finished. Each
+	// pass then judges the backlog by the time on its own tick, and each following send
+	// completes only after the previous pass has finished.
+	inGrace := clock.Now()
+	clock.tick <- inGrace // a pass inside the grace: skipped, not forwarded
+	clock.tick <- inGrace // barrier: that pass has finished (and this one skips too)
 	require.Equal(t, 1, r.core.called("/tower/edge/settle"), "a retry inside the ack grace must not forward")
-	clock.Advance(settleAckGrace + time.Second)
-	clock.tick <- clock.Now()
-	require.Eventually(t, func() bool { return r.core.called("/tower/edge/settle") == 2 },
-		10*time.Second, 5*time.Millisecond, "the receipt was never retried once the grace had passed")
+	require.Contains(t, r.out.String(), "failed (will retry)")
+	pastGrace := inGrace.Add(settleAckGrace + time.Second)
+	clock.tick <- pastGrace // a pass after the grace: forwards, Core takes it
+	clock.tick <- pastGrace // barrier: the forward, drop and delete have run
+	require.Equal(t, 2, r.core.called("/tower/edge/settle"), "the receipt was never retried once the grace had passed")
 	_, attempt, receipt := r.settled(t)
 	require.Equal(t, job.AttemptID, attempt)
 	require.Equal(t, []byte("the-receipt"), receipt)
@@ -365,11 +393,15 @@ func TestATransientlyRefusedReceiptRetriesAfterTheAckGrace(t *testing.T) {
 // settled" and "ABANDONED" before it removes the spool file, so reading the directory on the
 // strength of the log could see the file still there. The tick channel is unbuffered and the
 // courier receives from it only in its select, so a second send completes only after the first
-// tick's whole loop body - every forward, drop and delete - has run. The barrier's OWN body may
-// still be running when the send returns, so nothing is asserted about it until the next send
-// or the final wait: Core refuses every settle after the first, so its re-forward of the kept
-// receipt changes nothing on disk, and after the abandonment it finds an empty backlog. The
-// exact settle count is asserted once, after wait(), when no courier body can still be running.
+// tick's whole loop body - every forward, drop and delete - has run.
+//
+// THE BARRIER'S OWN BODY MAY STILL BE RUNNING when its send returns, and two things keep that
+// harmless. A pass judges every receipt by the time carried on its tick (hub.go), never by a
+// clock read made while it runs, so advancing the test clock cannot reach into a pass already
+// under way: the first barrier carries the first tick's time and re-forwards the kept receipt,
+// whenever it runs. And Core refuses every settle after the first, so that re-forward changes
+// nothing on disk; after the abandonment the second barrier finds an empty backlog. The exact
+// settle count is asserted once, after wait(), when no courier body can still be running.
 func TestTheRetryTickSettlesAbandonsAndUnspoolsByTheClock(t *testing.T) {
 	clock := installCourierClock(t)
 	core := newCoreStub(t)
@@ -398,6 +430,12 @@ func TestTheRetryTickSettlesAbandonsAndUnspoolsByTheClock(t *testing.T) {
 	stop := make(chan struct{})
 	wait, err := runHubInBackground(st, hubOptions{Addr: "127.0.0.1:0"}, out, stop)
 	require.NoError(t, err)
+	var stopOnce sync.Once
+	t.Cleanup(func() { // pass or fail, the courier is gone before the clock seams are restored
+		stopOnce.Do(func() { close(stop) })
+		clock.end()
+		wait()
+	})
 
 	require.Equal(t, []string{"att-one", "att-two"}, spooledIDs(t, spool), "both receipts start on disk")
 	// The first tick forwards both; Core takes one and refuses the other. Which is which is
@@ -412,13 +450,13 @@ func TestTheRetryTickSettlesAbandonsAndUnspoolsByTheClock(t *testing.T) {
 	require.Len(t, kept, 1, "the settled receipt is unspooled; the refused one is kept")
 
 	// The settle window closes before Core comes back: the kept receipt is abandoned by name.
-	clock.Advance(settleRetryWindow + time.Minute)
-	clock.tick <- clock.Now()
-	clock.tick <- clock.Now() // barrier: the abandonment, drop and delete have run
+	late := clock.Now().Add(settleRetryWindow + time.Minute)
+	clock.tick <- late
+	clock.tick <- late // barrier: the abandonment, drop and delete have run
 	require.Contains(t, out.String(), "hub: settle for "+kept[0]+" ABANDONED - the settle window closed before Core answered")
 	require.Empty(t, spooledIDs(t, spool), "an abandoned receipt must leave the spool, or every restart re-presents it")
 
-	close(stop)
+	stopOnce.Do(func() { close(stop) })
 	awaitClosed(t, clock.inQuiet, "reached its final drain")
 	clock.end()
 	wait()
@@ -507,7 +545,7 @@ func TestAReceiptCompletedDuringShutdownRidesTheFinalDrain(t *testing.T) {
 	clock := installCourierClock(t)
 	release := make(chan struct{})
 	gate := &gatedBodyTransport{inner: continueTransport(), release: release, held: make(chan struct{})}
-	r, job := startHubRide(t, nil, gate)
+	r, job := startHubRide(t, clock, nil, gate)
 
 	completed := make(chan error, 1)
 	go func() {
@@ -519,7 +557,7 @@ func TestAReceiptCompletedDuringShutdownRidesTheFinalDrain(t *testing.T) {
 	awaitClosed(t, gate.held, "received everything but the last byte of the completion")
 	// The handler is mid-read. Stop the hub: the courier takes stop (nothing is queued) and
 	// waits on Shutdown; Shutdown closes the listener and waits on the live handler.
-	close(r.stop)
+	r.stopOnce.Do(func() { close(r.stop) })
 	require.Eventually(t, func() bool {
 		c, derr := net.DialTimeout("tcp", r.addr, 200*time.Millisecond)
 		if derr == nil {
