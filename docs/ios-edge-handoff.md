@@ -622,7 +622,7 @@ first-answer trust, which the root-trust doc already removes.
 The app has no scanner today: no `AVCaptureMetadataOutput`, `DataScannerViewController` or VisionKit
 use anywhere under `RogerAI/`, and the shipping `RogerAI/Resources/Info.plist` has NO
 `NSCameraUsageDescription` (it has microphone, speech, calendar, reminders and local-network strings
-only). A side worktree (`.claude/worktrees/ios-operator-status`) carries a camera string for a
+only). Another in-progress app branch carries a camera string for a
 different feature ("Scan a QR code to move your connection details to another device"); do not
 reuse that wording.
 
