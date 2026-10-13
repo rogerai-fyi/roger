@@ -16,8 +16,8 @@ import (
 	"rogerai.fm/roger/v6/internal/look"
 )
 
-// edgeStatusTickEvery is how often the empty state re-reads this machine's status while it is
-// showing, so a scan pass that completes with nothing to animate still reaches the scan line.
+// edgeStatusTickEvery is how often [3] re-reads this machine's status while it is showing, so a
+// scan pass that completes with nothing to animate still reaches the scan line and the NEARBY rows.
 const edgeStatusTickEvery = 2 * time.Second
 
 type edgeStatusTickMsg struct{}
@@ -26,19 +26,39 @@ func edgeStatusTick() tea.Cmd {
 	return tea.Tick(edgeStatusTickEvery, func(time.Time) tea.Msg { return edgeStatusTickMsg{} })
 }
 
-// onEdgeStatusTick re-reads the snapshot and re-arms only while the empty state is on screen.
+// onEdgeStatusTick re-reads the snapshot and re-arms while [3] is on screen. The empty state
+// re-reads every tick; the enrolled view only when a scan pass has completed since its snapshot,
+// because a pass that finds only a candidate sends no heartbeat, and a re-read clears the screen's
+// error line.
 func (m model) onEdgeStatusTick() (tea.Model, tea.Cmd) {
-	if m.mode != modeEdge || !m.edgeEmptySimple() {
+	if !m.edgeStatusWatched() {
 		m.edge.statusTicking = false
 		return m, nil
 	}
-	m.refreshEdge()
+	if m.edgeEmptySimple() || m.edgePassMoved() {
+		m.refreshEdge()
+	}
 	return m, edgeStatusTick()
 }
 
-// armEdgeStatusTick starts the re-read loop when the empty state comes on screen; idempotent.
+// edgePassMoved reports whether the host completed a scan pass the frame's snapshot has not seen.
+func (m model) edgePassMoved() bool {
+	if m.hooks.EdgeStatus == nil || m.edge.status == nil {
+		return false
+	}
+	return m.hooks.EdgeStatus().LastPass != m.edge.status.LastPass
+}
+
+// edgeStatusWatched reports whether [3] is on screen with something the loop can re-read: the
+// empty state, or a host that reports its scan passes. Without either a tick would only ride
+// along in every [3] key's command.
+func (m model) edgeStatusWatched() bool {
+	return m.mode == modeEdge && (m.edgeEmptySimple() || m.hooks.EdgeStatus != nil)
+}
+
+// armEdgeStatusTick starts the re-read loop when [3] comes on screen; idempotent.
 func (m *model) armEdgeStatusTick() tea.Cmd {
-	if m.mode != modeEdge || m.edge.statusTicking || !m.edgeEmptySimple() {
+	if m.edge.statusTicking || !m.edgeStatusWatched() {
 		return nil
 	}
 	m.edge.statusTicking = true
