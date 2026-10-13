@@ -321,6 +321,9 @@ func edgeEnrollBegin(cfg config, name, endpoint, account string, tr edgeJoinTrus
 		claim = ""
 	}
 	req := edgeauth.NewRequest(claim, name, string(edge.Host), pub, now)
+	// This joiner checks every answer (a code, an invite, a pin or the held root, and no option
+	// skips it), so it says so and the authority does not warn its owner about it (ruling D9).
+	req.ChecksRoot = true
 	req.Sign(edgeUserKey())
 	// With the invite's code and the root's fingerprint in hand, prove the code to the authority, so
 	// a key-less invite (roger edge invite) admits this device's key (bearer.go). An allowed key's
@@ -876,7 +879,15 @@ func edgeAllow(userKey string) error {
 	fmt.Printf("  enrollment code: %s  (good for %d minutes, for one join; allowing again makes a new one)\n",
 		shown, int(edgeauth.CodeLifetime.Minutes()))
 	fmt.Printf("  root %s - the joining machine shows the same when it has joined\n", edgeauth.ShortFingerprint(fp))
-	fmt.Println("  a machine running a roger from before root proofs does not check the code: update roger on it before it joins.")
+	// The D9 warning, unless that machine already told this authority it checks codes (it asked
+	// before it was allowed; joiners.go).
+	switch checks, heard := local.UserChecksRoot(userKey); {
+	case heard && checks:
+	case heard:
+		fmt.Println("  that machine runs a roger from before root proofs: it will not check the code. update roger on it before it joins.")
+	default:
+		fmt.Println("  a machine running a roger from before root proofs does not check the code: update roger on it before it joins.")
+	}
 	b, err := os.ReadFile(edgeAuthorityPortFile())
 	port := strings.TrimSpace(string(b))
 	ips := edgeLANIPs()

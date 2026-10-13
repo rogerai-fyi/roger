@@ -825,6 +825,58 @@ Feature: A machine joining an Edge for the first time believes only a root the o
     Then the output says a joiner running a roger from before root proofs does not check the code
     And it says to update roger on that machine before it joins
 
+  # RULED 2026-10-13 (founder): D9 FIXED - "fix". The warning printed on EVERY allow and adopt because
+  # nothing told the authority that a joiner checks codes. Now a joiner that verifies the root proof
+  # says so with `checks_root: true` (an optional JSON boolean) on its enroll request, its bearer join
+  # (the same enroll request with join_proof) and its claim request. The authority notes what each
+  # SIGNED, fresh request said and warns only about a joiner it heard WITHOUT the flag, or one it has
+  # not heard yet (the general line above). A phone polls its claim before it is adopted, so by the
+  # adopt the authority has usually heard it.
+  #
+  # The flag is deliberately OUTSIDE the signed canonical forms (rogerai-edge-enroll/v1,
+  # rogerai-edge-claim/v1): those bytes are golden-pinned on the phone and the CLI, and an authority
+  # from before the flag would refuse a signature over a form it does not know. A device in the middle
+  # that flips it changes whether the owner is warned, never what is issued or what the joiner checks.
+  # Every authority decodes these requests with plain json.Unmarshal, so an older one skips the field.
+  # Notes from requests that were refused (not adopted, not allowed yet) are signed by keys anyone can
+  # make, so they are budgeted (30 new joiners a minute) and the book is bounded (256 per kind).
+  @security @cli
+  Scenario: a phone that said it checks codes is adopted with no warning
+    Given the phone "pocket" asked to claim from "shed" saying it checks codes
+    When the owner runs "roger edge adopt pocket" on "shed"
+    Then the adopt output does not say "before root proofs"
+
+  @security @cli
+  Scenario: a phone heard without the flag is named as old at the adopt
+    Given the phone "pocket" asked to claim from "shed" without saying it checks codes
+    When the owner runs "roger edge adopt pocket" on "shed"
+    Then the adopt output says "pocket runs a roger or app from before root proofs: it will not check the code"
+
+  @security @cli
+  Scenario: roger edge enroll tells the authority it checks codes
+    When this machine enrolls with a code
+    Then its request to "shed" carried checks_root true
+    And "shed" remembers this machine as one that checks codes
+
+  @security
+  Scenario: checks_root is outside the signature and an older authority ignores it
+    Given a joiner's request signed without checks_root
+    Then setting checks_root on it leaves the signed bytes and the signature good
+    And the same request with checks_root and a field no authority knows is answered, not refused
+
+  @security @tui @console
+  Scenario: the fleet window says whether a member checked the code when it joined
+    Given "pocket" joined "shed" saying it checks codes, and "attic" joined without saying so
+    Then pocket's page on "shed" says it checked this Edge's code when it joined
+    And attic's page says it did not say it checks codes, and to update it
+
+  @security @ios
+  Scenario: an updated phone app says it checks codes on every join request
+    Given the phone runs an app that verifies root proofs
+    When it enrolls by address, joins by an invite, or claims after an adopt
+    Then the request carries "checks_root": true
+    And against an authority from before the flag it is answered exactly as before
+
   @security
   Scenario: an old joiner can still enroll against a new authority
     Given a joiner running a roger from before root proofs

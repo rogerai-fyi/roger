@@ -43,6 +43,13 @@ type Request struct {
 	// JoinProof proves the device holds a key-less invite's code (bearer.go). It binds the user
 	// key, the node and the nonce the signature covers, so it is not signed itself.
 	JoinProof string `json:"join_proof,omitempty"`
+	// ChecksRoot is the joiner saying it verifies the root proof in the answer (it holds a code,
+	// an invite or a pin and refuses an answer that does not prove itself), so the authority need
+	// not warn its owner that this joiner is too old to check (ruling D9). It is deliberately NOT in
+	// canonical(): the signed form is pinned byte for byte on every phone and CLI, and an authority
+	// from before this field would refuse a signature over a form it does not know. A device in the
+	// middle that flips it changes only whether the owner is warned, never what is issued.
+	ChecksRoot bool `json:"checks_root,omitempty"`
 }
 
 // ErrBadSignature is a request whose signature does not check out - the wrong key, or a

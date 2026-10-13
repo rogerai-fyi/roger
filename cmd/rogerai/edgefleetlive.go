@@ -170,6 +170,7 @@ func edgeFleetSource() (fleetview.FleetSnapshot, error) {
 	snap.Items[0].LoadHour = edge.VitalOf(samples, self.NodeID, edge.VitalLoad, now)
 	snap.Items[0].MemHour = edge.VitalOf(samples, self.NodeID, edge.VitalMemory, now)
 	members := map[string]bool{}
+	joiners := edgeauth.ReadJoiners(edgeAuthDir()) // what each member said about checking codes (D9)
 	// The members, arranged; this machine's own row is the hub, not a member.
 	unitNames := edge.UnitNames(append(append([]store.EdgeNode(nil), nodes...), st.candidates...))
 	for _, r := range edge.Arrange(nodes) {
@@ -213,6 +214,12 @@ func edgeFleetSource() (fleetview.FleetSnapshot, error) {
 		it.Maintain = edge.Declares(n, edge.Maintain)
 		it.Controllable = edge.Controllable(n)
 		it.Phone = n.Phone
+		if j, ok := joiners[n.ID]; ok {
+			it.Codes = "old"
+			if j.ChecksRoot {
+				it.Codes = "checks"
+			}
+		}
 		// Only what the serving probe proved is drawn as served (fleet_window.feature §5).
 		it.Model, it.Serving = edge.ModelLineFor(n), edge.ServingShort(n)
 		snap.Items = append(snap.Items, it)

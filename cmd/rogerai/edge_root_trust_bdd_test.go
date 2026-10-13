@@ -2964,6 +2964,87 @@ func (s *rtBDD) warnsOldJoiner() error {
 
 func (s *rtBDD) saysUpdateFirst() error { return s.says("before it joins") }
 
+// phoneAskedToClaim is a phone polling its claim before the owner adopts it: refused (not adopted
+// yet), but signed, so the authority hears whether it checks codes.
+func (s *rtBDD) phoneAskedToClaim(name, saying string) error {
+	if err := s.phoneCandidate(name); err != nil {
+		return err
+	}
+	c := edgeauth.NewClaimRequest(name, "mobile", s.phone.pub, time.Now())
+	c.ChecksRoot = saying == "saying"
+	c.Sign(s.phone.priv)
+	if _, err := enrollhttp.Claim(context.Background(), s.shed().url, c); err == nil {
+		return fmt.Errorf("a claim before the adopt was answered")
+	}
+	return nil
+}
+
+func (s *rtBDD) requestCarriedChecksRoot() error {
+	req, _, ok := s.lastExchange(s.shed())
+	if !ok {
+		return fmt.Errorf("no enrollment reached shed:\n%s", s.out)
+	}
+	if !req.ChecksRoot {
+		return fmt.Errorf("the request did not say it checks codes")
+	}
+	return nil
+}
+
+func (s *rtBDD) shedRemembersChecks() error {
+	req, _, _ := s.lastExchange(s.shed())
+	checks, heard := s.shed().local.NodeChecksRoot(req.NodeID)
+	if !heard || !checks {
+		return fmt.Errorf("shed does not remember this machine as one that checks (heard %v, checks %v)", heard, checks)
+	}
+	if checks, heard = s.shed().local.UserChecksRoot(s.keyHex(s.me)); !heard || !checks {
+		return fmt.Errorf("shed does not remember this machine's key as one that checks")
+	}
+	return nil
+}
+
+func (s *rtBDD) requestSignedWithoutFlag() error {
+	pub, _, _ := ed25519.GenerateKey(rand.Reader)
+	s.code = s.allowMe("shed")
+	s.req = edgeauth.NewRequest("", "bench", "host", pub, time.Now())
+	s.req.Sign(s.me.key)
+	return nil
+}
+
+func (s *rtBDD) flagLeavesSignature() error {
+	r := s.req
+	r.ChecksRoot = true
+	if err := r.VerifySignature(); err != nil {
+		return fmt.Errorf("checks_root is inside the signature: %w", err)
+	}
+	return nil
+}
+
+// unknownFieldsAnswered posts the raw JSON an updated phone sends, plus a field no build knows: the
+// decoder skips what it does not know (no DisallowUnknownFields on this path), as an older one does.
+func (s *rtBDD) unknownFieldsAnswered() error {
+	raw, err := json.Marshal(s.req)
+	if err != nil {
+		return err
+	}
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return err
+	}
+	m["checks_root"] = true
+	m["a_field_from_the_future"] = "x"
+	raw, _ = json.Marshal(m)
+	resp, err := http.Post(s.shed().url+enrollhttp.Path, "application/json", bytes.NewReader(raw))
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("answered %d: %s", resp.StatusCode, b)
+	}
+	return nil
+}
+
 // oldJoin is a joiner from before root proofs: it signs, asks, and keeps whatever root came back.
 func (s *rtBDD) oldJoin(url string) (map[string]any, *edgeauth.Identity, error) {
 	pub, _, _ := ed25519.GenerateKey(rand.Reader)
@@ -3862,6 +3943,15 @@ func TestEnrollmentRootTrustFeature(t *testing.T) {
 			sc.Step(`^a joiner running (new|old) and an authority running (new|old)$`, st.pairingVersions)
 			sc.Step(`^the joiner enrolls for the first time with (a code|the pin|nothing)$`, st.pairingEnrolls)
 			sc.Step(`^the result is (.+)$`, st.theResultIs)
+			// 12, D9 fixed 2026-10-13: checks_root
+			sc.Step(`^the phone "([^"]*)" asked to claim from "shed" (saying|without saying) it checks codes$`, st.phoneAskedToClaim)
+			sc.Step(`^the adopt output does not say "([^"]*)"$`, st.never)
+			sc.Step(`^the adopt output says "([^"]*)"$`, func(sub string) error { return st.says(sub) })
+			sc.Step(`^its request to "shed" carried checks_root true$`, st.requestCarriedChecksRoot)
+			sc.Step(`^"shed" remembers this machine as one that checks codes$`, st.shedRemembersChecks)
+			sc.Step(`^a joiner's request signed without checks_root$`, st.requestSignedWithoutFlag)
+			sc.Step(`^setting checks_root on it leaves the signed bytes and the signature good$`, st.flagLeavesSignature)
+			sc.Step(`^the same request with checks_root and a field no authority knows is answered, not refused$`, st.unknownFieldsAnswered)
 
 			// 13
 			sc.Step(`^this Edge uses the Core authority and the broker address is https$`, st.coreHTTPS)

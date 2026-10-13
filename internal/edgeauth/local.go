@@ -51,6 +51,8 @@ type Local struct {
 	// mu serialises claim, grant and issue: check-take-issue-record-consume must be atomic so two
 	// racing claims cannot both mint a certificate for one adopt (audit 2026-09-23).
 	mu sync.Mutex
+	// heard bounds the notes a refused claim may write (joiners.go). Guarded by mu.
+	heard joinerBudget
 }
 
 // Designate generates this Edge's root, here, once.
@@ -198,6 +200,10 @@ func (l *Local) Issue(r Request) (Response, error) {
 			// A key the owner never allowed may still hold a key-less invite's code (bearer.go).
 			if r.JoinProof == "" {
 				l.iss.record(r)
+				// A machine that asks before the owner allows it is heard here, in time for the
+				// allow to say whether it checks codes (joiners.go). Its node id is unproven (a
+				// user-key request does not prove the node key), so only the user key is noted.
+				l.noteRefusedLocked("", r.UserKey, r.ChecksRoot, l.iss.cfg.Now())
 				return ErrUnknownMachine
 			}
 			j, matched, err := l.bearerMatch(r)
@@ -297,6 +303,8 @@ func (l *Local) Issue(r Request) (Response, error) {
 			}
 		}
 		resp = r2
+		// What this joiner said about checking codes, for the owner's screens (joiners.go).
+		l.noteJoinerLocked(r.NodeID, r.UserKey, r.ChecksRoot, l.iss.cfg.Now())
 		return nil
 	})
 	if err != nil {
@@ -593,6 +601,9 @@ func (l *Local) Claim(c ClaimRequest, now time.Time) (Response, error) {
 	err := l.withLock(func() error {
 		grant, ok := l.grantFor(c.NodeID)
 		if !ok {
+			// A phone polls its claim before the owner adopts it, so this is where the authority
+			// first hears whether it checks codes - in time for the adopt to say so (joiners.go).
+			l.noteRefusedLocked(c.NodeID, "", c.ChecksRoot, now)
 			return ErrNotAdopted
 		}
 		// A grant that has stood too long - or carries no timestamp at all (a legacy or hand-edited
@@ -646,6 +657,7 @@ func (l *Local) Claim(c ClaimRequest, now time.Time) (Response, error) {
 			Root:    EncodeCert(l.auth.Root()),
 			Edge:    l.where,
 		}
+		l.noteJoinerLocked(c.NodeID, "", c.ChecksRoot, now)
 		// The adopt's code is spent with the grant, in this same locked step.
 		return l.prove(&resp, nodeJoin(c.NodeID), c.Nonce)
 	})
