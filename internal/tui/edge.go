@@ -923,26 +923,6 @@ func (m *model) edgeShowAllowKey() {
 	m.status = stKey.Render("allow this on another machine's owner: ") + stEmber.Render("roger edge authority allow "+m.hooks.EdgeSetup.UserKeyHex())
 }
 
-// adoptEdgeCandidate is the owner's explicit action that turns a candidate into a member.
-// Nothing else does: seeing a machine on your network is not deciding it is yours.
-func (m *model) adoptEdgeCandidate() {
-	n, isCand, ok := m.edgeSelected()
-	if !ok || !isCand {
-		m.status = stDim.Render("a adopts a CANDIDATE - select one first")
-		return
-	}
-	if m.hooks.EdgeAdopt == nil {
-		m.status = stEmber.Render("this build cannot adopt - no fleet is wired to the Edge screen")
-		return
-	}
-	if err := m.hooks.EdgeAdopt(n.ID, n.Name); err != nil {
-		m.status = stEmber.Render("adopt " + n.Name + ": " + err.Error())
-		return
-	}
-	m.refreshEdge()
-	m.status = edgeAdoptedMessage(n.Name, n.Pin) + m.edgeAdoptCodeNote(n.ID, n.Pin)
-}
-
 // edgeAdoptCodeNote is the one-time enrollment code a device that joins by claim enters to finish
 // joining, said at the moment of adopting (features/edge/enrollment_root_trust.feature).
 func (m *model) edgeAdoptCodeNote(id, pin string) string {
@@ -964,31 +944,6 @@ func edgeMinutesLeft(d time.Duration) string {
 		n = 1
 	}
 	return fmt.Sprintf("%d min", n)
-}
-
-// edgeAdoptSelectedNet adopts the candidate the network-map highlight is on - the UniFi moment for
-// a phone or machine discovered on the LAN. It acts only on a DISCOVERED node; anything else is a
-// no-op with a nudge, so a stray press never adopts the wrong thing.
-func (m *model) edgeAdoptSelectedNet() {
-	it, _ := m.edgeSelectedNet()
-	if !it.cand {
-		m.status = stDim.Render("a adopts a DISCOVERED machine - select one in that band first")
-		return
-	}
-	if m.hooks.EdgeAdopt == nil {
-		m.status = stEmber.Render("this build cannot adopt - no fleet is wired to the Edge screen")
-		return
-	}
-	if err := m.hooks.EdgeAdopt(it.id, it.name); err != nil {
-		m.status = stEmber.Render("adopt " + it.name + ": " + err.Error())
-		return
-	}
-	m.refreshEdge()
-	pin := ""
-	if it.node != nil {
-		pin = it.node.Pin
-	}
-	m.status = edgeAdoptedMessage(it.name, pin) + m.edgeAdoptCodeNote(it.id, pin)
 }
 
 // edgeAdoptedMessage is the confirmation after adopting a candidate. A candidate that advertised no

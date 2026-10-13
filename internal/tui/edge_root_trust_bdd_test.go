@@ -148,7 +148,7 @@ func (s *rootTrustTUI) phoneCandidate(name string) error {
 }
 
 func (s *rootTrustTUI) adoptsIt() error {
-	s.am.adoptEdgeCandidate()
+	s.am.edgeNearbyApprove()
 	return nil
 }
 
@@ -173,7 +173,7 @@ func (s *rootTrustTUI) expiredPanelOffersFresh() error {
 
 func (s *rootTrustTUI) adoptingPanelShowingCode() error {
 	s.adoptFixture()
-	s.am.adoptEdgeCandidate()
+	s.am.edgeNearbyApprove()
 	return nil
 }
 
