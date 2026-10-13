@@ -360,13 +360,23 @@ func TestATransientlyRefusedReceiptRetriesAfterTheAckGrace(t *testing.T) {
 // transiently stays, and when the clock passes the settle window the one that stayed is
 // abandoned by name and unspooled - a receipt Core can no longer accept must not wedge a slot
 // in the backlog for good.
+//
+// EVERY DISK ASSERTION FOLLOWS A BARRIER TICK, never a log line. The courier prints "receipt
+// settled" and "ABANDONED" before it removes the spool file, so reading the directory on the
+// strength of the log could see the file still there. The tick channel is unbuffered and the
+// courier receives from it only in its select, so a second send completes only after the first
+// tick's whole loop body - every forward, drop and delete - has run. The barrier's OWN body may
+// still be running when the send returns, so nothing is asserted about it until the next send
+// or the final wait: Core refuses every settle after the first, so its re-forward of the kept
+// receipt changes nothing on disk, and after the abandonment it finds an empty backlog. The
+// exact settle count is asserted once, after wait(), when no courier body can still be running.
 func TestTheRetryTickSettlesAbandonsAndUnspoolsByTheClock(t *testing.T) {
 	clock := installCourierClock(t)
 	core := newCoreStub(t)
 	core.answerDispatchKey(t)
 	core.answerHubNodes(`{"nodes":[]}`)
 	core.reply["/tower/edge/settle"] = func(w http.ResponseWriter, call int) bool {
-		if call == 2 {
+		if call > 1 {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			_, _ = w.Write([]byte(`{"error":{"message":"briefly down"}}`))
 			return true
@@ -393,28 +403,30 @@ func TestTheRetryTickSettlesAbandonsAndUnspoolsByTheClock(t *testing.T) {
 	// The first tick forwards both; Core takes one and refuses the other. Which is which is
 	// the backlog's iteration order, and the assertions do not depend on it.
 	clock.tick <- clock.Now()
-	require.Eventually(t, func() bool { return core.called("/tower/edge/settle") == 2 },
-		10*time.Second, 5*time.Millisecond, "the retry tick did not forward the recovered receipts")
-	require.Eventually(t, func() bool {
-		s := out.String()
-		return strings.Contains(s, "receipt settled") && strings.Contains(s, "failed (will retry)")
-	}, 10*time.Second, 5*time.Millisecond)
-	require.Len(t, spooledIDs(t, spool), 1, "the settled receipt is unspooled; the refused one is kept")
+	clock.tick <- clock.Now() // barrier: the first tick's loop body has finished
+	require.GreaterOrEqual(t, core.called("/tower/edge/settle"), 2, "the first tick forwards both receipts")
+	s := out.String()
+	require.Contains(t, s, "receipt settled")
+	require.Contains(t, s, "failed (will retry)")
+	kept := spooledIDs(t, spool)
+	require.Len(t, kept, 1, "the settled receipt is unspooled; the refused one is kept")
 
 	// The settle window closes before Core comes back: the kept receipt is abandoned by name.
 	clock.Advance(settleRetryWindow + time.Minute)
 	clock.tick <- clock.Now()
-	require.Eventually(t, func() bool {
-		return strings.Contains(out.String(), "ABANDONED - the settle window closed before Core answered")
-	}, 10*time.Second, 5*time.Millisecond, "a receipt past the settle window was kept in the backlog")
-	require.Equal(t, 2, core.called("/tower/edge/settle"), "an abandoned receipt is not forwarded")
+	clock.tick <- clock.Now() // barrier: the abandonment, drop and delete have run
+	require.Contains(t, out.String(), "hub: settle for "+kept[0]+" ABANDONED - the settle window closed before Core answered")
 	require.Empty(t, spooledIDs(t, spool), "an abandoned receipt must leave the spool, or every restart re-presents it")
 
 	close(stop)
 	awaitClosed(t, clock.inQuiet, "reached its final drain")
 	clock.end()
 	wait()
-	require.Equal(t, 2, core.called("/tower/edge/settle"), "nothing was left for the shutdown drain")
+	// Three settles in all: both receipts on the first tick and the kept one on the first
+	// barrier. A fourth would mean the abandoned receipt was forwarded on the abandoning tick,
+	// or something was left for the shutdown drain.
+	require.Equal(t, 3, core.called("/tower/edge/settle"),
+		"an abandoned receipt is not forwarded, and nothing was left for the shutdown drain")
 }
 
 // --- the final drain: a receipt from a handler that was mid-body when stop came -------------
