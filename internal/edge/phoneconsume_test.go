@@ -85,8 +85,10 @@ func newPhoneRig(t *testing.T) *phoneRig {
 	// The member "jetson", its face over mutual TLS.
 	var memberCert tls.Certificate
 	rig.member, rig.memberID, memberCert, _ = issueMember(t, a)
-	var selfID string
-	_, selfID, rig.selfCert, _ = issueMember(t, a)
+	// The authority's own node is jetson: a test face can only listen on loopback, and the authority
+	// dials loopback only for its own face (relayAddr).
+	selfID := rig.memberID
+	rig.selfCert = memberCert
 	srv := NewServer(Describe{NodeID: rig.memberID, Account: "acct-1", Kind: "host"}, memberCert)
 	srv.SetServing(Serving{
 		Trust:    a,
@@ -135,6 +137,7 @@ type signed struct {
 	ts                                     int64
 	key                                    ed25519.PrivateKey
 	signBody                               []byte // when set, signed over this instead of the body sent
+	noBodyHash                             bool   // leave Roger-Body-SHA256 off
 }
 
 func freshNonce() string {
@@ -169,6 +172,9 @@ func (rig *phoneRig) ask(t *testing.T, method, path string, body string, s signe
 	r.Header.Set(HeaderNonce, s.nonce)
 	r.Header.Set(HeaderTS, fmt.Sprint(s.ts))
 	r.Header.Set(HeaderSig, hex.EncodeToString(sig))
+	if !s.noBodyHash {
+		r.Header.Set(HeaderBodySHA256, BodyHash(signOver))
+	}
 	w := httptest.NewRecorder()
 	rig.h.ServeHTTP(w, r)
 	return w
@@ -343,6 +349,7 @@ func TestASignatureIsBoundToItsActionAndTarget(t *testing.T) {
 	r.Header.Set(HeaderNonce, s.nonce)
 	r.Header.Set(HeaderTS, fmt.Sprint(s.ts))
 	r.Header.Set(HeaderSig, hex.EncodeToString(sig))
+	r.Header.Set(HeaderBodySHA256, BodyHash([]byte(chatBody)))
 	rec := httptest.NewRecorder()
 	rig.h.ServeHTTP(rec, r)
 	require.Equal(t, http.StatusForbidden, rec.Code)
@@ -359,7 +366,7 @@ func (rig *phoneRig) relayed(t *testing.T, addr, pin, faceID, body string, attes
 	t.Helper()
 	ts, nonce := time.Now().Unix(), freshNonce()
 	sig := hex.EncodeToString(ed25519.Sign(rig.phoneKey, ConsumeCanonical(rig.phoneID, ActionInfer, "", BodyHash([]byte(chatBody)), nonce, ts)))
-	p := memberProof{NodeID: rig.phoneID, Cert: rig.phoneCert, Nonce: nonce, TS: ts, Sig: sig}
+	p := memberProof{NodeID: rig.phoneID, Cert: rig.phoneCert, Nonce: nonce, TS: ts, Sig: sig, BodySHA: BodyHash([]byte(chatBody))}
 	resp, err := dialMember(t.Context(), addr, pin, &rig.selfCert, InferPath, []byte(body), func(h http.Header) {
 		p.set(h)
 		if attest {
@@ -418,6 +425,7 @@ func TestAPhonesRequestIDDoesNotReachTheReceipt(t *testing.T) {
 	r.Header.Set(HeaderNonce, s.nonce)
 	r.Header.Set(HeaderTS, fmt.Sprint(s.ts))
 	r.Header.Set(HeaderSig, hex.EncodeToString(sig))
+	r.Header.Set(HeaderBodySHA256, BodyHash([]byte(chatBody)))
 	r.Header.Set("X-Roger-Request", "chosen-by-someone-in-the-path")
 	w := httptest.NewRecorder()
 	rig.h.ServeHTTP(w, r)
@@ -441,6 +449,7 @@ func TestAStrangersBodyIsNotRead(t *testing.T) {
 	r.Header.Set(HeaderNonce, nonce)
 	r.Header.Set(HeaderTS, fmt.Sprint(ts))
 	r.Header.Set(HeaderSig, hex.EncodeToString(ed25519.Sign(key, ConsumeCanonical(id, ActionInfer, "", BodyHash([]byte(chatBody)), nonce, ts))))
+	r.Header.Set(HeaderBodySHA256, BodyHash([]byte(chatBody)))
 	w := httptest.NewRecorder()
 	rig.h.ServeHTTP(w, r)
 	require.Equal(t, http.StatusForbidden, w.Code)
@@ -466,15 +475,76 @@ func TestABandListTakesAnEmptyBody(t *testing.T) {
 	require.Contains(t, w.Body.String(), "empty body")
 }
 
-// Phone requests are bounded in flight: past the bound the answer is a 503 with Retry-After.
+// Phone requests are bounded in flight: two per member and eight in all, and the slot is taken only
+// after the signature is checked.
 func TestPhoneRequestsAreBoundedInFlight(t *testing.T) {
-	pc := &phoneConsume{PhoneConsume: PhoneConsume{Now: time.Now}, seen: newNonceCache(), slots: make(chan struct{}, 1)}
-	pc.slots <- struct{}{}
+	pc := &phoneConsume{seen: newNonceCache(), perNode: map[string]int{}}
+	require.True(t, pc.take("n_a"))
+	require.True(t, pc.take("n_a"))
+	require.False(t, pc.take("n_a"), "a third from one member waits")
+	for i := 0; i < phoneMaxInFlight-2; i++ {
+		require.True(t, pc.take(fmt.Sprintf("n_%d", i)))
+	}
+	require.False(t, pc.take("n_b"), "eight in all")
+	pc.give("n_a")
+	require.True(t, pc.take("n_b"))
+	pc.give("n_b")
+	pc.give("n_a")
+	require.Equal(t, phoneMaxInFlight-2, pc.inFlight)
+	require.NotContains(t, pc.perNode, "n_a")
+
+}
+
+// Audit 2026-10-13: the member certificate travels in the clear, so a device that sniffed it, without
+// the key, must not take a slot or make the authority read a body. Its signature is checked first,
+// from the headers alone.
+func TestASniffedCertificateHoldsNoSlotAndIsReadNothing(t *testing.T) {
+	rig := newPhoneRig(t)
+	_, wrong, _ := ed25519.GenerateKey(rand.Reader)
+	body := &countingReader{r: strings.NewReader(chatBody)}
+	ts, nonce := time.Now().Unix(), freshNonce()
+	r := httptest.NewRequest(http.MethodPost, PhoneInferPath, body)
+	r.Header.Set(HeaderNode, rig.phoneID)
+	r.Header.Set(HeaderCert, rig.phoneCert)
+	r.Header.Set(HeaderNonce, nonce)
+	r.Header.Set(HeaderTS, fmt.Sprint(ts))
+	r.Header.Set(HeaderBodySHA256, BodyHash([]byte(chatBody)))
+	r.Header.Set(HeaderSig, hex.EncodeToString(ed25519.Sign(wrong, ConsumeCanonical(rig.phoneID, ActionInfer, "", BodyHash([]byte(chatBody)), nonce, ts))))
 	w := httptest.NewRecorder()
-	_, _, _, ok := pc.admit(w, httptest.NewRequest(http.MethodPost, PhoneBandsPath, nil), ActionBands, 0, "")
-	require.False(t, ok)
-	require.Equal(t, http.StatusServiceUnavailable, w.Code)
-	require.Equal(t, "2", w.Header().Get("Retry-After"))
+	rig.h.ServeHTTP(w, r)
+	require.Equal(t, http.StatusForbidden, w.Code)
+	require.Contains(t, w.Body.String(), errNotVerified)
+	require.Zero(t, body.n, "not one byte read")
+}
+
+// Roger-Body-SHA256 is required, and a body that does not match it is refused with the same 403 as
+// any other failure of identity; a revoked and a live phone read the same for a body over the cap.
+func TestTheBodyHashHeaderIsRequiredAndHeld(t *testing.T) {
+	rig := newPhoneRig(t)
+	w := rig.ask(t, http.MethodPost, PhoneInferPath, chatBody, signed{action: ActionInfer, noBodyHash: true})
+	require.Equal(t, http.StatusForbidden, w.Code)
+	require.Contains(t, w.Body.String(), errNotVerified)
+
+	// The over-cap and body-shape refusals come only after the signature: a captured certificate
+	// cannot use them to tell a live member from a revoked one.
+	big := `{"model":"kokoro","input":"` + strings.Repeat("a", speechBodyCap) + `"}`
+	require.NoError(t, rig.a.Revoke(rig.phoneSer))
+	_, wrong, _ := ed25519.GenerateKey(rand.Reader)
+	w = rig.ask(t, http.MethodPost, PhoneSpeechPath, big, signed{action: ActionSpeech, key: wrong, nodeID: rig.phoneID, certB64: rig.phoneCert})
+	require.Equal(t, http.StatusForbidden, w.Code)
+	require.Contains(t, w.Body.String(), errNotVerified)
+	w = rig.ask(t, http.MethodPost, PhoneBandsPath, "{}", signed{action: ActionBands, key: wrong, nodeID: rig.phoneID, certB64: rig.phoneCert})
+	require.Equal(t, http.StatusForbidden, w.Code)
+	require.Contains(t, w.Body.String(), errNotVerified)
+}
+
+// A nonce is exactly 16 bytes as 32 lowercase hex characters.
+func TestANonceOfAnyOtherShapeIsRefused(t *testing.T) {
+	rig := newPhoneRig(t)
+	for _, n := range []string{strings.ToUpper(freshNonce()), freshNonce()[:30], freshNonce() + "00", strings.Repeat("a", 800<<10)} {
+		w := rig.ask(t, http.MethodPost, PhoneBandsPath, "", signed{action: ActionBands, nonce: n})
+		require.Equal(t, http.StatusForbidden, w.Code)
+	}
 }
 
 // The golden vectors the Roger app pins its signer to: computed independently (pure-Python RFC 8032,
@@ -535,9 +605,12 @@ func TestAMembersWildcardAddressIsNotThisMachine(t *testing.T) {
 	loc := Located{Node: store.EdgeNode{ID: "n_member", Transports: []store.EdgeTransport{{Kind: "lan", Addr: "0.0.0.0:8443", Fingerprint: "ab"}}}}
 	addr, _ := relayAddr(loc, "n_authority")
 	require.Empty(t, addr, "never dialed: the system would connect a wildcard to this machine")
-	loc.Node.Transports[0].Addr = "[::]:8443"
-	addr, _ = relayAddr(loc, "n_authority")
-	require.Empty(t, addr)
+	for _, a := range []string{"[::]:8443", "127.0.0.1:8443", "[::1]:8443", "169.254.1.2:8443", "[fe80::1]:8443"} {
+		loc.Node.Transports[0].Addr = a
+		addr, _ = relayAddr(loc, "n_authority")
+		require.Empty(t, addr, a)
+	}
+	loc.Node.Transports[0].Addr = "0.0.0.0:8443"
 	addr, _ = relayAddr(loc, "n_member")
 	require.Equal(t, "127.0.0.1:8443", addr, "this machine's own face")
 }

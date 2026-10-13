@@ -61,3 +61,15 @@ holds. The phone still proves ITSELF with the request signature; TLS only proves
 The request signature (`rogerai-edge-infer/v1`, presence, trouble feed) stays exactly as it is: it is
 the phone's identity, and it binds each request to its body and moment. The relay attestation between
 the authority and the faces is unchanged.
+
+## Also proposed, not built (review of 2026-10-13)
+
+- **A dedicated relay key.** Today the authority signs each relay attestation (`Roger-Relay`) with the
+  Edge root itself. Defence in depth would be a separate relay key, certified by the root with a
+  narrow EKU and a short life, sent beside the attestation; faces would check the chain and the
+  attestation. It fits the same issuing code as the server leaf above (`IssueServer`'s sibling).
+- **The invite's id in the bearer proof.** A wrong join proof costs a guess against every live invite
+  it could have been for, because the proof does not say which invite it was made with. Putting the
+  invite's join id in the proof (a new `rogerai-edge-join/v2` domain, the id carried in the invite URL)
+  would charge a miss only to the invite it names. It changes the invite and the proof on every
+  joiner, so it waits for its own ruling.

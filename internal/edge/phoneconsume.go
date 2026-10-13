@@ -53,6 +53,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"rogerai.fm/roger/v6/internal/towercore/cert"
@@ -87,6 +88,10 @@ const (
 	HeaderNonce  = "Roger-Nonce"  // hex, 16 random bytes
 	HeaderTS     = "Roger-TS"     // unix seconds
 	HeaderSig    = "Roger-Sig"    // hex Ed25519 signature over ConsumeCanonical, by the certificate's key
+	// HeaderBodySHA256 is REQUIRED on every /edge/phone/* request: the lowercase hex SHA-256 of the
+	// exact body (of "" for the band list). It lets the signature be checked before a byte of the
+	// body is read; the body is then held to it.
+	HeaderBodySHA256 = "Roger-Body-SHA256"
 	// HeaderRelay is set by the AUTHORITY on a relayed turn, never by a phone: base64 of the Edge
 	// root's ECDSA (ASN.1) signature over SHA-256 of RelayCanonical(face node id, Roger-Sig).
 	HeaderRelay = "Roger-Relay"
@@ -96,8 +101,12 @@ const (
 // relay slot for the length of a stream.
 const phoneBodyDeadline = 30 * time.Second
 
-// phoneMaxInFlight bounds the phone requests the authority serves at once.
-const phoneMaxInFlight = 8
+// phoneMaxInFlight bounds the phone requests the authority serves at once, and phoneMaxPerNode what
+// one member may hold of them, so one phone's ten-minute streams cannot hold every slot.
+const (
+	phoneMaxInFlight = 8
+	phoneMaxPerNode  = 2
+)
 
 // errNotVerified is the ONE refusal for every way a caller's identity can fail - no certificate, not
 // this root, revoked, expired, a key that does not derive the id, not in this fleet, a bad signature -
@@ -128,14 +137,14 @@ func BodyHash(body []byte) string {
 
 // memberProof is one signed consume request, as its headers carry it.
 type memberProof struct {
-	NodeID, Cert, Target, Nonce, Sig string
-	TS                               int64
-	tsOK                             bool
+	NodeID, Cert, Target, Nonce, Sig, BodySHA string
+	TS                                        int64
+	tsOK                                      bool
 }
 
 func proofFrom(h http.Header) memberProof {
 	p := memberProof{NodeID: h.Get(HeaderNode), Cert: h.Get(HeaderCert), Target: h.Get(HeaderTarget),
-		Nonce: h.Get(HeaderNonce), Sig: h.Get(HeaderSig)}
+		Nonce: h.Get(HeaderNonce), Sig: h.Get(HeaderSig), BodySHA: h.Get(HeaderBodySHA256)}
 	ts, err := strconv.ParseInt(strings.TrimSpace(h.Get(HeaderTS)), 10, 64)
 	p.TS, p.tsOK = ts, err == nil
 	return p
@@ -153,6 +162,9 @@ func (p memberProof) set(h http.Header) {
 	h.Set(HeaderNonce, p.Nonce)
 	h.Set(HeaderTS, strconv.FormatInt(p.TS, 10))
 	h.Set(HeaderSig, p.Sig)
+	if p.BodySHA != "" {
+		h.Set(HeaderBodySHA256, p.BodySHA)
+	}
 }
 
 func (p memberProof) fresh(now time.Time) bool {
@@ -178,8 +190,26 @@ func (p memberProof) leaf() (*x509.Certificate, ed25519.PublicKey, bool) {
 }
 
 func (p memberProof) signed(pub ed25519.PublicKey, action string, body []byte) bool {
+	return p.signedOver(pub, action, BodyHash(body))
+}
+
+// signedOver checks the signature over a body hash, so it can run before the body is read.
+func (p memberProof) signedOver(pub ed25519.PublicKey, action, bodySHA string) bool {
 	sig, err := hex.DecodeString(p.Sig)
-	return err == nil && ed25519.Verify(pub, ConsumeCanonical(p.NodeID, action, p.Target, BodyHash(body), p.Nonce, p.TS), sig)
+	return err == nil && ed25519.Verify(pub, ConsumeCanonical(p.NodeID, action, p.Target, bodySHA, p.Nonce, p.TS), sig)
+}
+
+// isLowerHex reports whether s is exactly n lowercase hex characters.
+func isLowerHex(s string, n int) bool {
+	if len(s) != n {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if c := s[i]; !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 // verifyRelay checks the authority's attestation that it relayed this phone's turn to THIS face.
@@ -220,7 +250,7 @@ func (s *Server) onBehalf(r *http.Request, action string, body []byte, relayer s
 		return "", http.StatusForbidden, "that request is stale: check this device's clock"
 	}
 	leaf, pub, ok := p.leaf()
-	if !ok || !p.signed(pub, action, body) {
+	if !ok || !p.signed(pub, action, body) || (p.BodySHA != "" && p.BodySHA != BodyHash(body)) {
 		return "", http.StatusForbidden, errNotVerified
 	}
 	if id, err := trust.Authenticate(leaf); err != nil || id != p.NodeID {
@@ -254,7 +284,7 @@ func PhoneConsumeHandler(pc PhoneConsume) http.Handler {
 	if pc.Now == nil {
 		pc.Now = time.Now
 	}
-	h := &phoneConsume{PhoneConsume: pc, seen: newNonceCache(), slots: make(chan struct{}, phoneMaxInFlight)}
+	h := &phoneConsume{PhoneConsume: pc, seen: newNonceCache(), perNode: map[string]int{}}
 	mux := http.NewServeMux()
 	mux.HandleFunc(PhoneBandsPath, h.bands)
 	mux.HandleFunc(PhoneInferPath, func(w http.ResponseWriter, r *http.Request) { h.relay(w, r, ActionInfer) })
@@ -264,53 +294,69 @@ func PhoneConsumeHandler(pc PhoneConsume) http.Handler {
 
 type phoneConsume struct {
 	PhoneConsume
-	seen  *nonceCache
-	slots chan struct{}
+	seen     *nonceCache
+	mu       sync.Mutex
+	inFlight int
+	perNode  map[string]int
 }
 
-// admit settles who is asking before the body is read, then reads the body and checks the
-// signature over it, writing every refusal itself. The caller must call release when ok.
+// admit settles who is asking from the headers alone - fresh, signed by the key the certificate names
+// over the body hash the headers declare, under this root and not revoked, in this fleet, a nonce not
+// seen - BEFORE it takes a slot or reads a byte of the body (audit 2026-10-13: a sniffed certificate
+// alone, which travels in the clear, held every slot with trickled bodies). Only then does it take a
+// slot (eight in all, two per member), read the body bounded in size and time, and hold it to the
+// declared hash. Every identity failure, and a body that does not match, is the same 403. It writes
+// every refusal itself; the caller must call release when ok.
 func (h *phoneConsume) admit(w http.ResponseWriter, r *http.Request, action string, limit int64, tooBig string) (memberProof, []byte, func(), bool) {
-	if r.Method != http.MethodPost {
-		inferError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return memberProof{}, nil, nil, false
-	}
-	select {
-	case h.slots <- struct{}{}:
-	default:
-		w.Header().Set("Retry-After", "2")
-		inferError(w, http.StatusServiceUnavailable, "this Edge is answering as many phone requests as it can; try again shortly")
-		return memberProof{}, nil, nil, false
-	}
-	release := func() { <-h.slots }
-	fail := func(status int, msg string) (memberProof, []byte, func(), bool) {
-		release()
+	refuse := func(status int, msg string) (memberProof, []byte, func(), bool) {
 		inferError(w, status, msg)
 		return memberProof{}, nil, nil, false
 	}
+	if r.Method != http.MethodPost {
+		return refuse(http.StatusMethodNotAllowed, "method not allowed")
+	}
 	now := h.Now()
 	p := proofFrom(r.Header)
-	// 1. Fresh, before anything that depends on who is asking.
+	// 1. Fresh. This depends only on the time the request itself carries, so it tells nobody anything
+	//    about who is enrolled, and it is the one refusal a phone with a wrong clock needs to read.
 	if !p.fresh(now) {
-		return fail(http.StatusForbidden, "that request is stale: check this device's clock")
+		return refuse(http.StatusForbidden, "that request is stale: check this device's clock")
 	}
-	// 2. Who, from the headers alone, so a stranger never makes this machine read a body: the
-	//    certificate's key derives the id, it is under this root and not revoked, and it is in the fleet.
-	leaf, pub, ok := p.leaf()
-	if !ok {
-		return fail(http.StatusForbidden, errNotVerified)
+	// 2. Signed, by the key its certificate names, over what its headers declare - nothing about the
+	//    caller's standing is consulted before this, so every failure here and below reads the same.
+	leaf, pub, okLeaf := p.leaf()
+	if !okLeaf || !isLowerHex(p.Nonce, 32) || !isLowerHex(p.BodySHA, 64) || !p.signedOver(pub, action, p.BodySHA) {
+		return refuse(http.StatusForbidden, errNotVerified)
 	}
+	// 3. A member: under this root, not revoked, in this fleet.
 	var trust *cert.Authority
 	if h.Trust != nil {
 		trust = h.Trust()
 	}
 	if trust == nil {
-		return fail(http.StatusServiceUnavailable, "this node cannot verify callers right now")
+		return refuse(http.StatusServiceUnavailable, "this node cannot verify callers right now")
 	}
 	if id, err := trust.Authenticate(leaf); err != nil || id != p.NodeID || h.Member == nil || !h.Member(id) {
-		return fail(http.StatusForbidden, errNotVerified)
+		return refuse(http.StatusForbidden, errNotVerified)
 	}
-	// 3. The body, bounded in size and in time.
+	// 4. Not a replay. Only the holder of the key gets this far.
+	if !h.seen.admit(p.NodeID, p.Nonce, time.Unix(p.TS, 0).Add(presenceFreshness).Unix(), now.Unix()) {
+		return refuse(http.StatusForbidden, "that request was already seen")
+	}
+	// 5. A slot: two per member, eight in all. Released on every path out, a panic included, unless
+	//    it is handed to the caller.
+	if !h.take(p.NodeID) {
+		w.Header().Set("Retry-After", "2")
+		return refuse(http.StatusServiceUnavailable, "this Edge is answering as many phone requests as it can; try again shortly")
+	}
+	handed := false
+	release := func() { h.give(p.NodeID) }
+	defer func() {
+		if !handed {
+			release()
+		}
+	}()
+	// 6. The body, bounded in size and in time, and held to the hash that was signed.
 	rc := http.NewResponseController(w)
 	_ = rc.SetReadDeadline(now.Add(phoneBodyDeadline))
 	var body []byte
@@ -319,23 +365,41 @@ func (h *phoneConsume) admit(w http.ResponseWriter, r *http.Request, action stri
 		if err != nil {
 			var mbe *http.MaxBytesError
 			if errors.As(err, &mbe) {
-				return fail(http.StatusRequestEntityTooLarge, tooBig)
+				return refuse(http.StatusRequestEntityTooLarge, tooBig)
 			}
-			return fail(http.StatusBadRequest, "that request's body could not be read")
+			return refuse(http.StatusBadRequest, "that request's body could not be read")
 		}
 		body = b
 	} else if n, _ := r.Body.Read(make([]byte, 1)); n > 0 {
-		return fail(http.StatusBadRequest, tooBig)
+		return refuse(http.StatusBadRequest, tooBig)
 	}
 	_ = rc.SetReadDeadline(time.Time{})
-	// 4. Signed over exactly this action, target and body; 5. not a replay.
-	if !p.signed(pub, action, body) {
-		return fail(http.StatusForbidden, errNotVerified)
+	if BodyHash(body) != p.BodySHA {
+		return refuse(http.StatusForbidden, errNotVerified)
 	}
-	if !h.seen.admit(p.NodeID, p.Nonce, time.Unix(p.TS, 0).Add(presenceFreshness).Unix(), now.Unix()) {
-		return fail(http.StatusForbidden, "that request was already seen")
-	}
+	handed = true
 	return p, body, release, true
+}
+
+// take claims a slot for node, or reports that none is free (all eight, or this node's two).
+func (h *phoneConsume) take(node string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.inFlight >= phoneMaxInFlight || h.perNode[node] >= phoneMaxPerNode {
+		return false
+	}
+	h.inFlight++
+	h.perNode[node]++
+	return true
+}
+
+func (h *phoneConsume) give(node string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.inFlight--
+	if h.perNode[node]--; h.perNode[node] <= 0 {
+		delete(h.perNode, node)
+	}
 }
 
 func readAllLimited(w http.ResponseWriter, r *http.Request, limit int64) ([]byte, error) {
@@ -570,16 +634,17 @@ func lanTransport(l Located) (addr, pin string) {
 }
 
 // relayAddr is where to dial the member: its recorded LAN face, turned to loopback only when the
-// member is this machine itself. Another member recorded at a wildcard address is not dialed at all
-// ("" here): the operating system would connect that to THIS machine. (The pin would refuse the
-// answer anyway; this does not get as far as asking.)
+// member is this machine itself. Another member recorded at a wildcard, loopback or link-local address
+// is not dialed at all ("" here): the first two are THIS machine as the system resolves them, and a
+// link-local address names no member reachable without a zone. (The pin would refuse the answer
+// anyway; this does not get as far as asking.)
 func relayAddr(loc Located, selfID string) (addr, pin string) {
 	addr, pin = lanTransport(loc)
 	if loc.Node.ID == selfID {
 		return loopback(addr), pin
 	}
 	host, _, err := net.SplitHostPort(addr)
-	if ip := net.ParseIP(host); err != nil || host == "" || (ip != nil && ip.IsUnspecified()) {
+	if ip := net.ParseIP(host); err != nil || host == "" || (ip != nil && (ip.IsUnspecified() || ip.IsLoopback() || ip.IsLinkLocalUnicast())) {
 		return "", pin
 	}
 	return addr, pin
@@ -609,7 +674,7 @@ func loopback(addr string) string {
 	if err != nil {
 		return addr
 	}
-	if ip := net.ParseIP(host); host == "" || (ip != nil && ip.IsUnspecified()) {
+	if ip := net.ParseIP(host); host == "" || (ip != nil && (ip.IsUnspecified() || ip.IsLoopback() || ip.IsLinkLocalUnicast())) {
 		return net.JoinHostPort("127.0.0.1", port)
 	}
 	return addr

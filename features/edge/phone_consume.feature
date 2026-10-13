@@ -33,20 +33,25 @@
 #   /edge/phone/bands    empty body; answers {"bands":[{"band","voice","served_by":[{"node","node_id","instance","target"}]}]}
 #   /edge/phone/infer    the OpenAI-shaped chat body /edge/infer takes (4 MiB cap), streamed when it asks to be
 #   /edge/phone/speech   the speech body /edge/speech takes (64 KiB cap); audio back
-# Headers: Roger-Node (node id), Roger-Cert (base64 of the member certificate DER), Roger-Target
-# (optional: "jetson" or "jetson/serve", as `roger use` names a member), Roger-Nonce (hex of 16 random
-# bytes), Roger-TS (unix seconds), Roger-Sig (hex Ed25519 by the node key over):
-#   "rogerai-edge-infer/v1" \n node_id \n action \n target \n hex(SHA-256(body)) \n nonce \n ts
+# Headers, ALL REQUIRED except Roger-Target: Roger-Node (node id), Roger-Cert (base64 of the member
+# certificate DER), Roger-Target (optional: "jetson" or "jetson/serve", as `roger use` names a member),
+# Roger-Nonce (exactly 32 lowercase hex: 16 random bytes), Roger-TS (unix seconds), Roger-Body-SHA256
+# (exactly 64 lowercase hex: SHA-256 of the exact body bytes, of the empty string for the band list;
+# REQUIRED since 2026-10-13, no request is served without it), Roger-Sig (hex Ed25519 by the node key):
+#   "rogerai-edge-infer/v1" \n node_id \n action \n target \n Roger-Body-SHA256 \n nonce \n ts
 # where action is bands, infer or speech by path, and target is "" when the header is absent.
-# Refusals: 405 not POST; 503 with Retry-After: 2 when eight phone requests are already in flight;
-# 403 "that request is stale: check this device's clock" (checked first); 403 "that request could not
-# be verified as a member of this Edge" for EVERY identity failure (no or bad certificate, another
-# root, expired, revoked, a key that does not derive the id, not in this fleet, a bad signature), so a
-# captured certificate cannot tell a live member from a removed one; 403 "that request was already
-# seen"; 413 over the cap; 400 a band list with a body, or a turn naming no band; 404/409/502/503 for
-# the band and target refusals below. Identity is settled from the headers BEFORE the body is read, and
-# the body must arrive within 30 seconds. The reply carries the serving member's local receipt exactly as /edge/infer does (X-RogerAI-Receipt on
-# a plain reply, ": rogerai-receipt=" at a stream's end), X-RogerAI-Provider and X-RogerAI-Cost: 0.
+# Order and refusals (audit 2026-10-13): 405 not POST; 403 "that request is stale: check this device's
+# clock" (it depends only on the time the request carries); then, from the HEADERS ALONE and before a
+# slot is taken or a byte of the body is read, the signature over the declared body hash, the
+# certificate under this root and not revoked, and membership of this fleet - every failure of these,
+# and a body that does not match its declared hash, is the one 403 "that request could not be verified
+# as a member of this Edge", so a certificate captured without its key learns nothing; 403 "that
+# request was already seen"; 503 with Retry-After: 2 when this member already has two requests in
+# flight or eight are in flight in all; then the body, which must arrive within 30 seconds: 413 over
+# the cap, 400 a band list with a body or a turn naming no band; 404/409/502/503 for the band and target
+# refusals below. The reply carries the serving member's local receipt exactly as /edge/infer does
+# (X-RogerAI-Receipt on a plain reply, ": rogerai-receipt=" at a stream's end), X-RogerAI-Provider and
+# X-RogerAI-Cost: 0.
 #
 # KNOWN LIMITATIONS, FOR FOUNDER REVIEW (restated after the 2026-10-13 audit). The authority listener
 # is plain HTTP, so until the fix below:
@@ -104,6 +109,25 @@ Feature: a phone uses the Edge's models through its authority
     When the phone asks for a turn on "llama-9000"
     Then it is refused with "no member of this Edge serves llama-9000; it offers: kokoro, qwen3-8b"
     And a turn addressed to "nas", which is no member, is refused with "no member of this Edge is called nas"
+
+  # Audit 2026-10-13: the certificate travels in the clear, so it proves nothing on its own.
+  @ios @security
+  Scenario: a sniffed certificate without its key holds no slot and is read nothing
+    Given a device that captured "pocket"'s certificate but not its key
+    When it sends turns with that certificate and trickles their bodies
+    Then each is refused from its headers before a slot is taken or a byte of a body is read
+    And "pocket"'s own turns are served
+
+  @ios @security
+  Scenario: one member cannot hold every slot
+    Given "pocket" has two turns streaming
+    When it asks for a third
+    Then it is told to try again shortly, and every other member is still served
+
+  @ios @security
+  Scenario: a request without its body hash, or with a body that does not match it, is refused
+    When the phone leaves Roger-Body-SHA256 off, or sends a body other than the one it declared
+    Then it is refused as any request that cannot be verified is
 
   @ios @security
   Scenario: a non-member is refused

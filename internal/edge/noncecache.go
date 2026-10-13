@@ -51,11 +51,13 @@ func newNonceCache() *nonceCache {
 	return &nonceCache{seen: map[string]int64{}, byOwner: map[string]int{}}
 }
 
-// admit returns true the FIRST time owner spends nonce, false on a repeat, on a nonce too short to
-// be random (16 hex characters is the floor; the wire sends 32), and when owner or the whole cache is
-// at its bound with nonces still live (fail closed on memory). owner is the node that signed.
+// admit returns true the FIRST time owner spends nonce, and false on a repeat, on a nonce that is not
+// exactly 16 random bytes as 32 lowercase hex characters (what every client sends: the CLI, the agent
+// and the Roger app), and when owner or the whole cache is at its bound with nonces still live (fail
+// closed on memory). owner is the node that signed. Audit 2026-10-13: only a floor was checked, and an
+// 800 KiB "nonce" was kept.
 func (n *nonceCache) admit(owner, nonce string, expiry, nowUnix int64) bool {
-	if len(nonce) < 16 {
+	if !isLowerHex(nonce, 32) {
 		return false
 	}
 	n.mu.Lock()

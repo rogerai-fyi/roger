@@ -798,34 +798,20 @@ func (h *edgeHost) startAuthority() {
 	// Presence reads the authority FRESH per request (a reload picks up revoked.json a CLI forget
 	// wrote beside us), so a forgotten node stops verifying at once, not at the next restart.
 	authDir := edgeAuthDir()
-	authMux.Handle(edge.PresencePath, edge.PresenceHandlerFunc(h.st.fleet, func() *cert.Authority {
-		fresh, ok, err := edgeauth.OpenLocal(authDir)
-		if err != nil || !ok {
-			return nil
-		}
-		return fresh.Authority()
-	}, nil))
+	// Presence and the phone's paths verify members the SAME way: a verify-only authority built per
+	// request from the root certificate and the revocation list as they are on disk now (a CLI forget
+	// beside this process is honoured at once). The root KEY is never re-read per request; it is held
+	// once, here, only to sign the relay attestation.
+	memberTrust := func() *cert.Authority { return edgeMemberTrust(authDir, local) }
+	authMux.Handle(edge.PresencePath, edge.PresenceHandlerFunc(h.st.fleet, memberTrust, nil))
 	// A phone consumes the Edge's bands here (features/edge/phone_consume.feature): it cannot present a
 	// client certificate over TLS, so it signs each request with its member key, and this machine
 	// relays the turn to the member that serves the band over its own pinned mutual TLS. Registered
 	// under each path so they win over the "/" catch-all below.
 	phone := edge.PhoneConsumeHandler(edge.PhoneConsume{
 		Fleet: h.st.fleet,
-		// Verify-only, per request: the root certificate loaded once, and the revocation list as it is
-		// on disk now (a CLI forget beside this process is honoured at once). The root KEY is not
-		// re-read per request; it is held once, below, to sign the relay attestation.
-		Trust: func() *cert.Authority {
-			revoked, err := local.Revocations()
-			if err != nil {
-				return nil
-			}
-			v, err := cert.NewVerifier(local.Authority().Root(), revoked)
-			if err != nil {
-				return nil
-			}
-			return v
-		},
-		Root: local.Authority().RootKey(),
+		Trust: memberTrust,
+		Root:  local.Authority().RootKey(),
 		Member: func(id string) bool {
 			_, ok, err := h.st.fleet.Get(id)
 			return err == nil && ok
@@ -853,6 +839,29 @@ func (h *edgeHost) startAuthority() {
 	h.authLn, h.issuer, h.auth, h.pair, h.pairDesc = ln, local.Issuer(), auth, pair, local.Descriptor()
 	h.mu.Unlock()
 	go func() { _ = auth.Serve(ln) }()
+}
+
+// edgeMemberTrust is the verify-only authority members are checked against on the authority listener:
+// the root CERTIFICATE read from disk (never the key) and the revocation list as it is now. nil (fail
+// closed) when either cannot be read.
+func edgeMemberTrust(authDir string, local *edgeauth.Local) *cert.Authority {
+	b, err := os.ReadFile(filepath.Join(authDir, edgeauth.AuthorityDir, edgeauth.RootCertFile))
+	if err != nil {
+		return nil
+	}
+	root, err := edgeauth.DecodeCert(string(b))
+	if err != nil {
+		return nil
+	}
+	revoked, err := local.Revocations()
+	if err != nil {
+		return nil
+	}
+	v, err := cert.NewVerifier(root, revoked)
+	if err != nil {
+		return nil
+	}
+	return v
 }
 
 // EnvFaceBind and EnvAuthorityBind let an operator pin the ports. Both default to an
