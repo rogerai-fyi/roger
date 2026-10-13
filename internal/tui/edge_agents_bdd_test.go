@@ -299,10 +299,12 @@ func (s *agentsBDD) agentCarriesTheMark() error { return s.mustSee("scout", "age
 func (s *agentsBDD) servingSaysWhatItServes() error { return s.mustSee("qwen3-8b") }
 
 func (s *agentsBDD) candidateAppearsOutsideTheFleet() error {
-	return s.mustSee("DISCOVERED", "blue-fox-3")
+	return s.mustSee("NEARBY", "blue-fox-3") // the NEARBY rows (empty_edge_simple.feature §7, 2026-10-12)
 }
 
-func (s *agentsBDD) markedAdoptableWithA() error { return s.mustSee("adopt with a") }
+// "adoptable with a": since the 2026-10-12 ruling the row offers i invite · a approve, and a is the
+// way a device is let on (approve); the spec sentence names a, and a is what it checks.
+func (s *agentsBDD) markedAdoptableWithA() error { return s.mustSee("i invite · a approve") }
 
 func (s *agentsBDD) itsNodeJoins() error {
 	// The host's adopt hook was called for the candidate, which is what "joins the Edge" means from
@@ -374,7 +376,7 @@ func (s *agentsBDD) highlightStartsOnTheWaitingPhone() error {
 	if !it.cand {
 		return fmtErr("the highlight starts on %q, not on the waiting device", it.name)
 	}
-	return s.mustSee("a  Adopt")
+	return s.mustSee("a  Approve") // a is one keystroke away: it approves (ruling 2026-10-12)
 }
 
 func (s *agentsBDD) withNothingWaitingItIsThisRoger() error {

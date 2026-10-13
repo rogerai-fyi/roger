@@ -207,6 +207,14 @@ func (m model) edgeView(w int) string {
 		m.edgeNetDetailView(w, line)
 		return b.String()
 	}
+	// The NEARBY invite panel (empty_edge_simple.feature §7) owns the enrolled view while it is open,
+	// the way it owns the empty state: the QR and the join line, until esc.
+	if st.nearby.invite != nil && !m.edgeEmptySimple() {
+		for _, ln := range m.edgeNearbyInviteLines(w, lookMono()) {
+			line(ln)
+		}
+		return b.String()
+	}
 
 	// A machine in no Edge gets the simple empty state, inside the TUI's chrome and without the
 	// cabinet (features/edge/empty_edge_simple.feature: no lamp, no banner until it is set up).
@@ -233,7 +241,7 @@ func (m model) edgeView(w int) string {
 		line("  " + stEmber.Render("the Edge could not be read: "+st.err))
 	}
 	// A SET-UP machine gets the NETWORK MAP - its hub, the rogers on it, the other member machines,
-	// and any discovered candidate waiting to be adopted (a phone on the LAN shows up here). The
+	// and any device pinging nearby, not on the Edge yet (a phone on the LAN shows up here). The
 	// map draws the whole picture up to edgeMaxGraphNodes; a larger fleet falls through to the
 	// graph/list below until the manual grid/list switch lands (features/edge/map_scale.feature).
 	if m.edgeMapActive() {
@@ -394,9 +402,9 @@ func edgeRouteMix(sessions []edge.Session) string {
 
 func edgeHints(w int) string {
 	if w < 60 {
-		return "↑↓ · ⏎ detail · a adopt · esc"
+		return "↑↓ · ⏎ detail · i invite · a approve · esc"
 	}
-	return "↑↓ select  ·  ⏎ detail  ·  a adopt a candidate  ·  r re-read  ·  esc back"
+	return "↑↓ select  ·  ⏎ detail  ·  i invite · a approve a nearby device  ·  r re-read  ·  esc back"
 }
 
 // edgeMapTally counts what is on the map in a sentence: the machines on this Edge, anything waiting
@@ -421,7 +429,7 @@ func edgeMapTally(items []edgeNetItem, cw int) string {
 		parts = append(parts, edgeCountWords(members, "unit", "units")+" on your Edge")
 	}
 	if waiting > 0 {
-		parts = append(parts, edgeCountWords(waiting, "device", "devices")+" waiting to be adopted")
+		parts = append(parts, edgeCountWords(waiting, "device", "devices")+" nearby, not on your Edge yet")
 	}
 	if rogers > 0 {
 		parts = append(parts, edgeCountWords(rogers, "roger", "rogers")+" running here")
@@ -593,8 +601,12 @@ func (m model) edgeActions() []edgeAction {
 	}
 	switch {
 	case it.cand:
-		if m.hooks.EdgeAdopt != nil {
-			out = append(out, edgeAction{"a", "Adopt", "bring it onto your Edge", true})
+		// A NEARBY device (empty_edge_simple.feature §7): invite it, or approve it when it asks.
+		if m.hooks.EdgeInviteFor != nil {
+			out = append(out, edgeAction{"i", "Invite", "an invite only this device can use, as a QR and a line", true})
+		}
+		if m.hooks.EdgeAdopt != nil || m.hooks.Owner != nil {
+			out = append(out, edgeAction{"a", "Approve", "let it onto your Edge: a phone by claim, a roger when it asks", true})
 		}
 	case it.member:
 		// A member that serves a model can be ASKED - prompt its model in place
@@ -728,7 +740,7 @@ func (m model) edgeAdoptingHint(cw int, line func(string)) {
 				continue
 			}
 			line("  " + edgeSetupCenter(stKey.Render(names[i])+stDim.Render(" · code expired - ")+
-				stEmber.Render("roger edge adopt "+names[i])+stDim.Render(" for a fresh code"), cw))
+				stEmber.Render("roger edge invite --for "+names[i])+stDim.Render(" (or i on its row) for a fresh code"), cw))
 		}
 	}
 	line("")
@@ -737,7 +749,7 @@ func (m model) edgeAdoptingHint(cw int, line func(string)) {
 // edgeFindDevicesHint tells the owner what is discoverable, or - when nothing is - how a device
 // shows up and how to add one, so "where is my phone?" has an answer on the screen (2026-09-23).
 func (m model) edgeFindDevicesHint(cw int, line func(string)) {
-	// When devices ARE discovered they already show in the DISCOVERED band with "adopt with a" and
+	// When devices ARE pinging they already show as NEARBY rows with "i invite · a approve" and
 	// the Adopt button, so say nothing more here - the screen is tight (2026-09-23). Only when
 	// nothing is found is a single quiet line worth the space, to explain where a device appears.
 	if len(m.edge.cands) > 0 {
@@ -747,7 +759,7 @@ func (m model) edgeFindDevicesHint(cw int, line func(string)) {
 	// never have to go and look up where their own Edge lives, or carry it in their head from another
 	// command. This is the join card a phone needs.
 	line("")
-	line("  " + edgeSetupCenter(stKey.Render("NO DEVICES YET")+stDim.Render("  a phone or machine running roger on this network appears here to adopt"), cw))
+	line("  " + edgeSetupCenter(stKey.Render("NO DEVICES YET")+stDim.Render("  a phone or machine running roger nearby shows here, to invite or approve"), cw))
 	if st := m.edge.status; st != nil && st.AuthorityHere && st.AuthorityAddr != "" {
 		line("  " + edgeSetupCenter(stDim.Render("open the Roger app and point it at this Edge:"), cw))
 		line("  " + edgeSetupCenter(stEmber.Render(st.AuthorityAddr)+stDim.Render("   ("+m.edgeSelfName()+")"), cw))
@@ -788,7 +800,7 @@ func (m model) edgeActionBar(cw int, line func(string)) {
 	case it.self:
 		who = it.name + " · this roger"
 	case it.cand:
-		who = it.name + " · " + it.kindWord() + " · discovered, not adopted"
+		who = it.name + " · " + it.kindWord() + " · nearby, not on your Edge yet"
 	case it.member:
 		// A member is checked BEFORE dark: a dark MEMBER is an offline device, not a "persistent agent"
 		// (the founder saw a phone mislabeled "offline agent"). Only a dark persistent agent is that.

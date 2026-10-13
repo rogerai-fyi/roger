@@ -121,6 +121,12 @@ func (m model) onOwnerJoinMsg(msg tea.Msg) (model, tea.Cmd, bool) {
 			m.status = stDim.Render("refused " + msg.req.Name)
 		}
 		m.own.reqs = dropRequest(m.own.reqs, msg.req.ID)
+		if msg.err == nil {
+			m.edgeNearbyDecided(msg.req)
+			if m.mode == modeEdge {
+				m.refreshEdge() // an admitted device is a member now, and leaves the NEARBY rows
+			}
+		}
 		return m, m.ownerJoinCmd(), true
 	case ownerInviteMsg:
 		if msg.err != nil {
@@ -165,6 +171,12 @@ func (m model) onOwnerJoinKey(k tea.KeyMsg) (model, tea.Cmd, bool) {
 			return m, clipboardWrite(m.own.invite.Line), true
 		}
 		return m, nil, true // the panel owns every key while it is open
+	}
+	if m.mode == modeEdge && (key == "y" || key == "n") {
+		// A device the owner primed with a (NEARBY, §7) is answered by name, whatever else waits.
+		if cmd, ok := m.edgeNearbyDecide(key == "y"); ok {
+			return m, cmd, true
+		}
 	}
 	if len(m.own.reqs) > 0 && m.ownerAnswersHere() && (key == "y" || key == "n") {
 		r, h := m.own.reqs[0], m.hooks.Owner

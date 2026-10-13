@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"strings"
 	"testing"
+	"time"
 
 	"rogerai.fm/roger/v6/internal/edge"
 	"rogerai.fm/roger/v6/internal/store"
@@ -37,6 +38,9 @@ func mapReadableModel(t *testing.T) model {
 	m.hooks.EdgeSelfInstance = func() string { return "RogGentooEdged" }
 	m.hooks.EdgePersistentAgents = func() []edge.PersistentAgent { return []edge.PersistentAgent{{Name: "scout"}} }
 	m.hooks.EdgeAdopt = func(id, name string) error { return nil }
+	m.hooks.EdgeInviteFor = func(n store.EdgeNode) (string, time.Time, error) {
+		return "roger://join?kind=edge&for=" + n.ID, time.Now().Add(15 * time.Minute), nil
+	}
 	m.hooks.EdgeName = func(id, name string) error { return nil }
 	m.hooks.EdgeForget = func(id string) error { return nil }
 	m.enterEdge()
@@ -53,7 +57,7 @@ func TestEveryCardSaysWhatTheThingIs(t *testing.T) {
 		t.Errorf("a member card still says only \"on your Edge\":\n%s", out)
 	}
 	for _, want := range []string{"MACHINE · ON AIR now", "BOARD · ON AIR now", "PHONE · ON AIR now",
-		"PHONE · adopt with a", "agent · idle", "agent · offline"} {
+		"NEARBY", "pixel-8", "agent · idle", "agent · offline"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the map does not say what a unit IS: missing %q\n%s", want, out)
 		}
@@ -73,7 +77,7 @@ func TestTheMapCountsWhatIsOnIt(t *testing.T) {
 	m := mapReadableModel(t)
 	out := stripANSI(m.edgeView(116))
 	// NOT "3 machines": one of them is a phone and one is a board. The cards say which is which.
-	for _, want := range []string{"3 units on your Edge", "1 device waiting to be adopted", "2 rogers running here"} {
+	for _, want := range []string{"3 units on your Edge", "1 device nearby, not on your Edge yet", "2 rogers running here"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the map does not count what is on it: missing %q\n%s", want, out)
 		}
@@ -151,8 +155,9 @@ func TestAWaitingDeviceIsWhereTheCursorLands(t *testing.T) {
 		t.Fatalf("the default highlight is not the device waiting to be adopted, it is %q", it.name)
 	}
 	out := stripANSI(m.edgeView(116))
-	if !strings.Contains(out, "a  Adopt") {
-		t.Errorf("Adopt is not one keystroke away on opening:\n%s", out)
+	// features/edge/empty_edge_simple.feature §7: the sighting offers invite and approve, not adopt.
+	if !strings.Contains(out, "i  Invite") || !strings.Contains(out, "a  Approve") {
+		t.Errorf("Invite and Approve are not one keystroke away on opening:\n%s", out)
 	}
 	// With nothing waiting, the highlight is THIS roger, whose actions are then to hand without
 	// moving (features/edge/agents.feature).

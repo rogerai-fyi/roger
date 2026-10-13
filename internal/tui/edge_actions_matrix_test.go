@@ -271,16 +271,16 @@ func TestEdgeActuateCeremonyRefusalsAndHostFailure(t *testing.T) {
 
 func TestEdgeAdoptOnTheMapActsOnlyOnACandidate(t *testing.T) {
 	m := edgeActionsRig(t)
-	require.Contains(t, statusOf(edgePress(selectNet(t, m, named("attic-pi")), "a")), "adopts a DISCOVERED machine")
+	require.Contains(t, statusOf(edgePress(selectNet(t, m, named("attic-pi")), "a")), "approves a NEARBY device")
 
 	cand := nodeOf("c", "new-phone", "mobile")
 	cand.Presence = ""
 	m.edge.cands = []store.EdgeNode{cand}
 	m.hooks.EdgeAdopt = nil
-	require.Contains(t, statusOf(edgePress(selectNet(t, m, named("new-phone")), "a")), "cannot adopt")
+	require.Contains(t, statusOf(edgePress(selectNet(t, m, named("new-phone")), "a")), "cannot approve")
 
 	m.hooks.EdgeAdopt = func(id, name string) error { return errHostSaysNo }
-	require.Contains(t, statusOf(edgePress(selectNet(t, m, named("new-phone")), "a")), "adopt new-phone: the host says no")
+	require.Contains(t, statusOf(edgePress(selectNet(t, m, named("new-phone")), "a")), "approve new-phone: the host says no")
 
 	var adopted []string
 	m.hooks.EdgeAdopt = func(id, name string) error { adopted = append(adopted, name); return nil }

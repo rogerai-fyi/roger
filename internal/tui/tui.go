@@ -240,6 +240,11 @@ type Hooks struct {
 	// of `roger join` (features/edge/empty_edge_simple.feature §4). Nil = this build cannot
 	// join from here, and j says so.
 	EdgeJoin *edge.JoinPrompt
+	// EdgeInviteFor mints an invite bound to ONE nearby device (features/edge/empty_edge_simple.feature
+	// §7, founder ruling 2026-10-12): the roger://join line only that node id can redeem, and when it
+	// expires. A claim-only device (no certificate: a phone) is granted its claim at the same time, so
+	// its own claim poll is answered too. Nil = this build cannot invite from here, and i says so.
+	EdgeInviteFor func(n store.EdgeNode) (line string, until time.Time, err error)
 	// EdgeHeartbeats carries a node id every time the host actually HEARD from that node
 	// (a verified discovery sighting). It is the ONLY thing that animates the graph: the
 	// TUI never invents a heartbeat on a timer, so a fleet with no traffic draws a still
@@ -1771,6 +1776,9 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.onEdgeJoinDone(msg)
 	case edgeJoinTickMsg:
 		return m.onEdgeJoinTick()
+	case edgeNearbyInviteMsg:
+		m.onEdgeNearbyInviteMsg(msg)
+		return m, nil
 	case edgeStatusTickMsg:
 		return m.onEdgeStatusTick()
 	case tickMsg:
@@ -4904,12 +4912,13 @@ func (m model) footer(w int) string {
 		}
 		return modalFooter(m.effWidth(), left, m.accountTag(true), m.status)
 	case modeEdge:
-		left = stDim.Render("↑↓ select  ·  ⏎ detail  ·  a adopt  ·  r re-read  ·  esc back")
+		left = stDim.Render("↑↓ select  ·  ⏎ detail  ·  i invite · a approve  ·  r re-read  ·  esc back")
 		if m.narrow() {
-			left = stDim.Render("↑↓ · ⏎ detail · a adopt · esc")
+			left = stDim.Render("↑↓ · ⏎ detail · i invite · a approve · esc")
 		}
 		if m.edgeEmptySimple() {
-			// Nothing to select or adopt yet: the footer offers the two ways in and back.
+			// Not set up yet: the footer offers the two ways in and back (a NEARBY row adds its own
+			// i invite · a approve beside it, §7).
 			left = stDim.Render(look.ActionsPlain(look.EmptyEdgeActions))
 		}
 		return modalFooter(m.effWidth(), left, m.accountTag(true), m.status)

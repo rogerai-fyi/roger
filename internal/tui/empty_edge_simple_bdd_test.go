@@ -91,6 +91,7 @@ type emptySimpleBDD struct {
 	compact bool
 	cols    int
 	frames  map[int]string // whole TUI frames by width (the golden scenario)
+	nb      nearbyFixture  // §7: nearby devices, a real local authority behind i, the owner's hooks
 }
 
 const testFP = "3f7a91c20b44e8d1aa55bb66cc77dd88ee99ff00112233445566778899aabbcc"
@@ -109,6 +110,7 @@ func (s *emptySimpleBDD) reset() {
 	s.noSetup, s.built, s.raw, s.out, s.pending, s.before, s.invite = false, false, "", "", nil, 0, ""
 	s.m, s.compact, s.frames = model{}, false, map[int]string{}
 	s.opened, s.ended = map[string]int{}, map[string]int{}
+	s.nb.reset(s.t)
 	s.invite = joininvite.Invite{Kind: joininvite.Edge, Addrs: []string{"192.168.1.10:8791"}, FP: testFP, Code: joincode.Edge.NewCode()}.String()
 	lipgloss.SetColorProfile(termenv.Ascii)
 }
@@ -119,7 +121,8 @@ func (s *emptySimpleBDD) build() {
 	}
 	hooks := Hooks{Station: "gentle-mongoose-93"}
 	hooks.EdgeFleet = s.fleet
-	hooks.EdgeCandidates = func() []store.EdgeNode { return nil }
+	hooks.EdgeCandidates = func() []store.EdgeNode { return s.nb.cands }
+	s.nb.wire(&hooks, s.fleet, func() time.Time { return s.now })
 	hooks.EdgeStatus = func() edge.SelfStatus { return s.status }
 	hooks.EdgeScan = func(kind string) func() {
 		s.opened[kind]++
@@ -998,6 +1001,7 @@ func TestEmptyEdgeSimpleFeatureTUI(t *testing.T) {
 			sc.Given(`^NO_COLOR is set$`, st.noColor)
 			sc.Then(`^key caps read as bracketed keys, the magic eye folds to an ASCII mark, and every word is still there$`, st.readsAsText)
 			sc.Then(`^every glyph on the screen is one glyphs\.Fold folds$`, st.everyGlyphFolds)
+			st.nearbySteps(sc)
 			sc.When(`^the empty Edge is rendered by the TUI at (\d+), (\d+) and (\d+) columns$`, st.renderedAt)
 			sc.Then(`^each frame contains every key and word, and no line overflows$`, st.framesHold)
 			sc.Then(`^the (\d+)-column frame matches the committed golden file for the empty Edge$`, st.matchesGolden)
