@@ -37,6 +37,25 @@ const (
 	PairPerAddressPerMinute = 5
 )
 
+// THE WIRE, as a phone or any non-Go client must speak it (docs/ios-edge-handoff.md 3b.3 cites this
+// block). The same three routes are served by a Tower (Handler, on its consumer-plane listener) and by
+// an Edge authority (cmd/rogerai/edgehost.go mounts NewPairing's Handler at "/local/pair/" on the
+// authority listener, plain HTTP on the LAN, beside POST /edge/enroll, /edge/claim and GET /edge/root):
+//
+//	POST /local/pair/start   PairStartBody   -> 200 PairStartAnswer
+//	POST /local/pair/reveal  PairRevealBody  -> 200 {"waiting": <seconds left>}
+//	POST /local/pair/wait    PairWaitBody    -> 200 PairWaitAnswer, held open up to 25 s (long poll)
+//
+// All three are POST with a JSON body, and all three are SIGNED (internal/protocol/auth.go):
+// X-Roger-Pubkey (hex ed25519 public key), X-Roger-TS (unix seconds, within 5 minutes),
+// X-Roger-Nonce (32 lowercase hex, fresh per request, required here) and X-Roger-Sig, the hex ed25519
+// signature over "METHOD\nPATH\nTS\nhex(sha256(body))\nNONCE". The SAME key signs all three, and it is
+// the phrase's ClientKey. Any bad, stale or replayed request is one uniform 401 {"error":"unauthorized"};
+// a sixth start from one address inside a minute is 429 with Retry-After: 60; a ninth pending request
+// is 503. On an Edge authority the phrase's TowerKey is the root fingerprint (hex sha256 of the root
+// certificate's DER, as GET /edge/root serves it); approving allows the asking key as a user key, so
+// the device then enrolls (POST /edge/enroll) signing with that same key and pinning that root.
+
 // PairStartBody opens a request.
 type PairStartBody struct {
 	Kind      string   `json:"kind"` // "client" or "station"

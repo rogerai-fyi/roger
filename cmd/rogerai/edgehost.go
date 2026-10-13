@@ -806,6 +806,8 @@ func (h *edgeHost) startAuthority() {
 		return fresh.Authority()
 	}, nil))
 	authMux.Handle("/", enrollhttp.Handler(local))
+	// Request-and-approve: POST /local/pair/start, /local/pair/reveal and /local/pair/wait on THIS
+	// listener, the wire documented at internal/localplane/pair.go (the iOS handoff cites it).
 	pair := edgePairing(local)
 	authMux.Handle("/local/pair/", pair.Handler())
 	// Access log for the authority (claim/enroll/present), gated on ROGERAI_EDGE_AUTHLOG=1. It records
