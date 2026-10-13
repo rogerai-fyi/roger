@@ -97,14 +97,18 @@ func (m model) edgeNearbySelectedID() string {
 	return m.edge.sel
 }
 
-// edgeNearbyRequest is the waiting join request from the device a primed, if it has asked.
+// edgeNearbyRequest is the waiting join request from the device a primed, if it has asked. A request
+// names the device only by the name it asked with, so two waiting requests with that name match
+// neither: the row never guesses, and the owner-join card answers each with its own phrase.
 func (m model) edgeNearbyRequest(name string) (ownerjoin.Request, bool) {
+	var hit ownerjoin.Request
+	n := 0
 	for _, r := range m.own.reqs {
 		if r.Dir == "edge:authority" && r.Name == name {
-			return r, true
+			hit, n = r, n+1
 		}
 	}
-	return ownerjoin.Request{}, false
+	return hit, n == 1
 }
 
 // edgeNearbyLines draws the NEARBY eyebrow and one row per device, or nothing when nothing pings.
