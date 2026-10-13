@@ -804,6 +804,28 @@ func (h *edgeHost) startAuthority() {
 		}
 		return fresh.Authority()
 	}, nil))
+	// A phone consumes the Edge's bands here (features/edge/phone_consume.feature): it cannot present a
+	// client certificate over TLS, so it signs each request with its member key, and this machine
+	// relays the turn to the member that serves the band over its own pinned mutual TLS. Registered
+	// under each path so they win over the "/" catch-all below.
+	phone := edge.PhoneConsumeHandler(edge.PhoneConsume{
+		Fleet: h.st.fleet,
+		Trust: func() *cert.Authority {
+			fresh, ok, err := edgeauth.OpenLocal(authDir)
+			if err != nil || !ok {
+				return nil
+			}
+			return fresh.Authority()
+		},
+		Member: func(id string) bool {
+			_, ok, err := h.st.fleet.Get(id)
+			return err == nil && ok
+		},
+		Self: edgeCallerCert,
+	})
+	for _, p := range []string{edge.PhoneBandsPath, edge.PhoneInferPath, edge.PhoneSpeechPath} {
+		authMux.Handle(p, phone)
+	}
 	authMux.Handle("/", enrollhttp.Handler(local))
 	pair := edgePairing(local)
 	authMux.Handle("/local/pair/", pair.Handler())

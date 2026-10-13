@@ -82,6 +82,9 @@ func (s *Server) SetServing(sv Serving) {
 	if s.invokeSeen == nil { // any server that can be invoked has a replay cache (NewServer sets it too)
 		s.invokeSeen = &nonceCache{seen: map[string]int64{}}
 	}
+	if s.phoneSeen == nil {
+		s.phoneSeen = &nonceCache{seen: map[string]int64{}}
+	}
 }
 
 // tlsConfigServing is the listener's TLS with client certificates REQUESTED and verified
@@ -161,6 +164,12 @@ func (s *Server) handleInfer(w http.ResponseWriter, r *http.Request) {
 	}
 	if json.Unmarshal(body, &req) != nil || req.Model == "" {
 		inferError(w, http.StatusBadRequest, "a peer turn names the band it wants")
+		return
+	}
+	// A turn a member relays for a phone carries the phone's own proof: checked here, and the turn
+	// is receipted to the phone (phoneconsume.go).
+	if callerID, status, msg = s.onBehalf(r, ActionInfer, body, callerID); status != 0 {
+		inferError(w, status, msg)
 		return
 	}
 	chatURL, key, instance, ok := s.serving.Upstream(req.Model)

@@ -50,6 +50,10 @@ func (s *Server) handleSpeech(w http.ResponseWriter, r *http.Request) {
 		inferError(w, http.StatusBadRequest, "a speech request names the voice it wants")
 		return
 	}
+	if callerID, status, msg = s.onBehalf(r, ActionSpeech, body, callerID); status != 0 {
+		inferError(w, status, msg)
+		return
+	}
 	var speechURL, key, instance string
 	ok := false
 	if s.serving.Speech != nil {
