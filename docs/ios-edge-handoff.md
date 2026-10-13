@@ -580,8 +580,8 @@ differs, someone is in the middle: do not continue" (`approve.feature:137-140`),
 `seconds`, and the three end states (joined, the owner refused, did not answer in 2 minutes) each
 with one next step. No typing.
 
-**DECISION 5 (recommended: invite first).** Ship the invite flow (3b.2 plus the scanner in 3b.5)
-in the first Mac session and leave approve for the second. Invite needs the parser and a proof the
+**DECISION 5 (RULED 2026-10-13: invite first).** The founder ruled: the first Mac session ships
+the invite flow (3b.2 plus the QR scanner in 3b.5), and approve comes in the second session. Invite needs the parser and a proof the
 root-trust doc already specifies in Swift; approve needs the whole SAS stack (X25519 agreement,
 commit/reveal, the word list, the three routes, the long poll) and has no offline vectors yet.
 For a phone the authority's `a` is the claim path (no asking needed), and its `i` is the bound
@@ -690,7 +690,7 @@ Run (host): `i` on phone A's row; scan that QR on phone B. You should see (phone
 invite is for another device: ask for one for this one" (the app's own check of `for=`, or the
 authority's 403). Then scan the same QR on phone A: it still joins (the refusal did not spend it).
 
-**Step S4. Approve: the claim, then asking (3b.3; asking in a second session if DECISION 5 is taken).**
+**Step S4. Approve: the claim, then asking (3b.3; the second Mac session, per DECISION 5).**
 Run (host): `a` on the phone's row. You should see (host): the claim granted and its code; (phone)
 the claim poll answered, the code prompt, "joined". Then, with asking built, on a fresh phone config:
 Run (phone): "Ask to join" on the Edge tab.
@@ -782,8 +782,8 @@ $SIM roger hub edge invite --at 192.168.1.69:39019
 
 Run the six steps S1 to S6 of section 3b.6 here, between the invite join and the adopt flow. S2
 (scan the QR the authority prints for `i`, join with no typing) and S5 (a Tower invite QR refused
-on the Edge path) are the pass marks for the scanner; S4 only if request-and-approve is in this
-session (DECISION 5).
+on the Edge path) are the pass marks for the scanner; S4 waits for the second session, where
+approve lands (DECISION 5, ruled).
 
 ### Step 3. Adopt and claim with the code (asks a, b)
 
