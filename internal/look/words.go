@@ -124,9 +124,6 @@ const (
 	JoinSaysForOther = "that invite is for another device: ask for one for this one"
 )
 
-// NearbyActionsBar is the nearby row's actions as an action bar.
-var NearbyActionsBar = []Action{{"i", "invite"}, {"a", "approve"}}
-
 // NearbySeen words how long ago a device was last heard: "seen 12s ago", or, once it has been quiet
 // for NearbyStaleAfter, "last seen 20m ago" so the owner knows it is not here now.
 func NearbySeen(since time.Duration) string {
