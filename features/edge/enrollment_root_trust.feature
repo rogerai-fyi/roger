@@ -864,11 +864,11 @@ Feature: A machine joining an Edge for the first time believes only a root the o
     Then setting checks_root on it leaves the signed bytes and the signature good
     And the same request with checks_root and a field no authority knows is answered, not refused
 
-  @security @tui @console
-  Scenario: the fleet window says whether a member checked the code when it joined
-    Given "pocket" joined "shed" saying it checks codes, and "attic" joined without saying so
-    Then pocket's page on "shed" says it checked this Edge's code when it joined
-    And attic's page says it did not say it checks codes, and to update it
+  # The owner's fleet window says it too, on a member's page in the rack: "checked this Edge's code
+  # when it joined", or "did not say it checks codes: a roger or app from before root proofs. update
+  # it". Not a scenario here, because the @tui and @console runners of this file drive the join
+  # screens, not the rack; pinned by internal/fleetview TestAPhoneWithNoBatteryReadingHasNoProcessorColumns
+  # and read from the authority's notes by cmd/rogerai edgeFleetSource.
 
   @security @ios
   Scenario: an updated phone app says it checks codes on every join request
