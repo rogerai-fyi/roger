@@ -321,10 +321,19 @@ Feature: One invite, one paste, for Towers and Edge devices
     Then the answer carries a root proof made with the fresh invite's code
     And that invite is spent
 
+  # Audit 2026-10-13: an allowed key gets no free guesses. It tries only an invite it spent itself, one
+  # bound to its own node, and live unbound invites; a proof that matches nothing counts one guess
+  # against every live unbound invite, exactly as a stranger's does.
   @security
-  Scenario: A wrong invite proof from an allowed key is not a guess
+  Scenario: A wrong invite proof from an allowed key is a guess like any other
     Given a device whose key this Edge allows sends an invite proof that matches no live invite
-    Then it is issued as an allowed key is
-    And no live invite loses a guess for it
-    # A wrong proof from a key that is NOT allowed still counts one guess against every live invite
-    # (bearer.go); that is unchanged.
+    Then it is issued as an allowed key is, with no root proof from an invite
+    And every live unbound invite loses one guess, and is void at the budget
+    # A wrong proof from a key that is NOT allowed costs the same (bearer.go); that is unchanged.
+
+  @security
+  Scenario: An invite spent by another key is not tried for an allowed key
+    Given an invite that one device spent
+    When a second device, whose key this Edge allows, presents a proof of the same invite
+    Then its answer carries no root proof from that invite
+    And the first device's retry with it is still proven

@@ -67,22 +67,47 @@ func TestAFreshInviteOnAnAllowedKeyProvesAndSpends(t *testing.T) {
 	require.ErrorIs(t, err, edgeauth.ErrUnknownMachine, "the fresh invite was spent by this join")
 }
 
-// An allowed key needs no invite, so a proof that matches nothing is no guess: it does not wear down
-// the live invites, and the key is issued as before.
-func TestAnAllowedKeysWrongProofIsNoGuess(t *testing.T) {
+// Audit 2026-10-13: an allowed key gets no free guesses. A proof from it that matches nothing counts
+// one guess against every live unbound invite, as a stranger's does, and the invite is void at the
+// budget. The key itself is still issued as before.
+func TestAnAllowedKeysWrongProofIsAGuess(t *testing.T) {
 	local, err := edgeauth.Designate(t.TempDir(), "shed")
 	require.NoError(t, err)
 	userPub, user := keypair(t)
 	require.NoError(t, local.Allow(hexEncode(userPub)))
 	code, err := local.MintBearerCode()
 	require.NoError(t, err)
-	for i := 0; i < edgeauth.BearerGuessBudget+2; i++ {
+	for i := 0; i < edgeauth.BearerGuessBudget; i++ {
 		node, _ := keypair(t)
 		_, err := local.Issue(proven(t, local, user, node, edgeauth.NewCode()))
-		require.NoError(t, err)
+		require.NoError(t, err, "an allowed key is issued whatever its proof says")
 	}
 	_, err = local.Issue(bearerReq(t, local, code))
-	require.NoError(t, err, "the live invite still works")
+	require.ErrorIs(t, err, edgeauth.ErrUnknownMachine, "the invite was guessed at to its budget, and is void")
+}
+
+// An invite another key spent is not this key's to retry with: the answer is unproven, and the
+// invite is untouched for its own retry.
+func TestAnInviteSpentByAnotherKeyIsNotTried(t *testing.T) {
+	local, err := edgeauth.Designate(t.TempDir(), "shed")
+	require.NoError(t, err)
+	code, err := local.MintBearerCode()
+	require.NoError(t, err)
+	_, first := keypair(t)
+	node, _ := keypair(t)
+	_, err = local.Issue(proven(t, local, first, node, code))
+	require.NoError(t, err)
+
+	otherPub, other := keypair(t)
+	require.NoError(t, local.Allow(hexEncode(otherPub)))
+	resp, err := local.Issue(proven(t, local, other, node, code))
+	require.NoError(t, err)
+	require.Empty(t, resp.RootProof, "not proven with an invite another key spent")
+
+	retry := proven(t, local, first, node, code)
+	resp, err = local.Issue(retry)
+	require.NoError(t, err)
+	requireProof(t, code, resp, retry.Nonce)
 }
 
 // A bound invite on an allowed key from another node is passed over, not spent.

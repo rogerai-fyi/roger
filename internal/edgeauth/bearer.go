@@ -114,26 +114,50 @@ func (l *Local) bearerMatch(r Request) (string, bool, error) {
 
 // bearerFind is bearerMatch for a key the owner ALREADY allowed that still carries an invite's
 // proof: a retry after the first answer was lost on the way back (the code is spent and the key
-// allowed by then), or a device whose key stayed allowed and rejoins with a fresh invite. A live code,
-// or one this same key spent, is found so the answer can be proven with it; a proof that matches
-// nothing is no guess, because this key needs no invite to be issued. A code bound to another node is
-// not this device's to use, and is passed over. Unlocked; the caller holds the lock.
+// allowed by then), or a device whose key stayed allowed and rejoins with a fresh invite. Found so the
+// answer can be proven with it:
+//   - a code this same key spent, or a live code bound to this node: checked, never counted;
+//   - a live UNBOUND code: checked too, and a proof that matches nothing counts one guess against each
+//     such code, exactly as a stranger's does (audit 2026-10-13: an allowed key must not get free
+//     guesses at somebody else's invite).
+//
+// A code bound to another node, or spent by another key, is never checked at all. Unlocked; the
+// caller holds the lock.
 func (l *Local) bearerFind(r Request) (string, bool, error) {
 	got, err := l.readCodes()
 	if err != nil {
 		return "", false, err
 	}
 	fields := joinFields(l.Descriptor().Fingerprint, r)
+	unbound := false
 	for _, c := range got {
-		if !strings.HasPrefix(c.Join, bearerPrefix) || (c.SpentBy != "" && c.SpentBy != r.UserKey) ||
-			(c.For != "" && c.For != r.NodeID) {
+		if !strings.HasPrefix(c.Join, bearerPrefix) {
 			continue
 		}
+		mine := c.SpentBy == r.UserKey || (c.SpentBy == "" && c.For == r.NodeID)
+		fresh := c.SpentBy == "" && c.For == ""
+		if !mine && !fresh {
+			continue
+		}
+		unbound = unbound || fresh
 		if joincode.EdgeJoin.Check(c.Code, r.JoinProof, r.Nonce, fields...) == nil {
 			return c.Join, true, nil
 		}
 	}
-	return "", false, nil
+	if !unbound {
+		return "", false, nil
+	}
+	out := got[:0]
+	for _, c := range got {
+		if strings.HasPrefix(c.Join, bearerPrefix) && c.SpentBy == "" && c.For == "" {
+			c.Fails++
+			if c.Fails >= BearerGuessBudget {
+				continue
+			}
+		}
+		out = append(out, c)
+	}
+	return "", false, l.writeJSON(CodesFile, out)
 }
 
 // proveBearer attaches the root proof made with a bearer code to an issuing answer and marks the code
