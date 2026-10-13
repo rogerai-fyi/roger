@@ -225,6 +225,17 @@ func (l *Local) Issue(r Request) (Response, error) {
 					_ = l.disallow(r.UserKey)
 				}
 			}()
+		} else if r.JoinProof != "" {
+			// Already allowed, and still proving an invite: a retry after a lost answer, or a fresh
+			// invite on a key that stayed allowed. Prove the answer with that invite's code (spending a
+			// fresh one), or the device holds a certificate it cannot verify and must throw away.
+			j, matched, err := l.bearerFind(r)
+			if err != nil {
+				return err
+			}
+			if matched {
+				bearerJoin = j
+			}
 		}
 		// Bind the node id to the key it presents BEFORE reading the revocation list, so an
 		// allowed-key holder cannot probe an arbitrary node id's revocation status (a mismatch is
@@ -294,7 +305,7 @@ func (l *Local) Issue(r Request) (Response, error) {
 		if bearerJoin != "" {
 			// The invite's code proves the root in this answer and is spent with it; the key stays
 			// on the allow-list, so the device may renew.
-			if err := l.prove(&r2, bearerJoin, r.Nonce); err != nil {
+			if err := l.proveBearer(&r2, bearerJoin, r.Nonce, r.UserKey); err != nil {
 				return err
 			}
 		} else if r.UserKey != "" {

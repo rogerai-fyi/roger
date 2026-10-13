@@ -295,3 +295,36 @@ Feature: One invite, one paste, for Towers and Edge devices
     And the server it shares from also lists "qwen3-8b" and "claude"
     When the station's next poll reaches the Tower
     Then the poll reports only "smollm2-135m-instruct"
+
+  # =========================================================================
+  # AN EDGE INVITE ON A KEY THAT IS ALREADY ALLOWED
+  # =========================================================================
+  # PROPOSED 2026-10-13 (found by the iOS invite validation; not yet ruled). Pinned by
+  # internal/edgeauth/bearer_retry_test.go. An Edge invite spends its code and allows the joiner's
+  # key in the same step that issues. If that answer is lost on the way back, the device's retry
+  # arrives on an allowed key; before this, the allowed-key path ignored join_proof and answered with
+  # root_proof_status "none", which the device rightly refuses: a certificate issued and thrown away.
+  # The same happened to a device whose key stayed allowed and that rejoined with a fresh invite, and
+  # that fresh invite was never spent.
+
+  @security
+  Scenario: A device's retry after a lost answer is proven with the invite it spent
+    Given a device joined an Edge with an invite and the answer was lost on the way back
+    When the device asks again with the same invite
+    Then the answer carries a root proof made with that invite's code
+    And the spent invite still admits no other device
+
+  @security
+  Scenario: A fresh invite on a key that is still allowed proves the answer and is spent
+    Given a device whose key this Edge still allows, holding a fresh invite
+    When it joins with the invite
+    Then the answer carries a root proof made with the fresh invite's code
+    And that invite is spent
+
+  @security
+  Scenario: A wrong invite proof from an allowed key is not a guess
+    Given a device whose key this Edge allows sends an invite proof that matches no live invite
+    Then it is issued as an allowed key is
+    And no live invite loses a guess for it
+    # A wrong proof from a key that is NOT allowed still counts one guess against every live invite
+    # (bearer.go); that is unchanged.
