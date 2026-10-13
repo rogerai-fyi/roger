@@ -323,8 +323,8 @@ func edgeEnrollBegin(cfg config, name, endpoint, account string, tr edgeJoinTrus
 	req := edgeauth.NewRequest(claim, name, string(edge.Host), pub, now)
 	// This joiner checks every answer (a code, an invite, a pin or the held root, and no option
 	// skips it), so it says so and the authority does not warn its owner about it (ruling D9).
-	req.ChecksRoot = true
 	req.Sign(edgeUserKey())
+	req.SignChecksRoot(edgeUserKey())
 	// With the invite's code and the root's fingerprint in hand, prove the code to the authority, so
 	// a key-less invite (roger edge invite) admits this device's key (bearer.go). An allowed key's
 	// join ignores the proof.

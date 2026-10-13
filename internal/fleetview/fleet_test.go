@@ -977,7 +977,7 @@ func TestAPhoneWithNoBatteryReadingHasNoProcessorColumns(t *testing.T) {
 	}
 	f.SelectUnit("n_ivy")
 	page.Press("r")
-	must(t, page.Screen(), "checked this Edge's code when it joined")
+	must(t, page.Screen(), "said it checks codes when it joined")
 }
 
 // ANDON tiles stay in their columns even when a unit has no log yet (found rendering the screen at

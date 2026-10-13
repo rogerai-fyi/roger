@@ -114,7 +114,7 @@ type FleetItem struct {
 	// Phone is a phone's own signed vitals (battery, charging, thermal, app in front); nil otherwise.
 	Phone *store.EdgePhone
 	// Codes is what the member said, when it joined, about checking this Edge's code (ruling D9):
-	// "checks" when it said it verifies the root proof, "old" when it joined without saying so (a
+	// "checks" when it said, with a signature, that it verifies the root proof, "old" when it joined without saying so (a
 	// roger or app from before root proofs), "" when this machine never heard it join.
 	Codes string
 }
@@ -1615,7 +1615,7 @@ func (f *Fleet) drawReadout(fr *lm.Frame, area lm.Rect) int {
 		}
 		switch it.Codes {
 		case "checks":
-			row("joined", span("checked this Edge's code when it joined", ink))
+			row("joined", span("said it checks codes when it joined", ink))
 		case "old":
 			row("joined", span("did not say it checks codes: a roger or app from before root proofs. update it", glow))
 		}

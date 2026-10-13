@@ -138,7 +138,9 @@ type rtBDD struct {
 	results []edgeauth.Response
 	coreSrv *httptest.Server
 	extra   []string
-	pairing struct{ joiner, authority, proof string }
+	// lastClaim is the last claim a phone step sent, for a replay.
+	lastClaim edgeauth.ClaimRequest
+	pairing   struct{ joiner, authority, proof string }
 }
 
 // ---- machines --------------------------------------------------------------
@@ -2971,10 +2973,31 @@ func (s *rtBDD) phoneAskedToClaim(name, saying string) error {
 		return err
 	}
 	c := edgeauth.NewClaimRequest(name, "mobile", s.phone.pub, time.Now())
-	c.ChecksRoot = saying == "saying"
 	c.Sign(s.phone.priv)
+	if saying == "saying" {
+		c.SignChecksRoot(s.phone.priv)
+	}
+	s.lastClaim = c
 	if _, err := enrollhttp.Claim(context.Background(), s.shed().url, c); err == nil {
 		return fmt.Errorf("a claim before the adopt was answered")
+	}
+	return nil
+}
+
+func (s *rtBDD) replayClaimWithFlag() error {
+	c := s.lastClaim
+	c.ChecksRoot = true
+	_, _ = enrollhttp.Claim(context.Background(), s.shed().url, c)
+	return nil
+}
+
+func (s *rtBDD) stillDoesNotCheck(name string) error {
+	checks, heard := s.shed().local.NodeChecksRoot(s.phone.id)
+	if !heard || checks {
+		return fmt.Errorf("%s: heard %v, checks %v", name, heard, checks)
+	}
+	if err := s.runsAdoptOnShed(name); err != nil {
+		return err
 	}
 	return nil
 }
@@ -2984,8 +3007,8 @@ func (s *rtBDD) requestCarriedChecksRoot() error {
 	if !ok {
 		return fmt.Errorf("no enrollment reached shed:\n%s", s.out)
 	}
-	if !req.ChecksRoot {
-		return fmt.Errorf("the request did not say it checks codes")
+	if !req.ChecksRootProven() {
+		return fmt.Errorf("the request did not say, with a signature, that it checks codes")
 	}
 	return nil
 }
@@ -3948,6 +3971,8 @@ func TestEnrollmentRootTrustFeature(t *testing.T) {
 			sc.Step(`^the adopt output does not say "([^"]*)"$`, st.never)
 			sc.Step(`^the adopt output says "([^"]*)"$`, func(sub string) error { return st.says(sub) })
 			sc.Step(`^its request to "shed" carried checks_root true$`, st.requestCarriedChecksRoot)
+			sc.Step(`^that claim is replayed to "shed" with checks_root set and no checks_root_sig$`, st.replayClaimWithFlag)
+			sc.Step(`^"shed" still has "([^"]*)" as one that does not check codes$`, st.stillDoesNotCheck)
 			sc.Step(`^"shed" remembers this machine as one that checks codes$`, st.shedRemembersChecks)
 			sc.Step(`^a joiner's request signed without checks_root$`, st.requestSignedWithoutFlag)
 			sc.Step(`^setting checks_root on it leaves the signed bytes and the signature good$`, st.flagLeavesSignature)
