@@ -750,9 +750,10 @@ func (m model) edgeAdoptingHint(cw int, line func(string)) {
 // shows up and how to add one, so "where is my phone?" has an answer on the screen (2026-09-23).
 func (m model) edgeFindDevicesHint(cw int, line func(string)) {
 	// When devices ARE pinging they already show as NEARBY rows with "i invite · a approve" and
-	// the Adopt button, so say nothing more here - the screen is tight (2026-09-23). Only when
-	// nothing is found is a single quiet line worth the space, to explain where a device appears.
-	if len(m.edge.cands) > 0 {
+	// the Invite and Approve buttons (an adopting device too), so say nothing more here - the
+	// screen is tight (2026-09-23). Only when nothing is found is a single quiet line worth the
+	// space, to explain where a device appears.
+	if len(m.edgeNearbyItems()) > 0 {
 		return
 	}
 	// NOTHING FOUND YET. Say what to do, and say it with the ADDRESS ON THE SCREEN: an owner should

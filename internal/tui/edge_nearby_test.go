@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"rogerai.fm/roger/v6/internal/ownerjoin"
+	"rogerai.fm/roger/v6/internal/store"
 )
 
 func TestNearbyRequestIsNeverGuessedBetweenTwoOfOneName(t *testing.T) {
@@ -32,4 +33,14 @@ func TestNearbyRequestIsNeverGuessedBetweenTwoOfOneName(t *testing.T) {
 	m.hooks.Owner = &ownerjoin.Hooks{Decide: func(string, string, bool) error { t.Fatal("decided a guessed request"); return nil }}
 	_, handled := m.edgeNearbyDecide(true)
 	require.False(t, handled, "y falls through to the owner-join card, which shows the phrase it answers")
+}
+
+// A device that is adopting (its claim granted, not joined yet) is still a NEARBY row, so the
+// "no devices yet" hint must not be drawn under it (seen live on the simulated hub, 2026-10-12).
+func TestNoDevicesHintIsNotDrawnUnderANearbyRow(t *testing.T) {
+	var m model
+	m.hooks.EdgeAdopting = func() []store.EdgeNode { return []store.EdgeNode{{ID: "n_phone", Name: "gentle-ibex-14"}} }
+	var out []string
+	m.edgeFindDevicesHint(100, func(s string) { out = append(out, s) })
+	require.Empty(t, out)
 }
