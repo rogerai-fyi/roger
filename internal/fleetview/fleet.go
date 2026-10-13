@@ -1408,6 +1408,10 @@ func (it FleetItem) rowFacts(used, width int, now time.Time) []lm.Span {
 	case it.Phone != nil && it.Phone.BatteryPct != nil:
 		// A phone has no processor figures to give; its battery is the number that matters.
 		out = append(out, span(pad(fmt.Sprintf("batt %d%%", *it.Phone.BatteryPct), 10), ink))
+	case edge.Kind(it.NodeKind) == edge.Mobile || it.Phone != nil:
+		// A phone with no battery reading yet: its battery column is drawn absent. It never gets the
+		// temperature and memory columns, because iOS gives no such figures (fleet_window.feature).
+		out = append(out, span(pad("batt ┈┈", 10), ash))
 	case it.Health == nil || it.Health.Readings == nil:
 		out = append(out, span("┈┈┈   ┈┈┈ ", ash))
 		if withDisk {

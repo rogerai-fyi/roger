@@ -307,6 +307,45 @@ Feature: From the authority, every unit can be seen, judged and acted on without
     Then the window says it is asleep and when it was last heard
     And it does not raise an offline alert until the owner's offline rule says so
 
+  # RULED 2026-10-13 (founder): "ok, enhance" the phone's vitals. Checked against this build: the
+  # Edge side draws ASLEEP from a phone's last signed beat that said its app was in the background,
+  # for the liveness window, then DARK, and the default offline rule (offline gt 5 minutes) alerts at
+  # the same moment (review 2026-10-01, unitword_test.go). A phone with no battery reading yet drew
+  # the temperature and memory placeholders on its row; it now draws its battery column absent and
+  # never those columns (fleetview, TestAPhoneWithNoBatteryReadingHasNoProcessorColumns).
+  # The scenarios below are PROPOSED, not built.
+
+  # PROPOSED: today the app beats only while the Edge tab is in front and sends no beat as it leaves,
+  # so its last beat says "app in front" and the window reads HEARD, then DARK, never ASLEEP.
+  @ios @edge
+  Scenario: a phone says it is going to sleep as its app leaves the front
+    Given a phone member whose Edge tab is in front
+    When the app moves to the background
+    Then it sends one last signed v2 presence with foreground false before it is suspended
+    And the window reads ASLEEP with when it was last heard
+
+  # PROPOSED: a phone is asleep most of the day; the default offline rule then calls it offline five
+  # minutes after every use. Founder to rule: should the default offline rule skip a phone whose last
+  # beat said it was going to sleep, leaving an owner-written rule for phones?
+  @ios @edge
+  Scenario: the default offline rule does not call a sleeping phone offline
+    Given a phone whose last beat said its app went to the background
+    When it has not been heard for longer than the liveness window
+    Then it reads ASLEEP with when it was last heard, not DARK
+    And only an offline rule the owner wrote for it raises an alert
+
+  # PROPOSED: Low Power Mode (ProcessInfo.isLowPowerModeEnabled) is honest and cheap on iOS and
+  # explains a slow or quiet phone. It cannot ride presence v2: v2's signed bytes are fixed, and an
+  # authority from before a new field would fail the signature. So it needs a v3 form (prefix
+  # rogerai-edge-present/v3, the v2 lines plus one line "1", "0" or ""), and the phone falls back to
+  # v2 when an authority answers 403 "that presence version is not one this authority reads".
+  @ios @edge
+  Scenario: a phone in Low Power Mode says so
+    Given a phone with Low Power Mode on
+    Then its presence is v3 and carries low_power true inside the signature
+    And the window draws "low power" beside its battery
+    And an authority that does not read v3 refuses it and the phone sends v2 instead
+
   @edge
   Scenario: a Pi's power, card wear and temperature are on its row and its page
     Given a Pi reporting under-voltage now
