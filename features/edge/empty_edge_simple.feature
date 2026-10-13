@@ -368,3 +368,122 @@ Feature: A simple empty Edge screen
     When the empty Edge is rendered by the TUI at 100, 80 and 60 columns
     Then each frame contains every key and word, and no line overflows
     And the 100-column frame matches the committed golden file for the empty Edge
+
+  # =====================================================================================
+  # 7. NEARBY DEVICES: INVITE OR APPROVE FROM THE SIGHTING
+  # =====================================================================================
+  # founder ruling 2026-10-12: a nearby device can be invited or approved from the sighting
+  #
+  # A device that pings (a phone's advert, a roger with no Edge yet) is drawn as a NEARBY row, on
+  # the empty state and on the enrolled view alike. The owner acts on the row: i mints an invite
+  # bound to THAT device (its node id derives from its node key, so nothing else can redeem it),
+  # shown as the QR and the join line; a starts request-and-approve with the matching phrase.
+  # No address is typed anywhere. The old `roger edge adopt <id>` hint is gone; adopt itself stays
+  # one release as an alias of the approve path, with a deprecation note.
+  #
+  # GROUND TRUTH: internal/edge/wire (the advert's id, kind, name, fp), internal/edge/discovery.go
+  # (candidates), cmd/rogerai/edgehost.go (the host's candidate list, adopt, pairing),
+  # internal/edgeauth (GrantClaim, MintNodeCode = the bound invite; the pair server), internal/
+  # joininvite (roger://join?kind=edge&for=<node id>), cmd/rogerai/edgeinvite.go (--for).
+
+  @tui
+  Scenario: a device that pings shows as a nearby row on the empty state
+    Given this machine is in no Edge and a phone advertises itself with node id "8eda6e1a92c9", kind "mobile", name "gentle-ibex-14"
+    When the owner opens [3] EDGE
+    Then under a muted "NEARBY" eyebrow one row reads the name "gentle-ibex-14", the kind "mobile", how long ago it was seen, and a short key fingerprint
+    And the row offers "i invite · a approve"
+    And nowhere on the screen is "roger edge adopt"
+
+  @tui
+  Scenario: the nearby rows also show on the enrolled view
+    Given this machine roots an Edge with one member and a phone advertises itself with node id "8eda6e1a92c9"
+    When the owner opens [3] EDGE
+    Then the same NEARBY row is drawn under the members, with "i invite · a approve"
+
+  @tui
+  Scenario: i on a nearby row mints an invite bound to that device
+    Given this machine roots an Edge and a phone advertises itself with node id "8eda6e1a92c9"
+    When the owner selects it and presses i
+    Then an invite is minted for node "8eda6e1a92c9" only (kind edge, for=8eda6e1a92c9), with a one-time code
+    And the screen shows the QR and the `roger join` line, and the row reads "invited · waiting"
+    And the authority's claim grant for "8eda6e1a92c9" exists, so the phone's own claim poll is answered
+
+  @tui
+  Scenario: an invite bound to one device is refused for another
+    Given the owner invited node "8eda6e1a92c9" from its row
+    When a device with a different node id presents that invite's code
+    Then it is refused and the invite is not spent
+    And the row for "8eda6e1a92c9" still reads "invited · waiting"
+
+  @tui
+  Scenario: a device that joins leaves NEARBY and appears as a member
+    Given the owner invited node "8eda6e1a92c9" from its row
+    When that device joins with the invite
+    Then it is no longer under NEARBY and is drawn as a member with its name
+    And the status line says it joined
+
+  @tui
+  Scenario: a on a nearby row starts request-and-approve
+    Given this machine roots an Edge with its authority serving, and a roger with no Edge advertises itself with node id "n_ab12", name "deskside"
+    When the owner selects it and presses a
+    Then the screen says it is waiting for "deskside" to ask, and names what the device runs: roger join <this authority's address>
+    When "deskside" asks to join
+    Then the matching phrase appears on the authority's screen beside the row
+    When the owner presses y
+    Then "deskside" is admitted and drawn as a member
+    When instead the owner presses n
+    Then "deskside" is refused and stays under NEARBY
+
+  @tui
+  Scenario: a on a claim-only device grants its claim
+    Given a phone advertises itself with node id "8eda6e1a92c9" and no certificate
+    When the owner selects it and presses a
+    Then the claim is granted and its code is shown, as i does, because a claim-only device joins by claim, not by asking
+
+  @tui
+  Scenario: the stale sighting is marked and not acted on blindly
+    Given a phone advertised itself 20 minutes ago and has not been seen since
+    When the owner opens [3] EDGE
+    Then its row reads "last seen 20m ago" in the dim style
+    And i still works (the invite waits for the device), but the row says the device must come back to use it
+
+  @security @tui
+  Scenario: a spoofed advert with a lookalike name gets no bound invite without the key
+    Given a phone "gentle-ibex-14" with node id "8eda6e1a92c9" is nearby
+    And an impostor advertises the SAME name with node id "8eda6e1a92c8"
+    When the owner opens [3] EDGE
+    Then two rows show, told apart by their node ids and fingerprints, never merged
+    And an invite minted for "8eda6e1a92c9" cannot be redeemed by "8eda6e1a92c8"
+
+  @security @tui
+  Scenario: two devices with the same name are two rows
+    Given two phones both named "iPhone" advertise with different node ids
+    When the owner opens [3] EDGE
+    Then NEARBY shows two rows, each with its own id and fingerprint
+
+  @cli
+  Scenario: `roger edge nearby` lists the same rows
+    Given a phone advertises itself with node id "8eda6e1a92c9", name "gentle-ibex-14"
+    When the owner runs "roger edge nearby"
+    Then it prints the name, kind, how long ago, the short fingerprint and the node id
+    And it prints "invite it: roger edge invite --for 8eda6e1a92c9" and "approve it when it asks: roger edge approve 8eda6e1a92c9"
+
+  @cli
+  Scenario: `roger edge invite --for <id>` mints the bound invite
+    When the owner runs "roger edge invite --for 8eda6e1a92c9"
+    Then it prints one `roger join` line whose invite is for that node only, and the QR
+    And a device with another node id is refused with it
+
+  @cli
+  Scenario: `roger edge adopt` still works, as an alias, with a deprecation note
+    Given a phone advertises itself with node id "8eda6e1a92c9"
+    When the owner runs "roger edge adopt 8eda6e1a92c9"
+    Then it does what `roger edge approve 8eda6e1a92c9` does
+    And it prints one line: "adopt is now: roger edge invite --for <id>, or roger edge approve <id>"
+
+  @console
+  Scenario: the console shows NEARBY with Invite and Approve buttons
+    Given a phone advertises itself with node id "8eda6e1a92c9"
+    When the owner opens the console's Edge view
+    Then a NEARBY list shows the row with Invite and Approve buttons
+    And Invite shows the join line and the QR, and Approve waits for the ask and shows the phrase
