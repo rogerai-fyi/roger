@@ -1,0 +1,2 @@
+error: the runtime binary is not there: <config>/absent/llama-server
+  Qwen/Qwen3-0.6B-GGUF:Q8_0 is still serving - nothing was switched

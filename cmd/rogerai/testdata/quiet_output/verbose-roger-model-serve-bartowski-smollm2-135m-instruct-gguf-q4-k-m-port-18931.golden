@@ -1,0 +1,7 @@
+bartowski/SmolLM2-135M-Instruct-GGUF:Q4_K_M: fits at 8K context by llama.cpp's own check: needs 630.0 MiB, leaving its margin free
+starting llama.cpp b11146, the cuda build on SmolLM2-135M-Instruct-Q4_K_M.gguf at 8192 context...
+  on one card, CUDA0: it fits there, and one card answers faster than a split
+on the air locally: "smollm2-135m-instruct" - bartowski/SmolLM2-135M-Instruct-GGUF:Q4_K_M, Q4_K_M, sha256 2e8040ceae78, 8192 context
+  http://127.0.0.1:18931/v1 (key in <config>/rogerai/local/serving-18931.json)
+  roger share picks it up like any local server. ctrl-c or `roger model stop` ends it.
+stopping smollm2-135m-instruct.

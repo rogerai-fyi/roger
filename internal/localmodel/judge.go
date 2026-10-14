@@ -130,6 +130,9 @@ func Judge(s catalog.Shape, b Budget, ctx int) Verdict {
 	return v
 }
 
+// MarginFree ends the runtime's yes in full; the few-line default leaves it off.
+const MarginFree = ", leaving its margin free"
+
 // Line is the verdict in one sentence, with the context in it.
 func (v Verdict) Line() string {
 	if v.ByRuntime {
@@ -140,8 +143,8 @@ func (v Verdict) Line() string {
 			}
 			return fmt.Sprintf("will not fit at %s context by llama.cpp's own check: %s; %s", ctxWord(v.Ctx), v.Why, where)
 		}
-		return fmt.Sprintf("fits at %s context by llama.cpp's own check: needs %s, leaving its margin free",
-			ctxWord(v.Ctx), BytesWord(v.Need.Total-v.Need.Headroom))
+		return fmt.Sprintf("fits at %s context by llama.cpp's own check: needs %s", ctxWord(v.Ctx),
+			BytesWord(v.Need.Total-v.Need.Headroom)) + MarginFree
 	}
 	if v.Unasked != "" {
 		return v.estimateLine() + " (roger's estimate - the runtime's own check could not run: " + v.Unasked + ")"

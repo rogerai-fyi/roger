@@ -1,0 +1,7 @@
+this machine: 191.2 GiB of video memory across 4 GPUs
+memory speed: spec sheet: 4 x RTX PRO 6000 Blackwell 1792 GB/s
+
+* Q4_K_M    100.6 MiB  fits  at 8K - needs 1.4 GiB  ~577 tok/s usable
+  Q8_0      138.1 MiB  fits  at 8K - needs 1.4 GiB  ~566 tok/s usable
+
+* suggested. roger model get bartowski/SmolLM2-135M-Instruct-GGUF:Q4_K_M
