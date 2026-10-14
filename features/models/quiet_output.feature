@@ -169,6 +169,8 @@ Feature: roger model get and serve say four lines by default, and the full accou
     When the owner runs "roger model get bartowski/SmolLM2-135M-Instruct-GGUF:Q8_0"
     Then "licence apache-2.0" and "the author's word" are printed before "fetch it? [y/N]"
 
+  # 2026-10-13 review: pending, because `roger model get` has no catalogue source yet to tell apart.
+  @pending
   Scenario: a model from our own catalogue is told apart from the author's word without colour
     Given a catalogue entry "qwen3-8b" with a hash and a licence we published
     When the owner runs "roger model get qwen3-8b" and answers n
@@ -295,6 +297,20 @@ Feature: roger model get and serve say four lines by default, and the full accou
       | will not fit | is printed             |
       | cannot say   | is replaced by the missing reading, named |
 
+  # 2026-10-13 review: DECISION Q2 holds on serve too (local_models.feature:363 as re-approved). A
+  # serve that will not fit is refused with the whole sum (section 4).
+  Scenario Outline: serve shows the full sum by default exactly when the verdict is not a comfortable fit
+    Given a model whose verdict here is <verdict>
+    And the runtime's own check cannot run, so roger's estimate stands
+    When the owner serves a model already on this machine without --verbose
+    Then the term-by-term sum line <sum>
+
+    Examples:
+      | verdict      | sum                    |
+      | fits         | is not printed         |
+      | tight        | is printed             |
+      | cannot say   | is replaced by the missing reading, named |
+
   Scenario: the speed claim is never folded into the fit line
     When the owner runs get or serve
     Then neither of the four lines states a speed
@@ -341,6 +357,7 @@ Feature: roger model get and serve say four lines by default, and the full accou
       | two models that do not fit together                           |
       | an embedding model asked to serve chat                        |
       | a runtime that cannot be fetched or verified                  |
+      | a background serve that never comes on the air                |
 
   Scenario: a failed command exits non-zero, a declined fetch exits zero
     When the owner declines a fetch

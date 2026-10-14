@@ -21,6 +21,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -122,12 +123,12 @@ func (s *quietBDD) reset() error {
 	s.env = map[string]string{"FAKE_LLAMA": "1", "FAKE_FIT": "yes", "FAKE_FIT_P": "CUDA0 101 180 349"}
 	modelServeEnv = s.env
 	modelFitExe = func(string) string { return os.Args[0] }
-	modelOutTerminal = func() bool { return s.terminal }
 	s.ports = map[string]string{}
-	oldSig, oldIs, oldSpawn, oldWait, oldInvoke, oldIdle := edgeSignal, edgeProcIsRoger, modelSpawn, modelDetachWait, modelEdgeInvoke, modelIdleEvery
+	oldSig, oldIs, oldSpawn, oldWait, oldInvoke, oldIdle, oldTerm := edgeSignal, edgeProcIsRoger, modelSpawn, modelDetachWait, modelEdgeInvoke, modelIdleEvery, modelOutTerminal
 	s.t.Cleanup(func() {
-		edgeSignal, edgeProcIsRoger, modelSpawn, modelDetachWait, modelEdgeInvoke, modelIdleEvery = oldSig, oldIs, oldSpawn, oldWait, oldInvoke, oldIdle
+		edgeSignal, edgeProcIsRoger, modelSpawn, modelDetachWait, modelEdgeInvoke, modelIdleEvery, modelOutTerminal = oldSig, oldIs, oldSpawn, oldWait, oldInvoke, oldIdle, oldTerm
 	})
+	modelOutTerminal = func() bool { return s.terminal }
 	edgeSignal = func(pid int, _ syscall.Signal) error { s.signalled = append(s.signalled, pid); return nil }
 	edgeProcIsRoger = func(int) (bool, bool) { return true, true }
 	modelDetachWait = 5 * time.Second
@@ -263,6 +264,9 @@ func (s *quietBDD) cudaCannotStart() {
 	}
 }
 
+// freePortFn is how exec picks the port it runs a named one on; a test can pin it.
+var freePortFn = freePort
+
 // freePort is a port nobody holds now.
 func freePort() (int, error) {
 	l, err := net.Listen("tcp", "127.0.0.1:0")
@@ -291,7 +295,7 @@ func (s *quietBDD) exec(line string) error {
 	args := strings.Fields(strings.TrimPrefix(line, "roger model"))
 	for i, a := range args {
 		if a == "--port" && i+1 < len(args) {
-			p, err := freePort()
+			p, err := freePortFn()
 			if err != nil {
 				return err
 			}
@@ -362,13 +366,8 @@ func (s *quietBDD) full() string {
 
 func lines(out string) []string { return strings.Split(strings.TrimRight(out, "\n"), "\n") }
 
-// specText is the spec's wording with the hub's own name where the real output names it.
-func specText(want string) string {
-	return strings.ReplaceAll(want, "(the author's word, from the model hub)", "(the author's word, from HuggingFace)")
-}
-
 func (s *quietBDD) outputIsExactly(doc *godog.DocString) error {
-	want := strings.TrimSpace(specText(doc.Content))
+	want := strings.TrimSpace(doc.Content)
 	got := strings.TrimRight(s.full(), "\n")
 	if got != want {
 		return fmt.Errorf("output differs\n--- got ---\n%s\n--- want ---\n%s", got, want)
@@ -492,7 +491,7 @@ func (s *quietBDD) getItAnswersN() error {
 }
 
 func (s *quietBDD) line1Says(want string) error {
-	if l := lines(s.out)[0]; !strings.Contains(l, specText(want)) {
+	if l := lines(s.out)[0]; !strings.Contains(l, want) {
 		return fmt.Errorf("line 1 is %q, not saying %q\n%s", l, want, s.full())
 	}
 	return nil
@@ -980,6 +979,17 @@ func (s *quietBDD) failure(name string) error {
 			return err
 		}
 		s.failCmd = "roger model serve " + p
+	case "a background serve that never comes on the air":
+		modelDetachWait = time.Second
+		modelSpawn = func(args []string, logPath string) error {
+			log := "error: the runtime exited instead of serving: exit status 1\n"
+			if slices.Contains(args, "--verbose") { // the background roger's full account
+				log = smolQ4ID + ": fits at 8K context by llama.cpp's own check: needs 630.0 MiB, leaving its margin free\n" +
+					"starting llama.cpp b11146, the cuda build on " + smolQ4 + " at 8192 context...\n" + log
+			}
+			return os.WriteFile(logPath, []byte(log), 0o600)
+		}
+		s.failCmd = "roger model serve smollm2-135m-instruct --detach"
 	case "a runtime that cannot be fetched or verified":
 		modelRuntimeFor = func(context.Context, string) (modelRT, error) {
 			return modelRT{}, errors.New("the runtime archive's sha256 is not the one pinned in this build")
@@ -1072,10 +1082,12 @@ func namesBuild(ls []string, i int) bool {
 }
 
 func (s *quietBDD) notEndingUntold() error {
-	ls := lines(s.full())
-	last := ls[len(ls)-1]
-	if strings.Contains(last, "will not fit") && !namesBuild(ls, len(ls)-1) {
-		return fmt.Errorf("it ends with a will-not-fit error that does not say whose check it is:\n%s", s.full())
+	if s.errLine == "" {
+		return fmt.Errorf("it did not end in a refusal:\n%s", s.full())
+	}
+	// The refusal's first line is its verdict; the lines under it are the sum and the command.
+	if first := lines(s.errLine)[0]; strings.Contains(first, "will not fit") && !strings.Contains(strings.ToLower(first), " build") {
+		return fmt.Errorf("it ends with a will-not-fit error that does not say whose check it is: %q", first)
 	}
 	return nil
 }
@@ -1131,6 +1143,9 @@ func (s *quietBDD) neverNeedsValue() error {
 	return nil
 }
 
+// memberVerbose stands in for the member's answer. A member always answers in full: its answer is
+// the sentence edgeModelServe builds from modelPlan, which no flag shortens (edgeservecontrol.go),
+// so --verbose here is accepted and changes nothing a member says.
 func (s *quietBDD) memberVerbose(cmd string) error {
 	modelEdgeInvoke = func(_ config, node string, task edge.ModelTask) (edge.ModelResult, string, error) {
 		return edge.ModelResult{Says: smolQ4ID + ": fits at 8K context by llama.cpp's own check: needs 630.0 MiB, leaving its margin free - starting; it serves once proven"}, node, nil
@@ -1293,7 +1308,7 @@ func (s *quietBDD) screensUnchanged() error {
 
 func TestQuietOutputFeature(t *testing.T) {
 	s := &quietBDD{t: t}
-	selection := quietSelection(t)
+	quietPendingGuard(t)
 	suite := godog.TestSuite{
 		ScenarioInitializer: func(sc *godog.ScenarioContext) {
 			sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
@@ -1358,6 +1373,13 @@ func TestQuietOutputFeature(t *testing.T) {
 			sc.Step(`^the fit line states "needs <total>", and for roger's own estimate also "of <budget> <pool>"$`, s.fitStatesTotal)
 			sc.Step(`^a model whose verdict here is (.+)$`, s.verdictHere)
 			sc.Step(`^the term-by-term sum line (.+)$`, s.sumLine)
+			sc.Step(`^the runtime's own check cannot run, so roger's estimate stands$`, func() error {
+				modelFitExe = func(string) string { return filepath.Join(s.root, "no-fit-tool") }
+				return nil
+			})
+			sc.Step(`^the owner serves a model already on this machine without --verbose$`, func() error {
+				return s.exec("roger model serve smollm2-135m-instruct")
+			})
 			sc.Step(`^the owner runs get or serve$`, s.runsGetOrServe)
 			sc.Step(`^neither of the four lines states a speed$`, s.noSpeed)
 			sc.Step("^`roger model status` still states the speed, as today$", s.statusStatesSpeed)
@@ -1367,7 +1389,7 @@ func TestQuietOutputFeature(t *testing.T) {
 			sc.Step(`^the next line is the term-by-term sum$`, s.nextIsSum)
 			sc.Step(`^the next line is the exact command that would serve it: "([^"]+)"$`, s.nextIsCommand)
 			sc.Step(`^--verbose is not needed to see any of it$`, s.notNeedVerbose)
-			sc.Step(`^(no room on the disk|no network|the index refuses the request|a gated model with no token|a file whose digest does not match|an explicit gpu choice whose build cannot start the model|a new model that fails to start while another is serving|two models that do not fit together|an embedding model asked to serve chat|a runtime that cannot be fetched or verified)$`, s.failure)
+			sc.Step(`^(no room on the disk|no network|the index refuses the request|a gated model with no token|a file whose digest does not match|an explicit gpu choice whose build cannot start the model|a new model that fails to start while another is serving|two models that do not fit together|an embedding model asked to serve chat|a runtime that cannot be fetched or verified|a background serve that never comes on the air)$`, s.failure)
 			sc.Step(`^the error is byte for byte today's, with every line it has today$`, s.errorAsToday)
 			sc.Step(`^the owner declines a fetch$`, s.declinesAFetch)
 			sc.Step(`^the exit status is (\d+)(?: and the output ends "(.+)")?$`, func(n int, ends string) error {
@@ -1405,39 +1427,37 @@ func TestQuietOutputFeature(t *testing.T) {
 			sc.Step(`^the owner fetches or serves from SHARE in the TUI or from the console$`, s.fromTheScreens)
 			sc.Step(`^what those screens show is unchanged$`, s.screensUnchanged)
 		},
-		Options: &godog.Options{Format: "pretty", TestingT: t, Strict: true, Paths: selection},
+		Options: &godog.Options{Format: "pretty", TestingT: t, Strict: true, Paths: []string{quietFeature}, Tags: "~@pending"},
 	}
 	if bddrun.Run(suite) != 0 {
 		t.Fatal("quiet_output.feature scenarios failed")
 	}
 }
 
-// quietCatalogueScenario is the one scenario this runner does not select, and why: `roger model
-// get` has no source but the model hub today - there is no catalogue entry it fetches - so there is
-// nothing to tell apart yet. It is named, not silently dropped, and the founder has the question.
+// quietCatalogueScenario is the one scenario the feature marks @pending, and why: `roger model get`
+// has no source but the model hub today - there is no catalogue entry it fetches - so there is
+// nothing to tell apart yet. The founder has the question.
 const quietCatalogueScenario = "a model from our own catalogue is told apart from the author's word without colour"
 
-// quietSelection is every Scenario line of the feature but quietCatalogueScenario.
-func quietSelection(t *testing.T) []string {
+// quietPendingGuard fails when the pending scenario is gone or anything else is pending: the tag
+// must never switch off a scenario silently.
+func quietPendingGuard(t *testing.T) {
 	b, err := os.ReadFile(quietFeature)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var out []string
-	skipped := false
-	for i, l := range strings.Split(string(b), "\n") {
-		l = strings.TrimSpace(l)
-		if !strings.HasPrefix(l, "Scenario:") && !strings.HasPrefix(l, "Scenario Outline:") {
+	ls := strings.Split(string(b), "\n")
+	found := false
+	for i, l := range ls {
+		if strings.TrimSpace(l) != "@pending" {
 			continue
 		}
-		if strings.Contains(l, quietCatalogueScenario) {
-			skipped = true
-			continue
+		if i+1 >= len(ls) || !strings.Contains(ls[i+1], quietCatalogueScenario) {
+			t.Fatalf("line %d marks something other than the catalogue scenario @pending: %q", i+2, ls[min(i+1, len(ls)-1)])
 		}
-		out = append(out, quietFeature+":"+strconv.Itoa(i+1))
+		found = true
 	}
-	if !skipped {
-		t.Fatal("the catalogue scenario is gone from the feature: select every scenario again")
+	if !found {
+		t.Fatal("the catalogue scenario is no longer @pending: run it, or rule on it again")
 	}
-	return out
 }

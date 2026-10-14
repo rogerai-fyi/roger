@@ -699,8 +699,8 @@ func TestModelADetachedServeIsSettledInFrontOfTheOwnerThenHandedOff(t *testing.T
 	}
 	out, err := r.run(t, "serve", "tiny", "--ctx", "4096", "--port", "9999", "-d")
 	require.NoError(t, err)
-	require.Equal(t, []string{"model", "serve", "acme/Tiny-GGUF:Q4_K_M", "--yes", "--ctx", "4096", "--port", "9999"}, got,
-		"the background is handed an exact id and every decision already made")
+	require.Equal(t, []string{"model", "serve", "acme/Tiny-GGUF:Q4_K_M", "--yes", "--ctx", "4096", "--port", "9999", "--verbose"}, got,
+		"the background is handed an exact id and every decision already made, and keeps the full account in its log")
 	require.Contains(t, out, "keeps serving after this terminal closes")
 
 	// Added beside another in the background: the flag is handed on, and the result says beside what.

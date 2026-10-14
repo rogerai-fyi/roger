@@ -6,12 +6,16 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 
+	"rogerai.fm/roger/v6/internal/localmodel"
 	"rogerai.fm/roger/v6/internal/provision"
 )
 
@@ -61,4 +65,112 @@ func TestQuietProgressIntoAPipeIsOneLinePerArchive(t *testing.T) {
 	require.Len(t, ls, 2, "one line per archive: %q", buf.String())
 	require.Equal(t, "  2.0 MiB of 2.0 MiB  ·  2.0 MiB/s  ·  took 0s", ls[0])
 	require.Equal(t, "  8.0 MiB of 8.0 MiB  ·  4.0 MiB/s  ·  took 0s  ·  resumed", ls[1])
+}
+
+// quietRig is the feature's Background, for a test the feature does not spell out.
+func quietRig(t *testing.T) *quietBDD {
+	t.Helper()
+	s := &quietBDD{t: t}
+	require.NoError(t, s.reset())
+	t.Cleanup(func() { _ = os.RemoveAll(s.root) })
+	require.NoError(t, s.machine())
+	require.NoError(t, s.q4Here(smolQ4ID))
+	require.NoError(t, s.q8NotHere(smolQ8ID))
+	require.NoError(t, s.cuda())
+	return s
+}
+
+// The background roger may not start the build the foreground judged: when its record says another
+// build serves, the fit line is that build's own, after the line that says it fell back.
+func TestQuietADetachedServeThatFellBackSaysWhichBuildServes(t *testing.T) {
+	s := quietRig(t)
+	modelSpawn = func(args []string, logPath string) error {
+		if err := s.spawn(args, logPath); err != nil {
+			return err
+		}
+		p := modelHome().RecordOf(localmodel.Serving{Port: 18932})
+		b, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		var rec localmodel.Serving
+		require.NoError(t, json.Unmarshal(b, &rec))
+		rec.Build = "cpu" // the cuda build could not start it, so the background served with the CPU build
+		b, _ = json.Marshal(rec)
+		return os.WriteFile(p, b, 0o600)
+	}
+	modelDetachPort(t, 18932)
+	require.NoError(t, s.exec("roger model serve smollm2-135m-instruct --detach --port 18932"))
+	require.NoError(t, s.err)
+	ls := lines(s.out)
+	require.Equal(t, "the cuda build could not start it in the background - serving with the cpu build instead (serve.log says why)", ls[0], s.out)
+	require.Contains(t, ls[2], "· the cpu build", "the fit line is the build that serves:\n%s", s.out)
+	require.NotContains(t, s.out, "the cuda build, ", s.out)
+}
+
+// modelDetachPort makes the stand-in's port the one the command names, so its record is findable.
+func modelDetachPort(t *testing.T, port int) {
+	t.Helper()
+	old := freePortFn
+	t.Cleanup(func() { freePortFn = old })
+	freePortFn = func() (int, error) { return port, nil }
+}
+
+// A serve that fetched the file and then could not go on the air still says what it fetched and
+// verified: its line 3, which carries the digest, was never printed.
+func TestQuietAServeThatFetchedThenFailedSaysWhatItFetched(t *testing.T) {
+	s := quietRig(t)
+	s.cudaCannotStart()
+	require.NoError(t, modelHome().SetSettings(localmodel.Settings{Runtime: "gpu"}))
+	require.NoError(t, s.runsAndAnswers("roger model serve "+smolQ8ID, "y"))
+	require.Error(t, s.err)
+	require.Contains(t, s.out, "fetched and verified: "+smolQ8ID+" (sha256 "+provision.ShortDigest(smolQ8Digest())+")")
+}
+
+// The background roger keeps the full account in serve.log, where a failure is read from.
+func TestQuietTheBackgroundServeIsAskedForTheFullAccount(t *testing.T) {
+	s := quietRig(t)
+	var got []string
+	modelSpawn = func(args []string, logPath string) error { got = args; return s.spawn(args, logPath) }
+	require.NoError(t, s.exec("roger model serve smollm2-135m-instruct --detach"))
+	require.Contains(t, got, "--verbose")
+}
+
+// §5 with --verbose: the cuda build's own yes, the line that says it could not start, and a refusal
+// that names the CPU build's check.
+func TestQuietVerboseContradictionNamesEachBuild(t *testing.T) {
+	s := quietRig(t)
+	require.NoError(t, s.cudaSaysFits())
+	require.NoError(t, s.cudaFailsCPUWillNot())
+	require.NoError(t, s.exec("roger model serve smollm2-135m-instruct --ctx 9999999 --verbose"))
+	ls := lines(s.out)
+	require.True(t, strings.HasPrefix(ls[0], smolQ4ID+": fits at 9999999 context by llama.cpp's own check"), s.out)
+	require.True(t, strings.HasPrefix(ls[1], "starting llama.cpp b11146, the cuda build"), s.out)
+	require.True(t, strings.HasPrefix(ls[2], "the cuda build could not start it: "), s.out)
+	require.True(t, strings.HasSuffix(ls[2], " - serving with the CPU build instead"), s.out)
+	require.True(t, strings.HasPrefix(s.errLine, "error: with the CPU build: will not fit at 9999999 context by llama.cpp's own check"), s.errLine)
+}
+
+// The nearby name whose file is not the one the member serves (another quantisation) is the hub
+// listing's, and its default line says so.
+func TestQuietANearbyNameAtAnotherQuantSaysItIsTheHubsListing(t *testing.T) {
+	r := newNearbyRig(t, 16384)
+	f := r.hubFileOf("Qwen/Qwen3-8B-GGUF", qwenQ4, "Q4_K_M")
+	r.member(t, "atlas", "qwen3-8b", &f, true)
+	out := quietDo(t, r, "n\n", "get", "qwen3-8b", "--quant", "Q8_0")
+	require.Contains(t, out, "Qwen/Qwen3-8B-GGUF:Q8_0 · ")
+	require.Contains(t, out, "(the author's word, from the model hub)")
+	require.NotContains(t, out, "reported)", "the member's digest is not this file's")
+}
+
+// A file roger cannot judge is served on the owner's word, said as one sentence with its build.
+func TestQuietAFileThatCannotBeJudgedReadsAsOneSentence(t *testing.T) {
+	s := quietRig(t)
+	junk := filepath.Join(s.root, "junk.gguf")
+	require.NoError(t, os.WriteFile(junk, []byte("not a gguf"), 0o600))
+	require.NoError(t, s.exec("roger model serve "+junk))
+	l := lines(s.out)[1]
+	require.True(t, strings.HasPrefix(l, "cannot judge the fit ("), l)
+	require.True(t, strings.HasSuffix(l, "); serving on your word · the cuda build, on CUDA0") ||
+		strings.HasSuffix(l, "); serving on your word · the cuda build"), l)
 }
