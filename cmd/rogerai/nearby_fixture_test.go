@@ -235,12 +235,12 @@ func (r *nearbyRig) cfg() config {
 	return c
 }
 
-// do runs `roger model <args>` as the owner at a terminal that answers with in.
+// do runs `roger model <args> --verbose` as the owner at a terminal that answers with in.
 func (r *nearbyRig) do(t *testing.T, in string, args ...string) (string, error) {
 	t.Helper()
 	edgeStdin = strings.NewReader(in)
 	r.out.Reset()
-	err := cmdModel(r.cfg(), args)
+	err := cmdModel(r.cfg(), fullAccount(args))
 	return r.out.String(), err
 }
 

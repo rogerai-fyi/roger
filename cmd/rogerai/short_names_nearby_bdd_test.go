@@ -109,13 +109,15 @@ func (s *shortNamesBDD) impliedNearby() {
 	}
 }
 
+// run runs the command as the owner typed it, asking for the full account: this file asserts facts
+// in today's wording, which --verbose keeps (quiet_output.feature); the default has its own runner.
 func (s *shortNamesBDD) run(line string) error {
 	args := strings.Fields(strings.TrimPrefix(line, "roger model"))
 	if s.pending != nil {
 		p := s.pending
 		edgeStdin = &changingStdin{answers: s.answers, change: p}
 		s.r.out.Reset()
-		s.err = cmdModel(s.r.cfg(), args)
+		s.err = cmdModel(s.r.cfg(), fullAccount(args))
 		s.out = s.r.out.String()
 		return nil
 	}

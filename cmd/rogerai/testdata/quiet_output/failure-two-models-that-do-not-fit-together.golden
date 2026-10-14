@@ -1,0 +1,2 @@
+error: bartowski/SmolLM2-135M-Instruct-GGUF:Q4_K_M and qwen3-0.6b do not fit together with qwen3-0.6b: together they need 3.3 GiB of 2.0 GiB video memory (roger's estimate)
+  to serve it instead of qwen3-0.6b: roger model serve bartowski/SmolLM2-135M-Instruct-GGUF:Q4_K_M

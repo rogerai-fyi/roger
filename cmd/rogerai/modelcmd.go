@@ -8,6 +8,7 @@ package main
 //	roger model get <owner/repo>[:Q]    fetch one, verified; the suggested quant when none is named
 //	roger model serve <name|repo|path>  serve it here, with no other inference software installed
 //	                  [--detach]        ...and keep serving after this terminal closes
+//	                  [--verbose]       get and serve say four lines; this is the full account
 //	roger model status                  what is being served, in full
 //	roger model stop                    stop serving
 //	roger model rm <name>               delete a model from disk
@@ -15,6 +16,7 @@ package main
 // Every step is internal/localmodel; this file only talks to the owner.
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -27,6 +29,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/mattn/go-isatty"
 
 	"rogerai.fm/roger/v6/internal/catalog"
 	"rogerai.fm/roger/v6/internal/detect"
@@ -79,6 +83,12 @@ var (
 		return nil
 	}
 	modelDetachWait = 2 * time.Minute
+	// modelOutTerminal reports whether the owner reads modelOut on a terminal, where a progress line
+	// can redraw in place; a pipe or a file gets each line once.
+	modelOutTerminal = func() bool {
+		f, ok := modelOut.(*os.File)
+		return ok && (isatty.IsTerminal(f.Fd()) || isatty.IsCygwinTerminal(f.Fd()))
+	}
 )
 
 // A runtime roger started is found by detection with its key, so `roger share` and the TUI pick
@@ -117,16 +127,17 @@ func modelHub() *hfhub.Client {
 }
 
 type modelArgv struct {
-	pos    []string
-	ctx    int
-	port   int
-	limit  int
-	yes    bool
-	detach bool
-	add    bool   // serve beside what is on the air, rather than switching (local_models.feature §5)
-	hub    bool   // skip every nearby source and look the name up on the model hub (short_names_nearby.feature §4)
-	quant  string // a quantisation named for a short name (founder ruling 2026-10-11)
-	on     string // a member of the Edge: the same command, on that machine (remote_model.feature)
+	pos     []string
+	ctx     int
+	port    int
+	limit   int
+	yes     bool
+	detach  bool
+	add     bool   // serve beside what is on the air, rather than switching (local_models.feature §5)
+	verbose bool   // today's full account instead of the four lines (quiet_output.feature)
+	hub     bool   // skip every nearby source and look the name up on the model hub (short_names_nearby.feature §4)
+	quant   string // a quantisation named for a short name (founder ruling 2026-10-11)
+	on      string // a member of the Edge: the same command, on that machine (remote_model.feature)
 }
 
 func parseModelArgv(args []string) (modelArgv, error) {
@@ -147,6 +158,10 @@ func parseModelArgv(args []string) (modelArgv, error) {
 		}
 		if s == "--hub" {
 			a.hub = true
+			continue
+		}
+		if s == "--verbose" || s == "-v" {
+			a.verbose = true
 			continue
 		}
 		if !strings.HasPrefix(s, "--") {
@@ -189,6 +204,37 @@ func parseModelArgv(args []string) (modelArgv, error) {
 	return a, nil
 }
 
+// What this command was asked to say (quiet_output.feature): get and serve say a few lines unless
+// --verbose, and a serve says the fetch it needed in its own lines.
+var modelVerbose, modelServing bool
+
+// modelFetched is the fetched-and-verified line a serve has not said yet: its line 3 carries the
+// digest, and a serve that never gets there says this line instead.
+var modelFetched string
+
+// modelFetchedSay says the fetched line, once.
+func modelFetchedSay() {
+	if modelFetched != "" {
+		fmt.Fprintln(modelOut, modelFetched)
+		modelFetched = ""
+	}
+}
+
+// modelFull is where the full account goes: the terminal with --verbose, nowhere without.
+func modelFull() io.Writer {
+	if modelVerbose {
+		return modelOut
+	}
+	return io.Discard
+}
+
+// modelQuiet prints a line of the default output, which --verbose replaces with the full account.
+func modelQuiet(format string, a ...any) {
+	if !modelVerbose {
+		fmt.Fprintf(modelOut, format+"\n", a...)
+	}
+}
+
 func cmdModel(cfg config, args []string) error {
 	verb := "list"
 	if len(args) > 0 {
@@ -198,6 +244,8 @@ func cmdModel(cfg config, args []string) error {
 	if err != nil {
 		return err
 	}
+	modelVerbose, modelServing, modelFetched = a.verbose, verb == "serve", ""
+	defer modelFetchedSay() // a serve that fetched and then stopped short still says what it fetched
 	ctx := context.Background()
 	if a.on != "" {
 		if err := modelOnNode(cfg, verb, a); !errors.Is(err, errModelDeclined) {
@@ -223,7 +271,7 @@ func cmdModel(cfg config, args []string) error {
 		return modelNearbyList(cfg)
 	case "get", "pull":
 		if len(a.pos) != 1 {
-			return errors.New("usage: roger model get <name | owner/repo[:QUANT]> [--quant Q] [--ctx N] [--yes]")
+			return errors.New("usage: roger model get <name | owner/repo[:QUANT]> [--quant Q] [--ctx N] [--yes] [--verbose]")
 		}
 		if p, err := modelOnDisk(modelHome(), a.pos[0], a.quant, a.ctx); err == nil && p.fetch == "" {
 			line := "already on this machine: " + p.m.ID
@@ -258,7 +306,7 @@ func cmdModel(cfg config, args []string) error {
 			return modelServeModel(ctx, a, m)
 		}
 		if len(a.pos) != 1 {
-			return errors.New("usage: roger model serve [name | owner/repo[:QUANT] | file.gguf] [--quant Q] [--ctx N] [--port N] [--detach] [--add] [--hub]")
+			return errors.New("usage: roger model serve [name | owner/repo[:QUANT] | file.gguf] [--quant Q] [--ctx N] [--port N] [--detach] [--add] [--hub] [--verbose]")
 		}
 		return modelServe(ctx, cfg, a)
 	case "status":
@@ -387,7 +435,7 @@ func modelFiles(ctx context.Context, repo string, ctxLen int) error {
 	if len(cs) == 0 {
 		return fmt.Errorf("%s has no GGUF weights, so there is nothing here this runtime can serve", repo)
 	}
-	modelBudgetLine(b)
+	modelBudgetLine(modelOut, b)
 	pick := localmodel.Suggest(cs)
 	labels := localmodel.Labels(cs)
 	w := 8
@@ -416,19 +464,19 @@ func modelFiles(ctx context.Context, repo string, ctxLen int) error {
 	return nil
 }
 
-func modelBudgetLine(b localmodel.Budget) {
+func modelBudgetLine(w io.Writer, b localmodel.Budget) {
 	if b.Known() {
-		fmt.Fprintf(modelOut, "this machine: %s of %s\n", provision.BytesWord(b.Bytes), b.Pool)
+		fmt.Fprintf(w, "this machine: %s of %s\n", provision.BytesWord(b.Bytes), b.Pool)
 		if b.Note != "" {
-			fmt.Fprintf(modelOut, "  (%s)\n", b.Note)
+			fmt.Fprintf(w, "  (%s)\n", b.Note)
 		}
 		if b.BW.BytesPerSec > 0 {
-			fmt.Fprintf(modelOut, "memory speed: %s\n\n", b.BW.From)
+			fmt.Fprintf(w, "memory speed: %s\n\n", b.BW.From)
 		} else {
-			fmt.Fprintf(modelOut, "memory speed: cannot say - %s\n\n", b.BW.Why)
+			fmt.Fprintf(w, "memory speed: cannot say - %s\n\n", b.BW.Why)
 		}
 	} else {
-		fmt.Fprintf(modelOut, "this machine: cannot say - %s\n\n", b.Why)
+		fmt.Fprintf(w, "this machine: cannot say - %s\n\n", b.Why)
 	}
 }
 
@@ -451,6 +499,7 @@ func modelGet(ctx context.Context, ref string, ctxLen int, yes bool) (localmodel
 	return modelFetchChoice(ctx, repo, c, b, modelFetchAsk{
 		ask:    "fetch it? [y/N]: ",
 		source: "source: HuggingFace - the author's word, checked against the digest the index publishes",
+		whose:  "the author's word, from the model hub",
 	}, yes)
 }
 
@@ -476,7 +525,8 @@ func modelPickQuant(cs []localmodel.Choice, want string) (localmodel.Choice, err
 // last check that runs after the yes and before any byte moves (a mapping that changed meanwhile).
 type modelFetchAsk struct {
 	ask    string
-	source string
+	source string // whose word the file is, in full (--verbose)
+	whose  string // ...and in the few words of the default line
 	before func() error
 }
 
@@ -484,26 +534,42 @@ type modelFetchAsk struct {
 // is, the room it needs - asks, and fetches it verified against c.File.SHA256.
 func modelFetchChoice(ctx context.Context, repo string, c localmodel.Choice, b localmodel.Budget, how modelFetchAsk, yes bool) (localmodel.Model, error) {
 	license := modelLicense(ctx, repo)
-	modelBudgetLine(b)
-	fmt.Fprintf(modelOut, "%s  %s  %s\n", repo, c.File.Path, provision.BytesWord(c.File.Bytes))
-	fmt.Fprintf(modelOut, "  %s\n", c.Verdict.Line())
+	full := modelFull()
+	modelBudgetLine(full, b)
+	fmt.Fprintf(full, "%s  %s  %s\n", repo, c.File.Path, provision.BytesWord(c.File.Bytes))
+	fmt.Fprintf(full, "  %s\n", c.Verdict.Line())
 	if s := c.Verdict.Sum(); s != "" {
-		fmt.Fprintf(modelOut, "  %s\n", s)
+		fmt.Fprintf(full, "  %s\n", s)
 	}
-	fmt.Fprintf(modelOut, "  licence: %s (as its author published it; roger records it and does not referee it)\n", modelDash(license))
-	fmt.Fprintf(modelOut, "  %s\n", how.source)
+	fmt.Fprintf(full, "  licence: %s (as its author published it; roger records it and does not referee it)\n", modelDash(license))
+	fmt.Fprintf(full, "  %s\n", how.source)
 	plan, err := modelHome().RoomFor(c.File.Bytes)
 	if err != nil {
 		return localmodel.Model{}, err
 	}
+	fetcher := modelFetcher()
+	free, freeKnown := int64(0), false
+	if fetcher.FreeSpace != nil {
+		free, freeKnown = fetcher.FreeSpace(modelHome().Models())
+	}
+	// What it is, whose word, whether it fits and the room for it: the facts the owner answers on.
+	modelQuiet("%s:%s · %s · licence %s (%s)", repo, cmp.Or(c.File.Quant, c.File.Path), provision.BytesWord(c.File.Bytes),
+		modelDash(license), how.whose)
+	fit := c.Verdict.Line()
+	if freeKnown {
+		fit += " · " + provision.BytesWord(free) + " free on this disk"
+	}
+	modelQuiet("%s", fit)
+	// The terms are shown by default exactly when the answer is not a comfortable yes; a verdict
+	// that cannot be given already names the reading it is missing.
+	if f := c.Verdict.Fit; f == catalog.FitTight || f == catalog.FitWontFit {
+		modelQuiet("  %s", c.Verdict.Sum())
+	}
 	if line := localmodel.RoomLine(plan); line != "" {
 		fmt.Fprintf(modelOut, "  %s\n", line)
 	}
-	fetcher := modelFetcher()
-	if fetcher.FreeSpace != nil {
-		if free, ok := fetcher.FreeSpace(modelHome().Models()); ok {
-			fmt.Fprintf(modelOut, "  free on this disk: %s\n", provision.BytesWord(free))
-		}
+	if freeKnown {
+		fmt.Fprintf(full, "  free on this disk: %s\n", provision.BytesWord(free))
 	}
 	if !yes {
 		fmt.Fprint(modelOut, how.ask)
@@ -528,7 +594,10 @@ func modelFetchChoice(ctx context.Context, repo string, c localmodel.Choice, b l
 	if err != nil {
 		return localmodel.Model{}, modelFetchErr(err)
 	}
-	fmt.Fprintf(modelOut, "fetched and verified: %s (sha256 %s). roger model serve %s\n", m.ID, provision.ShortDigest(m.SHA256), m.ID)
+	modelFetched = fmt.Sprintf("fetched and verified: %s (sha256 %s). roger model serve %s", m.ID, provision.ShortDigest(m.SHA256), m.ID)
+	if modelVerbose || !modelServing { // a serve says the digest on its own line 3, once it gets there
+		modelFetchedSay()
+	}
 	return m, nil
 }
 
@@ -561,7 +630,7 @@ func modelResolve(ctx context.Context, cfg config, ref string, a modelArgv) (loc
 	h := modelHome()
 	p, err := modelOnDisk(h, ref, a.quant, a.ctx)
 	if err == nil && p.fetch != "" {
-		fmt.Fprintf(modelOut, "%s is not on this machine yet.\n", p.fetch)
+		fmt.Fprintf(modelFull(), "%s is not on this machine yet.\n", p.fetch)
 		return modelGet(ctx, p.fetch, a.ctx, a.yes)
 	}
 	m := p.m
@@ -578,7 +647,7 @@ func modelResolve(ctx context.Context, cfg config, ref string, a modelArgv) (loc
 		ref += ":" + a.quant
 	}
 	if strings.Contains(ref, "/") {
-		fmt.Fprintf(modelOut, "%s is not on this machine yet.\n", ref)
+		fmt.Fprintf(modelFull(), "%s is not on this machine yet.\n", ref)
 		return modelGet(ctx, ref, a.ctx, a.yes)
 	}
 	name, quant, _ := strings.Cut(ref, ":")
@@ -626,23 +695,24 @@ func modelServeModel(ctx context.Context, a modelArgv, m localmodel.Model) error
 			return err
 		}
 	}
-	ctxLen, says, err := modelPlan(ctx, m, b, a.ctx, rt.Exe, beside...)
+	ctxLen, fit, err := modelPlanFit(ctx, m, b, a.ctx, rt.Exe, beside...)
 	if err != nil {
 		return err
 	}
-	fmt.Fprintln(modelOut, says)
+	full := modelFull()
+	fmt.Fprintf(full, "%s: %s\n", m.ID, fit.line)
 	prev, hadPrev := h.Live()
 	if a.add {
 		hadPrev = false // added beside, nothing is switched away
 	}
 	if a.detach {
-		return modelServeDetached(h, m, ctxLen, a.port, prev, hadPrev, a.add)
+		return modelServeDetached(ctx, h, m, ctxLen, a.port, prev, hadPrev, a.add, fit, rt)
 	}
-	fmt.Fprintf(modelOut, "starting llama.cpp %s on %s at %d context...\n", rt.Word(), m.File, ctxLen)
+	fmt.Fprintf(full, "starting llama.cpp %s on %s at %d context...\n", rt.Word(), m.File, ctxLen)
 	dev := ""
 	if rt.Offloads && rt.Build != runtime.BuildMetal {
 		if dev = modelPickDevice(rt.Devices, modelNeed(m, b, ctxLen)); dev != "" {
-			fmt.Fprintf(modelOut, "  on one card, %s: it fits there, and one card answers faster than a split\n", dev)
+			fmt.Fprintf(full, "  on one card, %s: it fits there, and one card answers faster than a split\n", dev)
 		}
 	}
 	srv, s, err := h.Serve(ctx, localmodel.ServeOpts{Model: m, Exe: rt.Exe, Tag: rt.Word(), Ctx: ctxLen, Port: a.port, Budget: b, Env: modelServeEnv, Device: dev, Build: string(rt.Build)})
@@ -666,11 +736,13 @@ func modelServeModel(ctx context.Context, a modelArgv, m localmodel.Model) error
 				Notes: append([]string{failed.Error()}, rt.Notes...)})
 		}
 		b = modelBudgetFor(false)
-		if ctxLen, says, err = modelPlan(ctx, m, b, a.ctx, rt.Exe, beside...); err != nil {
-			return err
+		if ctxLen, fit, err = modelPlanFit(ctx, m, b, a.ctx, rt.Exe, beside...); err != nil {
+			// The verdict before this one was the GPU build's: this one says whose check it is.
+			return fmt.Errorf("with the CPU build: %w", err)
 		}
-		fmt.Fprintln(modelOut, says)
-		fmt.Fprintf(modelOut, "starting llama.cpp %s on %s at %d context...\n", rt.Word(), m.File, ctxLen)
+		fmt.Fprintf(full, "%s: %s\n", m.ID, fit.line)
+		fmt.Fprintf(full, "starting llama.cpp %s on %s at %d context...\n", rt.Word(), m.File, ctxLen)
+		dev = ""
 		srv, s, err = h.Serve(ctx, localmodel.ServeOpts{Model: m, Exe: rt.Exe, Tag: rt.Word(), Ctx: ctxLen, Port: a.port, Budget: b, Env: modelServeEnv, Build: string(rt.Build)})
 	}
 	if err != nil {
@@ -682,22 +754,25 @@ func modelServeModel(ctx context.Context, a modelArgv, m localmodel.Model) error
 	defer h.Release(s)
 	defer func() { _ = srv.Stop(context.Background()) }()
 	// The new one answers; only now is the old one stopped.
+	switched := ""
 	if hadPrev && prev.Supervisor != os.Getpid() {
 		says, _ := modelSignalStop(prev)
-		fmt.Fprintf(modelOut, "switched from %s: %s\n", prev.ID, says)
+		switched = fmt.Sprintf("switched from %s: %s", prev.ID, says)
+		fmt.Fprintln(full, switched)
 	}
-	where := "on the air locally"
-	if len(beside) > 0 {
-		bands := make([]string, len(beside))
-		for i, o := range beside {
-			bands[i] = o.Band
-		}
-		where += " beside " + strings.Join(bands, ", ")
-	}
-	fmt.Fprintf(modelOut, "%s: %q - %s, %s, sha256 %s, %d context\n", where, s.Band, s.ID, modelDash(s.Quant),
+	where := modelWhere(beside)
+	fmt.Fprintf(full, "%s: %q - %s, %s, sha256 %s, %d context\n", where, s.Band, s.ID, modelDash(s.Quant),
 		modelDash(provision.ShortDigest(s.SHA256)), s.Ctx)
-	fmt.Fprintf(modelOut, "  %s (key in %s)\n", s.BaseURL, h.RecordOf(s))
-	fmt.Fprintln(modelOut, "  roger share picks it up like any local server. ctrl-c or `roger model stop` ends it.")
+	fmt.Fprintf(full, "  %s (key in %s)\n", s.BaseURL, h.RecordOf(s))
+	fmt.Fprintln(full, "  roger share picks it up like any local server. ctrl-c or `roger model stop` ends it.")
+	modelQuiet("%s", modelHeadLine(s.Band, m))
+	modelQuietFit(fit, rt, dev)
+	modelQuiet("%s at %s (key in %s) · sha256 %s", where, s.BaseURL, h.RecordOf(s), modelDash(provision.ShortDigest(s.SHA256)))
+	modelFetched = "" // line 3 said the digest
+	if switched != "" {
+		modelQuiet("%s", switched)
+	}
+	modelQuiet("ctrl-c or `roger model stop` ends it · --verbose shows the full account")
 	h.ClearStop(s.Band)                // serving this band again: its last stop is history
 	_ = h.MarkServed(m.ID, time.Now()) // what a disk budget's "least recently served" counts
 	// ...and again when it ends, so a model served for a month is not counted as used a month ago.
@@ -726,10 +801,46 @@ func modelServeModel(ctx context.Context, a modelArgv, m localmodel.Model) error
 	return nil
 }
 
+// modelWhere is where a serve is on the air: locally, and beside what else is.
+func modelWhere(beside []localmodel.Serving) string {
+	where := "on the air locally"
+	if len(beside) > 0 {
+		bands := make([]string, len(beside))
+		for i, o := range beside {
+			bands[i] = o.Band
+		}
+		where += " beside " + strings.Join(bands, ", ")
+	}
+	return where
+}
+
+// modelHeadLine is a serve's first default line: its name, what it is, its size, and the licence
+// with whose word that is.
+func modelHeadLine(band string, m localmodel.Model) string {
+	whose := "the author's word"
+	if m.Repo == "" {
+		whose = "not recorded: served from a file"
+	}
+	return fmt.Sprintf("%q · %s · %s · licence %s (%s)", band, m.ID, provision.BytesWord(m.Bytes), modelDash(m.License), whose)
+}
+
+// modelQuietFit is a serve's second default line: the verdict it started under and the build (and
+// card) whose check that was, then the terms when the answer is not a comfortable yes.
+func modelQuietFit(fit modelVerdict, rt modelRT, dev string) {
+	line := strings.TrimSuffix(strings.TrimSuffix(fit.line, "."), localmodel.MarginFree) + " · the " + string(rt.Build) + " build"
+	if dev != "" {
+		line += ", on " + dev
+	}
+	modelQuiet("%s", line)
+	if fit.terms != "" {
+		modelQuiet("  %s", fit.terms)
+	}
+}
+
 // modelServeDetached hands the serve to a roger of its own and waits until it is really answering.
 // Everything that can be refused - the fit, the runtime, the consent to fetch - was already settled
 // here, in front of the owner, so the background has nothing left to ask.
-func modelServeDetached(h localmodel.Home, m localmodel.Model, ctxLen, port int, prev localmodel.Serving, hadPrev, add bool) error {
+func modelServeDetached(ctx context.Context, h localmodel.Home, m localmodel.Model, ctxLen, port int, prev localmodel.Serving, hadPrev, add bool, fit modelVerdict, rt modelRT) error {
 	ref := m.Path
 	if _, err := h.Find(m.ID); err == nil {
 		ref = m.ID
@@ -741,6 +852,7 @@ func modelServeDetached(h localmodel.Home, m localmodel.Model, ctxLen, port int,
 	if add {
 		args = append(args, "--add")
 	}
+	args = append(args, "--verbose") // serve.log keeps the full account, and a failure quotes it
 	logPath := filepath.Join(h.Dir, "serve.log")
 	if err := os.MkdirAll(h.Dir, 0o700); err != nil {
 		return err
@@ -748,24 +860,39 @@ func modelServeDetached(h localmodel.Home, m localmodel.Model, ctxLen, port int,
 	if err := modelSpawn(args, logPath); err != nil {
 		return fmt.Errorf("could not start serving in the background: %w", err)
 	}
-	fmt.Fprintf(modelOut, "starting %s in the background...\n", m.ID)
+	full := modelFull()
+	fmt.Fprintf(full, "starting %s in the background...\n", m.ID)
 	deadline := time.Now().Add(modelDetachWait)
 	for time.Now().Before(deadline) {
 		if s, ok := h.ServingModel(m); ok && (!hadPrev || s.Supervisor != prev.Supervisor) {
-			where := "on the air locally"
+			var beside []localmodel.Serving
 			if add {
-				var bands []string
 				for _, o := range h.LiveAll() {
 					if o.Port != s.Port {
-						bands = append(bands, o.Band)
+						beside = append(beside, o)
 					}
 				}
-				if len(bands) > 0 {
-					where += " beside " + strings.Join(bands, ", ")
-				}
 			}
-			fmt.Fprintf(modelOut, "%s: %q - %s, %d context, at %s\n", where, s.Band, s.ID, s.Ctx, s.BaseURL)
-			fmt.Fprintln(modelOut, "  it keeps serving after this terminal closes. `roger model status` · `roger model stop`")
+			where := modelWhere(beside)
+			if s.Build != "" && s.Build != string(rt.Build) {
+				// The background could not start the build judged here: what serves is judged again,
+				// by its own check, so the fit line is the verdict of the build on the air.
+				fmt.Fprintf(modelOut, "the %s build could not start it in the background - serving with the %s build instead (serve.log says why)\n", rt.Build, s.Build)
+				fit, rt = modelVerdict{line: "serving at " + strconv.Itoa(s.Ctx) + " context"}, modelRT{Build: runtime.Build(s.Build)}
+				if now, err := modelRuntimeFor(ctx, s.Build); err == nil {
+					if _, f, err := modelPlanFit(ctx, m, modelBudgetFor(now.Offloads), s.Ctx, now.Exe); err == nil {
+						fit, rt = f, now
+					}
+				}
+				fmt.Fprintf(full, "%s: %s\n", m.ID, fit.line)
+			}
+			fmt.Fprintf(full, "%s: %q - %s, %d context, at %s\n", where, s.Band, s.ID, s.Ctx, s.BaseURL)
+			fmt.Fprintln(full, "  it keeps serving after this terminal closes. `roger model status` · `roger model stop`")
+			modelQuiet("%s", modelHeadLine(s.Band, m))
+			modelQuietFit(fit, rt, "")
+			modelQuiet("%s at %s, in the background · sha256 %s", where, s.BaseURL, modelDash(provision.ShortDigest(m.SHA256)))
+			modelFetched = "" // line 3 said the digest
+			modelQuiet("it keeps serving after this terminal closes · `roger model status` · `roger model stop`")
 			return nil
 		}
 		time.Sleep(200 * time.Millisecond)
@@ -821,12 +948,22 @@ func modelRuntimeErr(err error) error {
 // beside is what stays on the air next to it (serve --add). The runtime's check already counts it,
 // because it judges what is free now; roger's estimate adds their needs to this one.
 func modelPlan(ctx context.Context, m localmodel.Model, b localmodel.Budget, want int, serverExe string, beside ...localmodel.Serving) (ctxLen int, says string, err error) {
+	ctxLen, fit, err := modelPlanFit(ctx, m, b, want, serverExe, beside...)
+	return ctxLen, m.ID + ": " + fit.line, err
+}
+
+// modelVerdict is a serve's verdict: the line, and the terms when the default shows them too.
+type modelVerdict struct{ line, terms string }
+
+// modelPlanFit is modelPlan's verdict without the model's name in front, with its terms when the
+// answer is not a comfortable yes (quiet_output.feature, DECISION Q2: a refusal carries its own).
+func modelPlanFit(ctx context.Context, m localmodel.Model, b localmodel.Budget, want int, serverExe string, beside ...localmodel.Serving) (ctxLen int, fit modelVerdict, err error) {
 	shape, err := detect.ReadShape(m.Path)
 	switch {
 	case errors.Is(err, detect.ErrNotGenerative):
-		return 0, "", fmt.Errorf("%s is an embedding model, not one you serve chat from", m.ID)
+		return 0, modelVerdict{}, fmt.Errorf("%s is an embedding model, not one you serve chat from", m.ID)
 	case err != nil:
-		return want, fmt.Sprintf("%s: cannot judge the fit (%v); serving on your word.", m.ID, err), nil
+		return want, modelVerdict{line: fmt.Sprintf("cannot judge the fit (%v); serving on your word.", err)}, nil
 	}
 	v := localmodel.Judge(shape, b, want)
 	if serverExe == "" {
@@ -841,11 +978,11 @@ func modelPlan(ctx context.Context, m localmodel.Model, b localmodel.Budget, wan
 			bands[i] = s.Band
 			o, err := modelHome().Find(s.ID)
 			if err != nil {
-				return 0, "", fmt.Errorf("roger cannot judge %s, which is on the air, so it cannot say whether %s fits beside it: %v", s.ID, m.ID, err)
+				return 0, modelVerdict{}, fmt.Errorf("roger cannot judge %s, which is on the air, so it cannot say whether %s fits beside it: %v", s.ID, m.ID, err)
 			}
 			sh, err := detect.ReadShape(o.Path)
 			if err != nil {
-				return 0, "", fmt.Errorf("roger cannot judge %s, which is on the air, so it cannot say whether %s fits beside it: %v", s.ID, m.ID, err)
+				return 0, modelVerdict{}, fmt.Errorf("roger cannot judge %s, which is on the air, so it cannot say whether %s fits beside it: %v", s.ID, m.ID, err)
 			}
 			need += localmodel.Judge(sh, b, s.Ctx).Need.Total
 		}
@@ -861,7 +998,7 @@ func modelPlan(ctx context.Context, m localmodel.Model, b localmodel.Budget, wan
 				msg += fmt.Sprintf("together they need %s of %s %s (roger's estimate)", localmodel.BytesWord(need),
 					localmodel.BytesWord(b.Bytes), b.Pool)
 			}
-			return 0, "", fmt.Errorf("%s\n  to serve it instead of %s: roger model serve %s", msg, beside[len(beside)-1].Band, m.ID)
+			return 0, modelVerdict{}, fmt.Errorf("%s\n  to serve it instead of %s: roger model serve %s", msg, beside[len(beside)-1].Band, m.ID)
 		}
 	}
 	if v.Fit == catalog.FitWontFit {
@@ -876,9 +1013,13 @@ func modelPlan(ctx context.Context, m localmodel.Model, b localmodel.Budget, wan
 			msg += fmt.Sprintf("\n  %s is being served and holds memory the check counted as in use; "+
 				"a switch runs both until the new one answers. `roger model stop` first to replace it outright", s.ID)
 		}
-		return 0, "", errors.New(msg)
+		return 0, modelVerdict{}, errors.New(msg)
 	}
-	return v.Ctx, fmt.Sprintf("%s: %s", m.ID, v.Line()), nil
+	fit = modelVerdict{line: v.Line()}
+	if v.Fit == catalog.FitTight { // "cannot say" already names the reading it is missing
+		fit.terms = v.Sum()
+	}
+	return v.Ctx, fit, nil
 }
 
 // modelIdleEvery is how often a serve reads the runtime's counters when an idle timeout is set.
@@ -1245,24 +1386,36 @@ func modelFetchErr(err error) error {
 	return err
 }
 
-// modelProgress draws one line that moves as the fetch moves: bytes, rate, time left.
+// modelProgress draws one line that moves as the fetch moves: bytes, rate, time left. Into a pipe
+// or a file there is nothing to redraw, so each archive gets one line, written when it is done.
 var modelProgressShown bool
+
+// modelProgressLast is the latest progress when it is not drawn as it moves, and when it began.
+var (
+	modelProgressLast  provision.Progress
+	modelProgressBegan time.Time
+)
 
 func modelProgress(p provision.Progress) {
 	if p.Total <= 0 {
 		return
 	}
-	line := fmt.Sprintf("  %s of %s", provision.BytesWord(p.Done), provision.BytesWord(p.Total))
-	if p.Rate > 0 {
-		line += fmt.Sprintf("  ·  %s/s", provision.BytesWord(int64(p.Rate)))
+	if !modelOutTerminal() {
+		if modelProgressShown && p.Total != modelProgressTotal {
+			modelProgressDone() // a new archive: the finished one keeps its line
+		}
+		if !modelProgressShown {
+			modelProgressBegan = time.Now()
+		}
+		modelProgressLast, modelProgressShown, modelProgressTotal = p, true, p.Total
+		return
 	}
 	// An estimate from the first few kilobytes says hours; it is not shown until it means something.
+	left := ""
 	if p.Remaining > 0 && p.Done*50 >= p.Total {
-		line += "  ·  " + p.Remaining.Round(time.Second).String() + " left"
+		left = p.Remaining.Round(time.Second).String() + " left"
 	}
-	if p.Resumed {
-		line += "  ·  resumed"
-	}
+	line := modelProgressLine(p, left)
 	if modelProgressShown && p.Total != modelProgressTotal {
 		fmt.Fprintln(modelOut) // a new archive: the finished one keeps its line
 	}
@@ -1274,10 +1427,30 @@ func modelProgress(p provision.Progress) {
 var modelProgressTotal int64
 
 func modelProgressDone() {
-	if modelProgressShown {
-		fmt.Fprintln(modelOut)
-		modelProgressShown = false
+	if !modelProgressShown {
+		return
 	}
+	modelProgressShown = false
+	if modelOutTerminal() {
+		fmt.Fprintln(modelOut)
+		return
+	}
+	fmt.Fprintln(modelOut, modelProgressLine(modelProgressLast, "took "+time.Since(modelProgressBegan).Round(time.Second).String()))
+}
+
+// modelProgressLine is bytes of the total, the rate, a time (left, or taken) and whether it resumed.
+func modelProgressLine(p provision.Progress, when string) string {
+	line := fmt.Sprintf("  %s of %s", provision.BytesWord(p.Done), provision.BytesWord(p.Total))
+	if p.Rate > 0 {
+		line += fmt.Sprintf("  ·  %s/s", provision.BytesWord(int64(p.Rate)))
+	}
+	if when != "" {
+		line += "  ·  " + when
+	}
+	if p.Resumed {
+		line += "  ·  resumed"
+	}
+	return line
 }
 
 // modelJobLine is the fetch in flight, or the last one that did not finish, in one line.

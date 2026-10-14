@@ -121,9 +121,9 @@ func modelFakeFit(mode string, args []string) {
 	}
 	switch {
 	case slices.Contains(args, "-fitp"):
-		fmt.Println("Host 2400 1152 300")
+		fmt.Println(cmp.Or(os.Getenv("FAKE_FIT_P"), "Host 2400 1152 300")) // FAKE_FIT_P: a breakdown of a test's own
 	case mode == "yes" || c == "":
-		fmt.Printf("-c %s -ngl -1\n", cmp.Or(c, "4096"))
+		fmt.Printf("-c %s -ngl -1\n", cmp.Or(c, os.Getenv("FAKE_FIT_MAX"), "4096")) // FAKE_FIT_MAX: what it would choose
 	default:
 		fmt.Fprintln(os.Stderr, "0.00.150.671 W common_fit_params: failed to fit params to free device memory: was unable to fit model into system memory by reducing context, abort")
 		os.Exit(1)
@@ -132,6 +132,27 @@ func modelFakeFit(mode string, args []string) {
 
 // modelGGUF is a real-shaped header (Qwen3-4B's numbers) padded to a file.
 func modelGGUF(pad int) []byte {
+	return ggufOf([]ggufKV{
+		{"general.architecture", "qwen3"},
+		{"qwen3.block_count", uint32(36)},
+		{"qwen3.context_length", uint32(40960)},
+		{"qwen3.embedding_length", uint32(2560)},
+		{"qwen3.attention.head_count", uint32(32)},
+		{"qwen3.attention.head_count_kv", uint32(8)},
+		{"qwen3.attention.key_length", uint32(128)},
+		{"qwen3.attention.value_length", uint32(128)},
+		{"qwen3.vocab_size", uint32(151936)},
+	}, pad)
+}
+
+// ggufKV is one header key: a string or a uint32 value.
+type ggufKV struct {
+	k string
+	v any
+}
+
+// ggufOf is a GGUF header with these keys, padded to a file.
+func ggufOf(kvs []ggufKV, pad int) []byte {
 	var b []byte
 	put := func(v any) {
 		switch x := v.(type) {
@@ -147,20 +168,6 @@ func modelGGUF(pad int) []byte {
 	b = append(b, 'G', 'G', 'U', 'F')
 	put(uint32(3))
 	put(uint64(0))
-	kvs := []struct {
-		k string
-		v any
-	}{
-		{"general.architecture", "qwen3"},
-		{"qwen3.block_count", uint32(36)},
-		{"qwen3.context_length", uint32(40960)},
-		{"qwen3.embedding_length", uint32(2560)},
-		{"qwen3.attention.head_count", uint32(32)},
-		{"qwen3.attention.head_count_kv", uint32(8)},
-		{"qwen3.attention.key_length", uint32(128)},
-		{"qwen3.attention.value_length", uint32(128)},
-		{"qwen3.vocab_size", uint32(151936)},
-	}
 	put(uint64(len(kvs)))
 	for _, e := range kvs {
 		put(e.k)
@@ -241,10 +248,20 @@ func newModelRig(t *testing.T, ramMiB int) *modelRig {
 	return r
 }
 
+// fullAccount asks for today's full account (--verbose): these tests pin its wording, which
+// quiet_output.feature keeps byte for byte behind the flag; the few-line default has its own runner.
+// The flag goes right after the verb, so a test of a flag missing its value still means that flag.
+func fullAccount(args []string) []string {
+	if len(args) == 0 {
+		return args // `roger model`: the list, which has no other account
+	}
+	return append([]string{args[0], "--verbose"}, args[1:]...)
+}
+
 func (r *modelRig) run(t *testing.T, args ...string) (string, error) {
 	t.Helper()
 	r.out.Reset()
-	err := cmdModel(config{}, args)
+	err := cmdModel(config{}, fullAccount(args))
 	return r.out.String(), err
 }
 
@@ -615,9 +632,9 @@ func TestModelUsageAndFlagMistakesAreSaidPlainly(t *testing.T) {
 
 func TestModelProgressIsBytesRateAndTimeNeverABareFraction(t *testing.T) {
 	var buf bytes.Buffer
-	old := modelOut
-	modelOut = &buf
-	t.Cleanup(func() { modelOut = old })
+	old, oldTerm := modelOut, modelOutTerminal
+	modelOut, modelOutTerminal = &buf, func() bool { return true } // a line that moves needs a terminal
+	t.Cleanup(func() { modelOut, modelOutTerminal = old, oldTerm })
 	modelProgress(provision.Progress{})
 	require.Empty(t, buf.String(), "nothing to say before the size is known")
 	modelProgress(provision.Progress{Done: 1 << 10, Total: 1 << 30, Rate: 1 << 10, Remaining: 3 * time.Hour})
@@ -682,8 +699,8 @@ func TestModelADetachedServeIsSettledInFrontOfTheOwnerThenHandedOff(t *testing.T
 	}
 	out, err := r.run(t, "serve", "tiny", "--ctx", "4096", "--port", "9999", "-d")
 	require.NoError(t, err)
-	require.Equal(t, []string{"model", "serve", "acme/Tiny-GGUF:Q4_K_M", "--yes", "--ctx", "4096", "--port", "9999"}, got,
-		"the background is handed an exact id and every decision already made")
+	require.Equal(t, []string{"model", "serve", "acme/Tiny-GGUF:Q4_K_M", "--yes", "--ctx", "4096", "--port", "9999", "--verbose"}, got,
+		"the background is handed an exact id and every decision already made, and keeps the full account in its log")
 	require.Contains(t, out, "keeps serving after this terminal closes")
 
 	// Added beside another in the background: the flag is handed on, and the result says beside what.

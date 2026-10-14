@@ -1,0 +1,1 @@
+error: the source did not answer: Get "http://127.0.0.1:1/api/models/bartowski/SmolLM2-135M-Instruct-GGUF/tree/main?recursive=true": dial tcp 127.0.0.1:1: connect: connection refused - check this machine's network
