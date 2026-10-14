@@ -10,8 +10,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"rogerai.fm/roger/v6/internal/store"
 )
 
 // untouchedFrames renders each screen the restyle must not move, by golden name.
@@ -67,4 +70,22 @@ func TestAnEnrolledRowTooWideEndsInAnEllipsis(t *testing.T) {
 		}
 	}
 	t.Fatal("no NO DEVICES YET row")
+}
+
+// A card keeps its alert count (enrolled_edge_look.feature: every card keeps today's words). Seen on
+// the simulated hub: "MACHINE · Pi 5 · TROUBLE 23s · 1 alert" lost "1 alert" to the card's width.
+// The hardware gives way first, and a card with no wire words beside it may use the row.
+func TestACardKeepsItsAlertCount(t *testing.T) {
+	now := time.Date(2026, 10, 12, 12, 0, 0, 0, time.UTC)
+	n := store.EdgeNode{ID: "n_pi", Name: "pi-1", Kind: "host", Presence: "VERIFIED", LastSeen: now.Unix() - 23,
+		Instances: []store.EdgeInstance{{Name: "pi-1", Software: &store.EdgeSoftware{Machine: "Raspberry Pi 5 Model B Rev 1.0"}}}}
+	it := edgeNetItem{member: true, node: &n, id: n.ID, kind: n.Kind, name: n.Name, at: now, alerts: []string{"cpu hot"}}
+	p := lookPalette(true)
+	for _, legend := range []string{"", "┊ through a relay"} {
+		rows := edgeLookCard(p, it, false, 96, legend)
+		require.Contains(t, rows[1], "1 alert", "legend %q: %q", legend, rows[1])
+	}
+	// Quiet, the hardware has room again.
+	it.alerts = nil
+	require.Contains(t, edgeLookCard(p, it, false, 96, "┊ through a relay")[1], "Pi 5")
 }

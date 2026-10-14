@@ -43,6 +43,14 @@ type edgeNetItem struct {
 	at   time.Time // the screen's clock, for the state word's age
 }
 
+// alertWords is the alert count as the card's last clause (" · 1 alert"), or "" when quiet.
+func (it edgeNetItem) alertWords() string {
+	if tag := it.alertTag(); tag != "" {
+		return " · " + tag
+	}
+	return ""
+}
+
 // alertTag is the short count a card wears when rules are firing: "1 alert", "2 alerts".
 func (it edgeNetItem) alertTag() string {
 	switch n := len(it.alerts); {
@@ -151,7 +159,7 @@ func (it edgeNetItem) subBase() string {
 		if it.via != "" {
 			// WHICH relay, not just that there is one: the wire says a path goes through something.
 			base += " · via " + it.via
-		} else if hw := it.hardware(); hw != "" && lipgloss.Width(base+" · "+hw+" · "+state) <= edgeRailCardText {
+		} else if hw := it.hardware(); hw != "" && lipgloss.Width(base+" · "+hw+" · "+state+it.alertWords()) <= edgeRailCardText {
 			base += " · " + hw
 		}
 		return base + " · " + state

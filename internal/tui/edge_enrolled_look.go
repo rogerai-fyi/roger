@@ -334,8 +334,8 @@ func edgeLookCard(p lookPal, it edgeNetItem, sel bool, textW int, legend string)
 		gs, nameSt = p.ash, p.ash
 	}
 	rail := p.rail(sel) + " "
-	if !it.machine {
-		textW = min(edgeRailCardText, textW) // a hung card keeps its width, so the wire words line up
+	if legend != "" {
+		textW = min(edgeRailCardText, textW) // a card with wire words beside it keeps its width, so they line up
 	}
 	textW = max(8, textW)
 	first := rail + gs.Render(glyph) + " " + nameSt.Render(edgeTrunc(it.name, textW-lipgloss.Width(glyph)-1))
