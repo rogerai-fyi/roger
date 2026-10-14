@@ -1,4 +1,4 @@
-# STATUS: PROPOSED 2026-10-13 (awaiting founder approval)
+# STATUS: APPROVED 2026-10-13 (founder, D1-D6 as recommended)
 #
 # THE ENROLLED [3] EDGE IN THE HEALTH/FLEET LOOK: the follow-up slice ruled on 2026-10-11 (R1 in
 # features/edge/empty_edge_simple.feature): the welcome card and the empty [3] EDGE wear the look
@@ -87,7 +87,8 @@
 #   fact labels' lamp hues (edgeFactLabelStyle) go to ink and muted. Alternative: keep the badge
 #   words tinted (root red, local green, market amber) on the title row.
 #
-# SUPERSEDED BY THIS SPEC IF APPROVED (none edited here; proposed text given, for re-approval):
+# SUPERSEDED BY THIS SPEC (approved 2026-10-13; applied in place, line-neutral, in patchbay.feature;
+# the topology_view.feature addition is appended at the end of that file as its own scenario):
 #
 #   features/edge/patchbay.feature:322 "the board sits in the same arcade cabinet as the wizard"
 #     -> RETIRE for the main screen. Proposed text:

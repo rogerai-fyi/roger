@@ -197,3 +197,11 @@ Feature: The Edge screen draws the owner's fleet, animates its liveness, and nev
     Given a selected node
     When another node goes dark
     Then the same node is still selected
+
+  # 2026-10-13 founder approval of features/edge/enrolled_edge_look.feature (D3): the outline at
+  # line 149 stands for a terminal tall enough to hold the map; this is the approved addition for
+  # one that is not, appended here so no line above moves.
+  Scenario: on a terminal too short to hold the map, the map gives way to the list
+    Given a terminal 100 columns wide
+    When the enrolled Edge screen renders 24 rows tall
+    Then the layout is "list" and says "short pane: the list"
