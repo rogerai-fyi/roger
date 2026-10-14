@@ -302,13 +302,16 @@ func modelFromNearby(ctx context.Context, cfg config, n nearbyName, quant string
 			return m, nil
 		}
 		source := "the bytes come from the model hub, checked against the digest " + r.mp.by() + " reported"
+		whose := "the author's word, from the model hub; checked against the digest " + r.mp.by() + " reported"
 		if r.listed {
 			source = "source: the model hub - its author's word, checked against the digest the listing gave"
+			whose = "the author's word, from the model hub"
 		}
 		var now nearbyName
 		m, err := modelFetchChoice(ctx, r.mp.File.Repo, r.c, r.b, modelFetchAsk{
 			ask:    r.ask() + " [y/N]: ",
 			source: source,
+			whose:  whose,
 			before: func() error {
 				var ok bool
 				if now, ok = nearbyFind(modelNearby(cfg), n.Name); !ok || len(now.Maps) == 0 {
@@ -545,6 +548,7 @@ func hubFetchPick(ctx context.Context, picks []hubPick, yes bool) (localmodel.Mo
 	return modelFetchChoice(ctx, p.m.Repo, p.c, p.b, modelFetchAsk{
 		ask:    "fetch it? [y/N]: ",
 		source: "source: the model hub - its author's word, checked against the digest the listing gave",
+		whose:  "the author's word, from the model hub",
 	}, yes)
 }
 

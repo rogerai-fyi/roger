@@ -363,9 +363,9 @@ Feature: Roger can find, judge, fetch and serve a model from the wider world, on
   Scenario: the sum is stated, not just the verdict
     Given a machine with measured memory and a model with a known size and context
     When its fit is judged
-    Then the sum accounts for the weights, the KV cache at the context it would run, the
-      runtime's working set, and a reserve
-    And the owner can see each term, not only the answer
+    Then the verdict always states the total it rests on and the memory it was judged against, and the sum accounts for the weights, the KV cache at the context it would run, the runtime's working set, and a reserve
+    And the owner can see each term with `--verbose`, in `roger model files`, and by default whenever
+      the verdict is tight, will not fit or cannot say (re-approved 2026-10-13, features/models/quiet_output.feature)
 
   @fit
   Scenario Outline: four verdicts, and each means something different

@@ -1,4 +1,4 @@
-# STATUS: PROPOSED 2026-10-13 (awaiting founder approval)
+# STATUS: APPROVED 2026-10-13 (founder: Q1-Q5 as recommended, local_models.feature:363 re-approved)
 #
 # QUIET MODEL OUTPUT: `roger model get` and `roger model serve` say about four lines by default
 # (what, its size, whether it fits, where it is serving), and the full account is one flag away

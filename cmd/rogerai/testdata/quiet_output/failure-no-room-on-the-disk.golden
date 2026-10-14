@@ -1,0 +1,1 @@
+error: not enough free disk: it needs 145.0 MiB and 10.0 MiB is free on <config>/rogerai/local/models/bartowski/SmolLM2-135M-Instruct-GGUF - free some space, or `roger model rm` one you no longer use
