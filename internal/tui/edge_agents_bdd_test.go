@@ -376,7 +376,7 @@ func (s *agentsBDD) highlightStartsOnTheWaitingPhone() error {
 	if !it.cand {
 		return fmtErr("the highlight starts on %q, not on the waiting device", it.name)
 	}
-	return s.mustSee("a  Approve") // a is one keystroke away: it approves (ruling 2026-10-12)
+	return s.mustSee("[a] Approve") // a is one keystroke away: it approves (ruling 2026-10-12)
 }
 
 func (s *agentsBDD) withNothingWaitingItIsThisRoger() error {

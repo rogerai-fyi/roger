@@ -156,7 +156,7 @@ func TestAWaitingDeviceIsWhereTheCursorLands(t *testing.T) {
 	}
 	out := stripANSI(m.edgeView(116))
 	// features/edge/empty_edge_simple.feature §7: the sighting offers invite and approve, not adopt.
-	if !strings.Contains(out, "i  Invite") || !strings.Contains(out, "a  Approve") {
+	if !strings.Contains(out, "[i] Invite") || !strings.Contains(out, "[a] Approve") {
 		t.Errorf("Invite and Approve are not one keystroke away on opening:\n%s", out)
 	}
 	// With nothing waiting, the highlight is THIS roger, whose actions are then to hand without
@@ -248,8 +248,8 @@ func TestTheMarksCellHasNoHoles(t *testing.T) {
 	}
 }
 
-// At 80 columns the action header never cuts a sentence off mid-word: the hint moves to its own line
-// (found rendering [3] at 80 columns, 2026-10-01).
+// At 80 columns the action header never cuts a sentence off mid-word (found rendering [3] at 80
+// columns, 2026-10-01). The hint now lives in the key-cap action bar (enrolled_edge_look.feature).
 func TestTheActionHeaderIsWholeAtEightyColumns(t *testing.T) {
 	m := mapReadableModel(t)
 	for i, it := range m.edgeNetItems() {
@@ -258,8 +258,8 @@ func TestTheActionHeaderIsWholeAtEightyColumns(t *testing.T) {
 		}
 	}
 	out := stripANSI(m.edgeView(80))
-	if !strings.Contains(out, "press the letter, or ↓/Tab then ←→") {
-		t.Errorf("the action hint is cut at 80 columns:\n%s", out)
+	if !strings.Contains(out, "tab buttons") {
+		t.Errorf("the action bar does not say how to reach the buttons at 80 columns:\n%s", out)
 	}
 	for _, ln := range strings.Split(out, "\n") {
 		if lipgloss.Width(ln) > 80 {

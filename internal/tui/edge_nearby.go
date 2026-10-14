@@ -118,12 +118,10 @@ func (m model) edgeNearbyLines(w int, mono bool) []string {
 	if len(items) == 0 {
 		return nil
 	}
-	muted, ink, paper, live := lookStyle(look.Muted), lookStyle(look.Ink), lookStyle(look.Paper), lookStyle(look.Live)
-	if mono {
-		muted, ink, paper, live = muted.UnsetForeground(), ink.UnsetForeground(), paper.UnsetForeground(), live.UnsetForeground()
-	}
+	p := lookPalette(mono)
+	muted, ink, paper, live := p.muted, p.ink, p.paper, p.live
 	sel := m.edgeNearbySelectedID()
-	now := m.edgeNow()
+	now := m.edge.at // every age on this screen is measured from the snapshot (edgeState.at)
 	nameW := 0
 	for _, n := range items {
 		nameW = max(nameW, len([]rune(edgeNearbyName(n))))
@@ -198,10 +196,8 @@ func edgeNearbyName(n store.EdgeNode) string {
 // full (split at the width, c copies it whole), the minutes left and the QR.
 func (m model) edgeNearbyInviteLines(w int, mono bool) []string {
 	inv := m.edge.nearby.invite
-	muted, ink, paper, live := lookStyle(look.Muted), lookStyle(look.Ink), lookStyle(look.Paper), lookStyle(look.Live)
-	if mono {
-		muted, ink, paper, live = muted.UnsetForeground(), ink.UnsetForeground(), paper.UnsetForeground(), live.UnsetForeground()
-	}
+	p := lookPalette(mono)
+	muted, ink, paper, live := p.muted, p.ink, p.paper, p.live
 	var out []string
 	out = append(out, "  "+live.Render(look.Fold(look.Rail, mono))+" "+paper.Bold(true).Render(look.NearbyInviteHead(inv.name)))
 	for _, ln := range wordWrap(look.NearbyInviteNext, max(30, w-4)) {

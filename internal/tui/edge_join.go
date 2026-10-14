@@ -158,10 +158,8 @@ func (m model) onEdgeJoinTick() (tea.Model, tea.Cmd) {
 // edgeJoinLines draws the prompt (or the wait) in the empty state's look. mono folds the glyphs.
 func (m model) edgeJoinLines(w int, mono bool) []string {
 	j := m.edge.join
-	muted, ink, paper, live := lookStyle(look.Muted), lookStyle(look.Ink), lookStyle(look.Paper), lookStyle(look.Live)
-	if mono {
-		muted, ink, paper, live = lookStyle(look.Muted).UnsetForeground(), ink.UnsetForeground(), paper.UnsetForeground(), live.UnsetForeground()
-	}
+	p := lookPalette(mono)
+	muted, ink, paper, live := p.muted, p.ink, p.paper, p.live
 	rail := live.Render(look.Fold(look.Rail, mono))
 	var out []string
 	out = append(out, "  "+rail+" "+paper.Bold(true).Render(look.EmptyEdgeJoin))

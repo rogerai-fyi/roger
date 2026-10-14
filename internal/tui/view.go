@@ -89,6 +89,7 @@ func (m model) View() string {
 	}
 	w := m.effWidth()
 	var b strings.Builder
+	edgeAt := -1 // where [3] EDGE's body goes, once the chrome around it has been counted
 	// COMPACT (the "windowshade"): no expanded preset bar and no spacer - the dense
 	// one-line header carries the section + counts + account + the `m:expand` hint, so
 	// the whole top collapses to a single strip + a hairline rule.
@@ -136,7 +137,7 @@ func (m model) View() string {
 		b.WriteString(m.limitsView(w))
 	case modeEdge:
 		b.WriteString(m.ownerEdgeView(w))
-		b.WriteString(m.edgeView(w))
+		edgeAt = b.Len()
 	case modeShare:
 		b.WriteString(m.shareView(w))
 	case modeBandCard:
@@ -222,7 +223,17 @@ func (m model) View() string {
 		b.WriteString("\n" + m.promptLine(w))
 	}
 	b.WriteString("\n" + m.footer(w))
-	return m.finishFrame(b.String(), w)
+	out := b.String()
+	if edgeAt >= 0 {
+		// [3] EDGE fits itself to the rows the chrome leaves it (features/edge/enrolled_edge_look.feature
+		// D3), so the height backstop never has to cut its top off. No measured height: draw it all.
+		rows := 0
+		if m.height > 0 {
+			rows = max(1, m.height-(strings.Count(strings.TrimRight(out, "\n"), "\n")+1))
+		}
+		out = out[:edgeAt] + m.edgeViewH(w, rows) + out[edgeAt:]
+	}
+	return m.finishFrame(out, w)
 }
 
 // finishFrame bounds a built frame to the terminal and paints the deck ground under it.

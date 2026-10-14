@@ -386,7 +386,9 @@ func (s *emptySimpleBDD) nearbyRows() ([]string, error) {
 		if strings.Contains(ln, look.Eyebrow(look.NearbyEyebrow)) {
 			var rows []string
 			for _, r := range lines[i+1:] {
-				if strings.TrimSpace(r) == "" {
+				// The rows end at a blank, or at the next region (on the enrolled map WHAT YOU CAN DO
+				// follows NEARBY directly, enrolled_edge_look.feature): a row is a mark slot and a name.
+				if strings.TrimSpace(r) == "" || !(strings.HasPrefix(r, "    ") || strings.HasPrefix(r, "  > ") || strings.HasPrefix(r, "  "+look.Rail)) {
 					break
 				}
 				if strings.HasPrefix(strings.TrimSpace(r), "↳") && len(rows) > 0 {

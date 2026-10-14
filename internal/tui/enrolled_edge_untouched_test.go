@@ -5,6 +5,9 @@ package tui
 // state, the setup wizard and its cabinet, and a node's detail page.
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -31,8 +34,21 @@ func untouchedFrames(t *testing.T) map[string]string {
 	return out
 }
 
+// untouchedMatches compares a frame with its BEFORE golden. These are never rewritten (not even
+// under UPDATE_GOLDEN): they record how the screens were drawn before the restyle.
+func untouchedMatches(name, got string) error {
+	want, err := os.ReadFile(filepath.Join("testdata", name))
+	if err != nil {
+		return err
+	}
+	if string(want) != got {
+		return fmt.Errorf("%s moved:\n%s\nwant:\n%s", name, got, want)
+	}
+	return nil
+}
+
 func TestEnrolledLookLeavesTheOtherScreensAlone(t *testing.T) {
 	for name, got := range untouchedFrames(t) {
-		require.NoError(t, goldenFile(t, name, got), name)
+		require.NoError(t, untouchedMatches(name, got))
 	}
 }

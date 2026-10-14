@@ -2,7 +2,8 @@ package tui
 
 // Golden frames for the NEARBY rows (features/edge/empty_edge_simple.feature §7) at the three widths
 // the screen meets: the empty state with two devices pinging (one invited, one stale), and the
-// enrolled map with the same rows under the members. UPDATE_GOLDEN=1 rewrites them.
+// enrolled map with the same rows under the members. UPDATE_GOLDEN=1 rewrites them. The enrolled
+// frames are pinned whole by features/edge/enrolled_edge_look.feature §8 (enrolled_edge_*.golden).
 
 import (
 	"fmt"
@@ -70,11 +71,9 @@ func TestNearbyRowsGolden(t *testing.T) {
 			// The short fingerprints tell two same-named devices apart, so no width clips them.
 			require.Contains(t, out, "8eda6e1a92c9")
 			require.Contains(t, out, "abababababab")
-			name := "nearby_empty"
-			if enrolled {
-				name = "nearby_enrolled"
+			if !enrolled {
+				require.NoError(t, goldenFile(t, fmt.Sprintf("nearby_empty_%d.golden", w), out))
 			}
-			require.NoError(t, goldenFile(t, fmt.Sprintf("%s_%d.golden", name, w), out))
 		}
 	}
 }
