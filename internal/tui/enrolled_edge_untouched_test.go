@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -51,4 +52,19 @@ func TestEnrolledLookLeavesTheOtherScreensAlone(t *testing.T) {
 	for name, got := range untouchedFrames(t) {
 		require.NoError(t, untouchedMatches(name, got))
 	}
+}
+
+// A row too wide for the terminal ends in an ellipsis, never a cut word: found on the simulated hub
+// at 80x24, where the NO DEVICES YET line stopped at "to invite" (2026-10-13).
+func TestAnEnrolledRowTooWideEndsInAnEllipsis(t *testing.T) {
+	f := newEnrolledLook(t)
+	f.cands = nil
+	m := f.model(t, 80, 0)
+	for _, ln := range strings.Split(stripANSI(m.edgeView(80)), "\n") {
+		if strings.Contains(ln, "NO DEVICES YET") {
+			require.True(t, strings.HasSuffix(ln, "…"), "cut without an ellipsis: %q", ln)
+			return
+		}
+	}
+	t.Fatal("no NO DEVICES YET row")
 }

@@ -282,13 +282,14 @@ func (m model) edgeEnrolledBuild(w, cw int, note string) []edgeLookLine {
 	return out
 }
 
-// edgeLookClip folds a row for a legacy console and bounds it to the terminal.
+// edgeLookClip folds a row for a legacy console and bounds it to the terminal; a row that has to
+// be cut ends in an ellipsis, never a cut word.
 func edgeLookClip(s string, w int) string {
 	s = strings.TrimRight(s, " ")
 	if glyphs.ASCII() {
 		s = glyphs.FoldASCII(edgeASCII.Replace(s))
 	}
-	return truncVisible(s, w)
+	return truncVisibleTail(s, w)
 }
 
 // edgeLookSparse reports whether this machine is alone on its Edge: no member, no device nearby
