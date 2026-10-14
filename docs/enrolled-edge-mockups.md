@@ -1,6 +1,6 @@
 # Enrolled [3] EDGE: proposed look (mockups)
 
-STATUS: PROPOSED 2026-10-13 (awaiting founder approval). Spec:
+STATUS: APPROVED 2026-10-13 (founder, D1-D6 as recommended) and built (internal/tui/edge_enrolled_look.go). Spec:
 `features/edge/enrolled_edge_look.feature`. This is the follow-up slice named in
 `docs/welcome-and-empty-edge-mockups.md` ("Follow-up: enrolled [3] look", ruled 2026-10-11, R1).
 

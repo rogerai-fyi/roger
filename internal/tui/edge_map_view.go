@@ -414,17 +414,18 @@ func (m model) edgeSelectedNet() (edgeNetItem, int) {
 	if len(items) == 0 {
 		return edgeNetItem{}, 0
 	}
-	sel := m.edge.netSel
-	if !m.edge.netSelSet {
+	sel := edgeSelIndex(m.edge, items)
+	return items[sel], sel
+}
+
+// edgeSelIndex is the highlight's index into items: where the owner put it, else the default,
+// clamped to the items there are. items must not be empty.
+func edgeSelIndex(st edgeState, items []edgeNetItem) int {
+	sel := st.netSel
+	if !st.netSelSet {
 		sel = edgeDefaultNetSel(items)
 	}
-	if sel < 0 {
-		sel = 0
-	}
-	if sel >= len(items) {
-		sel = len(items) - 1
-	}
-	return items[sel], sel
+	return max(0, min(sel, len(items)-1))
 }
 
 // edgeNetDetailView is the ⏎ readout of the SELECTED node on the network map: what it is, what it

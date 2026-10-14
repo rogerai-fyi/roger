@@ -67,32 +67,64 @@ func (p lookPal) rail(sel bool) string {
 	return p.dim.Render(look.Rail)
 }
 
-// edgeLookOpts is which rows a frame keeps: the map or the list (and why), and what gave way.
-type edgeLookOpts struct {
-	list    bool
-	note    string
-	capsRow bool // the buttons' explanations gave way; the caps share a row
-	noFacts bool // THIS MACHINE and AUTHORITY gave way (DISCOVERY stays)
-	noBar   bool // the action bar gave way (the TUI footer still names the keys)
-}
+// The rows a frame may keep or let go (D3). A row tagged for one variant is drawn only in it.
+const (
+	lookRow       = iota // always drawn
+	lookBlank            // the first to give way, the lowest first
+	lookFact             // THIS MACHINE and AUTHORITY (DISCOVERY is a lookRow)
+	lookTree             // the map as the tree, with its heading
+	lookList             // the map as the list, with its heading
+	lookExplained        // a button with its explanation beside it
+	lookCaps             // the buttons' caps sharing a row, once the explanations gave way
+	lookBar              // the key-cap action bar
+)
 
-// edgeLookLine is one row of the frame; blank rows are the first to give way.
+// edgeLookLine is one row of the frame and the variant it belongs to.
 type edgeLookLine struct {
-	text  string
-	blank bool
+	text string
+	tag  int
 }
 
-// edgeEnrolledLines draws the enrolled screen in at most h rows (h <= 0: every row).
+// edgeLookOpts is what has given way in a frame.
+type edgeLookOpts struct{ list, capsRow, noFacts, noBar bool }
+
+// keeps reports whether a row of this tag is drawn under these options.
+func (o edgeLookOpts) keeps(tag int) bool {
+	switch tag {
+	case lookFact:
+		return !o.noFacts
+	case lookTree:
+		return !o.list
+	case lookList:
+		return o.list
+	case lookExplained:
+		return !o.capsRow
+	case lookCaps:
+		return o.capsRow
+	case lookBar:
+		return !o.noBar
+	}
+	return true
+}
+
+// edgeEnrolledLines draws the enrolled screen in at most h rows (h <= 0: every row). The frame is
+// drawn once, every variant tagged, and the fitter only chooses rows: the host is read once a frame.
 func (m model) edgeEnrolledLines(w, h int) []string {
 	cw := edgeSetupContentWidth(w)
-	narrow := !edgeMapFitsTree(cw)
-	first := edgeLookOpts{list: m.edge.mapList || narrow}
-	if narrow && !m.edge.mapList {
-		first.note = edgeNarrowNote
+	treeFits := edgeMapFitsTree(cw)
+	note := ""
+	switch {
+	case m.edge.mapList:
+		// the owner's own choice (v) needs no note
+	case !treeFits:
+		note = edgeNarrowNote
+	default:
+		note = edgeShortNote
 	}
-	phases := []edgeLookOpts{first}
-	if !first.list {
-		phases = append(phases, edgeLookOpts{list: true, note: edgeShortNote})
+	all := m.edgeEnrolledBuild(w, cw, note)
+	phases := []edgeLookOpts{{list: true}}
+	if treeFits && !m.edge.mapList {
+		phases = []edgeLookOpts{{}, {list: true}}
 	}
 	steps := []func(*edgeLookOpts){
 		func(o *edgeLookOpts) { o.capsRow = true },
@@ -103,13 +135,13 @@ func (m model) edgeEnrolledLines(w, h int) []string {
 	for _, base := range phases {
 		o := base
 		var fits bool
-		if out, fits = edgeLookFit(m.edgeEnrolledBuild(w, cw, o), h, false); fits {
+		if out, fits = edgeLookFit(all, o, h, false); fits {
 			return out
 		}
 		for _, step := range steps {
 			step(&o)
 			// Once anything else has given way, every blank row has too.
-			if out, fits = edgeLookFit(m.edgeEnrolledBuild(w, cw, o), h, true); fits {
+			if out, fits = edgeLookFit(all, o, h, true); fits {
 				return out
 			}
 		}
@@ -117,39 +149,43 @@ func (m model) edgeEnrolledLines(w, h int) []string {
 	return out
 }
 
-// edgeLookFit drops blank rows, the lowest first (all of them when all is set), until the frame
-// is at most h rows, and reports whether it then fits.
-func edgeLookFit(ls []edgeLookLine, h int, all bool) ([]string, bool) {
-	extra := len(ls) - h
-	if h <= 0 {
-		extra = 0
+// edgeLookFit keeps the rows o keeps, then drops blank rows, the lowest first (every one of them
+// when all is set), until the frame is at most h rows; it reports whether the frame then fits.
+func edgeLookFit(ls []edgeLookLine, o edgeLookOpts, h int, all bool) ([]string, bool) {
+	var kept []edgeLookLine
+	for _, l := range ls {
+		if o.keeps(l.tag) {
+			kept = append(kept, l)
+		}
 	}
-	keep := make([]bool, len(ls))
-	for i := range keep {
-		keep[i] = true
-	}
-	for i := len(ls) - 1; i >= 0 && (all || extra > 0); i-- {
-		if ls[i].blank {
-			keep[i] = false
+	extra := len(kept) - h
+	drop := make([]bool, len(kept))
+	for i := len(kept) - 1; i >= 0 && h > 0 && (all || extra > 0); i-- {
+		if kept[i].tag == lookBlank {
+			drop[i] = true
 			extra--
 		}
 	}
-	out := make([]string, 0, len(ls))
-	for i, l := range ls {
-		if keep[i] {
+	out := make([]string, 0, len(kept))
+	for i, l := range kept {
+		if !drop[i] {
 			out = append(out, l.text)
 		}
 	}
 	return out, h <= 0 || len(out) <= h
 }
 
-// edgeEnrolledBuild draws every region the options keep.
-func (m model) edgeEnrolledBuild(w, cw int, o edgeLookOpts) []edgeLookLine {
+// edgeEnrolledBuild draws every region, each variant tagged; note is what the list says it is.
+func (m model) edgeEnrolledBuild(w, cw int, note string) []edgeLookLine {
 	p := lookPalette(lookMono())
 	var out []edgeLookLine
-	add := func(s string) { out = append(out, edgeLookLine{text: s}) }
-	blank := func() { out = append(out, edgeLookLine{blank: true}) }
+	put := func(tag int, s string) { out = append(out, edgeLookLine{text: edgeLookClip(s, w), tag: tag}) }
+	add := func(s string) { put(lookRow, s) }
+	blank := func() { put(lookBlank, "") }
 	st := m.edge.status
+	items := m.edgeNetItems()
+	sel := edgeSelIndex(m.edge, items)
+	sparse := m.edgeLookSparse()
 
 	// The brand band and the title row (in the windowshade they are one row).
 	for _, ln := range m.edgeLookHead(p, edgeEmptyHeadline(m.edge)) {
@@ -158,34 +194,29 @@ func (m model) edgeEnrolledBuild(w, cw int, o edgeLookOpts) []edgeLookLine {
 
 	// The facts: one row each, eyebrow and ink, too long ending in an ellipsis.
 	fact := func(label, val string) {
-		add("  " + p.muted.Render(pad(label, edgeFactW)) + p.ink.Render(edgeTrunc(val, max(8, w-2-edgeFactW))))
+		put(lookFact, "  "+p.muted.Render(pad(label, edgeFactW))+p.ink.Render(edgeTrunc(val, max(8, w-2-edgeFactW))))
 	}
-	if !o.noFacts {
-		// This machine by its name, never a raw node id (then by the name the hub card wears).
-		named := *st
-		named.Name = edge.SelfLabel(st.Name, m.edgeSelfName())
-		fact("THIS MACHINE", named.MachineLine())
-		// ONBOARDING: alone on its Edge, the authority fact is told in full, a row per line
-		// (features/edge/empty_edge.feature); once anything else is on it, its first line, and the
-		// rest is one enter away on the hub.
-		lines := st.AuthorityLines()
-		if !m.edgeLookSparse() && len(lines) > 1 {
-			lines = lines[:1]
+	// This machine by its name, never a raw node id (then by the name the hub card wears).
+	named := *st
+	named.Name = edge.SelfLabel(st.Name, m.edgeSelfName())
+	fact("THIS MACHINE", named.MachineLine())
+	// ONBOARDING: alone on its Edge, the authority fact is told in full, wrapped, a row per line
+	// (features/edge/empty_edge.feature); once anything else is on it, its first line, and the rest
+	// is one enter away on the hub.
+	for i, ln := range st.AuthorityLines() {
+		label := ""
+		if i == 0 {
+			label = "AUTHORITY"
 		}
-		sparse := m.edgeLookSparse()
-		for i, ln := range lines {
-			label := ""
+		if !sparse {
 			if i == 0 {
-				label = "AUTHORITY"
-			}
-			if !sparse {
 				fact(label, ln)
-				continue
 			}
-			for _, part := range wrapCommand(ln, max(20, w-2-edgeFactW)) {
-				add("  " + p.muted.Render(pad(label, edgeFactW)) + p.ink.Render(part))
-				label = ""
-			}
+			continue
+		}
+		for _, part := range wrapCommand(ln, max(20, w-2-edgeFactW)) {
+			put(lookFact, "  "+p.muted.Render(pad(label, edgeFactW))+p.ink.Render(part))
+			label = ""
 		}
 	}
 	scan := st.Scan()
@@ -200,26 +231,26 @@ func (m model) edgeEnrolledBuild(w, cw int, o edgeLookOpts) []edgeLookLine {
 	}
 	blank()
 
-	// YOUR EDGE NETWORK and its tally, then the map.
-	items := m.edgeNetItems()
-	head := "YOUR EDGE NETWORK  "
-	tailW := w - 2 - len(head)
-	if o.note != "" {
-		tailW -= len("  ·  " + o.note)
-	}
-	tail := edgeMapTally(items, max(1, tailW))
-	if o.note != "" {
-		if tail != "" {
-			tail += "  ·  "
+	// YOUR EDGE NETWORK and its tally, then the map: the tree and the list, each with its heading.
+	heading := func(note string) string {
+		head := "YOUR EDGE NETWORK"
+		tailW := w - 2 - len(head) - 2
+		if note != "" {
+			tailW -= len("  ·  " + note)
 		}
-		tail += o.note
+		tail := edgeMapTally(items, max(1, tailW))
+		if note != "" {
+			if tail != "" {
+				tail += "  ·  "
+			}
+			tail += note
+		}
+		return "  " + p.muted.Render(head) + p.muted.Render("  "+tail)
 	}
-	add("  " + p.muted.Render(strings.TrimRight(head, " ")) + p.muted.Render("  "+tail))
-	if o.list {
-		m.edgeLookList(p, w, cw, add)
-	} else {
-		m.edgeLookTree(p, w, add)
-	}
+	put(lookTree, heading(""))
+	edgeLookTree(p, w, items, sel, m.edgePulsing, func(s string) { put(lookTree, s) })
+	put(lookList, heading(note))
+	edgeLookList(p, w, cw, items, sel, func(s string) { put(lookList, s) })
 	if len(m.edge.rows) == 0 && len(m.edge.cands) == 0 {
 		// A fresh authority alone on its Edge is told how the next device joins.
 		if next := edgeAddNextLine(st); next != "" {
@@ -245,15 +276,9 @@ func (m model) edgeEnrolledBuild(w, cw int, o edgeLookOpts) []edgeLookLine {
 		add(s)
 	})
 
-	// WHAT YOU CAN DO and the buttons, or the prompt that owns the panel.
-	m.edgeLookActions(p, w, o.capsRow, add)
-	if !o.noBar {
-		add(m.edgeLookBar(w))
-	}
-
-	for i := range out {
-		out[i].text = edgeLookClip(out[i].text, w)
-	}
+	// WHAT YOU CAN DO and the buttons, or the prompt that owns the panel; then the action bar.
+	m.edgeLookActions(p, w, items[sel], put)
+	put(lookBar, m.edgeLookBar(w))
 	return out
 }
 
@@ -340,9 +365,7 @@ func edgeLookCard(p lookPal, it edgeNetItem, sel bool, textW int, legend string)
 // edgeLookTree draws the map as a tree hanging from the hub's left edge (D1): the hub card, the
 // trunk under its glyph with the rogers running here, then the members on their own drops, each
 // reached through a relay one level further in.
-func (m model) edgeLookTree(p lookPal, w int, add func(string)) {
-	items := m.edgeNetItems()
-	_, sel := m.edgeSelectedNet()
+func edgeLookTree(p lookPal, w int, items []edgeNetItem, sel int, pulsing func(edgeNetItem) bool, add func(string)) {
 	for _, r := range edgeLookCard(p, items[0], sel == 0, w-6, "") {
 		add("  " + r)
 	}
@@ -371,20 +394,20 @@ func (m model) edgeLookTree(p lookPal, w int, add func(string)) {
 	}
 	legend := edgeWireLegendOn(mems)
 	heading := true
-	m.edgeLookMembers(p, w, trunk, mems, memIx, sel, "", legend, &heading, add)
+	edgeLookMembers(p, w, trunk, mems, memIx, sel, "", legend, &heading, pulsing, add)
 }
 
 // edgeLookMembers hangs the members reached through parent ("" is the hub) at indent, each on its
 // own drop, and recurses one level in for what each of them relays. edge.Arrange draws every member
 // once and never under itself, so this walks a forest and cannot loop.
-func (m model) edgeLookMembers(p lookPal, w, indent int, its []edgeNetItem, idx []int, sel int, parent string,
-	legend bool, heading *bool, add func(string)) {
+func edgeLookMembers(p lookPal, w, indent int, its []edgeNetItem, idx []int, sel int, parent string,
+	legend bool, heading *bool, pulsing func(edgeNetItem) bool, add func(string)) {
 	for j, it := range its {
 		if it.via != parent {
 			continue
 		}
 		g, gs := edgeDropWire(it)
-		if m.edgePulsing(it) {
+		if pulsing(it) {
 			g, gs = "●", p.live // a heartbeat arriving on this wire, for this frame
 		}
 		drop := strings.Repeat(" ", indent) + gs.Render(g)
@@ -401,7 +424,7 @@ func (m model) edgeLookMembers(p lookPal, w, indent int, its []edgeNetItem, idx 
 			add(strings.Repeat(" ", indent) + r)
 		}
 		if it.node != nil {
-			m.edgeLookMembers(p, w, indent+2, its, idx, sel, it.node.Name, legend, heading, add)
+			edgeLookMembers(p, w, indent+2, its, idx, sel, it.node.Name, legend, heading, pulsing, add)
 		}
 	}
 }
@@ -433,9 +456,7 @@ func edgeWireWords(p lookPal, it edgeNetItem) string {
 }
 
 // edgeLookList draws the map as one row per unit: a rail, the glyph and name, and the state.
-func (m model) edgeLookList(p lookPal, w, cw int, add func(string)) {
-	items := m.edgeNetItems()
-	_, sel := m.edgeSelectedNet()
+func edgeLookList(p lookPal, w, cw int, items []edgeNetItem, sel int, add func(string)) {
 	const nameW = 22
 	right := min(w, cw+2)
 	for i, it := range items {
@@ -522,7 +543,8 @@ func (m model) edgeLookNoDevices(p lookPal, add func(string), blank func()) {
 // edgeLookActions is WHAT YOU CAN DO on the selected unit and its buttons, one per row with the
 // explanation beside it (D5), or the caps on one row when the explanations gave way. The keyboard-
 // focused button carries the red rail, and nothing else does. A prompt that is open owns the panel.
-func (m model) edgeLookActions(p lookPal, w int, capsRow bool, add func(string)) {
+func (m model) edgeLookActions(p lookPal, w int, it edgeNetItem, put func(int, string)) {
+	add := func(s string) { put(lookRow, s) }
 	prompt := func(eyebrow, keys, buf string) {
 		add("  " + p.muted.Render(eyebrow) + p.muted.Render("  "+keys))
 		add("  " + p.live.Render("▶ ") + p.ink.Render(buf) + p.live.Render("_"))
@@ -540,7 +562,6 @@ func (m model) edgeLookActions(p lookPal, w int, capsRow bool, add func(string))
 		add("  " + p.muted.Render("records the assignment · putting a model on air is still `roger share`"))
 		return
 	}
-	it, _ := m.edgeSelectedNet()
 	glyph, gs := it.icon()
 	head := "  " + p.muted.Render("WHAT YOU CAN DO") + p.muted.Render("  on  ") + gs.Render(glyph) + " "
 	add(head + p.ink.Render(edgeTrunc(edgeActionsWho(it), max(8, w-lipgloss.Width(head)))))
@@ -565,12 +586,9 @@ func (m model) edgeLookActions(p lookPal, w int, capsRow bool, add func(string))
 		}
 		return s
 	}
-	if !capsRow {
-		for i, a := range acts {
-			b := button(i, a)
-			add(b + "  " + p.muted.Render(edgeTrunc(a.sub, max(4, w-lipgloss.Width(b)-2))))
-		}
-		return
+	for i, a := range acts {
+		b := button(i, a)
+		put(lookExplained, b+"  "+p.muted.Render(edgeTrunc(a.sub, max(4, w-lipgloss.Width(b)-2))))
 	}
 	row := ""
 	for i, a := range acts {
@@ -579,13 +597,13 @@ func (m model) edgeLookActions(p lookPal, w int, capsRow bool, add func(string))
 		case row == "":
 			row = b
 		case lipgloss.Width(row)+1+lipgloss.Width(b) > w:
-			add(row)
+			put(lookCaps, row)
 			row = b
 		default:
 			row += " " + b
 		}
 	}
-	add(row)
+	put(lookCaps, row)
 }
 
 // edgeActionsWho is what WHAT YOU CAN DO says the buttons act on: the selected unit and its kind.
