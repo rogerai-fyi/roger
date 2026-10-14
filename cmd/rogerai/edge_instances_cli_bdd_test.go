@@ -8,6 +8,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"net"
 	"rogerai.fm/roger/v6/internal/bddrun"
 	"strings"
 	"testing"
@@ -18,20 +19,125 @@ import (
 	"rogerai.fm/roger/v6/internal/edge"
 	"rogerai.fm/roger/v6/internal/edgeauth"
 	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v6/internal/tui"
 )
 
 type instCLIBDD struct {
-	t    *testing.T
-	out  string
-	err  error
-	regs map[string]*edge.Registry
-	node string
+	t     *testing.T
+	out   string
+	err   error
+	regs  map[string]*edge.Registry
+	node  string
+	hosts []*edgeHost // real rogers' Edge hosts, stopped (and so deregistered) after the scenario
 }
 
 func (s *instCLIBDD) reset() {
 	useTempConfig(s.t)
 	s.t.Setenv("ROGER_BROKER", "http://127.0.0.1:1")
-	s.out, s.err, s.regs, s.node = "", nil, map[string]*edge.Registry{}, ""
+	s.out, s.err, s.regs, s.node, s.hosts = "", nil, map[string]*edge.Registry{}, "", nil
+	s.t.Setenv("ROGER_EDGE_INSTANCE", "")
+	s.t.Setenv(envAuthorityBind, "127.0.0.1:0")
+	s.t.Setenv(envFaceBind, "127.0.0.1:0")
+}
+
+func (s *instCLIBDD) stopHosts() {
+	for _, h := range s.hosts {
+		h.stop()
+	}
+	s.hosts = nil
+}
+
+// startRoger is one long-running roger on this machine: a real Edge host joining the
+// household exactly as the TUI's does on launch.
+func (s *instCLIBDD) startRoger() error {
+	h, err := newEdgeHost(s.node)
+	if err != nil {
+		return err
+	}
+	s.hosts = append(s.hosts, h)
+	h.registerInstance(loadConfig())
+	if h.reg == nil {
+		return fmt.Errorf("the roger did not join its household")
+	}
+	return nil
+}
+
+func (s *instCLIBDD) enrolledAndRunning(node string) error {
+	if err := s.thisMachineEnrolled(node); err != nil {
+		return err
+	}
+	return s.startRoger()
+}
+
+// shortRuns runs each quoted command line `times` times, as an owner (or a script) would
+// between looks at the screen.
+func (s *instCLIBDD) shortRuns(a, b, c, d string, times int) error {
+	for i := 0; i < times; i++ {
+		for _, line := range []string{a, b, c, d} {
+			if err := s.run(line); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// faceHeldRoger starts a roger whose LAN face cannot bind: the port is held, as it is when
+// a headless `roger edge run` already serves this machine's face and the owner opens the TUI.
+func (s *instCLIBDD) faceHeldRoger() error {
+	held, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return err
+	}
+	s.t.Cleanup(func() { _ = held.Close() })
+	s.t.Setenv(envFaceBind, held.Addr().String())
+	s.t.Setenv("ROGERAI_EDGE_DISCOVERY", "")
+	h, err := newEdgeHost(s.node)
+	if err != nil {
+		return err
+	}
+	var hooks tui.Hooks
+	h.wire(&hooks)
+	s.hosts = append(s.hosts, h)
+	if !h.arm() {
+		return fmt.Errorf("discovery did not arm")
+	}
+	if h.serving() {
+		return fmt.Errorf("the face bound a held port")
+	}
+	return nil
+}
+
+// passes runs the last roger's per-pass enrollment check, the step that re-arms a host
+// whose face is not up.
+func (s *instCLIBDD) passes(n int) error {
+	h := s.hosts[len(s.hosts)-1]
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	for i := 0; i < n; i++ {
+		h.adoptEnrollment(ctx)
+		h.beatInstance(loadConfig())
+	}
+	return nil
+}
+
+// deadRoger is a registration left by a roger killed without deregistering: its record is
+// fresh on disk but the pid that wrote it has exited.
+func (s *instCLIBDD) deadRoger(name string) error {
+	inst := edge.Instance{Name: name, Caps: edgeInstanceCaps(nil, false), PID: deadPID(s.t)}
+	_, err := edge.Register(edgeInstancesDir(), s.nodeID(), inst, time.Now())
+	return err
+}
+
+func (s *instCLIBDD) rogersExactly(want ...string) error {
+	got := []string{}
+	for _, in := range edge.Household(edgeInstancesDir(), time.Now()) {
+		got = append(got, in.Name)
+	}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		return fmt.Errorf("this machine's rogers are %q, want %q", got, want)
+	}
+	return nil
 }
 
 func (s *instCLIBDD) run(line string) error {
@@ -200,6 +306,19 @@ func TestInstancesFeatureCLI(t *testing.T) {
 	suite := godog.TestSuite{
 		ScenarioInitializer: func(sc *godog.ScenarioContext) {
 			sc.Before(func(c context.Context, _ *godog.Scenario) (context.Context, error) { st.reset(); return c, nil })
+			sc.After(func(c context.Context, _ *godog.Scenario, _ error) (context.Context, error) {
+				st.stopHosts()
+				return c, nil
+			})
+			sc.Step(`^this machine is enrolled as "([^"]*)" and a roger is running here$`, st.enrolledAndRunning)
+			sc.Step(`^this machine is enrolled as "([^"]*)"$`, st.thisMachineEnrolled)
+			sc.Step(`^they run "([^"]*)", "([^"]*)", "([^"]*)" and "([^"]*)" (\d+) times$`, st.shortRuns)
+			sc.Step(`^another roger starts here while the LAN face port is held$`, st.faceHeldRoger)
+			sc.Step(`^that roger runs (\d+) discovery passes$`, st.passes)
+			sc.Step(`^a roger registered here as "([^"]*)" whose process is gone$`, st.deadRoger)
+			sc.Step(`^a roger starts here$`, st.startRoger)
+			sc.Step(`^this machine's rogers are exactly "([^"]*)"$`, func(a string) error { return st.rogersExactly(a) })
+			sc.Step(`^this machine's rogers are exactly "([^"]*)" and "([^"]*)"$`, func(a, b string) error { return st.rogersExactly(a, b) })
 			sc.Step(`^a fleet with a node "([^"]*)" running "([^"]*)" and "([^"]*)"$`, st.fleetWithNodeRunning)
 			sc.Step(`^a fleet with a node "([^"]*)" running "([^"]*)"$`, st.fleetWithNodeRunningOne)
 			sc.Step(`^this machine is enrolled and running one instance$`, st.enrolledRunningOne)

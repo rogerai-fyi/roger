@@ -376,9 +376,10 @@ func TestAScheduledJobThatMatchesNothingSaysSo(t *testing.T) {
 func TestOnlyOneRogerOnAMachineRunsTheSchedules(t *testing.T) {
 	scheduleSeed(t)
 	now := timeNowForTest()
-	// Two rogers registered here.
+	// Two rogers registered here, both written by a process that is running.
+	pid := separateProcess(t)
 	for _, name := range []string{"roger", "roger-2"} {
-		_, err := edge.Register(edgeInstancesDir(), edgeThisNodeID(), edge.Instance{Name: name, PID: 4242}, now)
+		_, err := edge.Register(edgeInstancesDir(), edgeThisNodeID(), edge.Instance{Name: name, PID: pid}, now)
 		require.NoError(t, err)
 	}
 	prev := edgeMyInstanceName

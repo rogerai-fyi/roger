@@ -4,6 +4,7 @@ package edge
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -142,15 +143,17 @@ func TestRedactionRemovesEverySecretShapeAndKeepsTheLine(t *testing.T) {
 func TestLiveHouseholdHoldsOnlyWhatIsStillBeating(t *testing.T) {
 	dir := t.TempDir()
 	now := time.Now()
-	fresh, err := Register(dir, "n_desk", Instance{Name: "alive", PID: 4242}, now)
+	// Both are written by a running process (this one): a pid that is not running is a dead roger
+	// whatever its heartbeat says, and that is TestAGoneRogersRecordGivesItsNameBack's case.
+	fresh, err := Register(dir, "n_desk", Instance{Name: "alive", PID: os.Getpid()}, now)
 	require.NoError(t, err)
-	stale, err := Register(dir, "n_desk", Instance{Name: "wedged", PID: 4343}, now)
+	stale, err := Register(dir, "n_desk", Instance{Name: "wedged", PID: os.Getpid()}, now)
 	require.NoError(t, err)
 
 	live := LiveHousehold(dir, now)
 	require.Len(t, live, 2)
 	require.Equal(t, "alive", live[0].Name, "by name")
-	require.Equal(t, 4242, live[0].PID, "the pid it registered")
+	require.Equal(t, os.Getpid(), live[0].PID, "the pid it registered")
 	require.False(t, live[0].Beat.IsZero(), "with its heartbeat")
 
 	// Age one past the reap window: it is not live, and LiveHousehold does not delete it either -
@@ -175,6 +178,34 @@ func TestLiveHouseholdHoldsOnlyWhatIsStillBeating(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "junk.json"), []byte("{not json"), 0o600))
 	require.Empty(t, LiveHousehold(dir, now))
 	require.Empty(t, LiveHousehold(filepath.Join(dir, "nope"), now), "a directory that is not there is empty, not an error")
+}
+
+// A roger killed without deregistering leaves a fresh record behind. Its pid has exited, so the
+// record is not a running roger: Household reaps it at once and its name is free for the next roger
+// to start, rather than that roger taking "<node>-2" for the two minutes the heartbeat would allow.
+// A record from a roger too old to carry its pid is judged by its heartbeat alone.
+func TestAGoneRogersRecordGivesItsNameBack(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Now()
+	gone := exec.Command(os.Args[0], "-test.run=^$")
+	require.NoError(t, gone.Run())
+	_, err := Register(dir, "n_hub", Instance{Name: "hub", PID: gone.Process.Pid}, now)
+	require.NoError(t, err)
+	_, err = Register(dir, "n_hub", Instance{Name: "legacy"}, now)
+	require.NoError(t, err)
+
+	require.Len(t, LiveHousehold(dir, now), 1, "the gone roger is not live")
+	require.Equal(t, "legacy", LiveHousehold(dir, now)[0].Name, "a pid-less record lives by its heartbeat")
+	got := []string{}
+	for _, in := range Household(dir, now) {
+		got = append(got, in.Name)
+	}
+	require.Equal(t, []string{"legacy"}, got)
+	require.Len(t, mustGlob(t, dir), 1, "the gone roger's record was reaped")
+
+	next, err := Register(dir, "n_hub", Instance{Name: DefaultInstanceName("hub", []string{"legacy"}), PID: os.Getpid()}, now)
+	require.NoError(t, err)
+	require.Equal(t, "hub", next.Instance().Name, "the next roger gets the name back")
 }
 
 func mustGlob(t *testing.T, dir string) []string {
