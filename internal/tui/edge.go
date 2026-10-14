@@ -425,6 +425,11 @@ func (m *model) onEdgeKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.refreshEdge()
 		m.status = stDim.Render("EDGE - re-read the fleet")
 	case "v":
+		// v never pretends: a list the pane forces stays the list, and the status line says why.
+		if why := m.edgeForcedListWhy(); why != "" {
+			m.status = stDim.Render("EDGE - " + why)
+			break
+		}
 		m.edge.mapList = !m.edge.mapList
 		if m.edge.mapList {
 			m.status = stDim.Render("EDGE - list view (v for the map)")

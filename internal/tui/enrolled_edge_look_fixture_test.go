@@ -29,6 +29,8 @@ type enrolledLook struct {
 	selfInst string
 	reads    int // EdgeCandidates calls: how often the Edge was read
 	ids      map[string]string
+	alerts   map[string][]string // firing rules by node id; nil: no alerting wired
+	adopting []store.EdgeNode    // adopted, not checked in yet; each holds a live code
 }
 
 const (
@@ -75,6 +77,13 @@ func (f *enrolledLook) model(t *testing.T, w, h int) model {
 		EdgeName:       func(id, name string) error { return nil },
 		EdgeRenameSelf: func(string) error { return nil },
 	}
+	if f.alerts != nil {
+		hooks.EdgeAlerts = func() map[string][]string { return f.alerts }
+	}
+	if f.adopting != nil {
+		hooks.EdgeAdopting = func() []store.EdgeNode { return f.adopting }
+		hooks.EdgeAdoptCode = func(string) (string, time.Time, bool) { return "7KQ2M-9XH4P", f.now.Add(10 * time.Minute), true }
+	}
 	if f.house != nil {
 		hooks.EdgeHousehold = func() []edge.Instance { return f.house }
 		hooks.EdgeSelfInstance = func() string { return f.selfInst }
@@ -93,11 +102,14 @@ func (f *enrolledLook) model(t *testing.T, w, h int) model {
 	return m
 }
 
-// lookFrame renders a model's whole frame with no colour (NO_COLOR), and its body in colour.
+// lookFrame renders a model's whole frame with no colour (NO_COLOR).
 func lookFrame(m model) string {
 	lipgloss.SetColorProfile(termenv.Ascii)
 	return m.View()
 }
+
+// edgeView is the [3] body with no measured height (every row), the way the tests read it.
+func (m model) edgeView(w int) string { return m.edgeViewH(w, 0) }
 
 func lookColorBody(m model, w int) string {
 	lipgloss.SetColorProfile(termenv.TrueColor)

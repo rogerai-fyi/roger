@@ -94,9 +94,9 @@ func (s *modeTUIBDD) rootedCoreWithPrefer(p string) error {
 func (s *modeTUIBDD) rendersAt(cols int) error { s.render(cols); return nil }
 
 // faceplateLine finds the Edge screen's mode faceplate - the line carrying the root/preference
-// badges and the route mix. Since the [3] surface now wears an arcade cabinet on top (patchbay
-// §8), the faceplate is no longer line 0; it is the line that carries a root word (every mode
-// badge has ROOT or CORE), so the test keys off content, not position.
+// badges and the route mix: the YOUR EDGE title row under the brand band (enrolled_edge_look.feature).
+// It is found by content, not position: the line that carries a root word (every mode badge has
+// ROOT or CORE).
 func (s *modeTUIBDD) faceplateLine() string {
 	for _, ln := range strings.Split(s.out, "\n") {
 		if strings.Contains(ln, "ROOT") || strings.Contains(ln, "CORE") {

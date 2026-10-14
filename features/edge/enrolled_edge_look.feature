@@ -477,3 +477,74 @@ Feature: The enrolled [3] EDGE is drawn in the Health/Fleet look, and nothing it
     Then each frame contains every key and word the region rules above name, and no line overflows
     And each matches its committed golden file: enrolled_edge_100x30, enrolled_edge_80x24, enrolled_edge_60x24 and enrolled_edge_80x24_shade
     And the old nearby_enrolled_100, _80 and _60 goldens are replaced by these
+
+  # =====================================================================================
+  # 9. Founder rulings after the review of the build (2026-10-14)
+  # =====================================================================================
+
+  # 2026-10-14 founder ruling (R1): when [3] is too tall, NO DEVICES YET folds to one row first,
+  # then ADOPTING and SESSIONS fold to one row each, and only then does the map become the list.
+  # The brand band, the tabs and the status line are never clipped: the backstop never cuts the top.
+  # (In the D3 order the folds come after the blank rows and before the buttons' explanations.)
+  Scenario Outline: the notes fold to one row each before the map gives way, and the top is never cut
+    Given <n> sessions went through this Edge and no device is nearby
+    When the owner opens [3] EDGE at <size>
+    Then the frame is exactly <rows> rows, with the tabs first and the status line last
+    And the brand band and the title row are on screen
+    And NO DEVICES YET is one row: "no devices yet · point the Roger app at this Edge"
+    And SESSIONS is one row: "<n> sessions · a taller pane shows them"
+
+    Examples:
+      | n | size   | rows |
+      | 6 | 80x24  | 24   |
+      | 8 | 80x24  | 24   |
+      | 6 | 100x30 | 30   |
+      | 8 | 100x30 | 30   |
+      | 6 | 60x24  | 24   |
+      | 8 | 60x24  | 24   |
+
+  # 2026-10-14 founder ruling (R1)
+  Scenario: the notes fold before the map becomes the list, and the map gives way last
+    Given 8 sessions went through this Edge and no device is nearby
+    When the owner opens [3] EDGE at heights from 60 rows down to 20 at 100 columns
+    Then NO DEVICES YET folds before ADOPTING and SESSIONS do
+    And ADOPTING and SESSIONS fold before the map becomes the list
+    And both fold before the buttons' explanations give way
+    And no height cuts the tabs, the brand band or the status line
+
+  # 2026-10-14 founder ruling (R1)
+  Scenario: an adopting device keeps its row when the codes fold
+    Given "gentle-ibex-14" is adopting with a code
+    When the owner opens [3] EDGE at a height that folds the notes
+    Then ADOPTING is one row naming "gentle-ibex-14", saying a taller pane shows the code
+
+  # 2026-10-14 founder ruling (R2): NEARBY's ages and the come-back hint tick live every 2 seconds,
+  # as before the restyle; only the rest of a still fleet stays put between reads. This reads the
+  # §7 scenario "a still fleet draws identical frames" as: identical but for NEARBY's ages.
+  Scenario: NEARBY's ages tick live while the rest of a still fleet stays put
+    Given discovery is off
+    When the owner opens [3] EDGE at 100x30
+    And the clock moves past the stale mark and the 2-second tick comes, with no read of the Edge
+    Then the "gentle-ibex-14" row reads "last seen" and "it must come back on the network to use it"
+    And every row outside NEARBY is the same as before the clock moved
+
+  # 2026-10-14 founder ruling (R3): an Edge of more than 24 units is the rail list in the new look,
+  # fitted to the pane like every other [3] frame, never the old graph.
+  Scenario Outline: a large Edge is the rail list in the new look
+    Given the Edge holds 26 members
+    When the owner opens [3] EDGE at 100x30 <shade>
+    Then the frame is exactly 30 rows, with the tabs first and the status line last
+    And the units are rail rows, the list says how many of how many it shows, and the selection is on screen
+    And no "›" mark, no "CANDIDATES", no "a adopts it" and no graph spine is drawn
+    And the frame matches its committed golden file <golden>
+
+    Examples:
+      | shade              | golden                        |
+      | as it is           | enrolled_edge_26_100x30       |
+      | in the windowshade | enrolled_edge_26_100x30_shade |
+
+  # 2026-10-14 review fix (L1): in a list the pane forces, v does not pretend to switch.
+  Scenario: v in a list forced by a short pane says why the map is not there
+    When the owner opens [3] EDGE at 80x20
+    And the owner presses v
+    Then the map is still the list and the status line says the map needs a taller pane

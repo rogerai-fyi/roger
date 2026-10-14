@@ -88,7 +88,7 @@ func (m model) edgeEmptySimpleView(w int, line func(string)) {
 	muted, ink, paper, live := p.muted, p.ink, p.paper, p.live
 	textW := max(30, w-4)
 
-	line("  " + muted.Render(look.Fold(look.EmptyEdgeBrand, mono)))
+	line(lookBrandRow(p))
 	line("  " + live.Render(look.Fold(look.Rail, mono)) + " " + paper.Bold(true).Render(look.Eyebrow(look.EmptyEdgeTitle)) +
 		muted.Render(" · ") + ink.Render(look.EmptyEdgeState))
 	for _, ln := range wordWrap(look.EmptyEdgeSay, textW) {

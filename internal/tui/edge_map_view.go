@@ -259,21 +259,17 @@ func (m model) edgeNetItems() []edgeNetItem {
 	return items
 }
 
-// edgeMapActive reports whether the navigable network map (not the multi-node graph) is on screen.
-// The map is the home view of a SET-UP machine: it draws this machine's hub, the rogers on it, the
-// other member machines on the Edge, and the devices pinging NEARBY, not on it yet - so a phone
-// that appears on the LAN shows up here to invite or approve (2026-09-21, 2026-10-12). Past edgeMaxGraphNodes the
-// map would stop being a picture, so a large fleet falls back to the graph/list until the manual
-// grid/list switch lands (features/edge/map_scale.feature).
+// edgeMapActive reports whether the navigable network map is on screen: the home view of a SET-UP
+// machine. It draws this machine's hub, the rogers on it, the other member machines on the Edge, and
+// the devices pinging NEARBY, not on it yet - so a phone that appears on the LAN shows up here to
+// invite or approve (2026-09-21, 2026-10-12). An Edge of any size is drawn here: past
+// edgeMaxGraphNodes it is the list (enrolled_edge_look.feature, founder ruling R3, 2026-10-14).
 func (m model) edgeMapActive() bool {
 	st := m.edge.status
 	if st == nil || st.Err != "" || !st.Enrolled {
 		return false
 	}
-	if m.edge.err != "" && len(m.edge.rows) == 0 && len(m.edge.cands) == 0 {
-		return false // the fleet could not be read and there is nothing to draw
-	}
-	return len(m.edge.rows)+len(m.edge.cands) <= edgeMaxGraphNodes
+	return m.edge.err == "" || len(m.edge.rows) > 0 || len(m.edge.cands) > 0 // nothing read, nothing to draw
 }
 
 // edgeMoveNetSel moves the map highlight by delta, clamped to the nodes. The first move starts
@@ -780,27 +776,6 @@ func (m model) edgeJobOf(name string) (edge.AgentJob, bool) {
 		}
 	}
 	return edge.AgentJob{}, false
-}
-
-// kindLabel is the one-word kind in the list view's KIND column, from the one shared vocabulary
-// (edge.KindWord). A MEMBER used to read "machine" whatever it really was, so an adopted phone sat
-// in the fleet labelled a machine - the very confusion this column exists to clear up.
-func (it edgeNetItem) kindLabel() string {
-	switch {
-	case it.machine:
-		// The hub is the machine you are on. Its kind is not in doubt and the STATE column already
-		// says "YOU ARE HERE", so this column names the role rather than guessing at hardware.
-		return "machine"
-	case it.cand, it.member:
-		if w := edge.KindWord(it.kind); w != "" {
-			return w
-		}
-		return "device"
-	case it.dark, it.agent:
-		return "agent"
-	default:
-		return "roger"
-	}
 }
 
 // edgePathWords is the route to a unit as an operator reads it: "desk → wiltshire → nina · 2 hops".

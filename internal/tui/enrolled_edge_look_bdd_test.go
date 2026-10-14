@@ -102,7 +102,7 @@ func styleAt(line, text string) (lookRun, bool) {
 
 // near reports whether two colours are the same to within the rounding a terminal profile applies.
 func near(a, b look.RGB) bool {
-	d := func(x, y uint8) bool { return x-y <= 2 || y-x <= 2 }
+	d := func(x, y uint8) bool { v := int(x) - int(y); return v >= -2 && v <= 2 }
 	return d(a.R, b.R) && d(a.G, b.G) && d(a.B, b.B)
 }
 
@@ -124,6 +124,8 @@ type lookBDD struct {
 	effect  model
 	before  model
 	errText string
+	reads   int  // the host reads before the last key
+	noColor bool // NO_COLOR is set in the environment for this scenario
 }
 
 func (s *lookBDD) reset(t *testing.T) {
@@ -143,7 +145,13 @@ func (s *lookBDD) open(w, h int) {
 }
 
 func (s *lookBDD) render() {
-	s.plain = strings.Split(lookFrame(s.m), "\n")
+	if s.noColor {
+		// The profile the environment asks for, as a terminal would get it: NO_COLOR is set.
+		lipgloss.SetColorProfile(termenv.NewOutput(os.Stdout).EnvColorProfile())
+		s.plain = strings.Split(s.m.View(), "\n")
+	} else {
+		s.plain = strings.Split(lookFrame(s.m), "\n")
+	}
 	lipgloss.SetColorProfile(termenv.TrueColor)
 	lipgloss.SetHasDarkBackground(true)
 	s.color = strings.Split(s.m.View(), "\n")
@@ -391,7 +399,8 @@ func (s *lookBDD) brandEndsWithMuted(text string) error {
 
 func (s *lookBDD) sessionsMix(local, market int) error {
 	for i := 0; i < local+market; i++ {
-		rec := protocol.UsageReceipt{RequestID: "r" + strconv.Itoa(i), NodeID: "house-or-1", Model: "gpt-oss-20b"}
+		// Each on its own model, so each is its own row in the SESSIONS block.
+		rec := protocol.UsageReceipt{RequestID: "r" + strconv.Itoa(i), NodeID: "house-or-1", Model: "model-" + strconv.Itoa(i)}
 		if i < local {
 			rec.NodeID, rec.Instance, rec.Local = lookGarageID, "serve", true
 		}
@@ -878,6 +887,12 @@ func (s *lookBDD) rogersAndRelay() error {
 	s.f.selfInst = "desk"
 	s.f.enroll(s.t, store.EdgeNode{ID: "n_" + strings.Repeat("a", 48), Name: "attic", Kind: "host", Presence: "VERIFIED",
 		LastSeen: s.f.now.Unix() - 9, Transports: []store.EdgeTransport{{Kind: "relay", Addr: "garage"}}})
+	// A LAN-direct Pi that reports its hardware, and a unit with a rule firing.
+	den := store.EdgeNode{ID: "n_" + strings.Repeat("d", 48), Name: "den", Kind: "host", Presence: "VERIFIED",
+		LastSeen: s.f.now.Unix() - 5, Transports: []store.EdgeTransport{{Kind: "lan", Addr: "192.168.1.7:8791", Fingerprint: strings.Repeat("cd", 32)}},
+		Instances: []store.EdgeInstance{{Name: "den", Software: &store.EdgeSoftware{Machine: "Raspberry Pi 5 Model B Rev 1.0"}}}}
+	s.f.enroll(s.t, den)
+	s.f.alerts = map[string][]string{lookGarageID: {"cpu hot"}}
 	return nil
 }
 
@@ -918,19 +933,26 @@ func (s *lookBDD) atticOneDown() error {
 }
 
 func (s *lookBDD) cardsKeepWords() error {
-	for _, it := range s.m.edgeNetItems() {
-		if it.cand || it.machine {
-			continue
+	// Today's words, written out: kind, hardware when it fits, via, state word and age, alerts.
+	want := map[string][]string{
+		"● desk":   {"‹ this one"},
+		"◆ helper": {"agent · idle"},
+		"▣ garage": {"MACHINE · TROUBLE 20s · 1 alert"},
+		"▣ attic":  {"MACHINE · via garage"},
+		"▣ den":    {"MACHINE · Pi 5 · ON AIR 5s"},
+	}
+	for head, words := range want {
+		i, rows, err := s.cardRows(head)
+		if err != nil {
+			return err
 		}
-		want := it.sub()
-		if it.self {
-			want = "‹ this one"
+		if len(rows) < 2 {
+			return fmt.Errorf("%s has no words row:\n%s", head, s.frame())
 		}
-		if len([]rune(want)) > edgeRailCardText {
-			want = string([]rune(want)[:edgeRailCardText-1])
-		}
-		if !strings.Contains(s.frame(), want) {
-			return fmt.Errorf("%s's card lost its words %q:\n%s", it.name, want, s.frame())
+		for _, w := range words {
+			if !strings.Contains(rows[1], w) {
+				return fmt.Errorf("%s's card reads %q, missing %q (row %d)", head, rows[1], w, i+1)
+			}
 		}
 	}
 	return nil
@@ -1147,17 +1169,16 @@ func (s *lookBDD) rolesColoured() error {
 }
 
 func (s *lookBDD) redOnlyFor() error {
-	allowed := []string{look.Rail, "● ON AIR", "●", look.NearbyInvited, "‹ this one", "◉", "◆", "▶", "_"}
+	// Exactly these, and "‹ this one" leading the words of the roger being looked at.
+	allowed := map[string]bool{look.Rail: true, "● ON AIR": true, "●": true, look.NearbyInvited: true,
+		"◉": true, "◆": true, "▶": true, "_": true}
 	for _, ln := range s.colorBody() {
 		for _, r := range lookRuns(ln) {
-			if !r.hasF || (!near(r.fg, look.Live) && !near(r.fg, cLiveDark)) || strings.TrimSpace(r.text) == "" {
+			t := strings.TrimSpace(r.text)
+			if !r.hasF || t == "" || (!near(r.fg, look.Live) && !near(r.fg, cLiveDark)) {
 				continue
 			}
-			t, hit := strings.TrimSpace(r.text), false
-			for _, a := range allowed {
-				hit = hit || t == a || strings.HasPrefix(t, a)
-			}
-			if !hit {
+			if !allowed[t] && !strings.HasPrefix(t, "‹ this one") {
 				return fmt.Errorf("%q is drawn in red", t)
 			}
 			if (t == "◉" || t == "◆") && !near(r.fg, cLiveDark) {
@@ -1317,7 +1338,9 @@ func (s *lookBDD) giveWayOrder(_ *godog.Table) error {
 	}
 	last := rank(full)
 	seenList := false
-	for h := 60; h >= 18; h-- {
+	// Down to 20 rows: the least a frame of this Edge fits in with everything given way (9 rows of
+	// chrome, 11 that never give way).
+	for h := 60; h >= 20; h-- {
 		sh := s.shapeAt(h)
 		rk := rank(sh)
 		if rk[0] < last[0] || (rk[0] == last[0] && rk[1] < last[1]) {
@@ -1505,7 +1528,10 @@ func (s *lookBDD) selectionStillOn(name string) error {
 
 // ---- §5 NO_COLOR --------------------------------------------------------------------
 
-func (s *lookBDD) noColorSet() error { return nil }
+func (s *lookBDD) noColorSet() error {
+	s.noColor = true
+	return os.Setenv("NO_COLOR", "1")
+}
 
 func (s *lookBDD) noANSI() error {
 	if strings.Contains(s.frame(), "\x1b[") {
@@ -1616,7 +1642,7 @@ func (s *lookBDD) presses(key string) error {
 	if !s.opened {
 		s.open(100, 30)
 	}
-	s.before = s.m
+	s.before, s.reads = s.m, s.f.reads
 	s.press(key)
 	return nil
 }
@@ -1645,7 +1671,7 @@ func (s *lookBDD) effectIs(effect string) error {
 	case strings.HasPrefix(effect, "the map and the list switch"):
 		ok = a.edge.mapList != b.edge.mapList
 	case strings.HasPrefix(effect, "the Edge is re-read"):
-		ok = s.f.reads > 0 && a.status == "EDGE - re-read the fleet"
+		ok = s.f.reads > s.reads && strings.Contains(stripANSI(a.status), "re-read the fleet")
 	case strings.HasPrefix(effect, "the screen goes back"):
 		ok = a.mode != modeEdge
 	case strings.HasPrefix(effect, "the windowshade toggles"):
@@ -1788,18 +1814,307 @@ func (s *lookBDD) twoFramesSecondApart() error {
 }
 
 func (s *lookBDD) framesSame() error {
-	if strings.Join(s.prev, "\n") != strings.Join(s.color, "\n") {
-		return fmt.Errorf("a still fleet drew two different frames")
+	// 2026-10-14 founder ruling R2: NEARBY's ages tick live; every other row is still.
+	return s.sameOutsideNearby(s.prev, s.color)
+}
+
+// nearbySpan is the rows from the NEARBY eyebrow to the row before WHAT YOU CAN DO.
+func nearbySpan(rows []string) (int, int) {
+	from, to := -1, -1
+	for i, ln := range rows {
+		p := stripANSI(ln)
+		if from < 0 && strings.HasPrefix(strings.TrimSpace(p), "NEARBY") {
+			from = i
+		}
+		if from >= 0 && strings.Contains(p, "WHAT YOU CAN DO") {
+			to = i
+			break
+		}
+	}
+	return from, to
+}
+
+func (s *lookBDD) sameOutsideNearby(a, b []string) error {
+	// The rows outside NEARBY, blank rows aside: a NEARBY row that grows a second row (a stale
+	// device's hint) may let a blank row give way, and that moves nothing else.
+	rest := func(rows []string) []string {
+		from, to := nearbySpan(rows)
+		var out []string
+		for i, r := range rows {
+			if (i < from || i >= to) && strings.TrimSpace(stripANSI(r)) != "" {
+				out = append(out, r)
+			}
+		}
+		return out
+	}
+	ra, rb := rest(a), rest(b)
+	if len(ra) != len(rb) {
+		return fmt.Errorf("rows outside NEARBY came or went: %d, then %d", len(ra), len(rb))
+	}
+	for i := range ra {
+		if ra[i] != rb[i] {
+			return fmt.Errorf("a row moved on a still fleet: %q then %q", stripANSI(ra[i]), stripANSI(rb[i]))
+		}
 	}
 	return nil
 }
 
-func (s *lookBDD) turnInFlight(name string) error { return nil }
+// ---- §9 the 2026-10-14 rulings ----------------------------------------------------------
+
+func (s *lookBDD) sessionsNoNearby(n int) error {
+	s.f.cands = nil
+	return s.sessionsMix(n, 0)
+}
+
+func (s *lookBDD) frameRowsTopAndStatus(rows int) error {
+	if len(s.plain) != rows {
+		return fmt.Errorf("the frame is %d rows, want %d:\n%s", len(s.plain), rows, s.frame())
+	}
+	return s.topAndStatus()
+}
+
+// topAndStatus: the tabs (or the windowshade's header) open the frame and the status line ends it,
+// so the height backstop cut nothing.
+func (s *lookBDD) topAndStatus() error {
+	if !strings.Contains(s.plain[0], "[0]") && !strings.Contains(s.plain[0], "[3] EDGE") {
+		return fmt.Errorf("the tabs were cut off the top:\n%s", s.frame())
+	}
+	// The status line is the last row drawn (a short frame is padded below it, never cut).
+	foot := strings.Split(stripANSI(s.m.footer(s.m.effWidth())), "\n")
+	last := len(s.plain) - 1
+	for last > 0 && strings.TrimSpace(s.plain[last]) == "" {
+		last--
+	}
+	if strings.TrimRight(s.plain[last], " ") != strings.TrimRight(foot[len(foot)-1], " ") {
+		return fmt.Errorf("the status line is not the last row:\n%s", s.frame())
+	}
+	return nil
+}
+
+func (s *lookBDD) oneRow(label, want string) error {
+	n := 0
+	for _, ln := range s.plain {
+		if strings.TrimSpace(ln) == want {
+			n++
+		}
+	}
+	if n != 1 {
+		return fmt.Errorf("%s is not the one row %q:\n%s", label, want, s.frame())
+	}
+	return nil
+}
+
+func (s *lookBDD) noDevicesOneRow(want string) error {
+	if s.at("open the Roger app and point it at this Edge:") >= 0 {
+		return fmt.Errorf("NO DEVICES YET did not fold:\n%s", s.frame())
+	}
+	return s.oneRow("NO DEVICES YET", want)
+}
+
+func (s *lookBDD) sessionsOneRow(want string) error {
+	if s.at("SESSIONS ·") >= 0 {
+		return fmt.Errorf("SESSIONS did not fold:\n%s", s.frame())
+	}
+	return s.oneRow("SESSIONS", want)
+}
+
+// lookFolds is which notes a frame has folded, and whether the map is the list.
+type lookFolds struct{ noDevices, sessions, list bool }
+
+func (s *lookBDD) foldsAt(h int) lookFolds {
+	s.m, s.h = s.f.model(s.t, 100, h), h
+	s.render()
+	return lookFolds{noDevices: s.at("no devices yet ·") >= 0, sessions: s.at("sessions · a taller pane shows them") >= 0,
+		list: s.at("ON THE EDGE") < 0}
+}
+
+func (s *lookBDD) opensAtHeights(from, to, w int) error {
+	s.w = w
+	return nil
+}
+
+func (s *lookBDD) noDevicesFoldsFirst() error {
+	for h := 60; h >= 20; h-- {
+		if f := s.foldsAt(h); f.sessions && !f.noDevices {
+			return fmt.Errorf("at %d rows SESSIONS folded before NO DEVICES YET:\n%s", h, s.frame())
+		}
+	}
+	return nil
+}
+
+func (s *lookBDD) notesFoldBeforeList() error {
+	sawList := false
+	for h := 60; h >= 20; h-- {
+		f := s.foldsAt(h)
+		if f.list && !(f.noDevices && f.sessions) {
+			return fmt.Errorf("at %d rows the map gave way before the notes folded:\n%s", h, s.frame())
+		}
+		sawList = sawList || f.list
+	}
+	if !sawList {
+		return fmt.Errorf("no height drew the list, so the order was never tested")
+	}
+	return nil
+}
+
+func (s *lookBDD) foldsBeforeExplanations() error {
+	for h := 60; h >= 20; h-- {
+		f := s.foldsAt(h)
+		if s.at("another machine joins") < 0 && !(f.noDevices && f.sessions) {
+			return fmt.Errorf("at %d rows the explanations gave way before the notes folded:\n%s", h, s.frame())
+		}
+	}
+	return nil
+}
+
+func (s *lookBDD) topNeverCut() error {
+	for h := 60; h >= 20; h-- {
+		s.foldsAt(h)
+		if len(s.plain) != h {
+			return fmt.Errorf("at %d rows the frame is %d rows", h, len(s.plain))
+		}
+		if err := s.topAndStatus(); err != nil {
+			return fmt.Errorf("at %d rows: %w", h, err)
+		}
+		if s.brandRow() < 0 || s.titleRow() < 0 {
+			return fmt.Errorf("at %d rows the brand band or the title gave way:\n%s", h, s.frame())
+		}
+	}
+	return nil
+}
+
+func (s *lookBDD) adoptingWithCode(name string) error {
+	for _, c := range s.f.cands {
+		if c.Name == name {
+			s.f.adopting = []store.EdgeNode{c}
+		}
+	}
+	return s.sessionsMix(8, 0)
+}
+
+func (s *lookBDD) opensFolding() error { s.open(100, 24); return nil }
+
+func (s *lookBDD) adoptingOneRow(name string) error {
+	n := 0
+	for _, ln := range s.plain {
+		if strings.Contains(ln, "ADOPTING") {
+			n++
+			if !strings.Contains(ln, name) || !strings.Contains(ln, "a taller pane shows the code") {
+				return fmt.Errorf("the folded ADOPTING row reads %q", strings.TrimSpace(ln))
+			}
+		}
+	}
+	if n != 1 || s.at("7KQ2M-9XH4P") >= 0 {
+		return fmt.Errorf("ADOPTING did not fold to one row:\n%s", s.frame())
+	}
+	return nil
+}
+
+func (s *lookBDD) discoveryOff() error {
+	s.f.self.Discovery = edge.DiscoveryOff
+	return nil
+}
+
+func (s *lookBDD) clockPastStale() error {
+	s.prev = append([]string(nil), s.color...)
+	s.reads = s.f.reads
+	s.f.now = s.f.now.Add(look.NearbyStaleAfter + time.Minute)
+	tm, _ := s.m.Update(edgeStatusTickMsg{})
+	s.m = tm.(model)
+	s.render()
+	if s.f.reads != s.reads {
+		return fmt.Errorf("the tick read the Edge (%d reads, before %d)", s.f.reads, s.reads)
+	}
+	return nil
+}
+
+func (s *lookBDD) rowReadsBoth(name, a, b string) error {
+	i, err := s.need(name)
+	if err != nil {
+		return err
+	}
+	row := s.plain[i]
+	if i+1 < len(s.plain) && strings.Contains(s.plain[i+1], "↳") {
+		row += s.plain[i+1]
+	}
+	if !strings.Contains(row, a) || !strings.Contains(row, b) {
+		return fmt.Errorf("the %s row reads %q, want %q and %q", name, row, a, b)
+	}
+	return nil
+}
+
+func (s *lookBDD) restStill() error { return s.sameOutsideNearby(s.prev, s.color) }
+
+func (s *lookBDD) holdsMembers(n int) error {
+	for i := 2; i <= n; i++ {
+		s.f.enroll(s.t, store.EdgeNode{ID: fmt.Sprintf("n_%048d", i), Name: fmt.Sprintf("unit-%02d", i), Kind: "host",
+			Presence: "VERIFIED", LastSeen: s.f.now.Unix() - int64(i),
+			Transports: []store.EdgeTransport{{Kind: "lan", Addr: fmt.Sprintf("192.168.1.%d:8791", 10+i), Fingerprint: strings.Repeat(fmt.Sprintf("%02x", i), 32)}}})
+	}
+	return nil
+}
+
+func (s *lookBDD) opensAsItIs(w, h int) error { s.open(w, h); return nil }
+
+func (s *lookBDD) railRowsCounted() error {
+	if !regexp.MustCompile(`showing \d+-\d+ of 27 units`).MatchString(s.frame()) {
+		return fmt.Errorf("the list does not say how many of how many it shows:\n%s", s.frame())
+	}
+	it, _ := s.m.edgeSelectedNet()
+	i, err := s.need(it.name)
+	if err != nil {
+		return err
+	}
+	if !strings.HasPrefix(strings.TrimSpace(s.plain[i]), ">") {
+		return fmt.Errorf("the selection %q is not on screen with its rail:\n%s", it.name, s.frame())
+	}
+	for _, ln := range s.plain {
+		if strings.Contains(ln, "▣ unit-") && !strings.HasPrefix(strings.TrimSpace(ln), "|") && !strings.HasPrefix(strings.TrimSpace(ln), ">") {
+			return fmt.Errorf("a unit row has no rail: %q", ln)
+		}
+	}
+	return nil
+}
+
+func (s *lookBDD) noOldGraph() error {
+	f := s.frame()
+	for _, bad := range []string{"›", "CANDIDATES", "a adopts it"} {
+		if strings.Contains(f, bad) {
+			return fmt.Errorf("the old graph's %q is drawn:\n%s", bad, f)
+		}
+	}
+	if spineRe.MatchString(strings.Join(s.body(), "\n")) {
+		return fmt.Errorf("a graph spine is drawn:\n%s", f)
+	}
+	return nil
+}
+
+func (s *lookBDD) matchesGolden(name string) error { return goldenFile(s.t, name+".golden", s.frame()) }
+
+func (s *lookBDD) vSaysTallerPane() error {
+	if err := s.mapIsList(edgeShortNote); err != nil {
+		return err
+	}
+	if s.m.edge.mapList {
+		return fmt.Errorf("v switched the owner's choice to the list, which the pane already forced")
+	}
+	if st := stripANSI(s.m.status); !strings.Contains(st, "the map needs a taller pane") {
+		return fmt.Errorf("the status line reads %q", st)
+	}
+	return nil
+}
+
+func (s *lookBDD) turnInFlight(name string) error {
+	id := s.f.ids[name]
+	s.pre = append(s.pre, func(m *model) { m.edge.pulses = []edgePulse{{id: id, step: 1}} })
+	return nil
+}
 
 func (s *lookBDD) framesRender() error {
+	// A frame while the heartbeat is on the wire, then the frame after it has arrived.
 	s.open(100, 30)
 	s.prev = append([]string(nil), s.color...)
-	s.m.edge.pulses = []edgePulse{{id: lookGarageID, step: 1}}
+	s.m.edge.pulses = nil
 	s.render()
 	return nil
 }
@@ -1887,6 +2202,7 @@ func TestEnrolledEdgeLookFeature(t *testing.T) {
 			sc.After(func(ctx context.Context, _ *godog.Scenario, _ error) (context.Context, error) {
 				lipgloss.SetColorProfile(termenv.Ascii)
 				SetLANDial(nil)
+				_ = os.Unsetenv("NO_COLOR")
 				return ctx, os.Unsetenv("ROGERAI_ASCII")
 			})
 			// Background
@@ -2030,6 +2346,29 @@ func TestEnrolledEdgeLookFeature(t *testing.T) {
 			sc.Step(`^a turn in flight to "([^"]*)"$`, st.turnInFlight)
 			sc.Step(`^the frames render$`, st.framesRender)
 			sc.Step(`^only the drop to "([^"]*)" changes between frames$`, st.onlyDropChanges)
+			// §9 the 2026-10-14 rulings
+			sc.Step(`^(\d+) sessions went through this Edge and no device is nearby$`, st.sessionsNoNearby)
+			sc.Step(`^the frame is exactly (\d+) rows, with the tabs first and the status line last$`, st.frameRowsTopAndStatus)
+			sc.Step(`^NO DEVICES YET is one row: "([^"]*)"$`, st.noDevicesOneRow)
+			sc.Step(`^SESSIONS is one row: "([^"]*)"$`, st.sessionsOneRow)
+			sc.Step(`^the owner opens \[3\] EDGE at heights from (\d+) rows down to \d+ at (\d+) columns$`, func(from, w int) error { return st.opensAtHeights(from, 20, w) })
+			sc.Step(`^NO DEVICES YET folds before ADOPTING and SESSIONS do$`, st.noDevicesFoldsFirst)
+			sc.Step(`^ADOPTING and SESSIONS fold before the map becomes the list$`, st.notesFoldBeforeList)
+			sc.Step(`^both fold before the buttons' explanations give way$`, st.foldsBeforeExplanations)
+			sc.Step(`^no height cuts the tabs, the brand band or the status line$`, st.topNeverCut)
+			sc.Step(`^"([^"]*)" is adopting with a code$`, st.adoptingWithCode)
+			sc.Step(`^the owner opens \[3\] EDGE at a height that folds the notes$`, st.opensFolding)
+			sc.Step(`^ADOPTING is one row naming "([^"]*)", saying a taller pane shows the code$`, st.adoptingOneRow)
+			sc.Step(`^discovery is off$`, st.discoveryOff)
+			sc.Step(`^the clock moves past the stale mark and the 2-second tick comes, with no read of the Edge$`, st.clockPastStale)
+			sc.Step(`^the "([^"]*)" row reads "([^"]*)" and "([^"]*)"$`, st.rowReadsBoth)
+			sc.Step(`^every row outside NEARBY is the same as before the clock moved$`, st.restStill)
+			sc.Step(`^the Edge holds (\d+) members$`, st.holdsMembers)
+			sc.Step(`^the owner opens \[3\] EDGE at (\d+)x(\d+) as it is$`, st.opensAsItIs)
+			sc.Step(`^the units are rail rows, the list says how many of how many it shows, and the selection is on screen$`, st.railRowsCounted)
+			sc.Step(`^no "›" mark, no "CANDIDATES", no "a adopts it" and no graph spine is drawn$`, st.noOldGraph)
+			sc.Step(`^the frame matches its committed golden file (\S+)$`, st.matchesGolden)
+			sc.Step(`^the map is still the list and the status line says the map needs a taller pane$`, st.vSaysTallerPane)
 			// §8
 			sc.Step(`^the enrolled \[3\] EDGE is rendered by the TUI's View\(\) at 100x30, 80x24 and 60x24, and at 80x24 in the windowshade$`, st.goldensRendered)
 			sc.Step(`^each frame contains every key and word the region rules above name, and no line overflows$`, st.goldenWords)

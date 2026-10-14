@@ -41,6 +41,6 @@ func TestNoDevicesHintIsNotDrawnUnderANearbyRow(t *testing.T) {
 	var m model
 	m.hooks.EdgeAdopting = func() []store.EdgeNode { return []store.EdgeNode{{ID: "n_phone", Name: "gentle-ibex-14"}} }
 	var out []string
-	m.edgeLookNoDevices(lookPalette(true), func(s string) { out = append(out, s) }, func() { out = append(out, "") })
+	m.edgeLookNoDevices(lookPalette(true), func(_ int, s string) { out = append(out, s) })
 	require.Empty(t, out)
 }

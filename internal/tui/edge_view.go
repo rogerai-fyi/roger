@@ -53,7 +53,8 @@ var edgeASCII = strings.NewReplacer(
 	"├", "+", "└", "+", "│", "|", "╭", "+", "╮", "+", "╰", "+", "╯", "+", "┬", "+",
 	// The enrolled look's wires and keys (features/edge/enrolled_edge_look.feature): the three
 	// wires stay three different characters, and every key still reads as a key.
-	"┊", ":", "╎", "!", "‹", "<", "↳", ">", "⏎", "enter", "↑", "^", "↓", "v", "←", "<",
+	// No fold may read as another mark: "↳" is not the selected rail ">", "↓" is not the v key.
+	"┊", ":", "╎", "!", "‹", "<", "↳", "\\", "⏎", "enter", "↑", "^", "↓", "_", "←", "<-",
 )
 
 func edgeFold(s string) string {
@@ -183,8 +184,6 @@ func edgeTexture(n store.EdgeNode) rune {
 }
 
 // ---- the view ------------------------------------------------------------
-
-func (m model) edgeView(w int) string { return m.edgeViewH(w, 0) }
 
 // edgeViewH draws the screen in at most h rows of body (h <= 0: no measured height, so every row
 // is drawn). Only the enrolled map fits itself to h (features/edge/enrolled_edge_look.feature D3).
@@ -426,11 +425,6 @@ func edgeCountWords(n int, one, many string) string {
 	return strconv.Itoa(n) + " " + many
 }
 
-// edgeMapFitsTree reports whether the content width can hold the map's tree: a rail card and the
-// wire words beside it. Below that the picture says less than the list does, so the list stands in
-// and says so (features/edge/topology_view.feature).
-func edgeMapFitsTree(cw int) bool { return cw >= 70 }
-
 // edgeAction is one button on the [3] control panel: a hotkey, a label, a one-line why, and
 // whether it is the primary/lit state.
 type edgeAction struct {
@@ -664,8 +658,8 @@ func (m model) edgeEmptyView(w int, line func(string)) {
 	line("  " + stKey.Render(m.edgeSelfName()) + stDim.Render(" is the only node on the Edge."))
 	line("  " + stDim.Render("Nothing else has been seen, and this screen draws only what it has seen."))
 	line("")
-	// A set-up machine is drawn by edgeNetworkMap (the hub + its rogers + what's next); this empty
-	// view is only for a machine that has set NOTHING up, so it shows the onboarding facts below.
+	// A set-up machine is drawn by the enrolled look (edge_enrolled_look.go); this view is for a
+	// machine that has set nothing up yet or whose own enrollment did not complete.
 	// THE THREE FACTS. What is true about THIS machine, and the next command for each
 	// fact that is not yet what the owner wants (features/edge/empty_edge.feature).
 	// Each fact label wears its own lamp hue so the empty board reads as an instrument at a

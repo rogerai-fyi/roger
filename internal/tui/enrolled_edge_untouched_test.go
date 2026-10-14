@@ -89,3 +89,11 @@ func TestACardKeepsItsAlertCount(t *testing.T) {
 	it.alerts = nil
 	require.Contains(t, edgeLookCard(p, it, false, 96, "┊ through a relay")[1], "Pi 5")
 }
+
+// On a legacy console no fold may read as another mark: "↳" (a row continued) is not the selected
+// rail ">", and "↓" is not the v key (2026-10-14 review, L2).
+func TestTheASCIIFoldsDoNotCollide(t *testing.T) {
+	require.NotEqual(t, ">", edgeASCII.Replace("↳"))
+	require.NotEqual(t, "v", edgeASCII.Replace("↓"))
+	require.NotEqual(t, edgeASCII.Replace("↑"), edgeASCII.Replace("↓"))
+}

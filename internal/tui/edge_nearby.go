@@ -121,7 +121,10 @@ func (m model) edgeNearbyLines(w int, mono bool) []string {
 	p := lookPalette(mono)
 	muted, ink, paper, live := p.muted, p.ink, p.paper, p.live
 	sel := m.edgeNearbySelectedID()
-	now := m.edge.at // every age on this screen is measured from the snapshot (edgeState.at)
+	// NEARBY's ages tick live, read from the clock each frame (the 2-second status tick redraws
+	// them), while the rest of a still fleet is measured from the snapshot (founder ruling R2,
+	// 2026-10-14).
+	now := m.edgeNow()
 	nameW := 0
 	for _, n := range items {
 		nameW = max(nameW, len([]rune(edgeNearbyName(n))))
