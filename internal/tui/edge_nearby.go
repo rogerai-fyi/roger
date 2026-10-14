@@ -118,11 +118,12 @@ func (m model) edgeNearbyLines(w int, mono bool) []string {
 	if len(items) == 0 {
 		return nil
 	}
-	muted, ink, paper, live := lookStyle(look.Muted), lookStyle(look.Ink), lookStyle(look.Paper), lookStyle(look.Live)
-	if mono {
-		muted, ink, paper, live = muted.UnsetForeground(), ink.UnsetForeground(), paper.UnsetForeground(), live.UnsetForeground()
-	}
+	p := lookPalette(mono)
+	muted, ink, paper, live := p.muted, p.ink, p.paper, p.live
 	sel := m.edgeNearbySelectedID()
+	// NEARBY's ages tick live, read from the clock each frame (the 2-second status tick redraws
+	// them), while the rest of a still fleet is measured from the snapshot (founder ruling R2,
+	// 2026-10-14).
 	now := m.edgeNow()
 	nameW := 0
 	for _, n := range items {
@@ -198,10 +199,8 @@ func edgeNearbyName(n store.EdgeNode) string {
 // full (split at the width, c copies it whole), the minutes left and the QR.
 func (m model) edgeNearbyInviteLines(w int, mono bool) []string {
 	inv := m.edge.nearby.invite
-	muted, ink, paper, live := lookStyle(look.Muted), lookStyle(look.Ink), lookStyle(look.Paper), lookStyle(look.Live)
-	if mono {
-		muted, ink, paper, live = muted.UnsetForeground(), ink.UnsetForeground(), paper.UnsetForeground(), live.UnsetForeground()
-	}
+	p := lookPalette(mono)
+	muted, ink, paper, live := p.muted, p.ink, p.paper, p.live
 	var out []string
 	out = append(out, "  "+live.Render(look.Fold(look.Rail, mono))+" "+paper.Bold(true).Render(look.NearbyInviteHead(inv.name)))
 	for _, ln := range wordWrap(look.NearbyInviteNext, max(30, w-4)) {

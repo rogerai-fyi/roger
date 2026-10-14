@@ -62,19 +62,26 @@ func TestTheWireLegendNamesOnlyWhatIsOnScreen(t *testing.T) {
 	item := func(n store.EdgeNode) edgeNetItem { return edgeNetItem{member: true, node: &n, id: n.ID} }
 
 	// A fleet that is all LAN-direct is not taught three glyphs to read one.
-	if got := edgeWireLegend([]edgeNetItem{item(lan)}); got != "" {
-		t.Errorf("an all-direct fleet still drew a legend: %q", got)
+	if edgeWireLegendOn([]edgeNetItem{item(lan)}) {
+		t.Errorf("an all-direct fleet still draws a legend")
 	}
-	got := stripANSI(edgeWireLegend([]edgeNetItem{item(lan), item(relayed)}))
-	if !strings.Contains(got, "direct") || !strings.Contains(got, "through a relay") {
-		t.Errorf("the legend does not name the wires on screen: %q", got)
+	if !edgeWireLegendOn([]edgeNetItem{item(lan), item(relayed)}) || !edgeWireLegendOn([]edgeNetItem{item(dark)}) {
+		t.Errorf("a fleet with a relayed or a dark wire draws no legend")
 	}
-	if strings.Contains(got, "not heard from") {
-		t.Errorf("the legend names a wire nothing on screen has: %q", got)
+	// Each card's legend names its own wire, and only its own (enrolled_edge_look.feature: the
+	// legend rides beside the card it explains).
+	p := lookPalette(true)
+	for _, c := range []struct {
+		n          store.EdgeNode
+		want, not1 string
+	}{{lan, "│ direct", "relay"}, {relayed, "┊ through a relay", "direct"}, {dark, "╎ not heard from", "direct"}} {
+		got := stripANSI(edgeWireWords(p, item(c.n)))
+		if got != c.want || strings.Contains(got, c.not1) {
+			t.Errorf("%s's legend = %q, want %q", c.n.Name, got, c.want)
+		}
 	}
-	got = stripANSI(edgeWireLegend([]edgeNetItem{item(dark)}))
-	if !strings.Contains(got, "not heard from") || strings.Contains(got, "direct") {
-		t.Errorf("a dark-only fleet's legend is wrong: %q", got)
+	if edgeWireWords(p, edgeNetItem{agent: true}) != "" {
+		t.Errorf("a roger running here has no wire to explain")
 	}
 }
 
@@ -88,21 +95,20 @@ func TestTheFleetBandIsWiredToTheHub(t *testing.T) {
 		}
 	}
 	out := stripANSI(m.edgeView(116))
-	band := ""
+	// Each member hangs on its own drop, the row above its card, and the drop's glyph is its wire.
+	drops := map[string]bool{}
 	lines := strings.Split(out, "\n")
 	for i, ln := range lines {
-		if strings.Contains(ln, "ON THE EDGE") && i+3 < len(lines) {
-			band = lines[i+2] // the bus, then the drops
-			if strings.Contains(lines[i+2], "─") {
-				band = lines[i+3]
+		if i > 0 && (strings.Contains(ln, "▣ ") || strings.Contains(ln, "▤ ") || strings.Contains(ln, "▯ ")) {
+			for _, g := range []string{"│", "┊", "╎", "●"} {
+				if strings.Contains(lines[i-1], g) {
+					drops[g] = true
+				}
 			}
 		}
 	}
-	if band == "" {
-		t.Fatalf("no fleet band on the map:\n%s", out)
-	}
-	if !strings.Contains(band, "│") || !strings.Contains(band, "┊") {
-		t.Errorf("the drop line does not carry a wire per node (%q):\n%s", band, out)
+	if !drops["│"] || !drops["┊"] {
+		t.Errorf("the members do not each hang on their own wire (%v):\n%s", drops, out)
 	}
 }
 
@@ -253,14 +259,6 @@ func TestNoWireEverCrossesAnother(t *testing.T) {
 		if i := strings.Index(out, "┼"); i >= 0 {
 			t.Errorf("at %d columns a wire crosses another, which a tree cannot do:\n%s", w, out)
 		}
-	}
-	// A single card directly below its parent hangs on a straight line, not a crossing.
-	if got := stripANSI(edgeBranchLine(40, 20, []int{20})); !strings.Contains(got, "│") || strings.Contains(got, "┼") {
-		t.Errorf("one card below its parent = %q, want a straight line", got)
-	}
-	// Several cards spread either side of the trunk do meet it, and that is a tee.
-	if got := stripANSI(edgeBranchLine(40, 20, []int{10, 30})); !strings.Contains(got, "┴") {
-		t.Errorf("a band either side of its trunk = %q, want a tee at the trunk", got)
 	}
 }
 

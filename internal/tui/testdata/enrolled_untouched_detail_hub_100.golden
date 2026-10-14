@@ -1,0 +1,10 @@
+                           ◉  shed   this machine · the authority hub
+
+  MACHINE       shed · enrolled
+  AUTHORITY     shed (this machine) · enrolling a new node needs no network beyond this LAN
+  AUTHORITY     this machine IS the authority: it holds the root's private half · 0 machines
+                may enroll against it · roger edge authority allow <user key> admits another
+  JOIN          another machine runs roger join http://192.168.1.5:8791
+  DISCOVERY     scanning this network every 30s · last pass 0s ago
+
+  esc back to the map · ←→ move to another node

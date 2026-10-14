@@ -69,7 +69,7 @@ func TestFiringAlertsShowOnTheFleetSurfaces(t *testing.T) {
 	}
 }
 
-// The lettered actions the panel advertises with "press the letter" must work from the keyboard,
+// The lettered actions the panel advertises on its key caps must work from the keyboard,
 // not only from their buttons: f arms the forget question on a member.
 func TestForgetKeyWorksFromTheKeyboard(t *testing.T) {
 	self := edge.SelfStatus{Root: edge.RootLocal, Authority: "desk", AuthorityLocal: true, AuthorityHere: true,

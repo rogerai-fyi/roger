@@ -1043,6 +1043,22 @@ func (s *edgeBDD) rendersAtColumns(cols int) error {
 
 func (s *edgeBDD) theLayoutIsAList() error { return s.theLayoutIs("list") }
 
+// enrolledRendersRowsTall draws the enrolled [3] map (the enrolled_edge_look.feature Background's
+// Edge) through View() at this width and the given height.
+func (s *edgeBDD) enrolledRendersRowsTall(rows int) error {
+	f := newEnrolledLook(s.t)
+	s.out = lookFrame(f.model(s.t, s.w, rows))
+	return nil
+}
+
+func (s *edgeBDD) theLayoutIsAndSays(layout, note string) error {
+	tree := strings.Contains(s.out, "ON THE EDGE")
+	if (layout == "list") == tree || !strings.Contains(s.out, note) {
+		return fmt.Errorf("want the %s saying %q, got:\n%s", layout, note, s.out)
+	}
+	return nil
+}
+
 func (s *edgeBDD) saysHowManyOfHowMany() error {
 	mm := regexp.MustCompile(`showing (\d+) of (\d+) nodes`).FindStringSubmatch(s.out)
 	if mm == nil {
@@ -1406,6 +1422,8 @@ func TestEdgeTopologyViewFeature(t *testing.T) {
 			sc.Step(`^a fleet of (\d+) nodes$`, st.aFleetOfNNodes)
 			sc.Step(`^the Edge screen renders at (\d+) columns$`, st.rendersAtColumns)
 			sc.Step(`^the layout is a list$`, st.theLayoutIsAList)
+			sc.Step(`^the enrolled Edge screen renders (\d+) rows tall$`, st.enrolledRendersRowsTall)
+			sc.Step(`^the layout is "([^"]*)" and says "([^"]*)"$`, st.theLayoutIsAndSays)
 			sc.Step(`^it says how many nodes it is showing out of how many$`, st.saysHowManyOfHowMany)
 			sc.Step(`^no line is truncated mid-glyph$`, st.noLineTruncatedMidGlyph)
 			sc.Step(`^a node whose name is the maximum allowed length$`, st.aMaximumLengthName)

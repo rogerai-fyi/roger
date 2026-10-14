@@ -30,8 +30,8 @@
 # GROUND TRUTH: internal/edge/fleet.go (Resolve, Located, ServersOf, Located.Serves requiring
 # Verified), cmd/rogerai/edgeladder.go (applyEdgeLadder, edgePeersFor - VERIFIED-serve non-dark LAN
 # peers), internal/client/client.go (dialEdgePeer, Prefer), cmd/rogerai/main.go (cmdUse), internal/
-# edge/infer.go (/edge/infer, signed receipt), internal/tui/edge_view.go (edgeActions/edgeActionBar -
-# the member "nothing to do" branch this feature replaces with an Ask action).
+# edge/infer.go (/edge/infer, signed receipt), internal/tui/edge_view.go and edge_enrolled_look.go
+# (edgeActions/edgeLookActions - the member "nothing to do" branch this feature replaces with Ask).
 #
 # Tags: @edge (routing + refusals), @cli (`roger use <node>`), @tui (the Ask action).
 

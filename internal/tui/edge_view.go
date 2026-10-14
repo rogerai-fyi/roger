@@ -51,6 +51,10 @@ var edgeASCII = strings.NewReplacer(
 	// The session layer's three marks stay three DIFFERENT characters here too.
 	"▸", "}", "▲", "^", "✕", "x", "→", "->", "×", "*",
 	"├", "+", "└", "+", "│", "|", "╭", "+", "╮", "+", "╰", "+", "╯", "+", "┬", "+",
+	// The enrolled look's wires and keys (features/edge/enrolled_edge_look.feature): the three
+	// wires stay three different characters, and every key still reads as a key.
+	// No fold may read as another mark: "↳" is not the selected rail ">", "↓" is not the v key.
+	"┊", ":", "╎", "!", "‹", "<", "↳", "\\", "⏎", "enter", "↑", "^", "↓", "_", "←", "<-",
 )
 
 func edgeFold(s string) string {
@@ -181,7 +185,9 @@ func edgeTexture(n store.EdgeNode) rune {
 
 // ---- the view ------------------------------------------------------------
 
-func (m model) edgeView(w int) string {
+// edgeViewH draws the screen in at most h rows of body (h <= 0: no measured height, so every row
+// is drawn). Only the enrolled map fits itself to h (features/edge/enrolled_edge_look.feature D3).
+func (m model) edgeViewH(w, h int) string {
 	if w <= 0 {
 		w = 80
 	}
@@ -224,38 +230,28 @@ func (m model) edgeView(w int) string {
 		return b.String()
 	}
 
-	// THE GAME CABINET (features/edge/patchbay.feature §8): the whole [3] surface wears the same
-	// arcade marquee the setup wizard wears, so the tab reads as one instrument. Its Wave-Spectrum
-	// shoulders shift only while real traffic moves (the pulse steps), and sit still on a still
-	// fleet - the same motion-from-real-events rule the graph obeys.
-	cw := edgeSetupContentWidth(w)
-	off := 0
-	for _, p := range st.pulses {
-		off += p.step + 1
-	}
-	for _, ln := range strings.Split(edgeCabinet(cw, "◉ YOUR EDGE ◉", off), "\n") {
-		line("  " + ln)
+	// A SET-UP machine gets the NETWORK MAP in the Health/Fleet look - its hub, the rogers on it,
+	// the other members, and any device pinging nearby, not on the Edge yet - fitted to the rows
+	// the chrome leaves it (features/edge/enrolled_edge_look.feature). A fleet past
+	// edgeMaxGraphNodes falls through to the graph/list below (features/edge/map_scale.feature).
+	if m.edgeMapActive() {
+		for _, ln := range m.edgeEnrolledLines(w, h) {
+			b.WriteString(ln + "\n")
+		}
+		return b.String()
 	}
 
-	if st.err != "" {
-		line("  " + stEmber.Render("the Edge could not be read: "+st.err))
+	// Every other [3] screen wears the same brand band and title row in place of the old cabinet.
+	p := lookPalette(lookMono())
+	headline := edgeEmptyHeadline(st)
+	if len(st.rows) > 0 || len(st.cands) > 0 {
+		headline = edgeHeadline(st)
 	}
-	// A SET-UP machine gets the NETWORK MAP - its hub, the rogers on it, the other member machines,
-	// and any device pinging nearby, not on the Edge yet (a phone on the LAN shows up here). The
-	// map draws the whole picture up to edgeMaxGraphNodes; a larger fleet falls through to the
-	// graph/list below until the manual grid/list switch lands (features/edge/map_scale.feature).
-	if m.edgeMapActive() {
-		m.edgeNetworkMap(w, cw, line)
-		if len(st.rows) == 0 && len(st.cands) == 0 {
-			// A fresh authority alone on its Edge is told how the next device joins.
-			if next := edgeAddNextLine(st.status); next != "" {
-				for _, part := range wrapCommand(next, max(20, w-4)) {
-					line("  " + stDim.Render(part))
-				}
-			}
-		}
-		m.edgeSessionBlock(edgeGeomFor(w, 0), line)
-		return b.String()
+	for _, ln := range m.edgeLookHead(p, headline) {
+		line(ln)
+	}
+	if st.err != "" {
+		line("  " + p.live.Render("the Edge could not be read: "+st.err))
 	}
 	if len(st.rows) == 0 && len(st.cands) == 0 {
 		if st.err != "" {
@@ -280,7 +276,6 @@ func (m model) edgeView(w int) string {
 	if g.detailW < 0 {
 		g.detailW = 0
 	}
-	line("  " + edgeSetupCenter(edgeColorSegments(edgeHeadline(st)), cw))
 	line("")
 	switch g.layout {
 	case edgeLayoutList:
@@ -295,34 +290,6 @@ func (m model) edgeView(w int) string {
 	line("")
 	line("  " + stDim.Render(edgeHints(w)))
 	return b.String()
-}
-
-// edgeColorSegments tints a " · "-separated faceplate so the header reads as a lit radio
-// faceplate (patchbay §8): the root badge in the live hue, local traffic in the signal hue,
-// market in the warming hue, everything else in ink. It rejoins on the SAME separator, so the
-// text a reader (or a test, or NO_COLOR) sees is byte-identical to the plain headline; only the
-// colour is added, and every segment keeps its own words.
-func edgeColorSegments(text string) string {
-	segs := strings.Split(text, " · ")
-	for i, sg := range segs {
-		var style lipgloss.Style
-		switch {
-		case i == 0:
-			style = stKey
-		case strings.Contains(sg, "ROOT"), strings.Contains(sg, "CORE"):
-			style = lampStyle(roleLive)
-		case strings.Contains(sg, "market"):
-			style = lampStyle(roleDialGlow)
-		case strings.Contains(sg, "local"), strings.Contains(sg, "prefers"):
-			style = lampStyle(roleSignal)
-		case strings.Contains(sg, "dark"):
-			style = stDim
-		default:
-			style = stKey
-		}
-		segs[i] = style.Render(sg)
-	}
-	return strings.Join(segs, stDim.Render(" · "))
 }
 
 // edgeFactLabelStyle gives each empty-board fact label its lamp hue: this machine in the signal
@@ -456,102 +423,6 @@ func edgeCountWords(n int, one, many string) string {
 		return "1 " + one
 	}
 	return strconv.Itoa(n) + " " + many
-}
-
-// edgeNetworkMap is the [3] screen once this machine is set up: its HUB with the rogers running
-// on it drawn as connected nodes (not a "waiting" placeholder that would lie when rogers are
-// running), WHAT'S NEXT up front so the owner always knows the move, and the details below. It is
-// the picture that answers "where is my Edge network, and what do I do next".
-// edgeMapFitsCards reports whether the content width can hold at least two node cards side by
-// side. Below that the card map degenerates into a single column with a connector between every
-// pair of cards, which is longer AND tells the owner less than the dense list.
-func edgeMapFitsCards(cw int) bool { return cw >= edgeNetCardW*2+2 }
-
-func (m model) edgeNetworkMap(w, cw int, line func(string)) {
-	st := m.edge.status
-	line("  " + edgeColorSegments(edgeEmptyHeadline(m.edge)))
-	line("")
-	// The explanation earns its place only when it FITS. Clipped mid-sentence it is worse than
-	// absent, and a narrow pane needs its columns for the fleet.
-	head := stKey.Render("YOUR EDGE NETWORK")
-	if cw >= 78 {
-		head += stDim.Render("   the authority controls your machines, agents & devices")
-	}
-	line("  " + edgeSetupCenter(head, cw))
-	// A COUNT, before any picture. "I'm not sure what I'm seeing" is answered first by a sentence
-	// saying how many of each thing is on the screen; the cards then show which.
-	if tally := edgeMapTally(m.edgeNetItems(), cw); tally != "" {
-		line("  " + edgeSetupCenter(stDim.Render(tally), cw))
-	}
-
-	// The topology: cards (spatial) or a compact list (dense), the selected node glowing. `v` toggles,
-	// and a terminal too narrow to hold two cards side by side gets the list whatever the toggle says -
-	// a picture that has stopped being a picture must become a list (features/edge/topology_view.feature).
-	// One card per row down a narrow pane is a chain, not a map, and it says less than the table does.
-	if m.edge.mapList || !edgeMapFitsCards(cw) {
-		if !m.edge.mapList {
-			note := "narrow pane · the list, not the map"
-			if cw >= 78 {
-				note = "a narrow pane cannot hold the map, so this is the list · widen to see the picture"
-			}
-			line("  " + edgeSetupCenter(stDim.Render(note), cw))
-		}
-		m.edgeMapList(cw, line)
-	} else {
-		m.edgeMapTopology(cw, line)
-	}
-	line("  " + edgeSetupCenter(stDim.Render("↑↓←→ move · ⏎ open · ")+stKey.Render("↓/Tab")+stDim.Render(" for buttons · ")+stKey.Render("v")+stDim.Render(" map/list"), cw))
-	line("")
-
-	// ADOPTING: devices the owner adopted that are fetching their certificate - shown so a
-	// just-adopted phone is visible between adopt and membership (features/edge/claim.feature).
-	m.edgeAdoptingHint(cw, line)
-
-	// FINDING DEVICES: when devices are discovered they already show in the topology; this only
-	// speaks up when nothing is found, to explain where a device appears.
-	m.edgeFindDevicesHint(cw, line)
-
-	// WHAT YOU CAN DO - big buttons the owner presses to act, in place, from this screen.
-	m.edgeActionBar(cw, line)
-	line("")
-
-	// SPARSE vs POPULATED. A machine with nothing else on its Edge yet is in the ONBOARDING state:
-	// it gets the full getting-started facts and how-to-add-a-node (features/edge/empty_edge.feature).
-	// Once there are other rogers, members or candidates to see, the screen is tight, so it drops to
-	// a single live DISCOVERY line - the role is on the card, the how-tos are behind the buttons
-	// (founder 2026-09-23: "optimize space ... minimal").
-	household := 0
-	if m.hooks.EdgeHousehold != nil {
-		household = len(m.hooks.EdgeHousehold())
-	}
-	sparse := len(m.edge.rows) == 0 && len(m.edge.cands) == 0 && household <= 1
-	if st == nil {
-		return
-	}
-	if !sparse {
-		line("  " + edgeFactLabelStyle("DISCOVERY").Render(pad("DISCOVERY", edgeFactW)) +
-			truncVisible(st.DiscoveryLine(m.edge.at), max(20, w-2-edgeFactW)))
-		return
-	}
-	// Onboarding: the enroll command another MACHINE runs, then the three facts in full.
-	if st.AuthorityHere && st.AuthorityAddr != "" {
-		line("  " + edgeSetupCenter(stDim.Render("another machine joins with  ")+stEmber.Render(st.JoinAgainstLine()), cw))
-		line("")
-	}
-	fact := func(label string, lines ...string) {
-		for i, t := range lines {
-			for j, part := range wrapCommand(t, max(20, w-2-edgeFactW)) {
-				k := ""
-				if i == 0 && j == 0 {
-					k = label
-				}
-				line("  " + edgeFactLabelStyle(label).Render(pad(k, edgeFactW)) + part)
-			}
-		}
-	}
-	fact("THIS MACHINE", st.MachineLine())
-	fact("AUTHORITY", st.AuthorityLines()...)
-	fact("DISCOVERY", st.DiscoveryLine(m.edge.at))
 }
 
 // edgeAction is one button on the [3] control panel: a hotkey, a label, a one-line why, and
@@ -707,194 +578,6 @@ func edgeActuatePending(it edgeNetItem) bool {
 	return false
 }
 
-// edgeAdoptingHint names the devices the owner has adopted that have not yet claimed and checked
-// in, so a just-adopted phone reads as ADOPTING rather than vanishing until it becomes a member.
-func (m model) edgeAdoptingHint(cw int, line func(string)) {
-	if m.hooks.EdgeAdopting == nil {
-		return
-	}
-	ad := m.hooks.EdgeAdopting()
-	if len(ad) == 0 {
-		return
-	}
-	names := make([]string, 0, len(ad))
-	for _, n := range ad {
-		nm := n.Name
-		if nm == "" {
-			nm = n.ID
-		}
-		if strings.HasPrefix(nm, "n_") && len(nm) > 12 {
-			nm = nm[:12] + "…"
-		}
-		names = append(names, nm)
-	}
-	line("  " + edgeSetupCenter(lampStyle(roleLive).Render("◍ ADOPTING  ")+stKey.Render(strings.Join(names, ", "))+
-		stDim.Render("  · claiming its certificate, will appear as a member"), cw))
-	// The one-time code each adopted device enters to keep this Edge's root, until it is spent or
-	// expires (features/edge/enrollment_root_trust.feature). Shown whole, one device per line.
-	if m.hooks.EdgeAdoptCode != nil {
-		for i, n := range ad {
-			if code, until, ok := m.hooks.EdgeAdoptCode(n.ID); ok {
-				line("  " + edgeSetupCenter(stKey.Render(names[i])+stDim.Render(" · code ")+stEmber.Render(code)+
-					stDim.Render(" · "+edgeMinutesLeft(until.Sub(m.edgeNow()))+" left"), cw))
-				continue
-			}
-			line("  " + edgeSetupCenter(stKey.Render(names[i])+stDim.Render(" · code expired - ")+
-				stEmber.Render("roger edge invite --for "+names[i])+stDim.Render(" (or i on its row) for a fresh code"), cw))
-		}
-	}
-	line("")
-}
-
-// edgeFindDevicesHint tells the owner what is discoverable, or - when nothing is - how a device
-// shows up and how to add one, so "where is my phone?" has an answer on the screen (2026-09-23).
-func (m model) edgeFindDevicesHint(cw int, line func(string)) {
-	// When devices ARE pinging they already show as NEARBY rows with "i invite · a approve" and
-	// the Invite and Approve buttons (an adopting device too), so say nothing more here - the
-	// screen is tight (2026-09-23). Only when nothing is found is a single quiet line worth the
-	// space, to explain where a device appears.
-	if len(m.edgeNearbyItems()) > 0 {
-		return
-	}
-	// NOTHING FOUND YET. Say what to do, and say it with the ADDRESS ON THE SCREEN: an owner should
-	// never have to go and look up where their own Edge lives, or carry it in their head from another
-	// command. This is the join card a phone needs.
-	line("")
-	line("  " + edgeSetupCenter(stKey.Render("NO DEVICES YET")+stDim.Render("  a phone or machine running roger nearby shows here, to invite or approve"), cw))
-	if st := m.edge.status; st != nil && st.AuthorityHere && st.AuthorityAddr != "" {
-		line("  " + edgeSetupCenter(stDim.Render("open the Roger app and point it at this Edge:"), cw))
-		line("  " + edgeSetupCenter(stEmber.Render(st.AuthorityAddr)+stDim.Render("   ("+m.edgeSelfName()+")"), cw))
-		line("  " + edgeSetupCenter(stDim.Render("it should find this Edge on its own; the address is here for when it cannot"), cw))
-		return
-	}
-	line("  " + edgeSetupCenter(stDim.Render("this machine roots no Edge, so there is nothing for a device to join here"), cw))
-}
-
-// edgeActionBar draws the buttons as bordered cards, packed into rows that fit the width. The lit
-// one glows red; each carries its hotkey so it works under NO_COLOR and is obvious what to press.
-func (m model) edgeActionBar(cw int, line func(string)) {
-	if m.edge.renaming {
-		line("  " + stKey.Render("RENAME THIS ROGER") + stDim.Render("  ⏎ apply · esc cancel"))
-		line("  " + lampStyle(roleLive).Render("▶ ") + stEmber.Render(m.edge.renameBuf) + lampStyle(roleLive).Render("_"))
-		return
-	}
-	if m.edge.serveModel.open {
-		m.edgeServeModelPanel(line)
-		return
-	}
-	if m.edge.binding {
-		line("  " + stKey.Render("WHICH MODEL SHOULD "+strings.ToUpper(m.edge.bindTarget)+" RUN?") + stDim.Render("  ⏎ record · esc cancel"))
-		line("  " + lampStyle(roleLive).Render("▶ ") + stEmber.Render(m.edge.bindBuf) + lampStyle(roleLive).Render("_"))
-		// It records an assignment. It does not put anything on air, and saying it did was a claim
-		// the code never kept (features/edge/jobs.feature: the route side is not built).
-		line("  " + stDim.Render("records the assignment · putting a model on air is still `roger share`"))
-		return
-	}
-	// WHAT YOU CAN DO names the SELECTED node, so it is always clear what the buttons act on -
-	// the panel follows the highlight (2026-09-21, "control the highlighted box").
-	it, _ := m.edgeSelectedNet()
-	glyph, gs := it.icon()
-	who := it.name
-	switch {
-	case it.machine:
-		who = it.name + " · this machine"
-	case it.self:
-		who = it.name + " · this roger"
-	case it.cand:
-		who = it.name + " · " + it.kindWord() + " · nearby, not on your Edge yet"
-	case it.member:
-		// A member is checked BEFORE dark: a dark MEMBER is an offline device, not a "persistent agent"
-		// (the founder saw a phone mislabeled "offline agent"). Only a dark persistent agent is that.
-		// The KIND leads: an owner reading this line has to know at once whether they are about to
-		// rename a phone or forget a PC.
-		who = it.name + " · " + it.kindWord() + " · member"
-		if it.dark {
-			who += " · offline"
-		}
-	case it.dark:
-		who = it.name + " · offline agent"
-	}
-	tail := stDim.Render("  · press the letter, or ↓/Tab then ←→")
-	if m.edge.actionFocused {
-		tail = stDim.Render("  · ") + lampStyle(roleLive).Render("←→ choose · ⏎ run · ↑ back to map")
-	}
-	head := "  " + stKey.Render("WHAT YOU CAN DO") + stDim.Render("  on  ") + gs.Render(glyph) + " " + stEmber.Render(who)
-	if lipgloss.Width(head+tail) <= cw {
-		line(head + tail)
-	} else {
-		// Narrow: the hint gets its own line rather than being cut mid-sentence.
-		line(head)
-		line("  " + strings.TrimLeft(tail, " "))
-	}
-	acts := m.edgeActions()
-	if len(acts) == 0 {
-		// ONLY A MEMBER can reach this now: every other selection falls back to the Edge-wide actions,
-		// so there is no "nothing to do on this node here" branch left to write. A member with no
-		// in-place action is one that serves no model yet, and saying what WOULD make it askable is
-		// more use than a button (features/edge/addressed_inference.feature).
-		line("  " + stDim.Render("this device serves no model yet, so there is nothing to ask it - a served, verified model makes it askable"))
-		return
-	}
-	// Clamp a stale focus index so the highlight lands on a real button.
-	focus := -1
-	if m.edge.actionFocused {
-		focus = m.edge.actionSel
-		if focus >= len(acts) {
-			focus = len(acts) - 1
-		}
-	}
-	// 28 is wide enough for the longest one-line explanation a button carries ("bring it onto your
-	// Edge"), so the common case is one tidy line rather than a wrap.
-	cardW := 28
-	perRow := (cw + 1) / (cardW + 1)
-	if perRow < 1 {
-		perRow = 1
-	}
-	for i := 0; i < len(acts); i += perRow {
-		end := i + perRow
-		if end > len(acts) {
-			end = len(acts)
-		}
-		// Every card in a row is drawn to the SAME height. One button whose explanation wraps used to
-		// make its neighbours end higher than it, and a ragged row of boxes reads as a rendering fault.
-		rowH := 2
-		for _, a := range acts[i:end] {
-			rowH = max(rowH, 1+lipgloss.Height(stDim.Width(cardW-4).Render(a.sub)))
-		}
-		var cards []string
-		for j, a := range acts[i:end] {
-			if j > 0 {
-				cards = append(cards, " ")
-			}
-			idx := i + j
-			// Only the KEYBOARD-FOCUSED button carries a bright frame, so nothing reads as
-			// "selected" unless it really is (2026-09-23: a red "Stop Agent" border was misread as
-			// the selection). A .lit action - the active toggle, e.g. Stop Agent - just adds a small
-			// on dot, not a competing red border.
-			key := lampStyle(roleLive).Render(a.key)
-			label := stKey.Render(a.label)
-			if a.lit {
-				label = stKey.Render(a.label) + lampStyle(roleLive).Render(" ●")
-			}
-			style := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(cRule)
-			if idx == focus {
-				style = lipgloss.NewStyle().Border(lipgloss.DoubleBorder()).BorderForeground(cLive)
-				key = lampStyle(roleLive).Render("▸" + a.key)
-			}
-			// The sub-line is wrapped BY ITS OWN STYLE at the inner width. Handing a pre-styled string
-			// to a box that then wraps it splits the ANSI run across lines, and the colour bleeds into
-			// the padding as dark blocks mid-sentence - which is exactly what these cards were doing.
-			sub := stDim.Width(cardW - 4).Render(a.sub)
-			body := key + "  " + label + "\n" + sub
-			cards = append(cards, style.Width(cardW-2).Height(rowH).Padding(0, 1).Render(body))
-		}
-		row := lipgloss.JoinHorizontal(lipgloss.Top, cards...)
-		for _, ln := range strings.Split(row, "\n") {
-			line("  " + ln)
-		}
-	}
-}
-
 // edgeHouseholdBlock lists the rogers running on THIS machine right now - this instance among
 // them, and any AGENT (an instance with the operate capability). It is read live from the local
 // instance registry, so an owner who starts a second roger, or an agent, SEES it here at once,
@@ -963,7 +646,6 @@ func edgeEmptyHeadline(st edgeState) string {
 }
 
 func (m model) edgeEmptyView(w int, line func(string)) {
-	line("  " + edgeColorSegments(edgeEmptyHeadline(m.edge)))
 	line("")
 	if m.hooks.EdgeFleet == nil {
 		// AN UNREAD EDGE IS NOT AN EMPTY ONE. The host did not start (the launch log said
@@ -976,8 +658,8 @@ func (m model) edgeEmptyView(w int, line func(string)) {
 	line("  " + stKey.Render(m.edgeSelfName()) + stDim.Render(" is the only node on the Edge."))
 	line("  " + stDim.Render("Nothing else has been seen, and this screen draws only what it has seen."))
 	line("")
-	// A set-up machine is drawn by edgeNetworkMap (the hub + its rogers + what's next); this empty
-	// view is only for a machine that has set NOTHING up, so it shows the onboarding facts below.
+	// A set-up machine is drawn by the enrolled look (edge_enrolled_look.go); this view is for a
+	// machine that has set nothing up yet or whose own enrollment did not complete.
 	// THE THREE FACTS. What is true about THIS machine, and the next command for each
 	// fact that is not yet what the owner wants (features/edge/empty_edge.feature).
 	// Each fact label wears its own lamp hue so the empty board reads as an instrument at a

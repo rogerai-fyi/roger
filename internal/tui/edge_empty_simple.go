@@ -84,13 +84,11 @@ func (m model) edgeEmptySimple() bool {
 // edgeEmptySimpleView draws the state. Every line goes through line(), which clips to w.
 func (m model) edgeEmptySimpleView(w int, line func(string)) {
 	mono := lookMono()
-	muted, ink, paper, live := lookStyle(look.Muted), lookStyle(look.Ink), lookStyle(look.Paper), lookStyle(look.Live)
-	if mono {
-		muted, ink, paper, live = muted.UnsetForeground(), ink.UnsetForeground(), paper.UnsetForeground(), live.UnsetForeground()
-	}
+	p := lookPalette(mono)
+	muted, ink, paper, live := p.muted, p.ink, p.paper, p.live
 	textW := max(30, w-4)
 
-	line("  " + muted.Render(look.Fold(look.EmptyEdgeBrand, mono)))
+	line(lookBrandRow(p))
 	line("  " + live.Render(look.Fold(look.Rail, mono)) + " " + paper.Bold(true).Render(look.Eyebrow(look.EmptyEdgeTitle)) +
 		muted.Render(" · ") + ink.Render(look.EmptyEdgeState))
 	for _, ln := range wordWrap(look.EmptyEdgeSay, textW) {

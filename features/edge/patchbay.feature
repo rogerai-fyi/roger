@@ -319,17 +319,17 @@ Feature: The Edge screen is a patch bay: colourful, alive on real events only, l
   # DIAL, Wave-Spectrum carrier motion, and lamp-role colour. The patch bay wears the SAME cabinet,
   # so entering [3] and running setup feel like one instrument, not two screens.
 
-  Scenario: the board sits in the same arcade cabinet as the wizard
+  Scenario: the board wears the Health/Fleet brand band, and the wizard keeps its cabinet
     When the patch bay renders at 100 columns with colour
-    Then it wears the same marquee cabinet the setup wizard wears, titled for the fleet
-    And the marquee carries the Wave-Spectrum shoulders and the call sign
-    And under NO_COLOR the cabinet is drawn in box characters alone, still legible
+    Then under the TUI's own brand, "▟•▙ ROGER · EDGE" is a muted eyebrow row with the ON AIR lamp
+    And the setup wizard still wears the marquee cabinet
+    And under NO_COLOR the brand row folds through glyphs.Fold, still legible
 
-  Scenario: the header is a faceplate, not a label line
+  Scenario: the title row carries the mode, the counts and the route mix
     Given an Edge rooted at the designated machine "shed" with 3 nodes and 5 instances
     When the patch bay renders at 100 columns with colour
-    Then the mode, the node and instance counts and the route mix read as a radio faceplate
-    And each still carries its glyph so NO_COLOR reads the same faceplate
+    Then the title row reads YOUR EDGE, the root and preference badges, and the route mix, in ink with muted separators
+    And the same words read under NO_COLOR
 
   Scenario: a VU meter is drawn in the Wave Spectrum and by bar height together
     Given a node with a busy wire
@@ -351,8 +351,8 @@ Feature: The Edge screen is a patch bay: colourful, alive on real events only, l
     And the beacon does not appear on any node whose rules are quiet
     And when the alert clears the beacon goes out, and nothing pulses on a still board
 
-  Scenario: the cabinet transmits only while something is really happening
+  Scenario: the screen moves only while something is really happening
     Given a fleet with a turn in flight to "jetson"
     When the frames render
-    Then the marquee's spectrum shoulders shift while traffic moves
-    And on a still fleet the shoulders are static, like every other motion on this board
+    Then the wire to "jetson" pulses while traffic moves
+    And on a still fleet nothing on the screen moves, the ON AIR lamp included

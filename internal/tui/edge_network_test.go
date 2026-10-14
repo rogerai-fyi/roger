@@ -86,10 +86,14 @@ func TestNetworkHubMapOneNode(t *testing.T) {
 		Discovery: edge.DiscoveryScanning, IntervalS: 30}
 	m := networkModel(t, self)
 	out := stripANSI(m.edgeView(104))
-	for _, want := range []string{"YOUR EDGE NETWORK", "the authority controls your", "◉ desk", "no rogers running here", "WHAT YOU CAN DO"} {
+	for _, want := range []string{"YOUR EDGE NETWORK", "◉ desk", "no rogers running here", "WHAT YOU CAN DO"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("hub map missing %q:\n%s", want, out)
 		}
+	}
+	// The purpose sentence gave way to the tally (enrolled_edge_look.feature D2).
+	if strings.Contains(out, "the authority controls your") {
+		t.Errorf("the purpose sentence is still drawn:\n%s", out)
 	}
 }
 
@@ -685,7 +689,8 @@ func TestMapListView(t *testing.T) {
 		t.Fatalf("v did not switch to the list view")
 	}
 	out := stripANSI(m.edgeView(92))
-	for _, want := range []string{"NODE", "KIND", "STATE", "◉ hub", "NEARBY", "> gentle-ibex-14", "mobile", "i invite · a approve"} {
+	// One row per unit, behind a rail, with what it is in words (enrolled_edge_look.feature §3).
+	for _, want := range []string{"| ◉ hub", "YOU ARE HERE", "‹ this one · agent", "NEARBY", "> gentle-ibex-14", "mobile", "i invite · a approve"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("list view missing %q:\n%s", want, out)
 		}
