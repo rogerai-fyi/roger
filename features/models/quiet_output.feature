@@ -9,7 +9,7 @@
 # not just the verdict"). Its proposed new text is at the end of this header; nothing in that file is
 # edited here.
 #
-# GROUND TRUTH: a real run of the test build /home/luis/rogerai-test-builds/20261013-0334-915f5039/roger
+# GROUND TRUTH: a real run of the 915f5039 test build of roger
 # (v6.10.0-test.915f5039) on 2026-10-13, with a scratch XDG_CONFIG_HOME holding one tiny model already in
 # the local cache (bartowski/SmolLM2-135M-Instruct-GGUF:Q4_K_M, 100.6 MiB) and the pinned runtime. Nothing
 # was downloaded: `get` of another quantisation was declined at the prompt. Code read at 915f5039:

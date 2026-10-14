@@ -539,20 +539,18 @@ func modelFetchChoice(ctx context.Context, repo string, c localmodel.Choice, b l
 	if fetcher.FreeSpace != nil {
 		free, freeKnown = fetcher.FreeSpace(modelHome().Models())
 	}
-	if !modelVerbose {
-		// What it is, whose word, whether it fits and the room for it: the facts the owner answers on.
-		modelQuiet("%s:%s · %s · licence %s (%s)", repo, cmp.Or(c.File.Quant, c.File.Path), provision.BytesWord(c.File.Bytes),
-			modelDash(license), how.whose)
-		fit := c.Verdict.Line()
-		if freeKnown {
-			fit += " · " + provision.BytesWord(free) + " free on this disk"
-		}
-		modelQuiet("%s", fit)
-		// The terms are shown by default exactly when the answer is not a comfortable yes; a verdict
-		// that cannot be given already names the reading it is missing.
-		if f := c.Verdict.Fit; f == catalog.FitTight || f == catalog.FitWontFit {
-			modelQuiet("  %s", c.Verdict.Sum())
-		}
+	// What it is, whose word, whether it fits and the room for it: the facts the owner answers on.
+	modelQuiet("%s:%s · %s · licence %s (%s)", repo, cmp.Or(c.File.Quant, c.File.Path), provision.BytesWord(c.File.Bytes),
+		modelDash(license), how.whose)
+	fit := c.Verdict.Line()
+	if freeKnown {
+		fit += " · " + provision.BytesWord(free) + " free on this disk"
+	}
+	modelQuiet("%s", fit)
+	// The terms are shown by default exactly when the answer is not a comfortable yes; a verdict
+	// that cannot be given already names the reading it is missing.
+	if f := c.Verdict.Fit; f == catalog.FitTight || f == catalog.FitWontFit {
+		modelQuiet("  %s", c.Verdict.Sum())
 	}
 	if line := localmodel.RoomLine(plan); line != "" {
 		fmt.Fprintf(modelOut, "  %s\n", line)
@@ -1375,17 +1373,12 @@ func modelProgress(p provision.Progress) {
 		modelProgressLast, modelProgressShown, modelProgressTotal = p, true, p.Total
 		return
 	}
-	line := fmt.Sprintf("  %s of %s", provision.BytesWord(p.Done), provision.BytesWord(p.Total))
-	if p.Rate > 0 {
-		line += fmt.Sprintf("  ·  %s/s", provision.BytesWord(int64(p.Rate)))
-	}
 	// An estimate from the first few kilobytes says hours; it is not shown until it means something.
+	left := ""
 	if p.Remaining > 0 && p.Done*50 >= p.Total {
-		line += "  ·  " + p.Remaining.Round(time.Second).String() + " left"
+		left = p.Remaining.Round(time.Second).String() + " left"
 	}
-	if p.Resumed {
-		line += "  ·  resumed"
-	}
+	line := modelProgressLine(p, left)
 	if modelProgressShown && p.Total != modelProgressTotal {
 		fmt.Fprintln(modelOut) // a new archive: the finished one keeps its line
 	}
@@ -1405,16 +1398,22 @@ func modelProgressDone() {
 		fmt.Fprintln(modelOut)
 		return
 	}
-	p := modelProgressLast
+	fmt.Fprintln(modelOut, modelProgressLine(modelProgressLast, "took "+time.Since(modelProgressBegan).Round(time.Second).String()))
+}
+
+// modelProgressLine is bytes of the total, the rate, a time (left, or taken) and whether it resumed.
+func modelProgressLine(p provision.Progress, when string) string {
 	line := fmt.Sprintf("  %s of %s", provision.BytesWord(p.Done), provision.BytesWord(p.Total))
 	if p.Rate > 0 {
 		line += fmt.Sprintf("  ·  %s/s", provision.BytesWord(int64(p.Rate)))
 	}
-	line += "  ·  took " + time.Since(modelProgressBegan).Round(time.Second).String()
+	if when != "" {
+		line += "  ·  " + when
+	}
 	if p.Resumed {
 		line += "  ·  resumed"
 	}
-	fmt.Fprintln(modelOut, line)
+	return line
 }
 
 // modelJobLine is the fetch in flight, or the last one that did not finish, in one line.
