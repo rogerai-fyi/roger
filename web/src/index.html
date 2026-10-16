@@ -34,10 +34,16 @@
 
       <!-- Each line is a block span (was <br>) so the lines can stagger in
            (home.css, lift-line). The newline between spans keeps the word
-           boundary in the accessible name and in copied text. -->
+           boundary in the accessible name and in copied text.
+           The operative word is the shared cycle word (DESIGN-SYSTEM.md, "Cycle word"):
+           it tunes decentralized -> specialized -> industrialized on the carrier's beat,
+           each load starting on the next. The HTML ships "decentralized" (SEO, no JS,
+           print, the hero text fixture); the slot reserves that word, the widest, and
+           "Models." closes up on a shorter word by transform (hero__tail), so the line
+           never reflows. FOR FOUNDER REVIEW. -->
       <h1 class="hero__title">
         <span class="hero__line"><span class="carrier">Tune in</span> to the world&rsquo;s</span>
-        <span class="hero__line"><span class="hero__op"><span class="carrier">decentralized</span> Models</span>.</span>
+        <span class="hero__line"><span class="hero__op"><span class="carrier cycle-word cycle-word--tune" data-cycle="decentralized|specialized|industrialized" data-cycle-reserve="decentralized" data-cycle-store="hero-word" data-cycle-fit=".hero__line">decentralized</span> <span class="hero__tail">Models</span></span><span class="hero__tail">.</span></span>
         <span class="hero__line hero__fast">In under 30 seconds.</span>
       </h1>
       </div>

@@ -962,6 +962,46 @@ details[data-fold-narrow] > summary:focus-visible { outline: 2px solid var(--liv
 .band-tag--ver { color: var(--ink-900); border-color: var(--ink-400); letter-spacing: 0.04em; font-weight: var(--weight-medium); }
 .band-tag--seen { color: var(--ink-400); border-color: var(--hairline-2); letter-spacing: 0.06em; }
 
+/* ======================= CYCLE WORD ============================ */
+/* A word that tunes to the next station (js/cycle.js, [data-cycle]): the nav's
+   App / TUI / WebUI and the homepage headline. The word wears the carrier sweep and
+   swaps on its beat. The swap is a quick fade-and-lift: `is-out` lifts the outgoing
+   word up and out, then the incoming word starts one notch low (`is-in`, no
+   transition) and rises into place. Inline-block, so the slot can be reserved:
+   [data-cycle-reserve] lays a zero-height, hidden ghost of the widest word under the
+   word, so the slot is always that wide and nothing after it reflows (CLS 0). The
+   words after a fitted slot close up by transform (--cycle-slack, see home.css). */
+.cycle-word {
+  display: inline-block;
+  transition: opacity .26s var(--ease-out-quint, ease), transform .26s var(--ease-out-quint, ease);
+  will-change: opacity, transform;
+}
+.cycle-word[data-cycle-reserve]::before {
+  content: attr(data-cycle-reserve); display: block; height: 0; overflow: hidden; visibility: hidden;
+}
+.cycle-word.is-out { opacity: 0; transform: translateY(-0.38em); }
+/* the incoming word is placed low and invisible with NO transition, so removing the
+   class on the next frame animates it up into rest rather than snapping. */
+.cycle-word.is-in  { opacity: 0; transform: translateY(0.38em); transition: none; }
+/* --tune: the station change for a headline-sized word, the hero's tune-in blur
+   (home.css lift-line) in miniature: out of tune on the way out, sharpening in. */
+.cycle-word--tune { transition-property: opacity, transform, filter; }
+.cycle-word--tune.is-out, .cycle-word--tune.is-in { filter: blur(0.08em); }
+/* the canonical word for assistive tech, when the word is not named by an aria-label;
+   the moving word is not selectable, so a copy carries the canonical word once */
+.cycle-word[aria-hidden="true"] { -webkit-user-select: none; user-select: none; }
+.cycle-word__sr {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0;
+  overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
+}
+@media (prefers-reduced-motion: reduce) {
+  /* the carrier is frozen here and cycle.js never cycles; make doubly sure the word
+     itself never animates either. */
+  .cycle-word, .cycle-word.is-out, .cycle-word.is-in {
+    transition: none; transform: none; opacity: 1; filter: none;
+  }
+}
+
 /* ======================= PRINT ================================== */
 /* A printed page is whole, still and legible. The reveals are scroll-linked (the
    scroll lift) or settled by site.js, so without this a page printed from the top
@@ -986,6 +1026,10 @@ details[data-fold-narrow] > summary:focus-visible { outline: 2px solid var(--liv
   .carrier, .wf-inf__shimmer {
     background: none !important; color: inherit !important; -webkit-text-fill-color: currentColor;
   }
+  /* a cycling word prints its canonical word (the twin), and the line it fits closes no gap */
+  .cycle-word__sr { position: static !important; width: auto; height: auto; margin: 0; clip: auto; clip-path: none; overflow: visible; }
+  .cycle-word[aria-hidden="true"] { display: none !important; }
+  .cycle-fit { --cycle-slack: 0em !important; }
   /* long lines and wide tables print whole instead of clipping at a scroll edge */
   pre, .scroll-box, .code-block { overflow: visible !important; }
   pre { white-space: pre-wrap; overflow-wrap: anywhere; }
