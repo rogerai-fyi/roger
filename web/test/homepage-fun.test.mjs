@@ -21,10 +21,10 @@ const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const dist = (p) => readFileSync(path.join(WEB, "dist", p), "utf8");
 before(() => execFileSync("node", ["build.mjs"], { cwd: WEB }));
 
-const IDS = ["demo", "market", "company", "what", "spec", "books", "monetize", "operator", "go"];
+const IDS = ["demo", "market", "company", "sensor", "what", "spec", "books", "monetize", "operator", "go"];
 
 // ---- 1. the tuner ----
-test("the tuner is a plain in-page nav: nine links to the sections, in order, named by their own labels", () => {
+test("the tuner is a plain in-page nav: ten links to the sections, in order, named by their own labels", () => {
   const html = dist("index.html");
   const tuner = html.match(/<nav class="toc-tuner" data-tuner[^>]*>[\s\S]*?<\/nav>/)?.[0] || "";
   assert.match(tuner, /aria-label="Sections"/);
