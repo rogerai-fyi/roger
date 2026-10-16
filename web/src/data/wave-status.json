@@ -8,6 +8,14 @@
     "on-air": "A gated artifact is served as a band on the network; its weights are not published.",
     "released": "A public checkpoint anyone can download."
   },
+  "stageWords": {
+    "planned": "PLANNED",
+    "base-selected": "BASE SELECTED",
+    "training": "TRAINING",
+    "gated": "GATED",
+    "on-air": "ON AIR",
+    "released": "RELEASED"
+  },
   "tiers": [
     {
       "id": "pico",
@@ -20,11 +28,6 @@
       "onAirBand": "wave-pico-293m",
       "ruling": "pending",
       "labels": {
-        "index.plate": {
-          "page": "index.html",
-          "text": "EDGE CLASS · WAYPOINT TRAINED",
-          "wired": true
-        },
         "index.chip": {
           "page": "index.html",
           "text": "TRAINED",
