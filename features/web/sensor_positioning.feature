@@ -60,7 +60,7 @@ Feature: Your device, now a sensor
 
   Scenario: every page's rendered status matches the file
     Then every element on every built page that carries data-cap names a known id
-    And its data-stage equals that entry's stage in the file
+    And its data-cap-stage equals that entry's stage in the file
     And the stage words it shows equal that stage's public label
     And a lamp is drawn red only for the available stage; every other stage is a quiet mark
 

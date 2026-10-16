@@ -328,6 +328,8 @@ const TWIN_EXCEPTIONS = {
   "base.css .fig = components.css .page-index__head": LABEL_TYPE,
   "broadcasts.css .bc-answer__tag = components.css .page-index__head": LABEL_TYPE,
   "broadcasts.css .bc-answer__tag = components.css .tint-panel__tag": LABEL_TYPE,
+  // the adapter dial's stage words are grouped into the tag's one rule (sensor_positioning.feature)
+  "broadcasts.css .bc-answer__tag = components.css .cap-stage": LABEL_TYPE,
   "broadcasts.css .bc-post__meta = manual.css .man-cover__meta": "the document meta line of an article and of the manual's cover: two documents, one typesetting",
   "broadcast-agent-governance.css .gov-flow = broadcast-gpu-isolation.css .gpu-flow": FLOW,
   "broadcast-agent-governance.css .gov-flow__no = broadcast-gpu-isolation.css .gpu-flow__no": FLOW,

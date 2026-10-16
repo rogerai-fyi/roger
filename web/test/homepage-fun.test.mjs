@@ -194,27 +194,27 @@ function tuner() {
 
 test("tuner: arrow keys rove between stations (one tab stop), Home/End jump to the ends", () => {
   const t = tuner();
-  assert.deepEqual(t.links.map((a) => a.attrs.tabindex), ["0", "-1", "-1", "-1", "-1", "-1", "-1", "-1", "-1"]);
+  assert.deepEqual(t.links.map((a) => a.attrs.tabindex), ["0", "-1", "-1", "-1", "-1", "-1", "-1", "-1", "-1", "-1"]);
   assert.ok(t.key(t.links[0], "ArrowRight"));
   assert.equal(t.focused(), t.links[1]);
   assert.equal(t.links[1].attrs.tabindex, "0");
   assert.equal(t.links[0].attrs.tabindex, "-1");
   t.key(t.links[1], "ArrowLeft"); assert.equal(t.focused(), t.links[0]);
-  t.key(t.links[0], "ArrowLeft"); assert.equal(t.focused(), t.links[8], "wraps");
-  t.key(t.links[8], "Home"); assert.equal(t.focused(), t.links[0]);
-  t.key(t.links[0], "End"); assert.equal(t.focused(), t.links[8]);
+  t.key(t.links[0], "ArrowLeft"); assert.equal(t.focused(), t.links[9], "wraps");
+  t.key(t.links[9], "Home"); assert.equal(t.focused(), t.links[0]);
+  t.key(t.links[0], "End"); assert.equal(t.focused(), t.links[9]);
   assert.equal(t.key(t.links[3], "Enter"), false, "Enter is the link's own: it jumps");
 });
 
 test("tuner: the needle rests on the section in view (observed, never pinned)", () => {
   const t = tuner();
-  assert.equal(t.observed.length, 9);
+  assert.equal(t.observed.length, 10);
   t.see("company");
   assert.equal(t.style["--cur"], "2");
   assert.ok(t.links[2].cls.has("is-current"));
   assert.equal(t.links[2].attrs["aria-current"], "location");
   t.see("go");
-  assert.ok(!t.links[2].cls.has("is-current") && t.links[8].cls.has("is-current"));
+  assert.ok(!t.links[2].cls.has("is-current") && t.links[9].cls.has("is-current"));
 });
 
 test("market: the whole price-tier tag ($ and good price) wraps together onto its own line", () => {
@@ -266,10 +266,10 @@ test("phones: the six privacy cards become a swipeable gallery that snaps card b
 test("tuner: back at the top (§1 leaves the band downward) the current station resets to §1", () => {
   const t = tuner();
   t.see("go");
-  assert.ok(t.links[8].cls.has("is-current"));
+  assert.ok(t.links[9].cls.has("is-current"));
   t.leave("demo", true);
   assert.equal(t.style["--cur"], "0");
-  assert.ok(t.links[0].cls.has("is-current") && !t.links[8].cls.has("is-current"));
+  assert.ok(t.links[0].cls.has("is-current") && !t.links[9].cls.has("is-current"));
   t.see("company");
   t.leave("company", false);                   // leaving upward: the next section takes over, no reset
   assert.equal(t.style["--cur"], "2");
@@ -282,15 +282,15 @@ test("tuner: a jump back to the top (Home, a back-to-top link) rests on §1 even
   // the band downward); §1 was out of the band before and after, so it never fires
   t.leave("go", true);
   assert.equal(t.style["--cur"], "0");
-  assert.ok(t.links[0].cls.has("is-current") && !t.links[8].cls.has("is-current"));
+  assert.ok(t.links[0].cls.has("is-current") && !t.links[9].cls.has("is-current"));
 });
 
 test("tuner: a jump up to the middle rests on the section whose top is above the band", () => {
   const t = tuner();
   t.see("go");
-  Object.assign(t.tops, { demo: -2400, market: -1600, company: -700, what: 120 });
+  Object.assign(t.tops, { demo: -2400, market: -1600, company: -700, sensor: -300, what: 120 });
   t.leave("go", true);
-  assert.equal(t.style["--cur"], "3");
+  assert.equal(t.style["--cur"], "4");
 });
 
 test("the spectrum scrubber's focus ring is visible (ink-500, 2px); tiers don't pretend to be clickable", () => {

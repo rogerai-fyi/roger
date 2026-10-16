@@ -26,7 +26,7 @@ before(() => execFileSync("node", ["build.mjs"], { cwd: WEB }));
 
 // the shared honesty rules every new block is held to
 function honest(label, html) {
-  const t = visible(html);
+  const t = visible(html.replace(/<span class="sectionno">[^<]*<\/span>/g, ""));   // the section number is chrome
   assert.ok(t.length > 80, `${label}: has copy`);
   assert.doesNotMatch(t, /\d/, `${label}: no number`);
   assert.doesNotMatch(t, /\b(installed|deployed|running|in service|in operation)\b/i, `${label}: nothing claimed in the field`);
@@ -54,13 +54,13 @@ test("homepage: the sensor section sits between the company section and the tune
 });
 
 test("homepage: three steps on the shared step path", () => {
-  const steps = sensor().match(/<ol class="steps"[^>]*>([\s\S]*?)<\/ol>/)?.[1] || "";
+  const steps = sensor().match(/<ol class="steps\b[^"]*"[^>]*>([\s\S]*?)<\/ol>/)?.[1] || "";
   const leads = [...steps.matchAll(/<li><b>([^<]+)<\/b>/g)].map((m) => m[1]);
   assert.deepEqual(leads, ["Install RogerAI.", "Pick a Wave model.", "Pick an adapter."]);
 });
 
 test("homepage: what you get says on site, offline, a person, advisory, never a machine", () => {
-  const get = visible(sensor().match(/<p class="sensor__get">[\s\S]*?<\/p>/)?.[0] || "");
+  const get = visible(sensor().match(/<p class="sensor__get"[^>]*>[\s\S]*?<\/p>/)?.[0] || "");
   assert.match(get, /built to run on site/i);
   assert.match(get, /offline if you want/i);
   assert.match(get, /cannot vouch for[^.]*to a person/i);
@@ -91,7 +91,8 @@ test("homepage: the sensor section is design tense, number-free and honest", () 
 /* ---- industrial page ------------------------------------------------------------ */
 
 const industry = () => dist("research-industry.html");
-const shelf = () => industry().match(/<div class="adapter-shelf" id="adapters">[\s\S]*?<!-- \/adapter-shelf -->|<div class="adapter-shelf" id="adapters">[\s\S]*?(?=<div class="device-contract">\s*<p><b>Signals\.)/)?.[0] || "";
+// (comments are stripped from the built page, so the shelf ends where the contract begins)
+const shelf = () => industry().match(/<div class="adapter-shelf" id="adapters">[\s\S]*?(?=<div class="device-contract">\s*<p><b>Signals\.)/)?.[0] || "";
 
 test("industrial: the adapter shelf sits after the placement figure, before the plant-interface contract", () => {
   const i = industry();
@@ -139,7 +140,7 @@ test("wave family: one base model, a small add-on per job, status from the file"
 /* ---- hardware ---------------------------------------------------------------------- */
 
 const hw = () => dist("research-hardware.html");
-const row = () => hw().match(/<div class="devices" id="devices-row">[\s\S]*?<!-- \/devices -->/)?.[0] || "";
+const row = () => hw().match(/<div class="devices" id="devices-row">[\s\S]*?<p class="fig devices__cap">[\s\S]*?<\/p>/)?.[0] || "";
 
 test("hardware: three devices, one install, each status from the file, the iPad a ghost", () => {
   const h = hw();
@@ -149,10 +150,10 @@ test("hardware: three devices, one install, each status from the file, the iPad 
   assert.match(row(), /<h3>Devices a site already has\.<\/h3>/);
   assert.match(row(), /class="install__box/, "one install pill");
   assert.deepEqual(capIds(row()), data().devices.map((d) => d.id));
-  const ipad = row().match(/<li class="device"[^>]*data-cap="ipad"[^>]*>/)?.[0] || "";
-  assert.match(ipad, /data-stage="planned"/);
-  assert.match(css("research-hardware.css"), /\.device\[data-stage="planned"\][^{]*\{[^}]*dashed/, "a planned device is drawn as a dashed ghost");
-  honest("hardware devices row", row().replace(/<div class="install__box[\s\S]*?<\/div>/, ""));
+  const ipad = row().match(/<li class="device\b[^"]*"[^>]*data-cap="ipad"[^>]*>/)?.[0] || "";
+  assert.match(ipad, /data-cap-stage="planned"/);
+  assert.match(css("research-hardware.css"), /\.device\[data-cap-stage="planned"\][^{]*\{[^}]*dashed/, "a planned device is drawn as a dashed ghost");
+  honest("hardware devices row", row().replace(/<button class="install__box[\s\S]*?<\/button>/, ""));
 });
 
 /* ---- Tower ---------------------------------------------------------------------- */

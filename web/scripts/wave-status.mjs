@@ -28,3 +28,29 @@ export function resolveWaveTokens(html, page, data) {
   if (/\{\{\s*wave:/.test(out)) throw new Error(`${page}: unresolved wave token`);
   return out;
 }
+
+// Capability status: adapters, base skills and device rows from web/src/data/capabilities.json.
+//
+//   {{cap:<id>.<field>}}   field: name | stage | label (the stage's public words) | description
+//
+// Not page-scoped like the Wave labels: every page that names a capability shows the same
+// status, so one token reads one entry wherever it appears. An unknown id or field fails the
+// build. See features/web/sensor_positioning.feature.
+const CAPS = join(dirname(DATA), "capabilities.json");
+const CAP_RE = /\{\{cap:([a-z-]+)\.([a-z]+)\}\}/g;
+const CAP_FIELDS = ["name", "stage", "label", "description"];
+
+export function loadCapabilities() {
+  return JSON.parse(readFileSync(CAPS, "utf8"));
+}
+
+export function resolveCapTokens(html, page, data) {
+  const out = html.replace(CAP_RE, (_, id, field) => {
+    const e = [...data.capabilities, ...data.devices].find((x) => x.id === id);
+    if (!e) throw new Error(`${page}: unknown capability "${id}"`);
+    if (!CAP_FIELDS.includes(field)) throw new Error(`${page}: capability field "${field}" is not one of ${CAP_FIELDS.join(", ")}`);
+    return field === "label" ? data.stageLabels[e.stage] : e[field];
+  });
+  if (/\{\{\s*cap:/.test(out)) throw new Error(`${page}: unresolved cap token`);
+  return out;
+}

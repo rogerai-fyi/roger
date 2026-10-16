@@ -128,8 +128,8 @@ const FIX = {
 };
 
 test("resolver: a cap token renders name, stage, label and description verbatim", () => {
-  assert.equal(resolveCapTokens('<li data-stage="{{cap:fire-warning.stage}}">{{cap:fire-warning.name}} {{cap:fire-warning.label}} {{cap:fire-warning.description}}</li>', "x.html", FIX),
-    '<li data-stage="lab">Fire early warning in the lab A &middot; B</li>');
+  assert.equal(resolveCapTokens('<li data-cap-stage="{{cap:fire-warning.stage}}">{{cap:fire-warning.name}} {{cap:fire-warning.label}} {{cap:fire-warning.description}}</li>', "x.html", FIX),
+    '<li data-cap-stage="lab">Fire early warning in the lab A &middot; B</li>');
   assert.equal(resolveCapTokens("{{cap:ipad.label}}", "x.html", FIX), "planned");
 });
 
@@ -173,7 +173,7 @@ test("pages: every data-cap element shows the stage and label the file gives it"
       seen++;
       const e = byId(el.id);
       assert.ok(e, `${p}: data-cap="${el.id}" names a known entry`);
-      assert.equal(el.attrs.match(/data-stage="([^"]*)"/)?.[1], e.stage, `${p}: ${el.id} data-stage`);
+      assert.equal(el.attrs.match(/data-cap-stage="([^"]*)"/)?.[1], e.stage, `${p}: ${el.id} data-cap-stage`);
       const shown = el.body.match(/<span class="cap-stage[^"]*">([^<]*)<\/span>/)?.[1];
       assert.equal(shown?.trim(), d.stageLabels[e.stage], `${p}: ${el.id} shows its stage label`);
     }
@@ -196,10 +196,10 @@ test("pages: a lamp is red only for the available stage", () => {
   assert.ok(lampRules.length > 0, "the lamp is a shared component");
   for (const [, sel, body] of lampRules) {
     if (/var\(--live\)/.test(body)) {
-      assert.match(sel, /\[data-stage="available"\]/, `only the available stage paints the lamp red: ${sel.trim()}`);
+      assert.match(sel, /\[data-cap-stage="available"\]/, `only the available stage paints the lamp red: ${sel.trim()}`);
     }
   }
-  assert.ok(lampRules.some(([, sel, body]) => /\[data-stage="available"\]/.test(sel) && /var\(--live\)/.test(body)),
+  assert.ok(lampRules.some(([, sel, body]) => /\[data-cap-stage="available"\]/.test(sel) && /var\(--live\)/.test(body)),
     "the available stage does paint it red");
 });
 

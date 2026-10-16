@@ -718,3 +718,30 @@ main .band--inset :is(.developer-step, .deployment-grid article, .research-onwar
   :where(.wf-back, .scope__mode, .model-note, .model-download) { position: relative; }
   :is(.wf-back, .scope__mode, .model-note)::before, .model-download::after { content: ""; position: absolute; inset: var(--hit-inset); }
 }
+
+/* ---- industrial: the adapter shelf (features/web/sensor_positioning.feature) -------
+   An h3 and a lead, the shared adapter dial (.spectrum--dial, components.css), then the
+   "escalates when unsure" figure on the shared figure plate: a confidence scale with one
+   red tick (the gate, no number) over two outcomes. Handing off to a person is the good
+   outcome, so it is drawn first, with the heavier ink edge. No motion; no-JS complete. */
+.adapter-shelf { margin-top: var(--s-12); }
+.adapter-shelf > h3 { margin: 0 0 var(--s-3); }
+.adapter-shelf > p { max-width: 44rem; margin: 0 0 var(--s-6); color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body); }
+.gate__scale {
+  position: relative; display: grid; grid-template-columns: 1fr 1fr; gap: var(--s-4);
+  margin-bottom: var(--s-4);
+  font-family: var(--font-mono); font-size: var(--t-micro); letter-spacing: var(--tracking-label);
+  text-transform: uppercase; color: var(--ink-500);
+}
+.gate__scale span { padding-top: var(--s-3); border-top: 1px solid var(--hairline-2); }
+.gate__scale span:last-child { text-align: right; }
+.gate__tick { position: absolute; left: 50%; top: -8px; width: 2px; height: 17px; margin-left: -1px; background: var(--live); }
+.gate__ways { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s-4); }
+.gate__way {
+  padding: var(--s-4); border: 1px solid var(--hairline-2); border-radius: var(--r-xl);
+  background: var(--paper); color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body);
+}
+.gate__way b { display: block; margin-bottom: var(--s-2); color: var(--ink-900); }
+.gate__way--good { border: 2px solid var(--ink-900); }
+.gate .fig { margin-top: var(--s-4); }
+@media (max-width: 560px) { .gate__way { padding: var(--s-3); } }

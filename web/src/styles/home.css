@@ -1581,3 +1581,14 @@ html.js .mkt-quiet--nojs { display: none; }
   :where(.company__primary) { position: relative; }
   :is(.company__primary)::before { content: ""; position: absolute; inset: var(--hit-inset); }
 }
+
+/* ---- §4 ON SITE: your device, now a sensor (features/web/sensor_positioning.feature) --
+   The shared step path, one paragraph, and the shared adapter dial (.spectrum--dial,
+   components.css), with the spectrum's own foot line. Placement only. */
+.sensor__steps { margin-top: var(--s-10); }
+.sensor__get {
+  max-width: 44rem; margin: var(--s-10) 0 0;
+  font-size: var(--t-body); line-height: var(--lh-body); color: var(--ink-700);
+}
+.sensor__dial { margin-top: var(--s-6); }
+#sensor .scrub { margin-top: var(--s-6); }
