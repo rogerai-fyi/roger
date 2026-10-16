@@ -23,6 +23,7 @@ is the module that wakes on the hook (every page loads it via `site-js.html`).
 | Tinted panel | `.tint-panel`, `.tint-panel__tag` | - | 42 pages (cards, notes, sign-offs, account panel) |
 | Wave Spectrum scale | `.spectrum` + `.wave-bar` | `scrub.js` `[data-scrub]` | Company (homepage: `.home-spectrum` + `.wave-bar`) |
 | Wave bar | `.wave-bar` (in a tier `<li>`) | - | Company, homepage |
+| Adapter dial, status lamp | `.spectrum--dial` (the `adapter-dial.html` partial), `.cap-lamp`, `.cap-stage` (`--inline`) | `scrub.js` `[data-scrub]` | homepage, Industrial (lamps also on Wave family, Hardware) |
 | Step path | `.steps` | - | Careers |
 | Page index | `.page-index` | - | FAQ, legal pages |
 | TOC tuner | `.toc-tuner` | `tuner.js` `[data-tuner]` | 26 pages |
@@ -254,6 +255,17 @@ homepage's `.home-spectrum` (home.css) is a different layout of the same data (r
 cells, size / name / use on three lines, a touch gallery the scrubber drives) and
 shares only the wave bar; moving it onto `.spectrum` would restyle every one of its
 rules, so it stays its own.
+
+### Adapter dial and status lamp
+`<!-- include: adapter-dial.html -->`: the Wave Spectrum scale (`.spectrum.spectrum--dial`)
+tuned to capability stations, one column each, the scrubber's red needle as the dial on a
+wide screen and a hairline scale where the scrubber steps aside; a stack on phones. Every
+value is a `{{cap:}}` token from `src/data/capabilities.json` (see web/README.md). Any element
+carrying `data-cap="<id>" data-cap-stage="<stage>"` shows a `.cap-lamp` and its
+`.cap-stage` words (`.cap-stage--inline` inside a sentence; the words share the tinted
+panel tag's one rule). The lamp is red ONLY for `available`, like the on-air dot; lab is a
+ring, a release candidate a filled ink dot, planned a dashed ring. No-JS: the complete
+list. Nothing moves.
 
 ### Step path
 ```html
