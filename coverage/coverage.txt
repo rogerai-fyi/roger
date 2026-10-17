@@ -740,7 +740,7 @@ rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:414:			rcSubtree			78.6%
 rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:445:			rcJoin				55.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:475:			rcAuthHost			100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:486:			rcAuthViewer			72.7%
-rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:505:			rcPoll				79.5%
+rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:505:			rcPoll				74.4%
 rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:581:			rcEvents			64.7%
 rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:608:			rcSend				79.3%
 rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:652:			rcStream			76.6%
@@ -1042,7 +1042,7 @@ rogerai.fm/roger/v6/cmd/rogerai-broker/toolcall.go:264:			recordToolProbe			100.
 rogerai.fm/roger/v6/cmd/rogerai-broker/toolcall.go:338:			syncToolsVerified		87.5%
 rogerai.fm/roger/v6/cmd/rogerai-broker/toolcall.go:355:			toolsVerifiedForLocked		100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/toolcall.go:368:			authoritativeFor		100.0%
-rogerai.fm/roger/v6/cmd/rogerai-broker/toolcall.go:384:			probeToolCall			94.4%
+rogerai.fm/roger/v6/cmd/rogerai-broker/toolcall.go:384:			probeToolCall			91.7%
 rogerai.fm/roger/v6/cmd/rogerai-broker/toolcall.go:438:			applyToolVerdict		100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/tower.go:74:			towerModelAllowed		100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/tower.go:80:			towerModalityAllowed		100.0%
@@ -1221,7 +1221,7 @@ rogerai.fm/roger/v6/cmd/rogerai-broker/tunnel.go:2302:			await				100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/tunnel.go:2322:			dispatchErrOutcome		100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/tunnel.go:2343:			writeDispatchFailure		100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/tunnel.go:2368:			dispatchAwait			89.3%
-rogerai.fm/roger/v6/cmd/rogerai-broker/tunnel.go:2436:			busDispatchJob			92.9%
+rogerai.fm/roger/v6/cmd/rogerai-broker/tunnel.go:2436:			busDispatchJob			78.6%
 rogerai.fm/roger/v6/cmd/rogerai-broker/tunnel.go:2464:			streamIdle			100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/tunnel.go:2492:			Header				0.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/tunnel.go:2493:			WriteHeader			0.0%
@@ -1487,7 +1487,7 @@ rogerai.fm/roger/v6/internal/agent/agent.go:449:			ProbeStats			100.0%
 rogerai.fm/roger/v6/internal/agent/agent.go:455:			Start				100.0%
 rogerai.fm/roger/v6/internal/agent/agent.go:532:			pollLoop			100.0%
 rogerai.fm/roger/v6/internal/agent/agent.go:596:			brokerForgot			100.0%
-rogerai.fm/roger/v6/internal/agent/agent.go:623:			recordIf			100.0%
+rogerai.fm/roger/v6/internal/agent/agent.go:623:			recordIf			66.7%
 rogerai.fm/roger/v6/internal/agent/agent.go:642:			heartbeatUntil			96.3%
 rogerai.fm/roger/v6/internal/agent/agent.go:695:			redactUpstreamKey		100.0%
 rogerai.fm/roger/v6/internal/agent/agent.go:702:			isStream			100.0%
@@ -1524,8 +1524,8 @@ rogerai.fm/roger/v6/internal/agent/attest_sevsnp.go:21:			teeAvailable			60.0%
 rogerai.fm/roger/v6/internal/agent/attest_sevsnp.go:34:			generateQuote			37.5%
 rogerai.fm/roger/v6/internal/agent/localtower.go:20:			idFromPriv			100.0%
 rogerai.fm/roger/v6/internal/agent/localtower.go:28:			NodeID				100.0%
-rogerai.fm/roger/v6/internal/agent/localtower.go:44:			ServeLocalTower			76.2%
-rogerai.fm/roger/v6/internal/agent/localtower.go:95:			pollLocalJob			88.9%
+rogerai.fm/roger/v6/internal/agent/localtower.go:44:			ServeLocalTower			81.0%
+rogerai.fm/roger/v6/internal/agent/localtower.go:95:			pollLocalJob			83.3%
 rogerai.fm/roger/v6/internal/agent/localtower.go:125:			runLocalJob			85.0%
 rogerai.fm/roger/v6/internal/agent/localtower.go:160:			completeLocalJob		80.0%
 rogerai.fm/roger/v6/internal/agent/localtower.go:180:			signLocal			100.0%
