@@ -236,13 +236,18 @@
   ]
  },
  "research-models.html": {
-  "sha": "b3e870c9e572a7abfcd1a7b47a5dc32b68a60eafce3311c43f665b511f5f0926",
-  "length": 6280,
+  "sha": "83ab52b031b2b1f7b7df0d08e07e0091e87e1df8307be96251dc2d4e7731e87c",
+  "length": 6817,
   "hrefs": [
    "/research.html",
+   "/research-wave-pico.html",
+   "/research-wave-nano.html",
    "/research-wave-family.html",
-   "https://huggingface.co/rogerai-fyi",
    "mailto:labs@rogerai.fm?subject=Hello%20from%20the%20website",
+   "/research-wave-pico.html",
+   "/research-wave-nano.html",
+   "/research-wave-pico.html",
+   "/research-wave-nano.html",
    "https://huggingface.co/rogerai-fyi/DeepSeek-V4-Flash-MTP-GGUF",
    "/broadcasts-deepseek-mtp-gguf.html",
    "/broadcasts.html",
@@ -251,22 +256,52 @@
   ]
  },
  "research-wave-family.html": {
-  "sha": "3690c2572e283a771294df0c4852cee40edadc6bd703c2544a1c58ffb8921f2d",
-  "length": 17216,
+  "sha": "084c63986dc32ed03d314ac0d27ba5033c126eae1398d6e499b68619ebc256ad",
+  "length": 17357,
   "hrefs": [
    "/research.html",
    "#infinite",
+   "/research-wave-pico.html",
+   "/research-wave-nano.html",
    "/research-industry.html#devices",
    "/playbox.html#factory",
    "/research.html#models",
    "/broadcasts.html"
   ]
  },
- "research.html": {
-  "sha": "9336603bab34fa992d5c3f008a10c7d4efb5b3ce2e50f227d1508a2ff1cd1149",
-  "length": 5480,
+ "research-wave-nano.html": {
+  "sha": "d0afbf2036d5fa609c3c9aeae4fdeae7084090d34856be10eae0d2125a8860bf",
+  "length": 10137,
   "hrefs": [
    "/research-models.html",
+   "#measured",
+   "#vision",
+   "/research-wave-pico.html",
+   "/research-wave-pico.html",
+   "/research-wave-family.html",
+   "/research-models.html"
+  ]
+ },
+ "research-wave-pico.html": {
+  "sha": "d5a18814e7c6c5f57190a6bdcb00b9bc39051ff63c3b7d3fa595be124afafb8b",
+  "length": 8457,
+  "hrefs": [
+   "/research-models.html",
+   "#run",
+   "#measured",
+   "/research-wave-nano.html",
+   "/research-wave-nano.html",
+   "/research-wave-family.html",
+   "/research-models.html"
+  ]
+ },
+ "research.html": {
+  "sha": "def348215a04633e5dc4fe7318a4c401f6c8b2124a8daa4e6fcce8a5ebf63434",
+  "length": 5496,
+  "hrefs": [
+   "/research-models.html",
+   "/research-wave-pico.html",
+   "/research-wave-nano.html",
    "/research-wave-family.html",
    "/research-hardware.html",
    "/research-industry.html",

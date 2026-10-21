@@ -27,13 +27,64 @@
         </span>
         <h1>Models and status.</h1>
         <p class="research-hero__lead">
-          Every model carries its own program status.
+          Every model carries its own program status. Wave Pico and Wave Nano each have a
+          page of their own: what the model is for, how to run it, what it scores and where
+          it stops.
         </p>
+        <!-- FOUNDER 2026-10-20: the Wave models are served free on the RogerAI CLI and share,
+             not published to Hugging Face, so the hero's "View weights" button came off and
+             the two model pages took its place. The DeepSeek research build below keeps its
+             own download link: it is a public upstream build, not a Wave model. -->
         <div class="research-actions research-actions--lead">
+          <a class="research-button" href="/research-wave-pico.html">Wave Pico</a>
+          <a class="research-button" href="/research-wave-nano.html">Wave Nano</a>
           <a class="research-button" href="/research-wave-family.html">Family field guide</a>
-          <a class="research-button" href="https://huggingface.co/rogerai-fyi">View weights</a>
           <a class="research-button" data-lets-talk aria-expanded="false"
              href="mailto:labs@rogerai.fm?subject=Hello%20from%20the%20website">Let&rsquo;s talk</a>
+        </div>
+      </div>
+    </section>
+
+    <nav class="toc-tuner" data-tuner aria-label="Sections">
+      <div class="wrap toc-tuner__band">
+      <div class="toc-tuner__readout" aria-hidden="true"></div>
+      <ol class="toc-tuner__scale">
+        <li><a class="toc-tuner__st" href="#model-pages"><b>§1</b><span class="toc-tuner__name">MODEL PAGES</span></a></li>
+        <li><a class="toc-tuner__st" href="#models"><b>§2</b><span class="toc-tuner__name">WAVE MODELS</span></a></li>
+        <li><a class="toc-tuner__st" href="#upstream"><b>§3</b><span class="toc-tuner__name">FRONTIER</span></a></li>
+        <li><a class="toc-tuner__st" href="#roger-edge"><b>§4</b><span class="toc-tuner__name">ROGER EDGE</span></a></li>
+        <li><a class="toc-tuner__st" href="#wave-infinite"><b>§5</b><span class="toc-tuner__name">WAVE INFINITE</span></a></li>
+      </ol>
+      <span class="toc-tuner__needle" aria-hidden="true"></span>
+      </div>
+    </nav>
+
+    <!-- MODEL PAGES: the two Wave models with a page of their own. The lamp and the stage
+         word render from wave-status.json, the numbers from model-cards.json, so this pair
+         cannot disagree with the model pages. A model gets a card here when it gets a page
+         (Giga next, when the lab supplies its facts). -->
+    <section class="section" id="model-pages">
+      <div class="wrap">
+        <div class="model-group-head">
+          <div>
+            <span class="research-kicker">MODEL PAGES</span>
+            <h2 class="model-group-head__title">Read a model in full</h2>
+          </div>
+          <p>Purpose &middot; how to run it &middot; measured, with R-numbers &middot; limits &middot; the mesh</p>
+        </div>
+        <div class="model-pages">
+          <a class="tint-panel model-page" href="/research-wave-pico.html">
+            <span class="model-page__status"><i class="model-lamp" data-air="{{wave-air:pico}}" aria-hidden="true"></i>{{wave-stage:pico}} &middot; <code>{{wave-band:pico}}</code></span>
+            <b class="model-page__name">Wave Pico <span>{{card:pico.size}}</span></b>
+            <span class="model-page__line">A sensor reader that refuses what it cannot read. Answers {{card:pico.gate-accept}} of real work at {{card:pico.gate-precision}} precision and escalates the rest.</span>
+            <span class="model-page__go">Wave Pico model page</span>
+          </a>
+          <a class="tint-panel model-page" href="/research-wave-nano.html">
+            <span class="model-page__status"><i class="model-lamp" data-air="{{wave-air:nano}}" aria-hidden="true"></i>{{wave-stage:nano}} &middot; not on the band yet</span>
+            <b class="model-page__name">Wave Nano <span>{{card:nano.size}}</span></b>
+            <span class="model-page__line">Reads telemetry, a fleet and a fire site, and talks. Carries the Nano-VL vision module for camera frames.</span>
+            <span class="model-page__go">Wave Nano model page</span>
+          </a>
         </div>
       </div>
     </section>
@@ -51,7 +102,7 @@
         <div class="model-list model-list--native">
           <article class="model-row">
             <div class="model-row__identity">
-              <span class="status">{{wave:pico.research-models.chip}}</span>
+              <i class="model-lamp" data-air="{{wave-air:pico}}" aria-hidden="true"></i><span class="status">{{wave:pico.research-models.chip}}</span>
               <h3>Wave Pico</h3>
               <p class="research-parent">250&ndash;300M target &middot; Raspberry Pi &middot; no GPU &middot; ~50 ms target</p>
               <code class="model-id">wave-pico-&lt;size&gt;-&lt;task&gt;</code>
@@ -64,13 +115,14 @@
                  diverse-data pool grows.</p>
               <div class="model-row__actions">
                 <span class="model-stage">Certifying the waypoint &middot; 300M retrain next</span>
+                <a class="model-note" href="/research-wave-pico.html">Model page</a>
               </div>
             </div>
           </article>
 
           <article class="model-row">
             <div class="model-row__identity">
-              <span class="status">{{wave:nano.research-models.chip}}</span>
+              <i class="model-lamp" data-air="{{wave-air:nano}}" aria-hidden="true"></i><span class="status">{{wave:nano.research-models.chip}}</span>
               <h3>Wave Nano</h3>
               <p class="research-parent">0.8&ndash;1.5B &middot; gateway, concentrator</p>
               <code class="model-id">wave-nano-&lt;size&gt;-&lt;task&gt;</code>
@@ -82,13 +134,14 @@
                  fallback is held as the control.</p>
               <div class="model-row__actions">
                 <span class="model-stage">Scratch build queued behind Pico</span>
+                <a class="model-note" href="/research-wave-nano.html">Model page</a>
               </div>
             </div>
           </article>
 
           <article class="model-row" id="wave-micro">
             <div class="model-row__identity">
-              <span class="status">{{wave:micro.research-models.chip}}</span>
+              <i class="model-lamp" data-air="{{wave-air:micro}}" aria-hidden="true"></i><span class="status">{{wave:micro.research-models.chip}}</span>
               <h3>Wave Micro</h3>
               <p class="research-parent">7&ndash;8B &middot; on-site server &middot; general + industrial</p>
               <code class="model-id">no checkpoint released</code>
@@ -106,7 +159,7 @@
 
           <article class="model-row">
             <div class="model-row__identity">
-              <span class="status">{{wave:giga.research-models.chip}}</span>
+              <i class="model-lamp" data-air="{{wave-air:giga}}" aria-hidden="true"></i><span class="status">{{wave:giga.research-models.chip}}</span>
               <h3>Wave Giga</h3>
               <p class="research-parent">27&ndash;35B &middot; plant datacenter</p>
               <code class="model-id">wave-giga-&lt;size&gt;-instruct</code>
@@ -123,7 +176,7 @@
 
           <article class="model-row">
             <div class="model-row__identity">
-              <span class="status">{{wave:tera.research-models.chip}}</span>
+              <i class="model-lamp" data-air="{{wave-air:tera}}" aria-hidden="true"></i><span class="status">{{wave:tera.research-models.chip}}</span>
               <h3>Wave Tera</h3>
               <p class="research-parent">80&ndash;120B &middot; enterprise cloud</p>
               <code class="model-id">wave-tera-&lt;size&gt;-instruct</code>
@@ -140,7 +193,7 @@
 
           <article class="model-row">
             <div class="model-row__identity">
-              <span class="status">{{wave:peta.research-models.chip}}</span>
+              <i class="model-lamp" data-air="{{wave-air:peta}}" aria-hidden="true"></i><span class="status">{{wave:peta.research-models.chip}}</span>
               <h3>Wave Peta</h3>
               <p class="research-parent">150&ndash;200B &middot; regional cloud</p>
               <code class="model-id">wave-peta-&lt;size&gt;-instruct</code>
@@ -157,7 +210,7 @@
 
           <article class="model-row">
             <div class="model-row__identity">
-              <span class="status">{{wave:exa.research-models.chip}}</span>
+              <i class="model-lamp" data-air="{{wave-air:exa}}" aria-hidden="true"></i><span class="status">{{wave:exa.research-models.chip}}</span>
               <h3>Wave Exa</h3>
               <p class="research-parent">&gt;280B &middot; frontier datacenter</p>
               <code class="model-id">DeepSeek-V4-Flash class &middot; MTP</code>
@@ -179,7 +232,7 @@
           Publication, routing, payments, failover, and signed receipts are separate
           network services under separate terms.</p>
 
-        <div class="model-group-head model-group-head--upstream">
+        <div class="model-group-head model-group-head--upstream" id="upstream">
           <div>
             <span class="research-kicker">FRONTIER OPTIMIZATION</span>
             <h2 class="model-group-head__title">Workstation-scale research</h2>

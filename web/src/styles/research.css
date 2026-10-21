@@ -718,3 +718,34 @@ main .band--inset :is(.developer-step, .deployment-grid article, .research-onwar
   :where(.wf-back, .scope__mode, .model-note, .model-download) { position: relative; }
   :is(.wf-back, .scope__mode, .model-note)::before, .model-download::after { content: ""; position: absolute; inset: var(--hit-inset); }
 }
+
+/* Status lamp (research-models.html rows, the Wave model pages): read from wave-status.json
+   by the {{wave-air:<tier>}} token. Lit red only for a tier that is on air as a band; a ring
+   otherwise. A small lamp, no glow. */
+.model-lamp {
+  display: inline-block; width: 8px; height: 8px; margin-right: var(--s-2); border-radius: 50%;
+  vertical-align: middle; box-shadow: inset 0 0 0 1.5px var(--ink-400);
+}
+.model-lamp[data-air="on"] { background: var(--live); box-shadow: none; }
+
+/* Models and status: the model-page pair, two tinted panels that are whole links (each a
+   .tint-panel). The status line reads the status file, the numbers the model cards. */
+.model-pages { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-4); }
+.model-page { display: grid; gap: var(--s-3); align-content: start; padding: var(--s-6); color: var(--ink-500); }
+.model-page__status {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 0 var(--s-1); color: var(--ink-400);
+  font-family: var(--font-mono); font-size: var(--t-micro); letter-spacing: var(--tracking-label); text-transform: uppercase;
+}
+.model-page__status code { text-transform: none; letter-spacing: .02em; }
+.model-page__name { color: var(--ink-900); font-size: var(--t-h2); font-weight: var(--weight-semi); letter-spacing: var(--tracking-h2); line-height: var(--lh-tight); }
+.model-page__name span { color: var(--ink-400); font-family: var(--font-mono); font-size: var(--t-sm); font-weight: var(--weight-regular); letter-spacing: .02em; }
+.model-page__line { max-width: 46ch; font-size: var(--t-sm); line-height: var(--lh-body); }
+.model-page__go {
+  margin-top: var(--s-2); color: var(--ink-900); font-family: var(--font-mono); font-size: var(--t-xs);
+  letter-spacing: var(--tracking-label); text-transform: uppercase; transition: color var(--d-2);
+}
+.model-page__go::after { content: " \2192"; color: var(--live-text); }
+.model-page:hover .model-page__go, .model-page:focus-visible .model-page__go { color: var(--live-text); }
+.model-row__identity .model-lamp { margin-right: var(--s-2); }
+@media (max-width: 720px) { .model-pages { grid-template-columns: 1fr; } .model-page { padding: var(--s-5); } }
+#model-pages { padding-bottom: 0; }   /* the Wave list follows directly; its group head carries the gap */
