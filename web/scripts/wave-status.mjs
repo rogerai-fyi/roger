@@ -2,6 +2,8 @@
 //
 //   {{wave:<tier>.<label>}}   e.g. {{wave:giga.research-models.chip}}
 //   {{wave-stage:<tier>}}     the tier's live stage as one public word, e.g. ON AIR
+//   {{wave-band:<tier>}}      the tier's on-air band name; a tier with none fails the build
+//   {{wave-air:<tier>}}       "on" when the tier has an on-air band, else "off" (a status lamp)
 //
 // The label text is inserted verbatim (it is stored as HTML source). A token that names an
 // unknown tier or label, or a label that belongs to another page, fails the build rather than
@@ -13,6 +15,7 @@ import { fileURLToPath } from "node:url";
 const DATA = join(dirname(fileURLToPath(import.meta.url)), "..", "src", "data", "wave-status.json");
 const TOKEN_RE = /\{\{wave:([a-z]+)\.([a-z-]+\.[a-z-]+)\}\}/g;
 const STAGE_RE = /\{\{wave-stage:([a-z]+)\}\}/g;
+const BAND_RE = /\{\{wave-(band|air):([a-z]+)\}\}/g;
 
 export function loadWaveStatus() {
   return JSON.parse(readFileSync(DATA, "utf8"));
@@ -32,6 +35,12 @@ export function resolveWaveTokens(html, page, data) {
     const word = data.stageWords?.[tier.stage];
     if (!word) throw new Error(`${page}: no stage word for "${tier.stage}" (${tierId})`);
     return word;
+  }).replace(BAND_RE, (_, kind, tierId) => {
+    const tier = data.tiers.find((t) => t.id === tierId);
+    if (!tier) throw new Error(`${page}: unknown wave tier "${tierId}"`);
+    if (kind === "air") return tier.onAirBand ? "on" : "off";
+    if (!tier.onAirBand) throw new Error(`${page}: wave tier "${tierId}" is not on air (no band to name)`);
+    return tier.onAirBand;
   });
   if (/\{\{\s*wave[:-]/.test(out)) throw new Error(`${page}: unresolved wave token`);
   return out;

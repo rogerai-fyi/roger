@@ -18,12 +18,15 @@
 //
 // Wave status labels in a page render from src/data/wave-status.json:
 //   {{wave:<tier>.<label>}}      (scripts/wave-status.mjs; an unknown token fails the build)
+// A Wave model page's facts render from src/data/model-cards.json:
+//   {{card:<model>.<item>}}      (scripts/model-cards.mjs; every number carries its R-number)
 
 import { readFileSync, writeFileSync, readdirSync, mkdirSync, rmSync, statSync, copyFileSync, renameSync, existsSync } from "node:fs";
 import { join, dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import { loadWaveStatus, resolveWaveTokens } from "./scripts/wave-status.mjs";
+import { loadModelCards, resolveCardTokens } from "./scripts/model-cards.mjs";
 import { glueDashes } from "./scripts/glue-dashes.mjs";   // a heading's " - " never starts a line
 
 const ROOT = dirname(fileURLToPath(import.meta.url));   // web/
@@ -63,6 +66,8 @@ const CSS_BUNDLES = {
   "why.html":       [...CSS_MARKETING, "research.css"],                // the routing-fee argument; page-scoped styles inline
   "integrations.html": [...CSS_MARKETING, "research.css", "integrations.css"], // ditto; the tables and guest plates
   "research-models.html": [...CSS_MARKETING, "research.css"], // the model catalogue, split out of the hub
+  "research-wave-pico.html": [...CSS_MARKETING, "research.css", "wave-model.css"], // a Wave model page: facts from data/model-cards.json
+  "research-wave-nano.html": [...CSS_MARKETING, "research.css", "wave-model.css"], // ditto; Nano-VL is a section of it
   "research-wave-family.html": [...CSS_MARKETING, "research.css", "wave-family.css"], // the Wave ladder field guide, split out so research.html keeps its byte budget
   "voices.html":    [...CSS_MARKETING, "voices.css"],
   "broadcasts.html":                 [...CSS_MARKETING, "broadcasts.css"], // the transmission-log blog index
@@ -173,6 +178,7 @@ function copyAssets(dir) {
     const rel = relative(SRC, abs);
     if (rel.startsWith("_partials")) continue;
     if (rel === join("data", "wave-status.json")) continue;   // build input, rendered into pages
+    if (rel === join("data", "model-cards.json")) continue;   // build input, rendered into the model pages
     // top-level *.html in src/ are pages, built separately below
     if (!rel.includes("/") && ent.name.endsWith(".html")) continue;
     const dest = join(DIST, rel);
@@ -412,10 +418,12 @@ function build() {
   const indexable = [];
   const htmlByPage = new Map();
   const wave = loadWaveStatus();
+  const cards = loadModelCards();
   for (const page of pages) {
     const raw = readFileSync(join(SRC, page), "utf8");
     let out = resolveIncludes(raw, 0);
     out = resolveWaveTokens(out, page, wave);   // wave status labels from the one data file
+    out = resolveCardTokens(out, page, cards);  // model page facts from the one data file
     out = emitCssBundle(out, page);     // expand the per-page stylesheet bundle
     out = ensureCanonical(out, page);   // exactly one self-referential canonical per page
     out = glueDashes(out);             // a heading's " - " never starts a line

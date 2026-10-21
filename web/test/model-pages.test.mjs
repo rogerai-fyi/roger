@@ -227,7 +227,7 @@ const BANNED = [
 
 test("pages: no outward-copy rule is broken on a model page", () => {
   for (const p of Object.values(PAGES)) {
-    const head = dist(p).match(/<title>[\s\S]*?<\/title>|<meta name="description"[^>]*>|<meta property="og:[^>]*>/g).join(" ");
+    const head = noComments(dist(p)).match(/<title>[\s\S]*?<\/title>|<meta name="description"[^>]*>|<meta property="og:[^>]*>/g).join(" ");
     const text = visible(main(p)) + " " + head;
     for (const [re, what] of BANNED) assert.doesNotMatch(text, re, `${p}: ${what}`);
     assert.doesNotMatch(main(p), /huggingface\.co/i, `${p}: no Hugging Face link`);
@@ -285,7 +285,10 @@ test("fire: design tense, no site, no place, no company, no protection claim", (
     assert.doesNotMatch(fire, /Orange County|California|FireDefense|\bdefense\b/i, `${p}: no place and no company in the fire copy`);
     assert.doesNotMatch(fire, /surviv|saves?|insur|evacuat|listed|certif|code[- ]compliant/i, `${p}: no outcome or listing claim`);
     assert.match(fire, /camera/i, "the camera detector is a component of the design");
-    assert.doesNotMatch(fire.replace(/simulator-internal/gi, ""), /\d/, `${p}: the design section carries no numbers`);
+    // (its own section label and figure label are furniture, not numbers: the page-wide
+    // number test strips them the same way)
+    assert.doesNotMatch(fire.replace(/simulator-internal/gi, "").replace(/\u00a7\s?\d+|FIG\.\s?\d+/g, ""), /\d/,
+      `${p}: the design section carries no numbers`);
   }
 });
 
