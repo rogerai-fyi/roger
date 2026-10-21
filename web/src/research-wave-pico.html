@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<!-- WAVE PICO, the model page. Every number on it renders from src/data/model-cards.json
+     through a card token, and every one carries its R-number and date in the Measured
+     footnote (test/model-pages.test.mjs). What is served renders from wave-status.json. The
+     mesh explainer and the wildfire watch are shared partials (wave-mesh.html,
+     wave-firewatch.html), the same on every model page.
+     Outward-copy rules: author RogerAI Labs; no data sources or training methods; no hosting
+     or operational detail; fire numbers are simulator-internal every time; not on Hugging Face.
+     Registered in build.mjs CSS_BUNDLES with research.css + wave-model.css. -->
+<html lang="en">
+<head>
+  <!-- include: head.html title="Wave Pico - a sensor reader that refuses what it cannot read" desc="Wave Pico is a 293M-parameter model from RogerAI Labs that reads one industrial telemetry channel, names the fault or the process state, and escalates whatever its measured gate does not clear. What it is for, how to run it, what it scores and where it stops." theme=external og=post ogtype=website ogtitle="Wave Pico: a sensor reader that refuses what it cannot read" ogdesc="A 293M-parameter telemetry reader with a calibrated escalation gate, free on the RogerAI band. Measured, with its limits." ogurl="https://rogerai.fm/research-wave-pico.html" ogimage="https://rogerai.fm/og-research.png" -->
+</head>
+<body data-onair="idle">
+
+  <!-- include: rail.html head="RogerAI &middot; Wave Pico" rev="Rev. 2026.10 &middot; LABS" -->
+
+  <!-- include: nav.html variant=marketing home=/ anchors=/ scrolled=1 researchcurrent='aria-current="page"' -->
+
+  <main id="top">
+
+    <section class="research-hero">
+      <div class="wrap research-hero__layout">
+        <div>
+          <a class="wf-back mono" href="/research-models.html">&larr; Models and status</a>
+          <span class="hero__eyebrow">
+            <!-- include: onair.html -->
+            <span class="hero__callsign">WAVE PICO &middot; {{card:pico.size}} &middot; {{wave-stage:pico}}</span>
+          </span>
+          <h1>Wave Pico.</h1>
+          <p class="research-hero__lead">
+            A {{card:pico.params}} sensor reader that refuses what it cannot read. It reads
+            one telemetry channel, names what is wrong with the instrument or the process,
+            and when it is not sure it says so, as a record a person or a larger model can
+            act on.
+          </p>
+          <div class="research-actions research-actions--lead">
+            <a class="research-button" href="#run">Run it</a>
+            <a class="research-button" href="#measured">What it scores</a>
+            <a class="research-button" href="/research-wave-nano.html">Wave Nano</a>
+          </div>
+        </div>
+
+        <aside class="tint-panel wm-plate" aria-label="Wave Pico at a glance">
+          <span class="tint-panel__tag">At a glance</span>
+          <dl>
+            <div><dt>Status</dt><dd><i class="model-lamp" data-air="{{wave-air:pico}}" aria-hidden="true"></i>{{wave-stage:pico}}</dd></div>
+            <div><dt>Band</dt><dd><code>{{wave-band:pico}}</code>, free</dd></div>
+            <div><dt>Size</dt><dd>{{card:pico.size}} parameters, from scratch</dd></div>
+            <div><dt>Builds</dt><dd>{{card:pico.builds}}, weights not published</dd></div>
+            <div><dt>Gate</dt><dd>answers {{card:pico.gate-accept}} of real work at {{card:pico.gate-precision}} precision</dd></div>
+            <div><dt>By</dt><dd>{{card:pico.author}}</dd></div>
+          </dl>
+        </aside>
+      </div>
+    </section>
+
+    <nav class="toc-tuner" data-tuner aria-label="Sections">
+      <div class="wrap toc-tuner__band">
+      <div class="toc-tuner__readout" aria-hidden="true"></div>
+      <ol class="toc-tuner__scale">
+        <li><a class="toc-tuner__st" href="#purpose"><b>§1</b><span class="toc-tuner__name">PURPOSE</span></a></li>
+        <li><a class="toc-tuner__st" href="#run"><b>§2</b><span class="toc-tuner__name">RUN</span></a></li>
+        <li><a class="toc-tuner__st" href="#measured"><b>§3</b><span class="toc-tuner__name">MEASURED</span></a></li>
+        <li><a class="toc-tuner__st" href="#limits"><b>§4</b><span class="toc-tuner__name">LIMITS</span></a></li>
+        <li><a class="toc-tuner__st" href="#adapter"><b>§5</b><span class="toc-tuner__name">ADAPTER</span></a></li>
+        <li><a class="toc-tuner__st" href="#mesh"><b>§6</b><span class="toc-tuner__name">MESH</span></a></li>
+        <li><a class="toc-tuner__st" href="#wildfire"><b>§7</b><span class="toc-tuner__name">WILDFIRE</span></a></li>
+      </ol>
+      <span class="toc-tuner__needle" aria-hidden="true"></span>
+      </div>
+    </nav>
+
+    <section class="section" id="purpose">
+      <div class="wrap">
+        <div class="section__head section__head--left">
+          <span class="sectionno">&sect;1 / PURPOSE</span>
+          <h2>One channel in, one honest verdict out.</h2>
+          <p>Wave Pico is the smallest tier of the Wave family, built to sit beside one
+             machine and read what that machine emits.</p>
+        </div>
+        <div class="wm-split">
+          <div>
+            <span class="research-kicker">WHAT IT IS FOR</span>
+            <ul class="wm-list">{{card-list:pico.purpose}}</ul>
+          </div>
+          <div>
+            <span class="research-kicker">WHAT YOU CAN USE IT FOR</span>
+            <ul class="wm-list wm-list--uses">{{card-list:pico.uses}}</ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section band band--inset" id="run">
+      <div class="wrap">
+        <div class="section__head section__head--left">
+          <span class="sectionno">&sect;2 / RUN</span>
+          <h2>Free on the band, one command away.</h2>
+          <p>Wave Pico is on air as a free band. The band serves the release measured on this
+             page. Install the CLI, then tune in: <code>roger use</code> opens a local
+             OpenAI-compatible endpoint on your own machine, and anything that speaks that
+             API can call it.</p>
+        </div>
+        <div class="wm-run">
+          <div class="install">
+            <span class="fig mono">1 &middot; Install the CLI</span>
+            <!-- include: install-box.html id=picoInstall cmd='curl <span class="tok">-fsSL</span> https://rogerai.fm/install.sh <span class="tok">| sh</span>' -->
+          </div>
+          <div class="install">
+            <span class="fig mono">2 &middot; Tune in to Wave Pico</span>
+            <!-- include: install-box.html id=picoUse oslock=any label="Copy roger use command to clipboard" cmd='roger use {{wave-band:pico}}' -->
+            <p class="install__meta"><code>roger search wave</code> lists every Wave band on air.</p>
+          </div>
+        </div>
+
+        <figure class="figure figure--plate wm-runs-fig" aria-labelledby="wm-runs-cap">
+          <ul class="wm-runs">{{card-list:pico.runsOn}}</ul>
+          <p class="wm-runs__size"><span class="research-kicker">GGUF on disk</span>
+            <span class="wm-span" style="--lo:{{card-lo:pico.gguf}};--hi:{{card-hi:pico.gguf}};--max:1000" aria-hidden="true"><i></i></span>
+            <b>{{card:pico.gguf}}</b> <span class="wm-ref">{{card-ref:pico.gguf}}</span></p>
+          <figcaption class="fig mono" id="wm-runs-cap">FIG. 1 - Where the release runs. A filled lamp runs today; a ring is owed. Every GGUF build scored {{card:pico.gguf-agree}} of the reference; the MLX build agrees on {{card:pico.mlx}} of items ({{card-ref:pico.mlx}}).</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section class="section" id="measured">
+      <div class="wrap">
+        <div class="section__head section__head--left">
+          <span class="sectionno">&sect;3 / MEASURED</span>
+          <h2>What it scores, and when it holds back.</h2>
+          <p>Scores are on sealed slices of our industrial benchmark, read by the release
+             itself. Every number below names the entry in our results log that holds it.</p>
+        </div>
+
+        <figure class="figure figure--plate wm-gate" aria-labelledby="wm-gate-cap" style="--v:{{card-num:pico.gate-accept}}">
+          <div class="wm-gate__scale" aria-hidden="true">
+            <span class="wm-gate__esc"></span><span class="wm-gate__line"></span><span class="wm-gate__ok"></span>
+          </div>
+          <div class="wm-gate__legend">
+            <p class="wm-gate__side wm-gate__side--esc"><b>Escalate</b> Under the gate. It writes a
+               record for the parent node or a person, not an answer. For a read it cannot
+               make, this is the right outcome.</p>
+            <p class="wm-gate__side wm-gate__side--ok"><b>Assert</b> Over the gate. It answers,
+               with its margin and its evidence.</p>
+          </div>
+          <dl class="wm-gate__read">
+            <div><dt>Real work it answers</dt><dd>{{card:pico.gate-accept}}</dd></div>
+            <div><dt>Precision when it answers</dt><dd>{{card:pico.gate-precision}}</dd></div>
+            <div><dt>Out-of-scope input refused</dt><dd>{{card:pico.oos}}</dd></div>
+          </dl>
+          <figcaption class="fig mono" id="wm-gate-cap">FIG. 2 - The escalation gate, calibrated per release: a bar of real work, ordered by the model&rsquo;s own confidence. {{card-ref:pico.gate-accept}}.</figcaption>
+        </figure>
+
+        <figure class="figure figure--plate wm-panel" aria-labelledby="wm-panel-cap">
+          <ol class="wm-readouts">
+            <li class="wm-readout" style="--v:{{card-num:pico.t01}}"><span class="wm-readout__label">Fault identification</span><b>{{card:pico.t01}}</b><span class="wm-readout__unit">macro-F1</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{{card-ref:pico.t01}}</span></li>
+            <li class="wm-readout" style="--v:{{card-num:pico.t02}}"><span class="wm-readout__label">Process state</span><b>{{card:pico.t02}}</b><span class="wm-readout__unit">macro-F1</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{{card-ref:pico.t02}}</span></li>
+            <li class="wm-readout" style="--v:{{card-num:pico.t05}}"><span class="wm-readout__label">Tag truthfulness</span><b>{{card:pico.t05}}</b><span class="wm-readout__unit">sealed</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{{card-ref:pico.t05}}</span></li>
+            <li class="wm-readout" style="--v:{{card-num:pico.t05-cal}}"><span class="wm-readout__label">Tag truthfulness, with the shipped per-class calibration</span><b>{{card:pico.t05-cal}}</b><span class="wm-readout__unit">macro-recall</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{{card-ref:pico.t05-cal}}</span></li>
+            <li class="wm-readout" style="--v:{{card-num:pico.mesh}}"><span class="wm-readout__label">Fleet reading, IEB-Mesh</span><b>{{card:pico.mesh}}</b><span class="wm-readout__unit">macro</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{{card-ref:pico.mesh}}</span></li>
+            <li class="wm-readout" data-better="lower" style="--v:{{card-num:pico.false-alarm}}"><span class="wm-readout__label">False alarm on a healthy frame, per read (previous release)</span><b>{{card:pico.false-alarm}}</b><span class="wm-readout__unit">lower is better</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{{card-ref:pico.false-alarm}}</span></li>
+            <li class="wm-readout" data-better="lower" style="--v:{{card-num:pico.dup}}"><span class="wm-readout__label">Duplicated-line frames accepted wrong</span><b>{{card:pico.dup}}</b><span class="wm-readout__unit">lower is better</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{{card-ref:pico.dup}}</span></li>
+          </ol>
+          <figcaption class="fig mono" id="wm-panel-cap">FIG. 3 - The readouts, each on a scale of 0 to 100. Each bar is the score; the red tick marks it.</figcaption>
+        </figure>
+
+        <p class="wm-compare"><b>Against a popular open base of its size, fine-tuned identically:</b>
+           {{card:pico.comparator}} to Wave Pico on fault identification, read on the previous
+           Pico release with the same data and the same protocol
+           <span class="wm-ref">{{card-ref:pico.comparator}}</span>.</p>
+
+        <aside class="wm-footnote" aria-labelledby="wm-notes-head">
+          <span class="research-kicker" id="wm-notes-head">Measured</span>
+          <ol class="wm-notes">{{card-notes:pico}}</ol>
+        </aside>
+      </div>
+    </section>
+
+    <section class="section band band--inset" id="limits">
+      <div class="wrap">
+        <div class="section__head section__head--left">
+          <span class="sectionno">&sect;4 / LIMITS</span>
+          <h2>Where it stops.</h2>
+          <p>Said plainly, so nobody has to find them the hard way.</p>
+        </div>
+        <ul class="wm-limits">{{card-list:pico.limits}}</ul>
+      </div>
+    </section>
+
+    <section class="section" id="adapter">
+      <div class="wrap">
+        <div class="section__head section__head--left">
+          <span class="sectionno">&sect;5 / ADAPTER</span>
+          <h2>One adapter, routed per request.</h2>
+          <p>The fire adapter is a {{card:pico.adapter-size}} LoRA adapter for this base. The
+             server loads it beside the model and switches it on only for the requests that
+             ask for it. It is never merged into the base, so the industrial reading stays
+             exactly as measured above.</p>
+        </div>
+        <ol class="wm-readouts wm-readouts--fire">
+          <li class="wm-readout" style="--v:{{card-num:pico.fire-full}}"><span class="wm-readout__label">Threat call / escalation, full sensor suite</span><b>{{card:pico.fire-full}}</b><span class="wm-readout__unit">simulator-internal</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{{card-ref:pico.fire-full}}</span></li>
+          <li class="wm-readout" style="--v:{{card-num:pico.fire-nocam}}"><span class="wm-readout__label">Threat call / escalation, without a camera</span><b>{{card:pico.fire-nocam}}</b><span class="wm-readout__unit">simulator-internal</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{{card-ref:pico.fire-nocam}}</span></li>
+          <li class="wm-readout" style="--v:{{card-num:pico.fire-gate}}"><span class="wm-readout__label">Gate lines passing, in each configuration</span><b>{{card:pico.fire-gate}}</b><span class="wm-readout__unit">simulator-internal</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{{card-ref:pico.fire-gate}}</span></li>
+        </ol>
+      </div>
+    </section>
+
+    <!-- include: wave-mesh.html no=6 fig=4 parent="Wave Pico" -->
+
+    <!-- include: wave-firewatch.html no=7 fig=5 -->
+
+    <section class="section research-closing">
+      <div class="wrap">
+        <h2>Where Wave Pico sits.</h2>
+        <p>The smallest tier of a family that runs from a board beside one machine to a
+           datacenter. Wave Nano is the next size up.</p>
+        <div class="research-actions research-actions--lead">
+          <a class="research-button" href="/research-wave-nano.html">Wave Nano</a>
+          <a class="research-button" href="/research-wave-family.html">The Wave family</a>
+          <a class="research-button" href="/research-models.html">Models and status</a>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- include: footer.html anchors=/ -->
+
+  <!-- include: site-js.html -->
+</body>
+</html>
