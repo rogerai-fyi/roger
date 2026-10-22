@@ -151,7 +151,8 @@ test("deck: the shelf presents the network and the Wave family as honest groups"
     ["wave-micro", "wave-giga", "wave-tera", "wave-peta", "wave-exa"], "micro → exa stay in ladder order");
   // ...and the shelf puts Pico and Nano ahead of it, so the visitor reads pico → exa.
   const famRow = js.indexOf('group: "WAVE FAMILY"');
-  const planned = js.indexOf('group: "PLANNED TIERS"');
+  // ruling 2026-10-21: Micro is training, so the tail of the shelf is the tiers that cannot play yet
+  const planned = js.indexOf('group: "NOT YET PLAYABLE"');
   assert.ok(famRow !== -1 && js.slice(famRow, famRow + 160).includes("[PICO_SPINE, DEMO_TAPE]"),
     "the two tiers with something behind them lead the family row, Pico first");
   assert.ok(planned > famRow && js.slice(planned, planned + 160).includes("FAMILY_SPINES"),
@@ -453,7 +454,7 @@ test("shelf: no row hides models off the side of the strip", () => {
   // count in the library heading and the spines under it disagreed. Every group that
   // can hold more than one entry now wraps.
   const entries = js.slice(js.indexOf("function shelfEntries"), js.indexOf("function renderShelf"));
-  for (const g of ["ALSO ON AIR", "OFF AIR", "WAVE FAMILY", "PLANNED TIERS"]) {
+  for (const g of ["ALSO ON AIR", "OFF AIR", "WAVE FAMILY", "NOT YET PLAYABLE"]) {
     const at = entries.indexOf(`group: "${g}"`);
     assert.ok(at !== -1, `${g} must be a shelf group`);
     assert.ok(/\b(wrap|ladder): true/.test(entries.slice(at, at + 90)),

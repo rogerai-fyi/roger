@@ -280,7 +280,7 @@
   };
   var FAMILY_SPINES = [
     { spine: true, model: "wave-micro", label: "WAVE MICRO", sub: "7–8B · the site",
-      chip: "PLANNED", why: "A planned scratch build - no checkpoint exists to put on air yet." },
+      chip: "TRAINING", why: "Its from-scratch 7B run is training - no checkpoint exists to put on air yet." },
     { spine: true, model: "wave-giga", label: "WAVE GIGA", sub: "27–35B · the plant",
       chip: "PLANNED", why: "A planned band, not a final specification - nothing to play yet." },
     { spine: true, model: "wave-tera", label: "WAVE TERA", sub: "80–120B · enterprise",
@@ -338,7 +338,7 @@
     // micro → exa. Splitting the row is a weighting change, not an edit to the
     // Spectrum - see the LAYOUT AUDIT note on PICO_SPINE.
     groups.push({ group: "WAVE FAMILY", wrap: true, entries: [PICO_SPINE, DEMO_TAPE] });
-    groups.push({ group: "PLANNED TIERS", wrap: true, ladder: true, entries: FAMILY_SPINES });
+    groups.push({ group: "NOT YET PLAYABLE", wrap: true, ladder: true, entries: FAMILY_SPINES });
     // NO shelf row scrolls sideways. The family row was fixed for that once already
     // (founder: "under wave family i don't see all the models") but ALSO ON AIR and
     // OFF AIR kept the clipping strip: with four models off air, the row showed two

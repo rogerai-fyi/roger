@@ -167,49 +167,48 @@
       "name": "Wave Micro",
       "kind": "tier",
       "size": "7–8B",
-      "stage": "planned",
+      "stage": "training",
       "publicCheckpoint": false,
       "onAirBand": null,
-      "ruling": "pending",
       "labels": {
         "research.scope": {
           "page": "research.html",
-          "text": "Base selected",
+          "text": "Training",
           "wired": true
         },
         "research-models.chip": {
           "page": "research-models.html",
-          "text": "PLANNED",
+          "text": "TRAINING",
           "wired": true
         },
         "research-models.stage": {
           "page": "research-models.html",
-          "text": "Scratch pipeline standing up",
+          "text": "From-scratch 7B run in training",
           "wired": false
         },
         "wave-family.recipe": {
           "page": "research-wave-family.html",
-          "text": "Scratch &middot; planned",
+          "text": "Scratch &middot; training",
           "wired": true
         },
         "research-hardware.card": {
           "page": "research-hardware.html",
-          "text": "Scratch pipeline standing up",
+          "text": "From-scratch 7B run in training",
           "wired": true
         },
         "playbox.chip": {
           "page": "js/playbox.js",
-          "text": "PLANNED",
+          "text": "TRAINING",
           "wired": false
         },
         "jev-vs-wave.chart": {
           "page": "broadcasts-jev-vs-wave.html",
-          "text": "next scratch build",
+          "text": "7B run &middot; training",
           "wired": true
         },
         "jev-vs-wave.aria": {
           "page": "broadcasts-jev-vs-wave.html",
-          "text": "Wave Micro planned",
+          "text": "Wave Micro in training",
           "wired": false
         }
       }

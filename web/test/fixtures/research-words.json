@@ -50,8 +50,8 @@
   ]
  },
  "broadcasts-how-llms-work.html": {
-  "sha": "ac91c3544d02eebcb3eff1ace928ddadc7f5fae8bf5386152c6bad7016733eb6",
-  "length": 12465,
+  "sha": "52f2fca0f5d218183d67424a1374c516b19358b90472dea5c0578991bea8a5c9",
+  "length": 12466,
   "hrefs": [
    "/broadcasts.html",
    "/research-wave-family.html",
@@ -74,8 +74,8 @@
   ]
  },
  "broadcasts-jev-vs-wave.html": {
-  "sha": "d5e1e1667a7b60e1becf04f8b98af9e3008b26b08b61344f0d4e57ccdae7af8f",
-  "length": 11404,
+  "sha": "020ea4c2686f820b564a108a0b27176727485e0ef1bd402b3e4ff924cd33b16a",
+  "length": 11409,
   "hrefs": [
    "/broadcasts.html",
    "/research-wave-family.html"
@@ -181,8 +181,8 @@
   ]
  },
  "research-hardware.html": {
-  "sha": "439dde3edc90145922678e2120568253689a73db8525abc6436e0fe7409fcf56",
-  "length": 8209,
+  "sha": "25cf3141bf735240e8ecc550cad02a71999d1395b56035c60df75cb8ff0788dd",
+  "length": 8211,
   "hrefs": [
    "/research.html",
    "/research-models.html",
@@ -236,8 +236,8 @@
   ]
  },
  "research-models.html": {
-  "sha": "f41f0912076a972ad47b0d660e6653292fe8bfba29bfac405f6115d8f57a4246",
-  "length": 6759,
+  "sha": "ae8a140e3b156c7241650e872e3f5e0c92d6b38d5e57a85d90021247ed4bc1b2",
+  "length": 6762,
   "hrefs": [
    "/research.html",
    "/research-wave-pico.html",
@@ -256,8 +256,8 @@
   ]
  },
  "research-wave-family.html": {
-  "sha": "c995b86b95cd44c5555eb35acd88b7f5be882fdfbd746857e6c4e6512d6452bd",
-  "length": 17323,
+  "sha": "f3a818f4eca0e8618658cfa3522f9a057ca2d309f28207350c1be98057d4eba1",
+  "length": 17359,
   "hrefs": [
    "/research.html",
    "#infinite",
@@ -296,8 +296,8 @@
   ]
  },
  "research.html": {
-  "sha": "756f61e29cb3b8dba4af58c93d51cffd842f9f9f932c0abcfd98f3272d534c77",
-  "length": 5431,
+  "sha": "4a64460e27f906b81cf829c462e07ea02ad3f9168a9595d06fbb77c6447a0e4e",
+  "length": 5427,
   "hrefs": [
    "/research-models.html",
    "/research-wave-pico.html",

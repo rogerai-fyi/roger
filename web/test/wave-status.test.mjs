@@ -305,6 +305,9 @@ const IMPLIES = {
     "The family teacher",
   ],
   training: [
+    // founder ruling 2026-10-21: Micro's from-scratch 7B run is training
+    "Training", "TRAINING", "From-scratch 7B run in training", "Scratch &middot; training",
+    "7B run &middot; training", "Wave Micro in training",
     "~690 MB &middot; training", "Wave Nano about 690 MB at 1.15B, training",
     // prototypes: something is being built and tested, nothing has passed a release gate
     "PROTOTYPE", "Prototype, actively testing",
@@ -366,7 +369,7 @@ test("ledger: nothing claims a public checkpoint while none is released", () => 
 
 test("ledger: the pending set today (update this when the founder rules)", () => {
   assert.deepEqual(data().tiers.filter((t) => t.ruling === "pending").map((t) => t.id),
-    ["micro", "giga", "exa"]);
+    ["giga", "exa"]);
 });
 
 // Founder ruling 2026-10-21: Pico is on air (the v6 release, wave-pico-293m) and Nano's
@@ -377,10 +380,16 @@ test("ruling 2026-10-21: Pico on air, Nano gated, and no page still says otherwi
   assert.equal(tierById("pico").onAirBand, "wave-pico-293m");
   assert.equal(tierById("nano").stage, "gated");
   assert.equal(tierById("nano").onAirBand, null, "Nano is not on the band");
-  for (const id of ["pico", "nano"]) assert.notEqual(tierById(id).ruling, "pending", `${id} is ruled`);
+  assert.equal(tierById("micro").stage, "training", "Micro's from-scratch 7B run started (ruling 2026-10-21)");
+  assert.equal(tierById("micro").publicCheckpoint, false);
+  assert.equal(tierById("giga").stage, "gated", "Giga stays gated");
+  assert.equal(tierById("giga").ruling, "pending", "and pending");
+  for (const id of ["pico", "nano", "micro"]) assert.notEqual(tierById(id).ruling, "pending", `${id} is ruled`);
   const STALE = [/certified 100M-class/i, /Certifying the waypoint/i, /300M retrain next/i, /WAYPOINT TRAINED/,
     /queued behind Pico/i, /NEXT BUILD/, /Nano is in training/i, /Wave Nano is in training/i,
-    /150&ndash;180 MB/, /150-180 MB/, /~165 MB/, /\b165 MB quantized/, /Nano 0\.8-1\.5B/];
+    /150&ndash;180 MB/, /150-180 MB/, /~165 MB/, /\b165 MB quantized/, /Nano 0\.8-1\.5B/,
+    /Wave Micro planned/i, /Micro is on the plan/i, /Scratch pipeline standing up/i, /Scratch &middot; planned/,
+    /Wave Micro, 7 to 8 billion, an on-site server, planned/, /PLANNED TIERS/];
   const pages = readdirSync(DIST).filter((f) => f.endsWith(".html"));
   for (const p of pages) {
     const html = readFileSync(path.join(DIST, p), "utf8").replace(/<!--[\s\S]*?-->/g, "");
@@ -388,7 +397,7 @@ test("ruling 2026-10-21: Pico on air, Nano gated, and no page still says otherwi
   }
   for (const f of ["playbox.js"]) {
     const js = readFileSync(path.join(SRC, "js", f), "utf8");
-    for (const re of [/WAYPOINT TRAINED/, /100M-class waypoint is trained/]) assert.doesNotMatch(js, re, `${f}: ${re}`);
+    for (const re of [/WAYPOINT TRAINED/, /100M-class waypoint is trained/, /A planned scratch build/, /PLANNED TIERS/]) assert.doesNotMatch(js, re, `${f}: ${re}`);
   }
   const family = readFileSync(path.join(DIST, "research-wave-family.html"), "utf8");
   assert.match(family, /270&ndash;562 MB/, "the family page states the measured GGUF range");
