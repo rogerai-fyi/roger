@@ -14,7 +14,7 @@
 import { test, before } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { resolveWaveTokens, loadWaveStatus } from "../scripts/wave-status.mjs";
@@ -175,8 +175,8 @@ test("plate: the homepage Labs plate names the Spectrum and the live stages of P
   const d = data();
   const w = (id) => d.stageWords[tierById(id).stage];
   assert.equal(plateOf(dist("index.html")), `ROGERAI LABS THE WAVE SPECTRUM PICO ${w("pico")} · NANO ${w("nano")}`);
-  assert.equal(plateOf(dist("index.html")), "ROGERAI LABS THE WAVE SPECTRUM PICO ON AIR · NANO TRAINING",
-    "today: Pico on air, Nano training");
+  assert.equal(plateOf(dist("index.html")), "ROGERAI LABS THE WAVE SPECTRUM PICO ON AIR · NANO GATED",
+    "today (founder ruling 2026-10-21): Pico on air, Nano gated");
 });
 
 test("plate: the status words come from the stage tokens, not hand-typed copy", () => {
@@ -312,6 +312,9 @@ const IMPLIES = {
     "prototype &middot; foundations measured, growth loop in development",
   ],
   gated: [
+    // founder ruling 2026-10-21: Nano's release build is gated, not on the band
+    "GATED", "Gated", "Release build gated &middot; not on the band yet", "Scratch &middot; gated",
+    "0.83&ndash;2.9 GB &middot; gated", "Wave Nano 1.45B, 0.83 to 2.9 GB, gated",
     "EDGE CLASS · WAYPOINT TRAINED", "TRAINED", "250–300M · waypoint", "WAYPOINT", "Waypoint trained",
     "WAYPOINT TRAINED", "Wave Pico has a trained waypoint build, certified against our own release gate",
     "Certifying the waypoint &middot; 300M retrain next", "Scratch &middot; waypoint trained",
@@ -321,6 +324,10 @@ const IMPLIES = {
     "Wave Giga (27B) has passed its release gate on an Apache-2.0 base",
   ],
   "on-air": [
+    // founder ruling 2026-10-21: Pico's labels read the v6 release on the band
+    "ON AIR", "293M &middot; on air", "On air", "Wave Pico is on air as wave-pico-293m, the v6 release",
+    "On air as wave-pico-293m &middot; v6 release", "Scratch &middot; on air",
+    "270&ndash;562 MB &middot; on air", "Wave Pico 270 to 562 MB, on air",
     "293M, from scratch, on air now",
     "on air as a free band, <code>wave-pico-293m</code>; weights not published yet",
     "Wave Pico (293M) is on air right now as a free band",
@@ -359,5 +366,30 @@ test("ledger: nothing claims a public checkpoint while none is released", () => 
 
 test("ledger: the pending set today (update this when the founder rules)", () => {
   assert.deepEqual(data().tiers.filter((t) => t.ruling === "pending").map((t) => t.id),
-    ["pico", "nano", "micro", "giga", "exa"]);
+    ["micro", "giga", "exa"]);
+});
+
+// Founder ruling 2026-10-21: Pico is on air (the v6 release, wave-pico-293m) and Nano's
+// release build is gated. Both rulings are recorded, so neither tier is pending, and no page
+// may still describe the old stage.
+test("ruling 2026-10-21: Pico on air, Nano gated, and no page still says otherwise", () => {
+  assert.equal(tierById("pico").stage, "on-air");
+  assert.equal(tierById("pico").onAirBand, "wave-pico-293m");
+  assert.equal(tierById("nano").stage, "gated");
+  assert.equal(tierById("nano").onAirBand, null, "Nano is not on the band");
+  for (const id of ["pico", "nano"]) assert.notEqual(tierById(id).ruling, "pending", `${id} is ruled`);
+  const STALE = [/certified 100M-class/i, /Certifying the waypoint/i, /300M retrain next/i, /WAYPOINT TRAINED/,
+    /queued behind Pico/i, /NEXT BUILD/, /Nano is in training/i, /Wave Nano is in training/i,
+    /150&ndash;180 MB/, /150-180 MB/, /~165 MB/, /\b165 MB quantized/, /Nano 0\.8-1\.5B/];
+  const pages = readdirSync(DIST).filter((f) => f.endsWith(".html"));
+  for (const p of pages) {
+    const html = readFileSync(path.join(DIST, p), "utf8").replace(/<!--[\s\S]*?-->/g, "");
+    for (const re of STALE) assert.doesNotMatch(html, re, `${p}: stale wording ${re}`);
+  }
+  for (const f of ["playbox.js"]) {
+    const js = readFileSync(path.join(SRC, "js", f), "utf8");
+    for (const re of [/WAYPOINT TRAINED/, /100M-class waypoint is trained/]) assert.doesNotMatch(js, re, `${f}: ${re}`);
+  }
+  const family = readFileSync(path.join(DIST, "research-wave-family.html"), "utf8");
+  assert.match(family, /270&ndash;562 MB/, "the family page states the measured GGUF range");
 });

@@ -157,8 +157,9 @@ test("deck: the shelf presents the network and the Wave family as honest groups"
   assert.ok(planned > famRow && js.slice(planned, planned + 160).includes("FAMILY_SPINES"),
     "and the planned tiers follow it on the shelf - quieter, never dropped");
   assert.ok(!js.includes('chip: "TRAINED"') || true, "no bare training claims");
-  assert.ok(js.includes("certified against our own release gate"),
-    "Pico's waypoint claim names whose gate, same words as the research pages");
+  // founder ruling 2026-10-21: Pico is on air; the spine names its band, as the research pages do
+  assert.ok(js.includes("wave-pico-293m") && js.includes('chip: "ON AIR"'),
+    "Pico's spine names its on-air band, same words as the research pages");
   assert.ok(!js.includes("wave-core"), "no dead tier names on the shelf");
   assert.ok(!js.includes("TRAINED · OFF AIR"), "no training claim the research pages contradict");
   assert.ok(js.includes('chip: "PLANNED"'), "Core is a planned band, said plainly");
@@ -516,12 +517,14 @@ test("deck: the brain is named honestly and no benchmark figures leak", () => {
   assert.ok(!html.includes("(350M)"), "the retired ~350M size guess must not return");
   assert.ok(htmlFlat.includes("targets 0.8&ndash;1.5B") || htmlFlat.includes("targets 0.8–1.5B"),
     "Wave Nano's locked tier band must be stated");
-  assert.ok(htmlFlat.includes("pending export"), "the run's unknown params must be stated as pending, never guessed");
+  // founder ruling 2026-10-21: Nano's 1.45B release build is gated, so its size is stated, never guessed
+  assert.ok(htmlFlat.includes("1.45B scratch build has passed our release gate"), "Nano's gated build is stated as gated, not on the band");
   assert.ok(htmlFlat.includes("edge tier that runs on a Pi"),
     "Wave Pico must be named as the Pi-class edge tier");
   assert.ok(!/MCU-class edge tier/.test(htmlFlat),
     "no Wave tier may be called an MCU tier - none of them fit an MCU");
-  assert.ok(htmlFlat.includes("99.4M waypoint"), "the shipped-vs-target truth must be stated");
+  // founder ruling 2026-10-21: what ships is the 293M release on the band, stated with its band
+  assert.ok(htmlFlat.includes("scratch-trained at 293M") && htmlFlat.includes("wave-pico-293m"), "the shipped truth must be stated");
   for (const leak of ["24/25", "4/133", "46%", "84–90%"]) {
     assert.ok(!html.includes(leak) && !js.includes(leak),
       `internal benchmark figure ${leak} must not appear on the public page`);

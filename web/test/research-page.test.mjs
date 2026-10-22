@@ -229,9 +229,9 @@ test("only released artifacts present download controls", () => {
   assert.doesNotMatch(page, /aria-disabled="true"/);
   for (const stage of [
     /16K saliency calibration/,
-    /Certifying the waypoint/,
+    /On air as wave-pico-293m/,
     /Architecture and data design/,
-    /Scratch build queued/,
+    /Release build gated/,
   ]) assert.match(page, stage);
   assert.doesNotMatch(page, /href="[^"]*(?:placeholder|coming-soon)[^"]*"/i);
 });

@@ -26,61 +26,60 @@
       "stage": "on-air",
       "publicCheckpoint": false,
       "onAirBand": "wave-pico-293m",
-      "ruling": "pending",
       "labels": {
         "index.chip": {
           "page": "index.html",
-          "text": "TRAINED",
+          "text": "ON AIR",
           "wired": true
         },
         "index.spectrum": {
           "page": "index.html",
-          "text": "250–300M · waypoint",
+          "text": "293M &middot; on air",
           "wired": true
         },
         "research.ticker": {
           "page": "research.html",
-          "text": "WAYPOINT",
+          "text": "ON AIR",
           "wired": true
         },
         "research.scope": {
           "page": "research.html",
-          "text": "Waypoint trained",
+          "text": "On air",
           "wired": true
         },
         "research.caption": {
           "page": "research.html",
-          "text": "Wave Pico has a trained waypoint build, certified against our own release gate",
+          "text": "Wave Pico is on air as wave-pico-293m, the v6 release",
           "wired": false
         },
         "research-models.chip": {
           "page": "research-models.html",
-          "text": "WAYPOINT TRAINED",
+          "text": "ON AIR",
           "wired": true
         },
         "research-models.stage": {
           "page": "research-models.html",
-          "text": "Certifying the waypoint &middot; 300M retrain next",
+          "text": "On air as wave-pico-293m &middot; v6 release",
           "wired": false
         },
         "wave-family.recipe": {
           "page": "research-wave-family.html",
-          "text": "Scratch &middot; waypoint trained",
+          "text": "Scratch &middot; on air",
           "wired": true
         },
         "research-hardware.card": {
           "page": "research-hardware.html",
-          "text": "Certifying the waypoint &middot; 300M retrain next",
+          "text": "On air as wave-pico-293m &middot; v6 release",
           "wired": true
         },
         "research-hardware.exp": {
           "page": "research-hardware.html",
-          "text": "Certifying the waypoint &middot; 300M retrain next",
+          "text": "On air as wave-pico-293m &middot; v6 release",
           "wired": true
         },
         "playbox.chip": {
           "page": "js/playbox.js",
-          "text": "WAYPOINT TRAINED",
+          "text": "ON AIR",
           "wired": false
         },
         "jev-vs-wave.meta": {
@@ -90,12 +89,12 @@
         },
         "jev-vs-wave.chart": {
           "page": "broadcasts-jev-vs-wave.html",
-          "text": "~165 MB &middot; built",
+          "text": "270&ndash;562 MB &middot; on air",
           "wired": true
         },
         "jev-vs-wave.aria": {
           "page": "broadcasts-jev-vs-wave.html",
-          "text": "Wave Pico about 165 MB, built",
+          "text": "Wave Pico 270 to 562 MB, on air",
           "wired": false
         },
         "jev-vs-wave.table": {
@@ -121,44 +120,43 @@
       "name": "Wave Nano",
       "kind": "tier",
       "size": "0.8–1.5B",
-      "stage": "training",
+      "stage": "gated",
       "publicCheckpoint": false,
       "onAirBand": null,
-      "ruling": "pending",
       "labels": {
         "research.scope": {
           "page": "research.html",
-          "text": "Next scratch build",
+          "text": "Gated",
           "wired": true
         },
         "research-models.chip": {
           "page": "research-models.html",
-          "text": "NEXT BUILD",
+          "text": "GATED",
           "wired": true
         },
         "research-models.stage": {
           "page": "research-models.html",
-          "text": "Scratch build queued behind Pico",
+          "text": "Release build gated &middot; not on the band yet",
           "wired": false
         },
         "wave-family.recipe": {
           "page": "research-wave-family.html",
-          "text": "Scratch &middot; next build",
+          "text": "Scratch &middot; gated",
           "wired": true
         },
         "research-hardware.card": {
           "page": "research-hardware.html",
-          "text": "Scratch build queued behind Pico",
+          "text": "Release build gated &middot; not on the band yet",
           "wired": true
         },
         "jev-vs-wave.chart": {
           "page": "broadcasts-jev-vs-wave.html",
-          "text": "~690 MB &middot; training",
+          "text": "0.83&ndash;2.9 GB &middot; gated",
           "wired": true
         },
         "jev-vs-wave.aria": {
           "page": "broadcasts-jev-vs-wave.html",
-          "text": "Wave Nano about 690 MB at 1.15B, training",
+          "text": "Wave Nano 1.45B, 0.83 to 2.9 GB, gated",
           "wired": false
         }
       }

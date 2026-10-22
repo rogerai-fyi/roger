@@ -259,8 +259,8 @@
      "under wave family i don't see all the models"). One compact spine per
      tier, "band · reach". Nothing is faked: Nano's spine is the playable
      recorded demo; every other tier says exactly why it cannot play yet, and
-     no training is claimed that the research pages don't back (Pico holds the
-     only trained waypoint - its recorded contracts run on the WAVE MESH deck,
+     no training is claimed that the research pages don't back (Pico is on air
+     as wave-pico-293m - its recorded contracts run on the WAVE MESH deck,
      which its spine points to).
 
      LAYOUT AUDIT 2026-08-17: seven equal cards, six of them unplayable, buried
@@ -274,10 +274,9 @@
     // narrowest spine without an ellipsis eating it (audit item 6). It is the same
     // reach the homepage ladder states - "one machine's telemetry · Raspberry Pi".
     spine: true, model: "wave-pico", label: "WAVE PICO", sub: "250–300M · one machine",
-    chip: "WAYPOINT TRAINED",
-    why: "A 100M-class waypoint is trained (certified against our own release gate; " +
-      "250–300M is the tier target). No public checkpoint yet - its recorded " +
-      "contracts play on the WAVE MESH deck above."
+    chip: "ON AIR",
+    why: "On air as the free band wave-pico-293m, the 293M v6 release. No public " +
+      "checkpoint yet - its recorded contracts play on the WAVE MESH deck above."
   };
   var FAMILY_SPINES = [
     { spine: true, model: "wave-micro", label: "WAVE MICRO", sub: "7–8B · the site",
