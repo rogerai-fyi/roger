@@ -133,8 +133,7 @@ cask "roger" do
          arm64_linux:  "${LINUX_ARM64}",
          x86_64_linux: "${LINUX_AMD64}"
 
-  url "https://github.com/${OWNER_REPO}/releases/download/v#{version}/roger-#{os}-#{arch}",
-      verified: "github.com/${OWNER_REPO}/"
+  url "https://github.com/${OWNER_REPO}/releases/download/v#{version}/roger-#{os}-#{arch}"
   name "RogerAI"
   desc "Two-way radio for GPUs: consume and share LLM/voice models over the broker"
   homepage "https://rogerai.fm/"

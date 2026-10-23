@@ -30,7 +30,9 @@ stages this stub in a throwaway tap on a macOS runner and runs `brew style`, the
 a real `brew install` + `roger version`. Run it from the Actions tab (workflow_dispatch); it
 also runs on any PR that touches this directory. Its job summary lists the gate results.
 
-Status as of 2026-10-23 (re-run before submitting - these move over time):
+Status as of 2026-10-23, from the workflow's first run against the v6.13.0 stub (`brew style`
+clean, `brew install` + `roger version` worked, and the audit reported exactly one problem,
+the signature). Re-run before submitting - these move over time:
 
 - ✅ **Notability** - bar is **≥75 stars OR ≥30 forks OR ≥30 watchers**. roger had **176
   stars** on 2026-10-23, so this passes.

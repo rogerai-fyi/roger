@@ -15,8 +15,7 @@ cask "roger" do
          arm64_linux:  "ba132ab5c3864aef1e355c2f8f702ed990abad9d013b1539b90ed8532ef76eb2",
          x86_64_linux: "68af2bf86550d16f6bd16c92f63aa073543f335399abbc9c30643da4341c9b55"
 
-  url "https://github.com/rogerai-fyi/roger/releases/download/v#{version}/roger-#{os}-#{arch}",
-      verified: "github.com/rogerai-fyi/roger/"
+  url "https://github.com/rogerai-fyi/roger/releases/download/v#{version}/roger-#{os}-#{arch}"
   name "RogerAI"
   desc "Two-way radio for GPUs: consume and share LLM/voice models over the broker"
   homepage "https://rogerai.fm/"
