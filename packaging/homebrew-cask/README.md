@@ -14,46 +14,50 @@ So when roger clears the two gates below, submit [`roger.rb`](roger.rb) to homeb
 users get:
 
 ```sh
-brew install --cask roger      # no tap, no trust — official cask
+brew install roger      # no tap, no trust - official cask
 ```
 
 Keep the tap formula around for people who want it, and for any platform the cask doesn't cover.
 
-## Gates — run the exact check Homebrew runs on a new submission
+## Gates - run the exact check Homebrew runs on a new submission
 
 ```sh
 brew audit --cask --new roger
 ```
 
-Current status (re-run before submitting — these move over time):
+You do not need a Mac for this: the `cask-audit` workflow (`.github/workflows/cask-audit.yml`)
+stages this stub in a throwaway tap on a macOS runner and runs `brew style`, the audit, and
+a real `brew install` + `roger version`. Run it from the Actions tab (workflow_dispatch); it
+also runs on any PR that touches this directory. Its job summary lists the gate results.
 
-- ✅ **Notability** — bar is **≥75 stars OR ≥30 forks OR ≥30 watchers**. roger has **193
-  stars**, so this passes.
-- ⏳ **Repo age** — *"GitHub repository too new (<30 days old)"*. homebrew-cask wants the
-  upstream repo ≥30 days old. roger was created 2026-06-23, so it clears on **~2026-07-23**.
-  Nothing to do but wait.
-- ❌ **macOS code signing** — *"Signature verification failed"*. homebrew-cask requires the
+Status as of 2026-10-23 (re-run before submitting - these move over time):
+
+- ✅ **Notability** - bar is **≥75 stars OR ≥30 forks OR ≥30 watchers**. roger had **176
+  stars** on 2026-10-23, so this passes.
+- ✅ **Repo age** - homebrew-cask wants the upstream repo ≥30 days old. roger was created
+  2026-06-23; cleared 2026-07-23.
+- ❌ **macOS code signing** - *"Signature verification failed"*. homebrew-cask requires the
   macOS binary to be **Developer-ID signed and notarized**; ours are only ad-hoc signed.
-  The release pipeline is now **wired for this** — `.goreleaser.yaml` has a `notarize:` block
+  The release pipeline is **wired for this** - `.goreleaser.yaml` has a `notarize:` block
   (GoReleaser's cross-platform, Quill-backed signer; runs on the Linux runner) that stays off
   until the signing secrets exist. So clearing this gate is **config, not code**: add the five
   `MACOS_*` repo secrets per [Code signing in `../README.md`](../README.md#code-signing), cut a
-  release, and the darwin binaries ship signed + notarized. Then re-run
-  `brew audit --cask --new roger` — the signature error clears.
+  release, and the darwin binaries ship signed + notarized. Then re-run the audit - the
+  signature error clears.
 
-   (Signing is *only* needed for the cask. The formula runs the ad-hoc-signed binary fine —
-   Homebrew doesn't quarantine formula downloads — which is why the tap works today.)
+   (Signing is *only* needed for the cask. The formula runs the ad-hoc-signed binary fine -
+   Homebrew doesn't quarantine formula downloads - which is why the tap works today.)
 
 ## Submitting (once signing lands and the repo is ≥30 days old)
 
-1. Refresh the four sha256s + version in [`roger.rb`](roger.rb) for the target release. The
-   generator prints the same SHAs the cask needs:
+1. Regenerate [`roger.rb`](roger.rb) for the target release. It is generated, never hand-edited:
    ```sh
-   scripts/gen-brew-formula.sh <version>     # read the sha256 values from its output
+   scripts/gen-brew-formula.sh --cask <version> "" packaging/homebrew-cask/roger.rb
    ```
 2. `brew style roger.rb` and `brew audit --cask --new roger` — both must be clean.
 3. Fork `Homebrew/homebrew-cask`, drop the file at `Casks/r/roger.rb`, open a PR. Homebrew's
    CI re-runs the audit; a maintainer reviews.
-4. After merge: `brew install --cask roger` works with no tap and no trust. Version bumps are
+4. After merge: `brew install roger` works with no tap and no trust (no `--cask` flag needed:
+   with no homebrew-core formula named `roger`, `brew install` falls through to the cask). Version bumps are
    then handled by Homebrew's autobump bot (the `livecheck` block drives it), so this stub is
    a one-time submission — not something the release workflow pushes.

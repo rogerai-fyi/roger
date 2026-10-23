@@ -173,6 +173,10 @@
             <p>On Windows, in PowerShell:</p>
             <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">PS&gt;</span> irm https://rogerai.fm/install.ps1 | iex</pre></div>
 
+            <p>Prefer Homebrew? The tap serves the same release binary on macOS and Linux.
+              Homebrew asks you to trust a third-party tap once, so it is a single line:</p>
+            <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">$</span> brew trust rogerai-fyi/homebrew-tap &amp;&amp; brew install rogerai-fyi/homebrew-tap/roger</pre></div>
+
             <span class="man-fig">FIG. 1 - PLATFORMS</span>
             <div class="man-plate">
               <div class="man-plate__row"><span class="man-plate__k">Linux</span><span class="man-plate__v"><code>amd64</code> · <code>arm64</code> - installs to <code>~/.local/bin</code> (override with <code>ROGERAI_INSTALL_DIR</code>)</span></div>

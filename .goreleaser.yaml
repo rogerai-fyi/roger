@@ -63,7 +63,7 @@ builds:
 
 # ---- macOS code signing + notarization -----------------------------------------------
 # Signs + notarizes the darwin binaries so the OFFICIAL Homebrew cask route
-# (`brew install --cask roger` - no tap, no `brew trust`) becomes possible; homebrew-cask
+# (`brew install roger` - no tap, no `brew trust`) becomes possible; homebrew-cask
 # rejects unsigned binaries (`brew audit --cask --new` -> "Signature verification failed").
 # See packaging/homebrew-cask/ for the cask + the remaining gates.
 #
