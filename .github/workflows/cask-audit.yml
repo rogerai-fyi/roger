@@ -42,6 +42,8 @@ jobs:
           echo "staged $tap/Casks/roger.rb"
 
       - name: brew style
+        id: style
+        continue-on-error: true
         run: brew style --cask rogerai/cask-audit/roger
 
       - name: brew audit --cask --new (the submission gate)
@@ -65,12 +67,14 @@ jobs:
             echo
             echo "| check | result |"
             echo "|---|---|"
-            echo "| brew style | pass |"
+            echo "| brew style | ${{ steps.style.outcome }} |"
             echo "| brew audit --cask --new | ${{ steps.audit.outcome }} |"
             echo "| brew install + roger version | ${{ steps.install.outcome }} |"
             echo
             echo "An audit failure that reads \`Signature verification failed\` means the darwin"
             echo "binaries are not Developer-ID signed yet - the MACOS_* release secrets are not"
-            echo "set. Any OTHER audit failure is ours to fix in the stub. See"
+            echo "set. The same gate shows up in the install step as \`roger version\` being"
+            echo "Killed or blocked: a cask download is quarantined, and Gatekeeper refuses an"
+            echo "ad-hoc-signed binary. Any OTHER failure is ours to fix in the stub. See"
             echo "packaging/homebrew-cask/README.md."
           } >> "$GITHUB_STEP_SUMMARY"
