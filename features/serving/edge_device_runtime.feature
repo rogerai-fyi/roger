@@ -93,6 +93,7 @@ Feature: A Wave model on an edge device, from the RogerAI channel, on a runtime 
     Then llama-server is started with exactly those flags in addition to roger's own
     And "roger model status" names the template and override in use
 
+  # BUILT 2026-10-24 for a file-based adapter (--adapter name|path; no catalog entry yet): TestAnAdapterIsServedBesideItsBaseUnderACombinedBand, TestServeAdapterIsResolvedAndCheckedAgainstItsBase; verified live with the fire-decision LoRA
   Scenario: an adapter is part of the entry and served with its base
     Given the entry "wave-nano-1.45b" offers the adapter "fire-decision" as a GGUF LoRA
     When the owner runs "roger model serve wave-nano-1.45b --adapter fire-decision"
