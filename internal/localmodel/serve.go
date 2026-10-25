@@ -41,7 +41,8 @@ type Serving struct {
 	Quant      string    `json:"quant,omitempty"`
 	Ctx        int       `json:"ctx"`
 	Runtime    string    `json:"runtime"`
-	Build      string    `json:"build,omitempty"` // cpu, vulkan, cuda or metal (local_models.feature §10)
+	Build      string    `json:"build,omitempty"`   // cpu, vulkan, cuda or metal (local_models.feature §10)
+	Adapter    string    `json:"adapter,omitempty"` // the LoRA file served on it, when one is
 	Started    time.Time `json:"started"`
 }
 
@@ -136,8 +137,9 @@ func (h Home) keyPath(port int) string {
 // ServeOpts is one model to serve.
 type ServeOpts struct {
 	Model       Model
-	Exe         string // the runtime, from runtime.Install
-	Tag         string // the runtime's version, recorded
+	Adapter     *Adapter // a LoRA served beside the model, or nil (edge_device_runtime.feature §2)
+	Exe         string   // the runtime, from runtime.Install
+	Tag         string   // the runtime's version, recorded
 	Ctx         int
 	Port        int // zero picks a free loopback port
 	Budget      Budget
@@ -153,7 +155,7 @@ type ServeOpts struct {
 func Args(o ServeOpts, port int, keyFile string) []string {
 	args := []string{
 		"-m", o.Model.Path,
-		"--alias", o.Model.Band,
+		"--alias", o.Band(),
 		"-c", strconv.Itoa(o.Ctx),
 		"--host", "127.0.0.1",
 		"--port", strconv.Itoa(port),
@@ -166,7 +168,19 @@ func Args(o ServeOpts, port int, keyFile string) []string {
 	if o.Device != "" {
 		args = append(args, "--device", o.Device)
 	}
+	if o.Adapter != nil {
+		args = append(args, "--lora", o.Adapter.Path)
+	}
 	return args
+}
+
+// Band is the name the serve answers to: the model's, and "+<adapter>" when a LoRA is on it, so
+// a reader cannot mistake the adapted model for the base.
+func (o ServeOpts) Band() string {
+	if o.Adapter == nil {
+		return o.Model.Band
+	}
+	return o.Model.Band + "+" + o.Adapter.Name()
 }
 
 // cacheRAMMiB sizes the prompt cache to the machine: the runtime's default is 8 GiB, which is the
@@ -216,7 +230,7 @@ func (h Home) Serve(ctx context.Context, o ServeOpts) (*runtime.Server, Serving,
 		return nil, Serving{}, err
 	}
 	srv, err := runtime.Start(ctx, runtime.Spec{
-		Exe: o.Exe, Model: o.Model.Path, Band: o.Model.Band, Ctx: o.Ctx, Port: port, Key: key,
+		Exe: o.Exe, Model: o.Model.Path, Band: o.Band(), Ctx: o.Ctx, Port: port, Key: key,
 		Args: Args(o, port, keyFile), Env: o.Env, ReadyWithin: o.ReadyWithin,
 	})
 	if err != nil {
@@ -224,9 +238,12 @@ func (h Home) Serve(ctx context.Context, o ServeOpts) (*runtime.Server, Serving,
 		return nil, Serving{}, err
 	}
 	s := Serving{
-		Supervisor: me, RuntimePID: srv.PID, BaseURL: srv.BaseURL, Port: port, Key: key, Band: o.Model.Band,
+		Supervisor: me, RuntimePID: srv.PID, BaseURL: srv.BaseURL, Port: port, Key: key, Band: o.Band(),
 		ID: o.Model.ID, File: o.Model.File, SHA256: o.Model.SHA256, Quant: o.Model.Quant, Ctx: o.Ctx,
 		Runtime: o.Tag, Build: o.Build, Started: srv.Started,
+	}
+	if o.Adapter != nil {
+		s.Adapter = o.Adapter.File
 	}
 	if err := h.writeServing(s); err != nil {
 		_ = srv.Stop(context.Background())

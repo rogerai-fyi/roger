@@ -179,7 +179,7 @@ func parseGGUFShape(r io.Reader) (catalog.Shape, error) {
 		}
 	}
 	shape, err := resolveShape(arch, nums, counts)
-	shape.Kind, shape.BaseModel = kind, base // said even when the arithmetic cannot be
+	shape.Kind, shape.BaseModel, shape.Arch = kind, base, arch // said even when the arithmetic cannot be
 	return shape, err
 }
 

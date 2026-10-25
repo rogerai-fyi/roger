@@ -138,6 +138,7 @@ type modelArgv struct {
 	hub     bool   // skip every nearby source and look the name up on the model hub (short_names_nearby.feature §4)
 	quant   string // a quantisation named for a short name (founder ruling 2026-10-11)
 	on      string // a member of the Edge: the same command, on that machine (remote_model.feature)
+	adapter string // a LoRA served beside the model, by name or path (edge_device_runtime.feature §2)
 }
 
 func parseModelArgv(args []string) (modelArgv, error) {
@@ -178,6 +179,12 @@ func parseModelArgv(args []string) (modelArgv, error) {
 		}
 		if name == "on" {
 			a.on = strings.TrimSpace(val)
+			continue
+		}
+		if name == "adapter" {
+			if a.adapter = strings.TrimSpace(val); a.adapter == "" {
+				return a, errors.New("--adapter needs an adapter's name or path")
+			}
 			continue
 		}
 		if name == "quant" {
@@ -306,7 +313,7 @@ func cmdModel(cfg config, args []string) error {
 			return modelServeModel(ctx, a, m)
 		}
 		if len(a.pos) != 1 {
-			return errors.New("usage: roger model serve [name | owner/repo[:QUANT] | file.gguf] [--quant Q] [--ctx N] [--port N] [--detach] [--add] [--hub] [--verbose]")
+			return errors.New("usage: roger model serve [name | owner/repo[:QUANT] | file.gguf] [--adapter name|file.gguf] [--quant Q] [--ctx N] [--port N] [--detach] [--add] [--hub] [--verbose]")
 		}
 		return modelServe(ctx, cfg, a)
 	case "status":
@@ -689,6 +696,10 @@ func modelServeModel(ctx context.Context, a modelArgv, m localmodel.Model) error
 	}
 	b := modelBudgetFor(rt.Offloads)
 	h := modelHome()
+	adapter, err := modelAdapterFor(h, m, a.adapter)
+	if err != nil {
+		return err
+	}
 	var beside []localmodel.Serving
 	if a.add {
 		if beside, err = modelBeside(h, m); err != nil {
@@ -706,7 +717,7 @@ func modelServeModel(ctx context.Context, a modelArgv, m localmodel.Model) error
 		hadPrev = false // added beside, nothing is switched away
 	}
 	if a.detach {
-		return modelServeDetached(ctx, h, m, ctxLen, a.port, prev, hadPrev, a.add, fit, rt)
+		return modelServeDetached(ctx, h, m, adapter, ctxLen, a.port, prev, hadPrev, a.add, fit, rt)
 	}
 	fmt.Fprintf(full, "starting llama.cpp %s on %s at %d context...\n", rt.Word(), m.File, ctxLen)
 	dev := ""
@@ -715,7 +726,7 @@ func modelServeModel(ctx context.Context, a modelArgv, m localmodel.Model) error
 			fmt.Fprintf(full, "  on one card, %s: it fits there, and one card answers faster than a split\n", dev)
 		}
 	}
-	srv, s, err := h.Serve(ctx, localmodel.ServeOpts{Model: m, Exe: rt.Exe, Tag: rt.Word(), Ctx: ctxLen, Port: a.port, Budget: b, Env: modelServeEnv, Device: dev, Build: string(rt.Build)})
+	srv, s, err := h.Serve(ctx, localmodel.ServeOpts{Model: m, Adapter: adapter, Exe: rt.Exe, Tag: rt.Word(), Ctx: ctxLen, Port: a.port, Budget: b, Env: modelServeEnv, Device: dev, Build: string(rt.Build)})
 	if err != nil && rt.Build != runtime.BuildCPU && rt.Build != runtime.BuildMetal {
 		// A GPU build that cannot start the model is never a silent fallback (§10): auto says so and
 		// serves with the CPU build, judged again in system memory; an explicit choice stops here.
@@ -743,7 +754,7 @@ func modelServeModel(ctx context.Context, a modelArgv, m localmodel.Model) error
 		fmt.Fprintf(full, "%s: %s\n", m.ID, fit.line)
 		fmt.Fprintf(full, "starting llama.cpp %s on %s at %d context...\n", rt.Word(), m.File, ctxLen)
 		dev = ""
-		srv, s, err = h.Serve(ctx, localmodel.ServeOpts{Model: m, Exe: rt.Exe, Tag: rt.Word(), Ctx: ctxLen, Port: a.port, Budget: b, Env: modelServeEnv, Build: string(rt.Build)})
+		srv, s, err = h.Serve(ctx, localmodel.ServeOpts{Model: m, Adapter: adapter, Exe: rt.Exe, Tag: rt.Word(), Ctx: ctxLen, Port: a.port, Budget: b, Env: modelServeEnv, Build: string(rt.Build)})
 	}
 	if err != nil {
 		if hadPrev {
@@ -840,12 +851,15 @@ func modelQuietFit(fit modelVerdict, rt modelRT, dev string) {
 // modelServeDetached hands the serve to a roger of its own and waits until it is really answering.
 // Everything that can be refused - the fit, the runtime, the consent to fetch - was already settled
 // here, in front of the owner, so the background has nothing left to ask.
-func modelServeDetached(ctx context.Context, h localmodel.Home, m localmodel.Model, ctxLen, port int, prev localmodel.Serving, hadPrev, add bool, fit modelVerdict, rt modelRT) error {
+func modelServeDetached(ctx context.Context, h localmodel.Home, m localmodel.Model, adapter *localmodel.Adapter, ctxLen, port int, prev localmodel.Serving, hadPrev, add bool, fit modelVerdict, rt modelRT) error {
 	ref := m.Path
 	if _, err := h.Find(m.ID); err == nil {
 		ref = m.ID
 	}
 	args := []string{"model", "serve", ref, "--yes", "--ctx", strconv.Itoa(ctxLen)}
+	if adapter != nil {
+		args = append(args, "--adapter", adapter.Path) // the path: the child resolves the same file
+	}
 	if port > 0 {
 		args = append(args, "--port", strconv.Itoa(port))
 	}
@@ -1229,6 +1243,9 @@ func modelStatusOne(s localmodel.Serving) {
 	fmt.Fprintf(modelOut, "serving %q\n", s.Band)
 	fmt.Fprintf(modelOut, "  model    %s\n  file     %s\n  quant    %s\n  sha256   %s\n  context  %d\n",
 		s.ID, s.File, modelDash(s.Quant), modelDash(s.SHA256), s.Ctx)
+	if s.Adapter != "" {
+		fmt.Fprintf(modelOut, "  adapter  %s (a LoRA on the model above)\n", s.Adapter)
+	}
 	fmt.Fprintf(modelOut, "  runtime  llama.cpp %s, pid %d, for %s\n  address  %s\n",
 		s.Runtime, s.RuntimePID, edge.Age(time.Since(s.Started)), s.BaseURL)
 	if tps := modelMeasured(s); tps > 0 {
@@ -1236,6 +1253,34 @@ func modelStatusOne(s localmodel.Serving) {
 	} else if est := modelEstimate(s); est != "" {
 		fmt.Fprintf(modelOut, "  speed    %s - nothing answered yet to measure\n", est)
 	}
+}
+
+// modelAdapterFor is the LoRA named by --adapter (a path, or a name among the files the owner
+// copied in), checked against the model it will ride on: an adapter trained for another family
+// would be taken by the runtime and answer nonsense (edge_device_runtime.feature §2). "" is none.
+func modelAdapterFor(h localmodel.Home, m localmodel.Model, ref string) (*localmodel.Adapter, error) {
+	if ref == "" {
+		return nil, nil
+	}
+	var ad localmodel.Adapter
+	var err error
+	if _, serr := os.Stat(ref); serr == nil && strings.HasSuffix(strings.ToLower(ref), ".gguf") {
+		ad, err = localmodel.AdapterAt(ref)
+	} else {
+		ad, err = h.FindAdapter(ref)
+		if errors.Is(err, localmodel.ErrUnknownAdapter) {
+			err = fmt.Errorf("no adapter %q on this machine: name an adapter file in %s, or give its path", ref, h.Models())
+		}
+	}
+	if err != nil {
+		return nil, err
+	}
+	if base, berr := detect.ReadShape(m.Path); berr == nil || base.Arch != "" {
+		if ad.Arch != "" && base.Arch != "" && !strings.EqualFold(ad.Arch, base.Arch) {
+			return nil, fmt.Errorf("%s was trained for a %s model and %s is %s: it cannot ride on it", ad.File, ad.Arch, m.ID, base.Arch)
+		}
+	}
+	return &ad, nil
 }
 
 // modelBeside is what stays on the air when m is added beside it, or why m cannot be: one band

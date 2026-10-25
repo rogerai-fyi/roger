@@ -46,6 +46,7 @@ type Shape struct {
 	// decided before any arithmetic is tried.
 	Kind      string
 	BaseModel string // general.base_model.0.name: what an adapter was trained on, when recorded
+	Arch      string // general.architecture, as the header spells it
 }
 
 // CacheKind is the width of one KV element, which the owner can choose and which roughly halves
