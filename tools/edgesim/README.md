@@ -77,7 +77,9 @@ What it found (all fixed):
 - A model shared with `roger --lan share` on a Pi never reached its Edge: a band detected as "chat"
   skipped the record the Edge face reads.
 - Two roger processes on one machine never heard each other (host mode): Go's multicast listener turns
-  loopback off. roger's listener turns it on, and a machine hearing its own advert skips it.
+  loopback off. roger's listener turns it on, and a machine hearing its own advert skips it. Turning it
+  on showed a second fault: on Linux one packet sent on three interfaces was heard nine times, by every
+  socket. Each socket now hears only the interface it joined.
 
 The simulated Edge is self-contained: rootless containers live on a network the host cannot see, so
 they do not join an Edge rooted on the host, and a host roger that enrolls into the simulated hub
