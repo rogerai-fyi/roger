@@ -143,7 +143,16 @@ AROGER="${EDGESIM_AUTHORITY_ROGER:-roger}"
 
 auth() { if [ -n "${EDGESIM_AUTHORITY_CONFIG:-}" ]; then XDG_CONFIG_HOME="$EDGESIM_AUTHORITY_CONFIG" "$AROGER" "$@"; else "$AROGER" "$@"; fi; }
 hport() { echo $((44100 + ${1##*-})); } # sim-pi-3 faces on 44103
-halive() { local f="$HSTATE/$1/pid"; [ -s "$f" ] && kill -0 "$(cat "$f")" 2>/dev/null; }
+hname() { case "${1:-}" in sim-pi-[0-9]*) [ -d "$HSTATE/$1" ] && return 0 ;; esac; say "no simulated Pi named '${1:-}' (see: $0 host status)"; exit 2; }
+# halive: the pid file names a live process that is still this simulated Pi's roger, not a process
+# that reused the pid after this machine restarted.
+halive() {
+	local f="$HSTATE/$1/pid" pid
+	[ -s "$f" ] || return 1
+	pid="$(cat "$f")"
+	case "$(ps -p "$pid" -o command= 2>/dev/null)" in "$HSTATE/roger edge run"*) return 0 ;; esac
+	return 1
+}
 hr() { local n="$1"; shift; XDG_CONFIG_HOME="$HSTATE/$n/config" ROGERAI_NO_UPDATE_CHECK=1 "$HSTATE/roger" "$@"; }
 
 hbuild() {
@@ -170,9 +179,9 @@ hstart() {
 
 hstop() {
 	local n="$1" pid
-	halive "$n" || return 0
+	halive "$n" || { rm -f "$HSTATE/$n/pid"; return 0; }
 	pid="$(cat "$HSTATE/$n/pid")"
-	kill "$pid"
+	kill "$pid" 2>/dev/null || true
 	for _ in $(seq 1 20); do kill -0 "$pid" 2>/dev/null || break; sleep 0.5; done
 	kill -0 "$pid" 2>/dev/null && kill -9 "$pid" || true
 	rm -f "$HSTATE/$n/pid"
@@ -181,7 +190,7 @@ hstop() {
 hjoin() {
 	local n="$1" out inv at=()
 	[ -n "${EDGESIM_AT:-}" ] && at=(--at "$EDGESIM_AT")
-	out="$(auth edge invite "${at[@]}" 2>&1 </dev/null)" || true
+	out="$(auth edge invite ${at[@]+"${at[@]}"} 2>&1 </dev/null)" || true
 	inv="$(printf '%s\n' "$out" | sed -n "s/^ *roger join '\(roger:[^']*\)'.*/\1/p" | head -1)"
 	[ -n "$inv" ] || { say "the authority printed no invite for $n:"; printf '%s\n' "$out"; return 1; }
 	hr "$n" join "$inv" "$n" </dev/null | grep -v 'update available' || true
@@ -205,7 +214,10 @@ host_up() {
 	say "up. watch it with: $0 host status   (or roger edge fleet on this machine)"
 }
 
-host_names() { [ -d "$HSTATE" ] && find "$HSTATE" -mindepth 1 -maxdepth 1 -type d -name 'sim-pi-*' -printf '%f\n' | sort -V; }
+host_names() {
+	local d
+	for d in "$HSTATE"/sim-pi-*/; do [ -d "$d" ] && basename "$d"; done | sort -t- -k3,3n
+}
 
 host_status() {
 	local n any=
@@ -220,11 +232,21 @@ host_status() {
 }
 
 host_down() {
-	local n
+	# A simulated Pi's state goes only once the authority has forgotten it: otherwise its name would
+	# stay on your Edge with nothing here to forget it by later.
+	local n out kept=
 	for n in $(host_names); do
 		hstop "$n"
-		auth edge forget "$n" --yes </dev/null 2>&1 | grep -v 'update available' || true
+		if out="$(auth edge forget "$n" --yes </dev/null 2>&1)"; then
+			printf '%s\n' "$out" | grep -v 'update available' || true
+			rm -rf "${HSTATE:?}/$n"
+		else
+			printf '%s\n' "$out"
+			say "$n is stopped but still on your Edge; kept its state - start the authority and run $0 host down again"
+			kept=1
+		fi
 	done
+	if [ -n "$kept" ]; then return 1; fi
 	rm -rf "$HSTATE"
 	say "host mode down"
 }
@@ -233,8 +255,8 @@ host() {
 	case "${1:-}" in
 	up) shift; host_up "$@" ;;
 	status) host_status ;;
-	reboot) hstop "$2"; hstart "$2"; say "$2 restarted" ;;
-	roger) n="$2"; shift 2; hr "$n" "$@" ;;
+	reboot) hname "${2:-}"; hstop "$2"; hstart "$2"; say "$2 restarted" ;;
+	roger) hname "${2:-}"; n="$2"; shift 2; hr "$n" "$@" ;;
 	down) host_down ;;
 	*) say "host: up [N] | status | reboot <name> | roger <name> <args...> | down"; exit 2 ;;
 	esac

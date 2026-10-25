@@ -1,6 +1,7 @@
 package wire
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -300,6 +301,7 @@ type Responder struct {
 	host    string
 	ips     []net.IP
 	liveIPs func() []net.IP // when set, the addresses are read fresh for every answer
+	now     func() time.Time
 
 	mu sync.Mutex
 	ad Advert
@@ -330,9 +332,18 @@ func (r *Responder) Packet() ([]byte, error) {
 	return buildResponse(r.service, ad.NodeID, r.host, uint16(ad.Port), ad.TXT(), ips)
 }
 
+// answerOnceWindow is how long an identical query goes unanswered after an answer.
+const answerOnceWindow = 250 * time.Millisecond
+
 // Serve answers browse queries until ctx is done.
 func (r *Responder) Serve(ctx context.Context) error {
 	buf := make([]byte, maxMsgSize)
+	now := time.Now
+	if r.now != nil {
+		now = r.now
+	}
+	var lastQ []byte
+	var lastAt time.Time
 	for {
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -352,6 +363,12 @@ func (r *Responder) Serve(ctx context.Context) error {
 		if !r.asksForUs(m) {
 			continue
 		}
+		// The answer is multicast, so every browser asking the same thing heard the last one.
+		t := now()
+		if bytes.Equal(buf[:n], lastQ) && t.Sub(lastAt) < answerOnceWindow {
+			continue
+		}
+		lastQ, lastAt = append(lastQ[:0], buf[:n]...), t
 		pkt, err := r.Packet()
 		if err != nil {
 			continue
