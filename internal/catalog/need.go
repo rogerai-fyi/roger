@@ -39,6 +39,13 @@ type Shape struct {
 	// it answers but not what it needs to fit. Both zero for a dense model.
 	Experts     int // <arch>.expert_count
 	ExpertsUsed int // <arch>.expert_used_count
+
+	// What the header says the file IS (general.type): "model", "adapter" (a LoRA that goes
+	// beside its base) or "mmproj" (a vision projector). Empty when the header does not say.
+	// Carried even when the shape is incomplete, because whether a file is a model at all is
+	// decided before any arithmetic is tried.
+	Kind      string
+	BaseModel string // general.base_model.0.name: what an adapter was trained on, when recorded
 }
 
 // CacheKind is the width of one KV element, which the owner can choose and which roughly halves

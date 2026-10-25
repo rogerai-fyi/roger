@@ -67,11 +67,8 @@ func ReadShape(path string) (catalog.Shape, error) {
 		return catalog.Shape{}, ErrNotReadable
 	}
 	s, rerr := parseGGUFShape(io.LimitReader(f, ggufHeaderBudget))
-	if rerr != nil {
-		return catalog.Shape{}, rerr
-	}
 	s.FileBytes = fi.Size()
-	return s, nil
+	return s, rerr // on an error the shape carries only what the header SAID (Kind, BaseModel)
 }
 
 // ShapeFromHeader reads a shape from an already-fetched header prefix, for the remote case where
@@ -110,7 +107,7 @@ func parseGGUFShape(r io.Reader) (catalog.Shape, error) {
 	if kvCount > 1<<20 {
 		return catalog.Shape{}, ErrNotReadable
 	}
-	arch := ""
+	arch, kind, base := "", "", ""
 	nums := map[string]int{}
 	counts := map[string]int{}
 	for i := uint64(0); i < kvCount; i++ {
@@ -128,8 +125,13 @@ func parseGGUFShape(r io.Reader) (catalog.Shape, error) {
 			if err != nil {
 				break
 			}
-			if key == "general.architecture" {
+			switch key {
+			case "general.architecture":
 				arch = strings.TrimSpace(s)
+			case "general.type":
+				kind = strings.TrimSpace(s)
+			case "general.base_model.0.name":
+				base = strings.TrimSpace(s)
 			}
 		case ggufTypeUint32, ggufTypeInt32:
 			var n uint32
@@ -176,7 +178,9 @@ func parseGGUFShape(r io.Reader) (catalog.Shape, error) {
 			}
 		}
 	}
-	return resolveShape(arch, nums, counts)
+	shape, err := resolveShape(arch, nums, counts)
+	shape.Kind, shape.BaseModel = kind, base // said even when the arithmetic cannot be
+	return shape, err
 }
 
 // compressedCacheFamily names the architecture families whose cache is not per-head, as a net

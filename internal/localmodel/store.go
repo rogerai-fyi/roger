@@ -75,7 +75,7 @@ func (h Home) List() ([]Model, error) {
 		if d.IsDir() || !strings.EqualFold(filepath.Ext(p), ".gguf") {
 			return nil
 		}
-		if why := Unservable(filepath.Base(p)); why != "" {
+		if why := UnservableAt(p); why != "" {
 			return nil
 		}
 		fi, err := d.Info()
@@ -232,6 +232,28 @@ func BandFor(name string) string {
 	return n
 }
 
+// UnservableAt is Unservable for a file on this disk: its name first, then what its own header
+// says it is. A LoRA adapter or a projector is named like a model more often than not (the Wave
+// fire-decision adapter is "fire-decision-adapter-f16.gguf"), and offering one as a model row
+// ends in a runtime that refuses it after the owner said yes.
+func UnservableAt(path string) string {
+	if why := Unservable(path); why != "" {
+		return why
+	}
+	shape, _ := detect.ReadShape(path) // Kind is carried even when the shape is incomplete
+	switch shape.Kind {
+	case "adapter":
+		why := "a LoRA adapter, which is served beside its base model rather than on its own"
+		if shape.BaseModel != "" {
+			why = "a LoRA adapter for " + shape.BaseModel + ", which is served beside that base model rather than on its own"
+		}
+		return why
+	case "mmproj":
+		return "a vision projector, which goes beside a model rather than being one"
+	}
+	return ""
+}
+
 var splitRE = regexp.MustCompile(`(?i)-\d{5}-of-\d{5}\.gguf$`)
 
 // Unservable is why a file cannot be served ON ITS OWN, or "" when it can. These are files every
@@ -261,7 +283,7 @@ func FromPath(p string) (Model, error) {
 	if err != nil || fi.IsDir() {
 		return Model{}, fmt.Errorf("no model file at %s", p)
 	}
-	if why := Unservable(abs); why != "" {
+	if why := UnservableAt(abs); why != "" {
 		return Model{}, fmt.Errorf("%s is %s", filepath.Base(abs), why)
 	}
 	return found(abs, fi.Size()), nil
