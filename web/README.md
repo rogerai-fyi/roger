@@ -60,6 +60,10 @@ The file is build input only and is not shipped.
 - **Wired labels** (`"wired": true`) are written in the page as `{{wave:<tier>.<label>}}`,
   e.g. `{{wave:giga.research-models.chip}}`, and `build.mjs` fills them in
   (`scripts/wave-status.mjs`). Change the `text` in the data file and every page follows.
+- **Stage words** (`{{wave-stage:<tier>}}`) render the tier's live `stage` as one short
+  public word from `stageWords` (`on-air` -> `ON AIR`, `training` -> `TRAINING`, ...). Nothing
+  is typed per page: change a tier's `stage` and every stage word follows. The homepage Labs
+  plate reads its Pico and Nano status this way.
 - **Hand-typed labels** (`"wired": false`) are prose, JSON-LD, the Playbox JS, and the
   research-models stage lines (`test/research-hardware.test.mjs` reads those from source).
   Edit the page and the data file together; `test/wave-status.test.mjs` fails if they drift.
