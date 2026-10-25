@@ -15,12 +15,23 @@
 #   edgesim tui [name]    open roger's screen on that member; it is on the Edge while the screen is open
 #   edgesim down          stop and remove everything (volumes too)
 #
+#   edgesim host up [N]   N simulated Pis as plain processes on THIS machine (sim-pi-1..N), joined to the
+#                         Edge rooted here - the real one, beside a physical Pi - with no root and no
+#                         containers. Needs the authority running (roger open on this machine).
+#   edgesim host status   each one's process and face port, then the authority's view
+#   edgesim host reboot <name>     stop and start one (a power cycle)
+#   edgesim host roger <name> <args...>   run roger as that machine
+#   edgesim host down     stop them, forget them on the authority, remove their state
+#
 #   EDGESIM_ROGER=/path/to/roger   run that prebuilt roger in every machine instead of building one
 #   EDGESIM_PREFIX=<word>          name the network, machines and volumes <word>-* (default edgesim),
 #                                  so a second simulated Edge never touches the first
 #   EDGESIM_PUBLISH=1              publish the hub's authority on this host at EDGESIM_PUBLISH_PORT
 #                                  (default 39019, clear of a roger authority's own 39009), so a phone
 #                                  on your network can join at http://<this host's address>:<that port>
+#   EDGESIM_AUTHORITY_ROGER=<path> the roger that runs the authority (host mode; default: roger on PATH)
+#   EDGESIM_AUTHORITY_CONFIG=<dir> the authority's XDG_CONFIG_HOME (host mode; default: your own)
+#   EDGESIM_AT=<address>:<port>    the address host-mode invites name (default: what the authority says)
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/../.." && pwd)"
@@ -122,7 +133,115 @@ desk() { # a member a person drives: joined like a Pi, but it runs no Edge of it
 	join "$name"
 }
 
+# --- host mode -----------------------------------------------------------------------------------
+# Containers cannot join an Edge rooted on this machine (their network is invisible to it), but two
+# roger processes on one machine share mDNS, so a simulated Pi run as a plain process with its own
+# config and face port is found like any other member - by this machine and by a physical Pi. It
+# trades isolation for that: no memory or CPU limit, no network cut, the host's own GPUs visible.
+HSTATE="${XDG_STATE_HOME:-$HOME/.local/state}/edgesim/$P-host"
+AROGER="${EDGESIM_AUTHORITY_ROGER:-roger}"
+
+auth() { if [ -n "${EDGESIM_AUTHORITY_CONFIG:-}" ]; then XDG_CONFIG_HOME="$EDGESIM_AUTHORITY_CONFIG" "$AROGER" "$@"; else "$AROGER" "$@"; fi; }
+hport() { echo $((44100 + ${1##*-})); } # sim-pi-3 faces on 44103
+halive() { local f="$HSTATE/$1/pid"; [ -s "$f" ] && kill -0 "$(cat "$f")" 2>/dev/null; }
+hr() { local n="$1"; shift; XDG_CONFIG_HOME="$HSTATE/$n/config" ROGERAI_NO_UPDATE_CHECK=1 "$HSTATE/roger" "$@"; }
+
+hbuild() {
+	mkdir -p "$HSTATE"
+	if [ -n "${EDGESIM_ROGER:-}" ]; then
+		[ -x "$EDGESIM_ROGER" ] || { say "EDGESIM_ROGER=$EDGESIM_ROGER is not an executable roger"; exit 1; }
+		cp "$EDGESIM_ROGER" "$HSTATE/roger.new"
+	else
+		say "building roger for the simulated Pis"
+		(cd "$REPO" && GOTMPDIR="${GOTMPDIR:-$HOME/.cache/gotmp}" TMPDIR="${TMPDIR:-$HOME/.cache/gotmp}" \
+			go build -ldflags "-X rogerai.fm/roger/v6/internal/buildinfo.Version=$(cd "$REPO" && git describe --always --dirty)-edgesim" -o "$HSTATE/roger.new" ./cmd/rogerai)
+	fi
+	mv -f "$HSTATE/roger.new" "$HSTATE/roger"
+}
+
+hstart() {
+	local n="$1" d="$HSTATE/$1"
+	halive "$n" && return 0
+	# Each listens for its face on every address, so a physical Pi can dial it too.
+	XDG_CONFIG_HOME="$d/config" ROGERAI_NO_UPDATE_CHECK=1 ROGERAI_EDGE_BIND=":$(hport "$n")" \
+		ROGERAI_EDGE_MACHINE="$MODEL" setsid "$HSTATE/roger" edge run </dev/null >>"$d/log" 2>&1 &
+	echo $! >"$d/pid"
+}
+
+hstop() {
+	local n="$1" pid
+	halive "$n" || return 0
+	pid="$(cat "$HSTATE/$n/pid")"
+	kill "$pid"
+	for _ in $(seq 1 20); do kill -0 "$pid" 2>/dev/null || break; sleep 0.5; done
+	kill -0 "$pid" 2>/dev/null && kill -9 "$pid" || true
+	rm -f "$HSTATE/$n/pid"
+}
+
+hjoin() {
+	local n="$1" out inv at=()
+	[ -n "${EDGESIM_AT:-}" ] && at=(--at "$EDGESIM_AT")
+	out="$(auth edge invite "${at[@]}" 2>&1 </dev/null)" || true
+	inv="$(printf '%s\n' "$out" | sed -n "s/^ *roger join '\(roger:[^']*\)'.*/\1/p" | head -1)"
+	[ -n "$inv" ] || { say "the authority printed no invite for $n:"; printf '%s\n' "$out"; return 1; }
+	hr "$n" join "$inv" "$n" </dev/null | grep -v 'update available' || true
+	[ -s "$HSTATE/$n/config/rogerai/edge/node.crt" ] || { say "$n did not join (see above)"; return 1; }
+}
+
+host_up() {
+	local n="${1:-3}"
+	command -v "$AROGER" >/dev/null || { say "no authority roger: $AROGER (set EDGESIM_AUTHORITY_ROGER)"; exit 1; }
+	auth edge invite --help >/dev/null 2>&1 || { say "$AROGER has no 'edge invite': point EDGESIM_AUTHORITY_ROGER at this branch's build"; exit 1; }
+	hbuild
+	for i in $(seq 1 "$n"); do
+		local pi="sim-pi-$i"
+		mkdir -p "$HSTATE/$pi/config"
+		if [ ! -s "$HSTATE/$pi/config/rogerai/edge/node.crt" ]; then
+			say "joining $pi"
+			hjoin "$pi"
+		fi
+		if halive "$pi"; then say "$pi is already running"; else say "starting $pi (face port $(hport "$pi"))"; hstart "$pi"; fi
+	done
+	say "up. watch it with: $0 host status   (or roger edge fleet on this machine)"
+}
+
+host_names() { [ -d "$HSTATE" ] && find "$HSTATE" -mindepth 1 -maxdepth 1 -type d -name 'sim-pi-*' -printf '%f\n' | sort -V; }
+
+host_status() {
+	local n any=
+	for n in $(host_names); do
+		any=1
+		if halive "$n"; then printf '  %-10s running (pid %s), face port %s\n' "$n" "$(cat "$HSTATE/$n/pid")" "$(hport "$n")"
+		else printf '  %-10s stopped\n' "$n"; fi
+	done
+	[ -n "$any" ] || { say "no simulated Pis on this machine: $0 host up"; return; }
+	echo
+	auth edge 2>&1 </dev/null | grep -v 'update available' || true
+}
+
+host_down() {
+	local n
+	for n in $(host_names); do
+		hstop "$n"
+		auth edge forget "$n" --yes </dev/null 2>&1 | grep -v 'update available' || true
+	done
+	rm -rf "$HSTATE"
+	say "host mode down"
+}
+
+host() {
+	case "${1:-}" in
+	up) shift; host_up "$@" ;;
+	status) host_status ;;
+	reboot) hstop "$2"; hstart "$2"; say "$2 restarted" ;;
+	roger) n="$2"; shift 2; hr "$n" "$@" ;;
+	down) host_down ;;
+	*) say "host: up [N] | status | reboot <name> | roger <name> <args...> | down"; exit 2 ;;
+	esac
+}
+
 case "${1:-}" in
+host) shift; host "$@" ;;
 up) shift; up "$@" ;;
 status) r hub edge 2>&1 | grep -v 'update available' ;;
 fleet) podman exec -it "$HUB" roger edge fleet ;;

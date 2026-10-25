@@ -29,9 +29,32 @@ roger in every machine instead of building one, `EDGESIM_PREFIX=<word>` names a 
 so it never touches the first, and `EDGESIM_PUBLISH=1` publishes the hub's authority on this host at
 `EDGESIM_PUBLISH_PORT` (default 39019) so a phone on your network can join it by address.
 
-Two roger processes on one machine share mDNS (Go's multicast listener sets SO_REUSEADDR): a second
-instance with its own config and face port (`XDG_CONFIG_HOME`, `ROGERAI_EDGE_BIND`) is discovered
-like any other member.
+Two roger processes on one machine share mDNS: Go's multicast listener sets SO_REUSEADDR, and roger
+turns multicast loopback back on (Go turns it off), so a second instance with its own config and face
+port (`XDG_CONFIG_HOME`, `ROGERAI_EDGE_BIND`) is discovered like any other member.
+
+## Beside a physical Pi: host mode
+
+The containers form an Edge of their own. To put simulated Pis on the Edge rooted on THIS machine, the
+real one a physical Pi joined, run them as plain processes instead. No root, no containers:
+
+```sh
+tools/edgesim/edgesim host up 3          # sim-pi-1..3, each joined with an invite from your authority
+tools/edgesim/edgesim host status        # their processes, then your authority's `roger edge`
+tools/edgesim/edgesim host reboot sim-pi-2
+tools/edgesim/edgesim host roger sim-pi-1 model status
+tools/edgesim/edgesim host down          # stop them, forget them on your authority, remove their state
+```
+
+The authority must be running (roger open on this machine) and must be this branch's build:
+`EDGESIM_AUTHORITY_ROGER=/path/to/roger` names it, `EDGESIM_AUTHORITY_CONFIG=<dir>` points at a
+different authority's config, and `EDGESIM_AT=<address>:<port>` overrides the address invites name.
+Each simulated Pi keeps its config, log and pid under `~/.local/state/edgesim/` and faces on port
+`44100 + n`, on every address, so the physical Pi dials it too.
+
+What host mode gives up: no memory or CPU limit, no network cut (`reboot` is the drop it has), and the
+host's GPUs are visible, so a simulated Pi here judges models against this machine. Every simulated
+Pi is named `sim-pi-*` so it never passes for a real board on your Edge.
 
 `EDGESIM_MODEL` sets the board name (default `Raspberry Pi 5 Model B Rev 1.0`). Each Pi is held to a Pi 5's
 resources - `EDGESIM_MEMORY` (default `8g`) and `EDGESIM_CPUS` (default `4`) - and cannot see the host's GPUs.
@@ -53,10 +76,12 @@ What it found (all fixed):
   listening only on the address it started with. The face now follows address changes.
 - A model shared with `roger --lan share` on a Pi never reached its Edge: a band detected as "chat"
   skipped the record the Edge face reads.
+- Two roger processes on one machine never heard each other (host mode): Go's multicast listener turns
+  loopback off. roger's listener turns it on, and a machine hearing its own advert skips it.
 
 The simulated Edge is self-contained: rootless containers live on a network the host cannot see, so
 they do not join an Edge rooted on the host, and a host roger that enrolls into the simulated hub
 (through the published port) is never seen: members are found by mDNS and verified by dialing their
 face, and neither crosses the boundary. A phone is the exception, because it pushes its presence to
-the authority instead of being dialed. Joining real and simulated machines on one Edge needs a
-host-visible bridge (rootful podman), which is set up by the owner, never by this script.
+the authority instead of being dialed. Host mode (above) is the way to mix real and simulated machines
+on one Edge.
