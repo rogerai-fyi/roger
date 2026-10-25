@@ -1,5 +1,7 @@
-# STATUS: PROPOSED 2026-10-24. Not approved. No step definitions, no code. Waiting on founder rulings
-# marked RULING NEEDED. Context: ~/ai/rogerai-internal-docs/LOCAL-MODELS-CLI-STATUS-2026-10-24.md and
+# STATUS: PROPOSED 2026-10-24. Founder said "continue to iterate and enhance" twice on 2026-10-24
+# after ruling that Wave is a file the owner copies in; the scenarios marked BUILT below were built
+# on wt/jetson-local on that word, each pinned by a unit test (named at the scenario). The rest wait.
+# Still RULING NEEDED: section 4 (the Jetson runtime). Not yet executable under godog. Context: ~/ai/rogerai-internal-docs/LOCAL-MODELS-CLI-STATUS-2026-10-24.md and
 # JETSON-EDGE-HANDOFF-2026-10-24.md (private repo).
 #
 # WHY THIS EXISTS
@@ -32,6 +34,7 @@ Feature: A Wave model on an edge device, from the RogerAI channel, on a runtime 
   # roger knows about it (licence "-", sha256 "-"), an adapter file beside it is listed as a model,
   # and LAN mode did not see the serve at all (fixed, section 6).
 
+  # BUILT before this spec (verified live 2026-10-24); "served from a file" wording: partly, status says licence "-"
   Scenario: a file the owner points at is served as it is
     Given the file "/media/usb/wave-nano-1p45b-Q4_K_M.gguf" the owner copied over
     When the owner runs "roger model serve /media/usb/wave-nano-1p45b-Q4_K_M.gguf"
@@ -39,12 +42,14 @@ Feature: A Wave model on an edge device, from the RogerAI channel, on a runtime 
     And the model hub is never asked about it
     And "roger model status" says it was served from a file and names the path
 
+  # BUILT before this spec (verified live 2026-10-24)
   Scenario: a file dropped into the models directory is a row by its name
     Given the owner copied "wave-nano-1p45b-Q4_K_M.gguf" into the models directory
     When the owner runs "roger model list"
     Then the row "wave-nano-1p45b-Q4_K_M" is marked "found", with its size and quant from its name
     And "roger model serve wave-nano-1p45b" serves it without a fetch
 
+  # NOT BUILT: the record format (roger-model.json) is a new contract; needs approval
   Scenario: a release folder beside the file is read for what the name cannot say
     Given the owner copied a folder holding "wave-nano-1p45b-Q4_K_M.gguf" and a "roger-model.json" beside it
     And that record names the model, its licence, its sha256, its chat template, its add_bos override and its adapters
@@ -52,12 +57,14 @@ Feature: A Wave model on an edge device, from the RogerAI channel, on a runtime 
     Then the row carries the record's name and licence, and the digest is checked against the file
     And a record whose digest does not match the file is said so, and the row is still served on the owner's word
 
+  # BUILT 2026-10-24 (d37d3efb): TestAHandPlacedFileIsDigestedOnceItIsOnTheAir, TestADigestForAServeThatLeftTheAirWritesNoServeRecord
   Scenario: the digest of a hand-placed file is computed once and remembered
     Given a hand-placed file with no record beside it
     When the owner runs "roger model serve" on it
     Then roger computes the file's sha256 in the background and records it beside the file
     And a later "roger model status" shows the digest instead of "-"
 
+  # NOT BUILT: needs the catalog to mark RogerAI-channel entries
   Scenario: a Wave name that is not on this machine is not looked up on the hub
     Given no file for "wave-nano-1.45b" is on this machine
     And the catalog marks "wave-nano-1.45b" as RogerAI-channel only
@@ -65,6 +72,7 @@ Feature: A Wave model on an edge device, from the RogerAI channel, on a runtime 
     Then roger says the file is not on this machine and how to put it there
     And the model hub is never asked
 
+  # NOT BUILT
   Scenario: a nearby serve names the exact file, and the file still comes from the owner
     Given the workstation serves "wave-nano-1p45b" as a station this machine can see
     And the station reports the exact file and digest it serves (internal/servedfile)
@@ -92,12 +100,14 @@ Feature: A Wave model on an edge device, from the RogerAI channel, on a runtime 
     And llama-server is started with "--lora" naming that file
     And the band is named "wave-nano-1.45b+fire-decision" so a reader cannot mistake it for the base
 
+  # BUILT 2026-10-24 (f0267daf), minus "listed under its base model": it is not listed; TestAnAdapterOrProjectorByHeaderIsNotAModelRow
   Scenario: an adapter file is not offered as a model
     Given the file "fire-decision-adapter-f16.gguf" whose GGUF header says general.type is "adapter"
     When the owner runs "roger model list"
     Then it is listed under its base model as an adapter, not as a model row
     And "roger model serve fire-decision-adapter-f16" is refused in one sentence naming its base model
 
+  # BUILT 2026-10-24 (f0267daf): not listed; TestAnAdapterOrProjectorByHeaderIsNotAModelRow
   Scenario: a projector file is not offered as a model
     Given the file "nano-vl-v7cropcpen-mmproj-f16.gguf" whose GGUF header says general.type is "mmproj"
     When the owner runs "roger model list"
@@ -116,6 +126,7 @@ Feature: A Wave model on an edge device, from the RogerAI channel, on a runtime 
   # asks the market first. An owner who just ran "roger model serve" and then "roger use" of the
   # same name should not be sent to the market for the model under their hands.
 
+  # BUILT 2026-10-24: TestRogerUsePrefersWhatThisMachineServes (cmd/rogerai), verified live
   Scenario: roger use prefers the model this machine serves
     Given this machine serves "wave-nano-1.45b" with "roger model serve"
     And the market also lists "wave-nano-1.45b" from another station
@@ -123,6 +134,7 @@ Feature: A Wave model on an edge device, from the RogerAI channel, on a runtime 
     Then the local proxy is pointed at this machine's own serve
     And the first line says it is local, at no cost, and names the port
 
+  # BUILT 2026-10-24 in the relay (relaySelfFirst before relayEdgeFirst); a session OPENED on the own serve is pinned to this machine and the Edge, it does not fall to the market mid-session
   Scenario: the order is own serve, then Edge, then market
     Given this machine does not serve "wave-nano-1.45b"
     And an Edge member this machine belongs to serves it
@@ -130,6 +142,7 @@ Feature: A Wave model on an edge device, from the RogerAI channel, on a runtime 
     Then the Edge member is chosen before any market station
     And the market is asked only when neither this machine nor the Edge serves the name
 
+  # BUILT 2026-10-24: TestRogerUsePrefersWhatThisMachineServes
   Scenario: --market asks the market on purpose
     Given this machine serves "wave-nano-1.45b"
     When the owner runs "roger use wave-nano-1.45b --market"
@@ -192,6 +205,7 @@ Feature: A Wave model on an edge device, from the RogerAI channel, on a runtime 
 
   # 6. REGRESSIONS FOUND LIVE ON 2026-10-24 (fixed on wt/jetson-local, pinned by unit tests)
 
+  # BUILT 2026-10-24 (15082fd3): TestLANSelfBandsListWhatRogerModelServeHasOnTheAir
   Scenario: the LAN dial lists what roger model serve has on the air
     Given this machine serves "wave-nano-1p45b" with "roger model serve"
     And nothing is shared and no Edge is joined
@@ -199,6 +213,7 @@ Feature: A Wave model on an edge device, from the RogerAI channel, on a runtime 
     Then "wave-nano-1p45b" is listed from this machine
     And "roger --lan use wave-nano-1p45b" opens a channel to this machine
 
+  # BUILT 2026-10-24 (15082fd3): TestAnUnjudgeableFileServedOnYourWordGetsTheDefaultContext
   Scenario: a file whose header cannot be judged serves at the default context in the background
     Given a file whose GGUF header carries none of the fields the fit arithmetic needs
     When the owner runs "roger model serve <that file> --detach"
