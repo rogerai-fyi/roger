@@ -379,13 +379,15 @@ func (d *Discovery) RunOnce(ctx context.Context) Report {
 		d.unavailable(err.Error())
 	}
 	rep.Seen, rep.Dropped = res.Seen, res.Dropped
+	peers := 0
 	for _, ad := range res.Adverts {
 		if ad.NodeID == d.opts.Self.NodeID {
 			continue // ourselves, heard back off the group
 		}
+		peers++
 		d.consider(ctx, ad, &rep)
 	}
-	if len(res.Adverts) == 0 {
+	if peers == 0 {
 		rep.Notes = append(rep.Notes, "no peers found")
 	}
 	if _, err := d.opts.Fleet.Sweep(d.cfg.CandidateTTL); err != nil {

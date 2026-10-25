@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/net/ipv4"
 )
 
 // ErrNoLAN is what discovery reports when there is no local network to discover on.
@@ -71,11 +73,25 @@ func NewMulticastTransport(ifaces []net.Interface) (Transport, error) {
 // interfaces come and go.
 func NewRejoiningMulticastTransport(list func() []net.Interface) (Transport, error) {
 	group := &net.UDPAddr{IP: net.ParseIP(mdnsGroupV4), Port: mdnsPort}
-	listen := func(ifi *net.Interface) (*net.UDPConn, error) { return net.ListenMulticastUDP("udp4", ifi, group) }
+	listen := func(ifi *net.Interface) (*net.UDPConn, error) { return listenMDNS(ifi, group) }
 	usable := func(ifi net.Interface) bool {
 		return ifi.Flags&net.FlagUp != 0 && ifi.Flags&net.FlagMulticast != 0 && HasLAN(InterfaceAddrs([]net.Interface{ifi}))
 	}
 	return newRejoiningTransport(list, listen, usable, group)
+}
+
+// listenMDNS joins group on ifi with multicast loopback on. net.ListenMulticastUDP turns loopback
+// off, and then a second roger on the same machine never hears this one.
+func listenMDNS(ifi *net.Interface, group *net.UDPAddr) (*net.UDPConn, error) {
+	c, err := net.ListenMulticastUDP("udp4", ifi, group)
+	if err != nil {
+		return nil, err
+	}
+	if err := ipv4.NewPacketConn(c).SetMulticastLoopback(true); err != nil {
+		_ = c.Close()
+		return nil, err
+	}
+	return c, nil
 }
 
 func newRejoiningTransport(list func() []net.Interface, listen func(*net.Interface) (*net.UDPConn, error),
