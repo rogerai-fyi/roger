@@ -512,6 +512,11 @@ func TestTwoServesAreTwoRecordsAndEachIsSaid(t *testing.T) {
 	h := Home{Dir: t.TempDir()}
 	defer func(f func(int) bool) { alive = f }(alive)
 	alive = func(int) bool { return true }
+	// The pids below are made up, and a real process may hold one of them (a kernel thread took
+	// pid 10 on one machine). The reused-pid check is the stale-record test's business; here every
+	// record's supervisor is the process that wrote it.
+	defer func(f func(int) (time.Time, bool, bool)) { procStart = f }(procStart)
+	procStart = func(int) (time.Time, bool, bool) { return time.Time{}, false, false }
 	t0 := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
 	second := Serving{Supervisor: 11, Port: 3011, Band: "second", ID: "a/second:Q4", Started: t0.Add(time.Minute)}
 	require.NoError(t, h.writeServing(second))
