@@ -82,19 +82,24 @@ func (h Home) List() ([]Model, error) {
 		if err != nil {
 			return nil
 		}
-		m := found(p, fi.Size())
-		if b, err := os.ReadFile(p + recordExt); err == nil {
-			var rec Model
-			if json.Unmarshal(b, &rec) == nil && rec.ID != "" {
-				rec.Path = p
-				m = rec
-			}
-		}
-		out = append(out, m)
+		out = append(out, recorded(found(p, fi.Size())))
 		return nil
 	})
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out, err
+}
+
+// recorded is the model as its record beside the file says, when there is one, else as found.
+// The path is always where the file IS, never what the record says.
+func recorded(m Model) Model {
+	if b, err := os.ReadFile(m.Path + recordExt); err == nil {
+		var rec Model
+		if json.Unmarshal(b, &rec) == nil && rec.ID != "" {
+			rec.Path = m.Path
+			return rec
+		}
+	}
+	return m
 }
 
 // found describes a file nobody recorded: what its name says, and nothing it does not.
@@ -286,5 +291,5 @@ func FromPath(p string) (Model, error) {
 	if why := UnservableAt(abs); why != "" {
 		return Model{}, fmt.Errorf("%s is %s", filepath.Base(abs), why)
 	}
-	return found(abs, fi.Size()), nil
+	return recorded(found(abs, fi.Size())), nil
 }
