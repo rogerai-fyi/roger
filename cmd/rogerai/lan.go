@@ -554,6 +554,11 @@ func lanEdgeBands() ([]client.LANEdgeBand, error) {
 // lanSelfBands is what this machine serves: its household's bands on air.
 func lanSelfBands() []string {
 	var out []string
+	for _, sv := range modelHome().LiveAll() { // what roger serves itself (source 1 of the dial)
+		if sv.BaseURL != "" {
+			out = append(out, sv.Band)
+		}
+	}
 	for _, in := range edge.Household(edgeInstancesDir(), time.Now()) {
 		out = append(out, in.Bands...)
 	}

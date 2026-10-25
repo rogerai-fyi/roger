@@ -963,6 +963,9 @@ func modelPlanFit(ctx context.Context, m localmodel.Model, b localmodel.Budget, 
 	case errors.Is(err, detect.ErrNotGenerative):
 		return 0, modelVerdict{}, fmt.Errorf("%s is an embedding model, not one you serve chat from", m.ID)
 	case err != nil:
+		if want <= 0 {
+			want = localmodel.DefaultCtx // the serve's own default; the detached child refuses a zero
+		}
 		return want, modelVerdict{line: fmt.Sprintf("cannot judge the fit (%v); serving on your word.", err)}, nil
 	}
 	v := localmodel.Judge(shape, b, want)
