@@ -1,5 +1,5 @@
 {
-  "_about": "Single source of a Wave model page's public facts. Build input only: not shipped. Pages render from it via {{card:<model>.<item>}} tokens (web/scripts/model-cards.mjs), so a number appears in exactly one place. Every measured item carries the R-number of web-external RESULTS-MATRIX.md and the date it was measured; ranges are published as ranges. Facts come only from the lab's UI handoff of 2026-10-20 and the release READMEs it names. To add a model page (Giga is next, when the lab supplies its facts): add an entry here with its page slug and status tier, build the page from the tokens, and add it to the Research menu, Models and status and the Wave family page; test/model-pages.test.mjs then holds it to the same rules. Status words (stage, band) are NOT here: they render from wave-status.json.",
+  "_about": "Single source of a Wave model page's public facts. Build input only: not shipped. Pages render from it via {{card:<model>.<item>}} tokens (web/scripts/model-cards.mjs), so a number appears in exactly one place. Every measured item carries the R-number of the lab's results log and the date it was measured; ranges are published as ranges. Facts come only from the lab's UI handoff of 2026-10-20 and the release READMEs it names. To add a model page (Giga is next, when the lab supplies its facts): add an entry here with its page slug and status tier, build the page from the tokens, and add it to the Research menu, Models and status and the Wave family page; test/model-pages.test.mjs then holds it to the same rules. Status words (stage, band) are NOT here: they render from wave-status.json.",
   "_meshCodes": ["T11", "T12", "T13", "T14", "T15", "T16", "T17"],
   "models": [
     {
@@ -38,12 +38,12 @@
       "measured": [
         { "id": "t01", "label": "Fault identification", "value": "72.2", "num": 72.2, "unit": "macro-F1", "ref": "R.373", "date": "2026-10-18" },
         { "id": "t02", "label": "Process state", "value": "68.4", "num": 68.4, "unit": "macro-F1", "ref": "R.373", "date": "2026-10-18" },
-        { "id": "t05", "label": "Tag truthfulness", "value": "48.1", "num": 48.1, "unit": "sealed", "ref": "R.373", "date": "2026-10-18" },
+        { "id": "t05", "label": "Tag truthfulness, before calibration", "value": "50.0", "num": 50.0, "unit": "macro-recall", "ref": "R.378", "date": "2026-10-18" },
         { "id": "t05-cal", "label": "Tag truthfulness, with the shipped per-class calibration", "value": "75.0", "num": 75.0, "unit": "macro-recall", "ref": "R.378", "date": "2026-10-18" },
         { "id": "gate-accept", "label": "Real work the gate accepts", "value": "55.4%", "num": 55.4, "ref": "R.378", "date": "2026-10-18" },
         { "id": "gate-precision", "label": "Precision when it answers", "value": "96.4%", "num": 96.4, "ref": "R.378", "date": "2026-10-18" },
         { "id": "oos", "label": "Out-of-scope input refused", "value": "100%", "num": 100, "ref": "R.378", "date": "2026-10-18" },
-        { "id": "false-alarm", "label": "False alarm on a healthy frame, per read, read on the previous release", "value": "2.7%", "num": 2.7, "better": "lower", "ref": "R.349", "date": "2026-10-14" },
+        { "id": "false-alarm", "label": "False alarm on a healthy frame, per read, read on the previous release", "value": "2.3&ndash;2.7%", "lo": 2.3, "hi": 2.7, "better": "lower", "ref": "R.349", "date": "2026-10-14" },
         { "id": "dup", "label": "Duplicated-line frames accepted wrong", "value": "0.7%", "num": 0.7, "better": "lower", "ref": "R.373", "date": "2026-10-18" },
         { "id": "mesh", "label": "IEB-Mesh fleet reading", "value": "94.6", "num": 94.6, "unit": "macro", "ref": "R.373", "date": "2026-10-18" },
         { "id": "comparator", "label": "Versus a popular open base of its size, fine-tuned identically, read on the previous release", "value": "+13 points", "ref": "R.360", "date": "2026-10-15" },

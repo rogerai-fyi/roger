@@ -1,7 +1,7 @@
 // The Wave model pages (Wave Pico, Wave Nano) and the data file they render from.
 //
 // web/src/data/model-cards.json is the ONE place a model's public facts live: every measured
-// number carries its R-number (RESULTS-MATRIX) and the date it was measured, and a page shows a
+// number carries its R-number (the lab's results log) and the date it was measured, and a page shows a
 // number only through a {{card:...}} token (scripts/model-cards.mjs), so a number appears in
 // exactly one place. Adding a model page later (Giga) is: a model entry in the data file, then a
 // page built from the tokens; the "every model has a page" checks below then hold it to the

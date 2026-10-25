@@ -270,8 +270,8 @@
   ]
  },
  "research-wave-nano.html": {
-  "sha": "0b17df268764ff0bd0a62e12d0f15fd3a8564f61129c8983c319c40200a3abb4",
-  "length": 10128,
+  "sha": "3576ca5bf92cf129b2249f96a18d44668ec4e509d9c24a38a1ae228295a1afb1",
+  "length": 10085,
   "hrefs": [
    "/research-models.html",
    "#measured",
@@ -283,8 +283,8 @@
   ]
  },
  "research-wave-pico.html": {
-  "sha": "d5a18814e7c6c5f57190a6bdcb00b9bc39051ff63c3b7d3fa595be124afafb8b",
-  "length": 8457,
+  "sha": "757fef1d76fb8b28d18c8ac333bf902acb6b95aaf4beafe2c3a614416393d130",
+  "length": 8509,
   "hrefs": [
    "/research-models.html",
    "#run",
