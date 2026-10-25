@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"rogerai.fm/roger/v6/internal/detect/gguftest"
 )
 
 // edge_device_runtime.feature §2 "an adapter is part of the entry and served with its base": the
@@ -19,23 +20,27 @@ func TestAnAdapterIsServedBesideItsBaseUnderACombinedBand(t *testing.T) {
 	h := Home{Dir: t.TempDir()}
 	dir := filepath.Join(h.Models(), "wave")
 	base := filepath.Join(dir, "Tiny-Q4_K_M.gguf")
-	ggufWithStrings(t, base, map[string]string{"general.architecture": "llama", "general.type": "model"})
+	gguftest.WriteStrings(t, base, map[string]string{"general.architecture": "llama", "general.type": "model"})
 	lora := filepath.Join(dir, "fire-decision-adapter-f16.gguf")
-	ggufWithStrings(t, lora, map[string]string{"general.architecture": "llama", "general.type": "adapter",
-		"general.base_model.0.name": "Nano Sft Instruct V3D"})
+	gguftest.WriteStrings(t, lora, map[string]string{"general.architecture": "llama", "general.type": "adapter",
+		"adapter.type": "lora", "general.base_model.0.name": "Nano Sft Instruct V3D"})
 	proj := filepath.Join(dir, "mmproj-f16.gguf")
-	ggufWithStrings(t, proj, map[string]string{"general.architecture": "clip", "general.type": "mmproj"})
+	gguftest.WriteStrings(t, proj, map[string]string{"general.architecture": "clip", "general.type": "mmproj"})
 
 	a, err := AdapterAt(lora)
 	require.NoError(t, err)
 	require.Equal(t, "fire-decision-adapter", a.Name())
 	require.Equal(t, "llama", a.Arch)
 	require.Equal(t, "Nano Sft Instruct V3D", a.Base)
-	for _, p := range []string{base, proj} {
+	cvec := filepath.Join(dir, "calm-control-vector.gguf")
+	gguftest.WriteStrings(t, cvec, map[string]string{"general.architecture": "llama", "general.type": "adapter", "adapter.type": "control_vector"})
+	for _, p := range []string{base, proj, cvec} {
 		_, err := AdapterAt(p)
 		require.Error(t, err, p)
 		require.Contains(t, err.Error(), "is not a LoRA adapter")
 	}
+	_, err = h.FindAdapter("calm-control-vector")
+	require.ErrorIs(t, err, ErrUnknownAdapter, "a control vector is not found as a LoRA")
 	_, err = AdapterAt(filepath.Join(dir, "absent.gguf"))
 	require.Error(t, err)
 
@@ -46,8 +51,8 @@ func TestAnAdapterIsServedBesideItsBaseUnderACombinedBand(t *testing.T) {
 	}
 	_, err = h.FindAdapter("Tiny-Q4_K_M")
 	require.ErrorIs(t, err, ErrUnknownAdapter, "a model is not found as an adapter")
-	ggufWithStrings(t, filepath.Join(h.Models(), "other", "fire-decision-adapter-f16.gguf"),
-		map[string]string{"general.architecture": "llama", "general.type": "adapter"})
+	gguftest.WriteStrings(t, filepath.Join(h.Models(), "other", "fire-decision-adapter-f16.gguf"),
+		map[string]string{"general.architecture": "llama", "general.type": "adapter", "adapter.type": "lora"})
 	_, err = h.FindAdapter("fire-decision-adapter")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "2 adapter files")

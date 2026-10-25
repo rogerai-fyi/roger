@@ -832,12 +832,16 @@ func cmdUse(cfg config, args []string) error {
 	// THIS MACHINE FIRST (edge_device_runtime.feature §3): a model roger serves itself opens
 	// without a market lookup, in every mode. LAN mode has its own ladder with the same rung
 	// first; --market skips it on purpose; a node, a Tower or a private band is what it names.
-	if !cfg.lan.LAN && !pinned && pinnedTower == "" && !f.market && f.freq == "" {
+	if !cfg.lan.LAN && !pinned && pinnedTower == "" && f.freq == "" {
 		if up, _ := lanSelfServe(bareModelID(t.model)); up != "" {
-			po.LANSelf = lanSelfServe
-			opt.Pinned = client.PinnedSelf
-			opt.LANSources = func(string) []client.LANSource {
-				return []client.LANSource{{Kind: client.LANSelf, Verified: true}}
+			if f.market {
+				fmt.Printf("this machine serves %s - skipped on request (--market)\n", bareModelID(t.model))
+			} else {
+				po.LANSelf = lanSelfServe
+				opt.Pinned = client.PinnedSelf
+				opt.LANSources = func(string) []client.LANSource {
+					return []client.LANSource{{Kind: client.LANSelf, Verified: true}}
+				}
 			}
 		}
 	}

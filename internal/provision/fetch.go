@@ -333,16 +333,25 @@ func fileMatches(path string, size int64, wantSum string) (bool, error) {
 	if err != nil || fi.Size() != size {
 		return false, err
 	}
-	f, err := os.Open(path)
+	sum, err := FileSum(path)
 	if err != nil {
 		return false, err
+	}
+	return sum == wantSum, nil
+}
+
+// FileSum is the sha256 of a whole file on disk, as hex.
+func FileSum(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
 	}
 	defer f.Close()
 	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {
-		return false, err
+		return "", err
 	}
-	return hex.EncodeToString(h.Sum(nil)) == wantSum, nil
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 func short(sum string) string {

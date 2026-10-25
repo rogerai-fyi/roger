@@ -10,11 +10,9 @@ package localmodel
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -23,6 +21,7 @@ import (
 
 	"rogerai.fm/roger/v6/internal/netbind"
 	"rogerai.fm/roger/v6/internal/onair"
+	"rogerai.fm/roger/v6/internal/provision"
 	"rogerai.fm/roger/v6/internal/runtime"
 )
 
@@ -239,7 +238,7 @@ func (h Home) Serve(ctx context.Context, o ServeOpts) (*runtime.Server, Serving,
 	}
 	s := Serving{
 		Supervisor: me, RuntimePID: srv.PID, BaseURL: srv.BaseURL, Port: port, Key: key, Band: o.Band(),
-		ID: o.Model.ID, File: o.Model.File, SHA256: o.Model.SHA256, Quant: o.Model.Quant, Ctx: o.Ctx,
+		ID: o.Model.ID, File: o.Model.File, SHA256: o.Model.Sum(), Quant: o.Model.Quant, Ctx: o.Ctx,
 		Runtime: o.Tag, Build: o.Build, Started: srv.Started,
 	}
 	if o.Adapter != nil {
@@ -250,46 +249,50 @@ func (h Home) Serve(ctx context.Context, o ServeOpts) (*runtime.Server, Serving,
 		_ = os.Remove(keyFile)
 		return nil, Serving{}, fmt.Errorf("serving started but could not be recorded, so it was stopped: %w", err)
 	}
-	if o.Model.SHA256 == "" {
+	if o.Model.Sum() == "" {
 		go h.digestLater(o.Model, s) // a hand-placed file: say its digest once it is known
 	}
 	return srv, s, nil
 }
 
 // digestLater computes the digest of a file nobody checked, after it is on the air so the owner
-// is not kept waiting, and records it beside the file and on the serve (edge_device_runtime.
-// feature §1 "the digest of a hand-placed file is computed once and remembered"). A file on a
-// read-only medium keeps no record and is digested again next time; the serve still says it.
-// Nothing is written for a serve that has since left the air.
+// is not kept waiting, and records it on the serve and, for a file in the models directory,
+// beside the file (edge_device_runtime.feature §1 "the digest of a hand-placed file is computed
+// once and remembered"). It is a DIGEST, not a check: the file stays one placed by hand, which
+// the disk budget never evicts. A file elsewhere (a USB stick, a download folder) gets no record
+// written beside it and is digested again next time. Nothing is written for a serve that has
+// since left the air: the record is re-read and must still be this serve's.
 func (h Home) digestLater(m Model, s Serving) {
 	defer digestDone()
-	sum, err := fileDigest(m.Path)
+	sum, err := provision.FileSum(m.Path)
 	if err != nil {
 		return
 	}
-	m.SHA256 = sum
-	_ = h.record(m)
-	if h.StillServing(s) {
-		s.SHA256 = sum
-		_ = h.writeServing(s)
+	if within(h.Models(), m.Path) {
+		m.Digest = sum
+		_ = h.record(m)
 	}
+	if cur, ok := h.readServing(s.Port); ok && cur.Supervisor == s.Supervisor && cur.Started.Equal(s.Started) {
+		cur.SHA256 = sum
+		_ = h.writeServing(cur)
+	}
+}
+
+// readServing is one port's record as it is on disk now, whoever wrote it.
+func (h Home) readServing(port int) (Serving, bool) {
+	b, err := os.ReadFile(h.recordPath(port))
+	if err != nil {
+		return Serving{}, false
+	}
+	var s Serving
+	if json.Unmarshal(b, &s) != nil {
+		return Serving{}, false
+	}
+	return s, true
 }
 
 // digestDone is signalled after each background digest; tests wait on it.
 var digestDone = func() {}
-
-func fileDigest(path string) (string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
-	d := sha256.New()
-	if _, err := io.Copy(d, f); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(d.Sum(nil)), nil
-}
 
 // portHeld reports whether a live serve, or one still loading, holds port.
 func (h Home) portHeld(port int) bool {

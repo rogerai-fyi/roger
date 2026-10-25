@@ -1,19 +1,18 @@
-# STATUS: PROPOSED 2026-10-24. Founder said "continue to iterate and enhance" twice on 2026-10-24
-# after ruling that Wave is a file the owner copies in; the scenarios marked BUILT below were built
-# on wt/jetson-local on that word, each pinned by a unit test (named at the scenario). The rest wait.
-# Still RULING NEEDED: section 4 (the Jetson runtime). Not yet executable under godog. Context: ~/ai/rogerai-internal-docs/LOCAL-MODELS-CLI-STATUS-2026-10-24.md and
-# JETSON-EDGE-HANDOFF-2026-10-24.md (private repo).
+# STATUS: PROPOSED 2026-10-24. Scenarios marked BUILT were built on the founder's word of that day,
+# each pinned by a unit test named at the scenario. The rest wait. Still RULING NEEDED: section 4
+# (the device runtime). Not yet executable under godog. The rulings behind this file and the
+# device test notes live in the private docs repository.
 #
 # WHY THIS EXISTS
 #
 # features/serving/local_models.feature gives a machine the whole flow: find, judge, fetch, serve.
 # features/edge/remote_model.feature does it to a machine you are not sitting at. Both assume two
-# things that are not true of a Jetson Orin Nano running a RogerAI Wave model:
+# things that are not true of a small edge device running a model the owner has as a FILE:
 #
-#   1. that the file lives on the model hub. Wave models are not published there (founder ruling
-#      2026-10-20): they are served free on the RogerAI CLI and share.
+#   1. that the file lives on the model hub. A model an owner carries over by hand (a USB stick, a
+#      copy over the network) is not there, and must never be looked up there.
 #   2. that the pinned runtime loads. The pinned arm64 builds need glibc 2.38 (measured, see
-#      internal/runtime/manifest.go). JetPack 6 is Ubuntu 22.04, glibc 2.35. roger would refuse.
+#      internal/runtime/manifest.go). A device on an older Ubuntu has 2.35. roger would refuse.
 #
 # And a serve that works is still not the one `roger use` picks unless roger is in LAN mode.
 #
@@ -24,11 +23,11 @@ Feature: A Wave model on an edge device, from the RogerAI channel, on a runtime 
 
   # 1. THE SOURCE IS A FILE THE OWNER PUTS THERE, NOT THE HUB
   #
-  # FOUNDER RULING 2026-10-24: Wave is not released to the public. RogerAI's own hardware carries
-  # the files; the owner copies them over (USB, scp, the lab's bundle script). roger must serve a
-  # file it is pointed at, or one dropped into its models directory, and never ask the hub for it.
+  # FOUNDER RULING 2026-10-24: some models reach a machine as a file the owner copies over (USB, a
+  # copy over the network). roger must serve a file it is pointed at, or one dropped into its
+  # models directory, and never ask the hub for it.
   #
-  # VERIFIED 2026-10-24 on the Edge line (wt/simple-join build): "roger model serve <path>.gguf"
+  # VERIFIED 2026-10-24 on the Edge line: "roger model serve <path>.gguf"
   # and a file copied into <config>/local/models/ served by its name both work, on loopback, key
   # gated, answering completions. What was missing is below: the file's name is the only thing
   # roger knows about it (licence "-", sha256 "-"), an adapter file beside it is listed as a model,
@@ -121,11 +120,13 @@ Feature: A Wave model on an edge device, from the RogerAI channel, on a runtime 
     Then roger says which runtime feature is missing and that the text model "wave-nano-1.45b" serves here
     And nothing is fetched
 
-  # 3. THIS MACHINE'S OWN SERVE COMES FIRST, IN EVERY MODE
+  # 3. THIS MACHINE'S OWN SERVE COMES FIRST FOR `roger use`
   #
   # LAN mode already lists the own serve as a band (cmd/rogerai/lan.go). Outside LAN mode roger use
-  # asks the market first. An owner who just ran "roger model serve" and then "roger use" of the
-  # same name should not be sent to the market for the model under their hands.
+  # asked the market first. An owner who just ran "roger model serve" and then "roger use" of the
+  # same name should not be sent to the market for the model under their hands. BUILT for `roger
+  # use` (the session and the relay's first rung); the TUI chat, the console and the agent outside
+  # LAN mode still take the Edge-then-market ladder and are a later slice.
 
   # BUILT 2026-10-24: TestRogerUsePrefersWhatThisMachineServes (cmd/rogerai), verified live
   Scenario: roger use prefers the model this machine serves
@@ -135,7 +136,7 @@ Feature: A Wave model on an edge device, from the RogerAI channel, on a runtime 
     Then the local proxy is pointed at this machine's own serve
     And the first line says it is local, at no cost, and names the port
 
-  # BUILT 2026-10-24 in the relay (relaySelfFirst before relayEdgeFirst); a session OPENED on the own serve is pinned to this machine and the Edge, it does not fall to the market mid-session
+  # BUILT 2026-10-24 for `roger use` (relaySelfFirst before relayEdgeFirst); a session OPENED on the own serve is pinned to this machine and its Edge and does not fall to the market mid-session; a dead own serve with no Edge is refused in this machine's words (TestOwnServeIsTheFirstRungAndItsFailureIsNamed)
   Scenario: the order is own serve, then Edge, then market
     Given this machine does not serve "wave-nano-1.45b"
     And an Edge member this machine belongs to serves it

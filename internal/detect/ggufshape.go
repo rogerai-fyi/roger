@@ -107,7 +107,7 @@ func parseGGUFShape(r io.Reader) (catalog.Shape, error) {
 	if kvCount > 1<<20 {
 		return catalog.Shape{}, ErrNotReadable
 	}
-	arch, kind, base := "", "", ""
+	arch, kind, base, adapterType := "", "", "", ""
 	nums := map[string]int{}
 	counts := map[string]int{}
 	for i := uint64(0); i < kvCount; i++ {
@@ -132,6 +132,8 @@ func parseGGUFShape(r io.Reader) (catalog.Shape, error) {
 				kind = strings.TrimSpace(s)
 			case "general.base_model.0.name":
 				base = strings.TrimSpace(s)
+			case "adapter.type":
+				adapterType = strings.TrimSpace(s)
 			}
 		case ggufTypeUint32, ggufTypeInt32:
 			var n uint32
@@ -179,7 +181,7 @@ func parseGGUFShape(r io.Reader) (catalog.Shape, error) {
 		}
 	}
 	shape, err := resolveShape(arch, nums, counts)
-	shape.Kind, shape.BaseModel, shape.Arch = kind, base, arch // said even when the arithmetic cannot be
+	shape.Kind, shape.BaseModel, shape.Arch, shape.AdapterType = kind, base, arch, adapterType // said even when the arithmetic cannot be
 	return shape, err
 }
 

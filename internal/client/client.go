@@ -1058,8 +1058,18 @@ func relayWithFailover(ctx context.Context, w http.ResponseWriter, opts ProxyOpt
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if relaySelfFirst(ctx, w, opts, crit.Model, body, onServed) {
+	// RUNG 1 outside LAN mode: what this machine serves itself (`roger use` sets LANSelf when
+	// the own serve is on the air; features/serving/edge_device_runtime.feature §3).
+	if served, failed := relaySelfFirst(ctx, w, opts, lanBand(crit.Model), body, onServed); served {
 		return
+	} else if failed != "" {
+		noteLANLeft(w, []string{failed})
+		if preferOf(opts.EdgePrefer) == "local-only" && opts.EdgePeers == nil {
+			// A session pinned to this machine with no Edge to fall to: say so in this machine's
+			// words, not an Edge's.
+			openAIError(w, http.StatusServiceUnavailable, "lan_error", "local_only", selfDownMessage(lanBand(crit.Model), failed))
+			return
+		}
 	}
 	if served, refused := relayEdgeFirst(ctx, w, opts, crit.Model, body, onServed); served || refused {
 		return

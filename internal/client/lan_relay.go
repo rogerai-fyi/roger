@@ -57,18 +57,10 @@ func relayLAN(ctx context.Context, w http.ResponseWriter, opts ProxyOptions, ban
 		return false, true
 	}
 	var tried []string
-	if opts.LANSelf != nil {
-		if up, key := opts.LANSelf(band); up != "" {
-			if resp, err := lanPost(ctx, opts, nil, up, body, false, key); err == nil {
-				onServed(0)
-				w.Header().Set("X-RogerAI-Cost", "0") // a LAN turn is free and says so
-				copyRelayResponse(w, resp, !opts.ReasoningFallbackOff, nil)
-				resp.Body.Close()
-				return true, false
-			} else {
-				tried = append(tried, "this machine: "+err.Error())
-			}
-		}
+	if ok, failed := relaySelfFirst(ctx, w, opts, band, body, onServed); ok {
+		return true, false
+	} else if failed != "" {
+		tried = append(tried, failed)
 	}
 	if len(tried) > 0 {
 		noteLANLeft(w, tried)
@@ -146,22 +138,22 @@ func relayLAN(ctx context.Context, w http.ResponseWriter, opts ProxyOptions, ban
 // PinnedSelf is the Pinned label of a session opened on this machine's own serve.
 const PinnedSelf = "this machine"
 
-// relaySelfFirst is rung 1 outside LAN mode: a model roger serves itself answers before any
-// Edge peer or the market (edge_device_runtime.feature §3 "this machine's own serve comes first,
-// in every mode"). A failed own serve is not a refusal: the turn goes on down the ladder, and
-// the answer names what was left behind. Nothing here is billed.
-func relaySelfFirst(ctx context.Context, w http.ResponseWriter, opts ProxyOptions, band string, body []byte, onServed func(float64)) bool {
+// relaySelfFirst is the self rung of every ladder: a model roger serves itself answers before
+// any Edge peer, Tower or the market (edge_device_runtime.feature §3). It reports served, or why
+// this machine did not answer ("" when it serves nothing for band); a failed own serve is not a
+// refusal here, the caller goes on down its ladder and the answer names what was left behind.
+// Nothing here is billed.
+func relaySelfFirst(ctx context.Context, w http.ResponseWriter, opts ProxyOptions, band string, body []byte, onServed func(float64)) (served bool, failed string) {
 	if opts.LANSelf == nil {
-		return false
+		return false, ""
 	}
-	up, key := opts.LANSelf(lanBand(band))
+	up, key := opts.LANSelf(band)
 	if up == "" {
-		return false
+		return false, ""
 	}
 	resp, err := lanPost(ctx, opts, nil, up, body, false, key)
 	if err != nil {
-		noteLANLeft(w, []string{"this machine: " + err.Error()})
-		return false
+		return false, "this machine: " + err.Error()
 	}
 	if onServed != nil {
 		onServed(0)
@@ -169,7 +161,13 @@ func relaySelfFirst(ctx context.Context, w http.ResponseWriter, opts ProxyOption
 	w.Header().Set("X-RogerAI-Cost", "0") // a turn on this machine is free and says so
 	copyRelayResponse(w, resp, !opts.ReasoningFallbackOff, nil)
 	resp.Body.Close()
-	return true
+	return true, ""
+}
+
+// selfDownMessage is the refusal for a session opened on this machine's own serve when that
+// serve stopped answering and there is no Edge to fall to: it names this machine, not an Edge.
+func selfDownMessage(band, failed string) string {
+	return "this machine's own serve of " + band + " did not answer (" + failed + ") and this session is pinned to it, so the market was not tried - `roger model status` says what is on the air; `roger use " + band + " --market` uses the market"
 }
 
 // lanBand is the band a requested model names: a routing variant suffix (:free, :nitro,

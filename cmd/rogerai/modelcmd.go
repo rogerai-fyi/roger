@@ -1275,10 +1275,8 @@ func modelAdapterFor(h localmodel.Home, m localmodel.Model, ref string) (*localm
 	if err != nil {
 		return nil, err
 	}
-	if base, berr := detect.ReadShape(m.Path); berr == nil || base.Arch != "" {
-		if ad.Arch != "" && base.Arch != "" && !strings.EqualFold(ad.Arch, base.Arch) {
-			return nil, fmt.Errorf("%s was trained for a %s model and %s is %s: it cannot ride on it", ad.File, ad.Arch, m.ID, base.Arch)
-		}
+	if base, _ := detect.ReadShape(m.Path); ad.Arch != "" && base.Arch != "" && !strings.EqualFold(ad.Arch, base.Arch) {
+		return nil, fmt.Errorf("%s was trained for a %s model and %s is %s: it cannot ride on it", ad.File, ad.Arch, m.ID, base.Arch)
 	}
 	return &ad, nil
 }

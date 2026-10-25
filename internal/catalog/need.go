@@ -47,6 +47,9 @@ type Shape struct {
 	Kind      string
 	BaseModel string // general.base_model.0.name: what an adapter was trained on, when recorded
 	Arch      string // general.architecture, as the header spells it
+	// AdapterType is adapter.type for a Kind of "adapter": "lora", or "control_vector", which
+	// llama-server takes through another flag and would answer nonsense under --lora.
+	AdapterType string
 }
 
 // CacheKind is the width of one KV element, which the owner can choose and which roughly halves

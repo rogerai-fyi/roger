@@ -32,11 +32,9 @@ func TestRogerUsePrefersWhatThisMachineServes(t *testing.T) {
 	t.Cleanup(own.Close)
 	h := modelHome()
 	require.NoError(t, os.MkdirAll(h.Dir, 0o700))
-	_, portStr, _ := net.SplitHostPort(strings.TrimPrefix(own.URL, "http://"))
 	rec, _ := json.Marshal(localmodel.Serving{Supervisor: os.Getpid(), Port: 43166, BaseURL: own.URL + "/v1", Key: "serve-key",
 		Band: "wave-nano-1p45b", ID: "wave-nano-1p45b-Q4_K_M", File: "wave-nano-1p45b-Q4_K_M.gguf", Quant: "Q4_K_M", Started: time.Now()})
 	require.NoError(t, os.WriteFile(filepath.Join(h.Dir, "serving-43166.json"), rec, 0o600))
-	_ = portStr
 
 	var handler http.Handler
 	restore := client.SetUseServe(func(ln net.Listener, hd http.Handler) error { handler = hd; return ln.Close() })
@@ -78,6 +76,7 @@ func TestRogerUsePrefersWhatThisMachineServes(t *testing.T) {
 	out, err = captureEdgeStdout(func() error { return cmdUse(cfg, []string{"wave-nano-1p45b", "--yes", "--market"}) })
 	require.NoError(t, err)
 	require.Nil(t, handler, "no local session was opened: %s", out)
+	require.Contains(t, out, "this machine serves wave-nano-1p45b - skipped on request (--market)")
 	require.Contains(t, out, "no station on air")
 
 	// A band this machine does not serve goes to the market as before.

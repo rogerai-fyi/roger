@@ -36,6 +36,7 @@ type Model struct {
 	Path    string    `json:"-"`                 // where it is on this disk
 	Bytes   int64     `json:"bytes"`             //
 	SHA256  string    `json:"sha256,omitempty"`  // checked on arrival; empty for a file roger found
+	Digest  string    `json:"digest,omitempty"`  // what roger computed of a file placed by hand, after the fact; never a check
 	Quant   string    `json:"quant,omitempty"`   //
 	License string    `json:"license,omitempty"` // shown and recorded, never a gate (ruling 2026-09-30)
 	Band    string    `json:"band"`              // the name it is served under
@@ -46,6 +47,15 @@ type Model struct {
 // Verified reports whether roger checked this file's digest itself. A file dropped into the
 // directory by hand is served on the owner's word, and the screens say so.
 func (m Model) Verified() bool { return m.SHA256 != "" }
+
+// Sum is the file's sha256 as best roger knows it: the check on arrival, else the digest it
+// computed later, else "". It says what the bytes are; it does not say roger fetched them.
+func (m Model) Sum() string {
+	if m.SHA256 != "" {
+		return m.SHA256
+	}
+	return m.Digest
+}
 
 // ErrUnknownModel is a name that matches nothing on this disk.
 var ErrUnknownModel = errors.New("no model by that name on this machine")
@@ -90,7 +100,8 @@ func (h Home) List() ([]Model, error) {
 }
 
 // recorded is the model as its record beside the file says, when there is one, else as found.
-// The path is always where the file IS, never what the record says.
+// The path is always where the file IS, never what the record says. A record is roger's own
+// writing (a fetch, or a digest it computed); it is read, not re-checked against the bytes.
 func recorded(m Model) Model {
 	if b, err := os.ReadFile(m.Path + recordExt); err == nil {
 		var rec Model

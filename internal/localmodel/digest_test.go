@@ -48,13 +48,21 @@ func TestAHandPlacedFileIsDigestedOnceItIsOnTheAir(t *testing.T) {
 	require.Equal(t, want, live.SHA256, "the serve on the air says the digest")
 	again, err := FromPath(p)
 	require.NoError(t, err)
-	require.Equal(t, want, again.SHA256, "a path lookup reads the record beside the file")
-	require.True(t, again.Verified())
+	require.Equal(t, want, again.Digest, "a path lookup reads the record beside the file")
+	require.Equal(t, want, again.Sum())
+	require.False(t, again.Verified(), "a digest is not a check on arrival: the file was still placed by hand")
 	all, err := h.List()
 	require.NoError(t, err)
 	require.Len(t, all, 1)
-	require.Equal(t, want, all[0].SHA256, "the list reads the same record")
+	require.Equal(t, want, all[0].Digest, "the list reads the same record")
+	require.Empty(t, all[0].SHA256)
 	require.Equal(t, p, all[0].Path)
+	require.NoError(t, srv.Stop(context.Background()))
+	h.Release(s)
+	require.NoError(t, h.SetSettings(Settings{DiskBudget: 64}))
+	_, err = h.RoomFor(40)
+	require.ErrorContains(t, err, "was placed by hand", "a hand-placed file is never one the budget may delete, digested or not")
+	require.NoError(t, h.SetSettings(Settings{}))
 
 	// A checked file is not digested again.
 	srv2, s2, err := h.Serve(context.Background(), ServeOpts{Model: again, Exe: os.Args[0], Tag: "bX", Port: 0,
@@ -70,7 +78,8 @@ func TestAHandPlacedFileIsDigestedOnceItIsOnTheAir(t *testing.T) {
 }
 
 // A serve that left the air before its digest was known gets no record resurrected: the file's
-// record is still written (the digest is true of the file), the serve's is not.
+// record is still written (the digest is true of the file), the serve's is not. A file outside
+// the models directory gets no record beside it at all.
 func TestADigestForAServeThatLeftTheAirWritesNoServeRecord(t *testing.T) {
 	h := Home{Dir: t.TempDir()}
 	p := filepath.Join(h.Models(), "by-hand-Q4_K_M.gguf")
@@ -83,5 +92,22 @@ func TestADigestForAServeThatLeftTheAirWritesNoServeRecord(t *testing.T) {
 	require.True(t, os.IsNotExist(err), "no serve record for a serve that is not on the air")
 	again, err := FromPath(p)
 	require.NoError(t, err)
-	require.True(t, again.Verified(), "the file's record is still written")
+	require.NotEmpty(t, again.Digest, "the file's record is still written")
+	require.False(t, again.Verified())
+
+	// Another serve's record on that port (a restart took it) is not touched either.
+	other := Serving{Supervisor: os.Getpid(), Port: 3999, Band: "other", ID: "other", Started: gone.Started.Add(time.Hour)}
+	require.NoError(t, h.writeServing(other))
+	h.digestLater(m, gone)
+	cur, ok := h.readServing(3999)
+	require.True(t, ok)
+	require.Empty(t, cur.SHA256, "a record that is not this serve's keeps its own digest field")
+
+	usb := filepath.Join(t.TempDir(), "media", "wave-Q4_K_M.gguf")
+	put(t, usb, "bytes on a stick")
+	um, err := FromPath(usb)
+	require.NoError(t, err)
+	h.digestLater(um, Serving{Supervisor: os.Getpid(), Port: 3998, Started: time.Now()})
+	_, err = os.Stat(usb + recordExt)
+	require.True(t, os.IsNotExist(err), "nothing is written beside a file outside the models directory")
 }

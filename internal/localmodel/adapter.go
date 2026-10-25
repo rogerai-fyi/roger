@@ -44,6 +44,13 @@ func AdapterAt(p string) (Adapter, error) {
 		}
 		return Adapter{}, fmt.Errorf("%s is not a LoRA adapter: %s", filepath.Base(abs), says)
 	}
+	if shape.AdapterType != "lora" {
+		says := "its header does not say what kind of adapter it is"
+		if shape.AdapterType != "" {
+			says = "its header says it is a " + shape.AdapterType + " adapter, which --lora cannot take"
+		}
+		return Adapter{}, fmt.Errorf("%s is not a LoRA adapter: %s", filepath.Base(abs), says)
+	}
 	return Adapter{Path: abs, File: filepath.Base(abs), Bytes: fi.Size(), Arch: shape.Arch, Base: shape.BaseModel}, nil
 }
 
