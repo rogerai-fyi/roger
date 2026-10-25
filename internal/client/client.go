@@ -1055,6 +1055,12 @@ func relayWithFailover(ctx context.Context, w http.ResponseWriter, opts ProxyOpt
 		relayLAN(ctx, w, opts, crit.Model, body, onServed)
 		return
 	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if relaySelfFirst(ctx, w, opts, crit.Model, body, onServed) {
+		return
+	}
 	if served, refused := relayEdgeFirst(ctx, w, opts, crit.Model, body, onServed); served || refused {
 		return
 	}

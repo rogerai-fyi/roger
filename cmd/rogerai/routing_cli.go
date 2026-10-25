@@ -147,6 +147,7 @@ type useFlags struct {
 	minCtx, maxTTFT                       intFlag
 	selfHosted, confidential, noFallbacks bool
 	advanced, yes, raw                    bool
+	market                                bool // go to the market even when this machine serves the model
 	port                                  int
 	// Edge and LAN addressing (features/edge/addressed_inference.feature,
 	// features/lan/routing_and_inference.feature): <model> may name a node on this Edge or,
@@ -202,6 +203,7 @@ advanced flags: --port --max-in --min-tps --confidential --yes --raw
   --confidential    route only to confidential (TEE-attested) stations
   --yes             skip the connect-time confirm (scripts, bots)
   --raw             disable the reasoning->content fallback for this session
+  --market          use the market even when this machine serves the model (roger model serve)
 `
 
 var flagNameRE = regexp.MustCompile(`-{1,2}([A-Za-z0-9][A-Za-z0-9_-]*)`)
@@ -290,6 +292,7 @@ func parseUseFlags(args []string) (f *useFlags, help bool, err error) {
 	fs.BoolVar(&f.advanced, "advanced", false, "")
 	fs.BoolVar(&f.yes, "yes", false, "")
 	fs.BoolVar(&f.raw, "raw", false, "")
+	fs.BoolVar(&f.market, "market", false, "")
 	fs.IntVar(&f.port, "port", 0, "")
 	fs.StringVar(&f.onModel, "model", "", "")
 	fs.StringVar(&f.key, "key", "", "")
@@ -825,6 +828,18 @@ func cmdUse(cfg config, args []string) error {
 		po.EdgePrefer = "local-only"
 		po.LANSelf, po.LANTowers = nil, nil
 		opt.Pinned = "edge: " + peer.Node
+	}
+	// THIS MACHINE FIRST (edge_device_runtime.feature §3): a model roger serves itself opens
+	// without a market lookup, in every mode. LAN mode has its own ladder with the same rung
+	// first; --market skips it on purpose; a node, a Tower or a private band is what it names.
+	if !cfg.lan.LAN && !pinned && pinnedTower == "" && !f.market && f.freq == "" {
+		if up, _ := lanSelfServe(bareModelID(t.model)); up != "" {
+			po.LANSelf = lanSelfServe
+			opt.Pinned = client.PinnedSelf
+			opt.LANSources = func(string) []client.LANSource {
+				return []client.LANSource{{Kind: client.LANSelf, Verified: true}}
+			}
+		}
 	}
 	opt.EdgePeers, opt.EdgePrefer, opt.EdgeCert, opt.EdgeVerify = po.EdgePeers, po.EdgePrefer, po.EdgeCert, po.EdgeVerify
 	opt.LANMode, opt.LANEdgeOnly, opt.LANSelf, opt.LANTowers, opt.LANHTTP, opt.LANResolve = po.LANMode, po.LANEdgeOnly, po.LANSelf, po.LANTowers, po.LANHTTP, po.LANResolve

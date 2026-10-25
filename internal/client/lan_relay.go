@@ -143,6 +143,35 @@ func relayLAN(ctx context.Context, w http.ResponseWriter, opts ProxyOptions, ban
 	return false, true
 }
 
+// PinnedSelf is the Pinned label of a session opened on this machine's own serve.
+const PinnedSelf = "this machine"
+
+// relaySelfFirst is rung 1 outside LAN mode: a model roger serves itself answers before any
+// Edge peer or the market (edge_device_runtime.feature §3 "this machine's own serve comes first,
+// in every mode"). A failed own serve is not a refusal: the turn goes on down the ladder, and
+// the answer names what was left behind. Nothing here is billed.
+func relaySelfFirst(ctx context.Context, w http.ResponseWriter, opts ProxyOptions, band string, body []byte, onServed func(float64)) bool {
+	if opts.LANSelf == nil {
+		return false
+	}
+	up, key := opts.LANSelf(lanBand(band))
+	if up == "" {
+		return false
+	}
+	resp, err := lanPost(ctx, opts, nil, up, body, false, key)
+	if err != nil {
+		noteLANLeft(w, []string{"this machine: " + err.Error()})
+		return false
+	}
+	if onServed != nil {
+		onServed(0)
+	}
+	w.Header().Set("X-RogerAI-Cost", "0") // a turn on this machine is free and says so
+	copyRelayResponse(w, resp, !opts.ReasoningFallbackOff, nil)
+	resp.Body.Close()
+	return true
+}
+
 // lanBand is the band a requested model names: a routing variant suffix (:free, :nitro,
 // :floor) changes how a turn is routed, never which band it is.
 func lanBand(model string) string {
@@ -326,6 +355,9 @@ func useLocal(broker, user, model string, opt UseOptions) error {
 	mode := "LAN"
 	if !opt.LANMode {
 		mode = "pinned"
+	}
+	if opt.Pinned == PinnedSelf {
+		mode = "local"
 	}
 	fmt.Printf("\n  %s CHANNEL OPEN %s · %s · %s\n", glyphOnAir, model, mode, label)
 	fmt.Printf("    source    %s\n", label)
