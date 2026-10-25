@@ -249,3 +249,55 @@ func TestABrowseOnlyInstanceAdvertisesNothing(t *testing.T) {
 	require.True(t, d.Browsing(), "it still looks for the owner's other machines")
 	require.Equal(t, 1, opened, "no socket is opened for an advertising half that does not exist")
 }
+
+// echoPlane answers every query with whatever packet hear() returns, once: a machine hearing its own
+// advert back off the group, which it does once multicast loopback is on (wire/transport.go).
+type echoPlane struct {
+	mu      sync.Mutex
+	hear    func() []byte
+	pending []byte
+}
+
+func (e *echoPlane) Send([]byte) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.pending = e.hear()
+	return nil
+}
+
+func (e *echoPlane) Recv(b []byte) (int, net.Addr, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.pending == nil {
+		return 0, nil, timeoutErr{}
+	}
+	n := copy(b, e.pending)
+	e.pending = nil
+	return n, &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 5353}, nil
+}
+func (e *echoPlane) SetReadDeadline(time.Time) error { return nil }
+func (e *echoPlane) Close() error                    { return nil }
+
+type timeoutErr struct{}
+
+func (timeoutErr) Error() string { return "i/o timeout" }
+func (timeoutErr) Timeout() bool { return true }
+
+func TestAPassThatHearsOnlyItselfFoundNoPeers(t *testing.T) {
+	cfg := edge.ConfigFromEnv(func(string) string { return "" })
+	cfg.ManualPasses = true
+	cfg.Window = 50 * time.Millisecond
+	var d *edge.Discovery
+	plane := &echoPlane{hear: func() []byte {
+		pkt, err := d.Responder().Packet()
+		require.NoError(t, err)
+		return pkt
+	}}
+	d, f := newDisc(t, cfg, func() (edge.Transport, error) { return plane, nil }, nil)
+	require.NoError(t, d.Start(context.Background()))
+	rep := d.RunOnce(context.Background())
+	require.Contains(t, rep.Notes, "no peers found", "this machine's own advert is not a peer")
+	nodes, err := f.List()
+	require.NoError(t, err)
+	require.Empty(t, nodes)
+}
