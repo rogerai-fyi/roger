@@ -20,40 +20,57 @@
 
 Feature: A Wave model on an edge device, from the RogerAI channel, on a runtime that loads there
 
-  # 1. THE SOURCE IS THE ROGERAI CHANNEL, NOT THE HUB
+  # 1. THE SOURCE IS A FILE THE OWNER PUTS THERE, NOT THE HUB
   #
-  # RULING NEEDED (gap 1): where the bytes come from. Options, in the order the lab proposed:
-  #   (a) a RogerAI release URL per entry (object store or the share's static files), with bytes and
-  #       sha256 in the entry, fetched the way hub files are fetched today;
-  #   (b) a nearby serve hands the file over itself (this machine, an Edge member, a pinned Tower),
-  #       on the authority-signed path the Edge already has for fetch-by-exact-id.
-  # The scenarios below are written for (a) with (b) as a later addition. They can be rewritten.
+  # FOUNDER RULING 2026-10-24: Wave is not released to the public. RogerAI's own hardware carries
+  # the files; the owner copies them over (USB, scp, the lab's bundle script). roger must serve a
+  # file it is pointed at, or one dropped into its models directory, and never ask the hub for it.
+  #
+  # VERIFIED 2026-10-24 on the Edge line (wt/simple-join build): "roger model serve <path>.gguf"
+  # and a file copied into <config>/local/models/ served by its name both work, on loopback, key
+  # gated, answering completions. What was missing is below: the file's name is the only thing
+  # roger knows about it (licence "-", sha256 "-"), an adapter file beside it is listed as a model,
+  # and LAN mode did not see the serve at all (fixed, section 6).
 
-  Scenario: a Wave entry names a RogerAI release as its source
-    Given the catalog entry "wave-nano-1.45b" whose source is a RogerAI release URL
-    And the entry carries the file name, bytes and sha256 of each quant it offers
+  Scenario: a file the owner points at is served as it is
+    Given the file "/media/usb/wave-nano-1p45b-Q4_K_M.gguf" the owner copied over
+    When the owner runs "roger model serve /media/usb/wave-nano-1p45b-Q4_K_M.gguf"
+    Then it is served on loopback with a key, under the band "wave-nano-1p45b"
+    And the model hub is never asked about it
+    And "roger model status" says it was served from a file and names the path
+
+  Scenario: a file dropped into the models directory is a row by its name
+    Given the owner copied "wave-nano-1p45b-Q4_K_M.gguf" into the models directory
+    When the owner runs "roger model list"
+    Then the row "wave-nano-1p45b-Q4_K_M" is marked "found", with its size and quant from its name
+    And "roger model serve wave-nano-1p45b" serves it without a fetch
+
+  Scenario: a release folder beside the file is read for what the name cannot say
+    Given the owner copied a folder holding "wave-nano-1p45b-Q4_K_M.gguf" and a "roger-model.json" beside it
+    And that record names the model, its licence, its sha256, its chat template, its add_bos override and its adapters
+    When the owner runs "roger model list"
+    Then the row carries the record's name and licence, and the digest is checked against the file
+    And a record whose digest does not match the file is said so, and the row is still served on the owner's word
+
+  Scenario: the digest of a hand-placed file is computed once and remembered
+    Given a hand-placed file with no record beside it
+    When the owner runs "roger model serve" on it
+    Then roger computes the file's sha256 in the background and records it beside the file
+    And a later "roger model status" shows the digest instead of "-"
+
+  Scenario: a Wave name that is not on this machine is not looked up on the hub
+    Given no file for "wave-nano-1.45b" is on this machine
+    And the catalog marks "wave-nano-1.45b" as RogerAI-channel only
     When the owner runs "roger model get wave-nano-1.45b"
-    Then roger shows the entry's size, memory need and licence and asks for consent, as for a hub file
-    And the model hub is never asked about "wave-nano-1.45b"
+    Then roger says the file is not on this machine and how to put it there
+    And the model hub is never asked
 
-  Scenario: a RogerAI-sourced file is checked against its recorded digest
-    Given the owner consented to fetch "wave-nano-1.45b" at Q4_K_M
-    When the bytes arrive and their sha256 is not the entry's
-    Then the file is removed and roger says the digest did not match, naming the source
-    And nothing is served
-
-  Scenario: a Wave name served nearby still comes from the RogerAI channel
-    Given the workstation serves "wave-nano-1.45b" as a station this machine can see
+  Scenario: a nearby serve names the exact file, and the file still comes from the owner
+    Given the workstation serves "wave-nano-1p45b" as a station this machine can see
     And the station reports the exact file and digest it serves (internal/servedfile)
-    When the owner runs "roger model get wave-nano-1.45b"
-    Then roger offers that exact file from the RogerAI channel, not the hub
-    And the digest offered is the one the station reported
-
-  Scenario: a Wave name is refused plainly when the channel is unreachable
-    Given the RogerAI channel cannot be reached
-    When the owner runs "roger model get wave-nano-1.45b"
-    Then roger says the RogerAI channel did not answer, in one sentence
-    And it does not fall back to the model hub
+    When the owner runs "roger model get wave-nano-1p45b"
+    Then roger names the file and digest to look for and where to copy it
+    And it does not try the model hub for a RogerAI-channel model
 
   # 2. THE ENTRY CARRIES HOW THE MODEL MUST BE SERVED
   #
@@ -74,6 +91,17 @@ Feature: A Wave model on an edge device, from the RogerAI channel, on a runtime 
     Then the adapter file is fetched with the same consent and digest rules as the base
     And llama-server is started with "--lora" naming that file
     And the band is named "wave-nano-1.45b+fire-decision" so a reader cannot mistake it for the base
+
+  Scenario: an adapter file is not offered as a model
+    Given the file "fire-decision-adapter-f16.gguf" whose GGUF header says general.type is "adapter"
+    When the owner runs "roger model list"
+    Then it is listed under its base model as an adapter, not as a model row
+    And "roger model serve fire-decision-adapter-f16" is refused in one sentence naming its base model
+
+  Scenario: a projector file is not offered as a model
+    Given the file "nano-vl-v7cropcpen-mmproj-f16.gguf" whose GGUF header says general.type is "mmproj"
+    When the owner runs "roger model list"
+    Then it is listed beside its text model, not as a model row
 
   Scenario: an entry that needs a build roger does not pin is refused honestly
     Given the entry "wave-nano-vl" records that it needs a runtime with multimodal projection support
@@ -161,3 +189,19 @@ Feature: A Wave model on an edge device, from the RogerAI channel, on a runtime 
     When the member fetches
     Then it fetches from the RogerAI channel under the grant, with the digest the entry records
     And the authority's fleet window shows the fetch and then the serve, as for any member
+
+  # 6. REGRESSIONS FOUND LIVE ON 2026-10-24 (fixed on wt/jetson-local, pinned by unit tests)
+
+  Scenario: the LAN dial lists what roger model serve has on the air
+    Given this machine serves "wave-nano-1p45b" with "roger model serve"
+    And nothing is shared and no Edge is joined
+    When the owner runs "roger --lan search"
+    Then "wave-nano-1p45b" is listed from this machine
+    And "roger --lan use wave-nano-1p45b" opens a channel to this machine
+
+  Scenario: a file whose header cannot be judged serves at the default context in the background
+    Given a file whose GGUF header carries none of the fields the fit arithmetic needs
+    When the owner runs "roger model serve <that file> --detach"
+    Then the background serve is started at the default context, never at zero
+    And the owner is not left waiting out the detach window
+
