@@ -172,8 +172,12 @@ hstart() {
 	local n="$1" d="$HSTATE/$1"
 	halive "$n" && return 0
 	# Each listens for its face on every address, so a physical Pi can dial it too.
+	# setsid detaches it from this terminal's session; macOS has no setsid, and nohup keeps it from
+	# the terminal's hangup there.
+	local detach=nohup
+	command -v setsid >/dev/null 2>&1 && detach=setsid
 	XDG_CONFIG_HOME="$d/config" ROGERAI_NO_UPDATE_CHECK=1 ROGERAI_EDGE_BIND=":$(hport "$n")" \
-		ROGERAI_EDGE_MACHINE="$MODEL" setsid "$HSTATE/roger" edge run </dev/null >>"$d/log" 2>&1 &
+		ROGERAI_EDGE_MACHINE="$MODEL" "$detach" "$HSTATE/roger" edge run </dev/null >>"$d/log" 2>&1 &
 	echo $! >"$d/pid"
 }
 
@@ -237,6 +241,11 @@ host_down() {
 	local n out kept=
 	for n in $(host_names); do
 		hstop "$n"
+		if [ ! -s "$HSTATE/$n/config/rogerai/edge/node.crt" ]; then
+			# Its join failed: it was never on the Edge, so there is nothing to forget.
+			rm -rf "${HSTATE:?}/$n"
+			continue
+		fi
 		if out="$(auth edge forget "$n" --yes </dev/null 2>&1)"; then
 			printf '%s\n' "$out" | grep -v 'update available' || true
 			rm -rf "${HSTATE:?}/$n"
