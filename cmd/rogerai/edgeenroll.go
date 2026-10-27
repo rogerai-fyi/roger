@@ -1104,17 +1104,25 @@ func edgeTakeSignedRevocations(ctx context.Context, st edgeauth.Store, endpoint 
 	if signed.At < t.SignedAt {
 		return fmt.Sprintf("refused the revocation list from %s: it is older than the one this machine already took - this machine's list is unchanged", endpoint)
 	}
-	have := map[string]bool{}
-	merged := append([]string(nil), t.Revoked...)
-	for _, s := range merged {
-		have[s] = true
-	}
-	for _, s := range signed.Revoked {
-		if !have[s] {
-			merged, have[s] = append(merged, s), true
+	// The merge is made against the list as it stands at the write, so a revocation landing meanwhile
+	// (a claim on this authority) is kept.
+	err = st.UpdateTrust(func(cur edgeauth.Trust, readErr error) (edgeauth.Trust, error) {
+		if readErr != nil {
+			return cur, readErr
 		}
-	}
-	if err := st.SaveSignedTrust(merged, signedAt); err != nil {
+		have := map[string]bool{}
+		merged := append([]string(nil), cur.Revoked...)
+		for _, s := range merged {
+			have[s] = true
+		}
+		for _, s := range signed.Revoked {
+			if !have[s] {
+				merged, have[s] = append(merged, s), true
+			}
+		}
+		return edgeauth.Trust{Revoked: merged, RefreshedAt: signedAt.Unix(), SignedAt: signedAt.Unix()}, nil
+	})
+	if err != nil {
 		return "could not save the refreshed revocation list: " + err.Error()
 	}
 	return ""

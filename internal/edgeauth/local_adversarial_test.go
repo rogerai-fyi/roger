@@ -11,8 +11,10 @@ package edgeauth_test
 import (
 	"crypto/ed25519"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -673,4 +675,23 @@ func TestSaveTrustOverwritesAnUnreadableTrustFile(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []string{"0a0a"}, tr.Revoked)
 	require.Equal(t, now.Unix(), tr.RefreshedAt)
+}
+
+// Pre-push audit (2026-10-26, minor): the authority's claim handler revokes into this machine's trust
+// list while its paced refresh rewrites the same file; both read, change and write it. Concurrent
+// changes must all land, none overwritten by another.
+func TestConcurrentRevocationsAllLand(t *testing.T) {
+	st := edgeauth.Store{Dir: t.TempDir()}
+	var wg sync.WaitGroup
+	for i := 0; i < 40; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			require.NoError(t, st.Revoke(fmt.Sprintf("%04x", i), time.Now()))
+		}(i)
+	}
+	wg.Wait()
+	tr, err := st.LoadTrust()
+	require.NoError(t, err)
+	require.Len(t, tr.Revoked, 40, "every revocation landed")
 }
