@@ -2572,7 +2572,9 @@ func (m *model) syncShareCache() {
 	m.shareKey = m.ctrl.UpstreamKey()
 	m.shareSavedUp, m.shareSavedKey = m.ctrl.SavedUpstream()
 	m.share, m.onAir = m.ctrl.Headline()
-	if m.shareCursor >= len(m.shareRows) {
+	// roger's own rows (local models, settings, get a model) follow the detected ones and are as much
+	// a place to rest as they are.
+	if m.shareCursor >= m.shareRowCount() {
 		m.shareCursor = 0
 	}
 }
