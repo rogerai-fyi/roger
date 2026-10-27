@@ -1659,13 +1659,14 @@ func (p *Postgres) OwnerByLogin(login string) (Owner, bool, error) {
 		ORDER BY created_at ASC, pubkey ASC LIMIT 1`, login)
 }
 
-// LinkVerifiedEmail: the partial unique index owners_verified_email_uniq is the arbiter of
-// "one live account per verified address", so a concurrent pair of links cannot both win.
+// LinkVerifiedEmail: the partial unique index owners_verified_provider_email_uniq is the arbiter
+// of "one live provider-linked account per verified address", so a concurrent pair of links
+// cannot both win. A proven address is no longer unproven.
 func (p *Postgres) LinkVerifiedEmail(pubkey, email string, at int64) error {
-	res, err := p.db.Exec(`UPDATE rogerai.owners SET email=$2, email_verified_at=$3
+	res, err := p.db.Exec(`UPDATE rogerai.owners SET email=$2, email_verified_at=$3, email_unproven=false
 		WHERE pubkey=$1 AND NOT COALESCE(anonymized,false)`, pubkey, email, time.Unix(at, 0).UTC())
 	if err != nil {
-		if strings.Contains(err.Error(), "owners_verified_email_uniq") {
+		if strings.Contains(err.Error(), "owners_verified_provider_email_uniq") {
 			return ErrEmailTaken
 		}
 		return err

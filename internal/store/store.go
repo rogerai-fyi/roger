@@ -1982,12 +1982,15 @@ func (m *Mem) LinkVerifiedEmail(pubkey, email string, at int64) error {
 	if !ok || o.Anonymized {
 		return ErrNoOwner
 	}
+	// The same partial rule as owners_verified_provider_email_uniq: only between provider-linked
+	// rows (an email account's devices may share their verified address).
 	for pk, other := range m.owners {
-		if pk != pubkey && !other.Anonymized && other.EmailVerifiedAt != 0 && strings.EqualFold(other.Email, email) {
+		if pk != pubkey && providerLinked(o) && providerLinked(other) && !other.Anonymized &&
+			other.EmailVerifiedAt != 0 && strings.EqualFold(other.Email, email) {
 			return ErrEmailTaken
 		}
 	}
-	o.Email, o.EmailVerifiedAt = email, at
+	o.Email, o.EmailVerifiedAt, o.EmailUnproven = email, at, false // proven now
 	m.owners[pubkey] = o
 	return nil
 }
