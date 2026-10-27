@@ -646,12 +646,14 @@ func (s *opsState) drain() error {
 	return fmtErr("screening queue did not drain: %+v", s.scr.snapshot())
 }
 
+// firedCount counts the FIRED lines for key once every onset goroutine has finished:
+// adminAlert marks the key synchronously but claims the onset, applies flap accounting and
+// logs "alert: FIRED" on its own goroutine (alertOnset), which drain()'s quiescence check
+// does not cover. Counting before it had run read 0 on a loaded CI runner; the wait makes
+// the count exact on any machine (the bound is a liveness guard, not a timing margin).
 func (s *opsState) firedCount(key string) int {
-	// An onset logs "alert: FIRED" on its own goroutine (adminAlert hands the claim and the
-	// send off the request path), so a count read right after the triggering verdict can
-	// miss it. Wait on the same in-flight counter shutdown waits on before counting.
 	if s.b != nil {
-		s.b.waitAlertsInflight(5 * time.Second)
+		s.b.waitAlertsInflight(10 * time.Second)
 	}
 	return strings.Count(s.logs.String(), "alert: FIRED "+strconv.Quote(key))
 }

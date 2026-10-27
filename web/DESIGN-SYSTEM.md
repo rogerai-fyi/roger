@@ -39,7 +39,7 @@ is the module that wakes on the hook (every page loads it via `site-js.html`).
 | Heading dash glue | `.nobr` (added by `scripts/glue-dashes.mjs` (run by `build.mjs`) to h1-h6 and `.bc-row__title`: the word before " - " stays with the dash) | - | every page with a dashed heading |
 | Rail, on-air mark | `rail.html`, `onair.html` partials | - | 34 / 37 pages |
 | Photo credit | `.photo-credit` (research.css) | - | Industrial, Hardware |
-| Touch hit area | `--hit`, `--hit-inset` (tokens); the `@media (pointer: coarse)` blocks (components.css documents the pattern) | - | every standalone control, sitewide |
+| Touch hit area | `--hit`, `--hit-min`, `--hit-inset` (tokens); the `@media (pointer: coarse)` blocks (components.css documents the pattern) | - | every standalone control, sitewide |
 | Print | `@media print` at the end of `components.css` + `tokens.css` | - | every page |
 
 ### One role, one pattern
@@ -338,7 +338,11 @@ item: it gets `.is-tuned`, which the page styles (homepage: a quiet ground and a
 Items never fade. If the page lays the list out as a sideways gallery (it overflows its own
 width, e.g. a phone snap gallery), scrubbing centres the tuned item and a swipe tunes the
 item that comes to rest in the middle; the list must be `position: relative` (the items'
-offsetParent). No-JS: the complete static list, no control.
+offsetParent). It starts on the first item; `data-scrub-start="k"` (zero-based) starts it on
+another when the list is laid out whole (broadcast 016's training row starts on its last
+step, the payoff). A sideways gallery ignores the attribute: loading never scrolls a gallery,
+it shows its first item, and the needle starts on that item so the two agree (on a phone
+the training row starts on Step 0). No-JS: the complete static list, no control.
 
 ### Range twin
 ```html
@@ -380,7 +384,10 @@ its containing block without overriding a page's own positioning. The sheet that
 control lists it in its own `@media (pointer: coarse)` block: `components.css` for the
 components (where the pattern is documented), `base.css` for the chrome, each page sheet
 for its own controls. The page index gets 44px rows, the contents tuner's stations grow
-downward to 44px, and a form field is 44px tall (all in `components.css`).
+downward to 44px, and a form field is 44px tall (all in `components.css`); the account
+pages' footer sub-nav (`.acctsubnav`, a row of nothing but links, so not exempt as running
+text) is 24px rows at every pointer (`--hit-min`, the target-size floor) and 44px rows on
+touch, in `account-base.css`.
 `test/qa-polish2.test.mjs` holds the list of controls. Links inside running text (a sentence, a
 callout, a spec plate) are exempt, as the target-size rule exempts them. A grown area must
 never cover another control's drawn box (a tap aimed at the neighbour would open this

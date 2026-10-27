@@ -56,20 +56,16 @@
         Get Control, <a href="/pricing.html#why">Read the receipts &rarr;</a>
       </p>
 
-      <!-- SPECTRUM (2026-08-14): this plate is Wave PICO's - the edge tier and the
-           only one with a trained artifact today. (It read "Wave Micro" here until
-           the ladder was renamed; the plate itself was already correct.)
-           Wave Pico is a PROGRAM, not a download. The plate states the two facts a
-           reader could otherwise get wrong - it is in progress, and no checkpoint has
-           been released - and stops there. Internal programme state (which stage the
-           architecture work is at) is not something a visitor needs, and publishing it
-           creates a claim that has to be kept current. It goes back to a release plate
-           when a stranger can download the checkpoint. -->
+      <!-- LABS PLATE (founder ruling 2026-10-16): the plate names the whole Wave
+           Spectrum and the live stage of its two leading tiers. The stage words are
+           not typed here: each wave-stage token renders that tier's `stage` from
+           src/data/wave-status.json (stageWords), so when a tier moves in the data
+           the plate moves with it. -->
       <a class="hero__proof" href="/research.html"
-         aria-label="Wave Pico model program at RogerAI Labs">
+         aria-label="The Wave Spectrum at RogerAI Labs">
         <span>ROGERAI LABS</span>
-        <b>WAVE PICO</b>
-        <span>{{wave:pico.index.plate}}</span>
+        <b>THE WAVE SPECTRUM</b>
+        <span>PICO {{wave-stage:pico}} · NANO {{wave-stage:nano}}</span>
       </a>
       </div>
 
