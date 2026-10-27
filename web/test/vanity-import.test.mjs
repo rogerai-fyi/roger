@@ -102,5 +102,5 @@ test("the next major-version path is served ahead of its tag", () => {
   const m = /<meta\s+name="go-import"\s+content="([^"]+)"/.exec(html);
   assert.ok(m, `no go-import meta tag on the ${NEXT_MAJOR} page`);
   assert.equal(m[1].trim().split(/\s+/)[0], `rogerai.fm/roger/${NEXT_MAJOR}`);
-  assert.match(html, /<link rel="canonical" href="https:\/\/rogerai\.fm\/roger\/v7\/">/);
+  assert.ok(html.includes(`<link rel="canonical" href="https://rogerai.fm/roger/${NEXT_MAJOR}/">`), "the canonical is the next major's own path");
 });
