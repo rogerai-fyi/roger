@@ -956,7 +956,9 @@ func (s *eb1State) eb1Batch(n int) error {
 	if err := s.eb1Snapshot(); err != nil {
 		return err
 	}
+	refresh := s.keepLive() // a long batch on a loaded machine can outlast nodeTTL
 	for i := 0; i < n; i++ {
+		refresh()
 		s.eb1FireAs(i)
 	}
 	return nil

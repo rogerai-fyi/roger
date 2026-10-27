@@ -159,6 +159,8 @@ type streamBill struct {
 	// queued); each streaming attempt names its station on it so an after-the-fact flag
 	// records the station that served, not the first pick.
 	screening *screenJob
+	// keyFields is the key state after settle for the usage chunk (nil for a non-key request).
+	keyFields func() map[string]any
 }
 
 // resolvePricing decides who pays and at what price for one request:

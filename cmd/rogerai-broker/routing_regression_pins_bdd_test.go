@@ -571,6 +571,28 @@ func (s *rpState) heartbeat() {
 	s.b.mu.Unlock()
 }
 
+// keepLive returns a refresh that holds every node live NOW (inside nodeTTL) live for the
+// rest of a long relay batch: on a loaded machine a batch of hundreds of relays can outlast
+// nodeTTL, and the last relays would find no node. A node a scenario aged out on purpose is
+// not live now, so it is never revived.
+func (s *rpState) keepLive() func() {
+	s.b.mu.Lock()
+	var live []string
+	for id, t := range s.b.lastSeen {
+		if time.Since(t) < nodeTTL {
+			live = append(live, id)
+		}
+	}
+	s.b.mu.Unlock()
+	return func() {
+		s.b.mu.Lock()
+		for _, id := range live {
+			s.b.lastSeen[id] = time.Now()
+		}
+		s.b.mu.Unlock()
+	}
+}
+
 // idOf resolves a scenario name to the id the broker knows: a station's node id, a Tower's id,
 // or the name itself when neither exists (a foreign id).
 func (s *rpState) idOf(name string) string {

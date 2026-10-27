@@ -146,7 +146,6 @@ func guestStatesSort(m map[string]json.RawMessage, provider map[string]any) bool
 	return false
 }
 
-// bareModel strips the routing sugar suffixes (contract §4), right to left.
 // hasCarrier reports whether a body carries a non-null routing carrier (models / provider /
 // roger): the signal that the caller is routing explicitly rather than sending a stock body.
 func hasCarrier(body []byte) bool {

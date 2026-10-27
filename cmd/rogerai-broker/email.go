@@ -128,16 +128,23 @@ func (m *mailer) enabled() bool { return m != nil && m.apiKey != "" }
 // NEVER blocks the caller and NEVER returns an error: delivery, retries and drops all
 // happen on the sender goroutine and are logged, not propagated.
 func (m *mailer) sendEmail(to, subject, htmlBody, textBody string) {
-	m.send(laneTransactional, to, subject, htmlBody, textBody)
+	m.send(laneTransactional, to, subject, htmlBody, textBody, nil)
+}
+
+// sendEmailOrRelease is sendEmail for a once-per-window notice whose claim was taken before the
+// send: onDrop runs if the mail is dropped (rejected, out of retries, queue full, shutdown), so
+// the caller can give the claim back and the notice is not lost for the window.
+func (m *mailer) sendEmailOrRelease(to, subject, htmlBody, textBody string, onDrop func()) {
+	m.send(laneTransactional, to, subject, htmlBody, textBody, onDrop)
 }
 
 // sendAlertEmail queues an OPS ALERT on the alert lane: sent after any transactional mail,
 // so an alert burst can delay alerts but never a login. Same no-op / non-blocking contract.
 func (m *mailer) sendAlertEmail(to, subject, htmlBody, textBody string) {
-	m.send(laneAlert, to, subject, htmlBody, textBody)
+	m.send(laneAlert, to, subject, htmlBody, textBody, nil)
 }
 
-func (m *mailer) send(lane emailLane, to, subject, htmlBody, textBody string) {
+func (m *mailer) send(lane emailLane, to, subject, htmlBody, textBody string, onDrop func()) {
 	if !m.enabled() {
 		if m != nil {
 			m.debugLogged.Do(func() {
@@ -149,7 +156,7 @@ func (m *mailer) send(lane emailLane, to, subject, htmlBody, textBody string) {
 	if to == "" {
 		return // no recipient on file - nothing to send
 	}
-	m.enqueue(lane, to, subject, htmlBody, textBody)
+	m.enqueue(lane, to, subject, htmlBody, textBody, onDrop)
 }
 
 // deliver performs ONE POST to the configured provider and reports the outcome to the sender
@@ -280,4 +287,14 @@ func (m *mailer) capNoticeOnce(holder, threshold string, now time.Time) bool {
 	}
 	m.sentCaps[key] = true
 	return true
+}
+
+// releaseCapNotice gives back a capNoticeOnce claim whose email was dropped.
+func (m *mailer) releaseCapNotice(holder, threshold string, now time.Time) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.sentCaps, holder+"|"+threshold+"|"+now.Format("2006-01"))
 }

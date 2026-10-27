@@ -76,6 +76,11 @@ type instStats struct {
 	// the coin is consulted), Tower rows declined per consumer constraint (once per request
 	// and constraint), and ids that name both a direct node and a Tower.
 	edgeCoinFlips atomic.Int64
+	// Account keys (acctkeys.go): relays refused at a key's limit, and denied by its model or
+	// node allow-list.
+	keyLimitRefusals atomic.Int64
+	keyModelDenials  atomic.Int64
+	keyNodeDenials   atomic.Int64
 	// generationLookups counts GET /generation reads (every outcome).
 	generationLookups atomic.Int64
 	edgeMu            sync.Mutex
@@ -174,6 +179,9 @@ func (s *instStats) routingCounters() map[string]int64 {
 		"relay_no_match_capability":  s.relayNoMatchCapability.Load(),
 		"edge_coin_flips":            s.edgeCoinFlips.Load(),
 		"generation_lookups":         s.generationLookups.Load(),
+		"key_limit_refusals":         s.keyLimitRefusals.Load(),
+		"key_model_denials":          s.keyModelDenials.Load(),
+		"key_node_denials":           s.keyNodeDenials.Load(),
 	}
 	s.edgeMu.Lock()
 	for f, n := range s.noMatchFilter {

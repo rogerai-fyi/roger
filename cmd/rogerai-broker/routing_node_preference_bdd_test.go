@@ -365,7 +365,9 @@ func (s *np1State) np1Generic(text string) error {
 			s.np1Shares[pref] = s.np1Share(pref, nil)
 		}
 	}
+	refresh := s.keepLive() // a long batch on a loaded machine can outlast nodeTTL
 	for i := 0; i < count; i++ {
+		refresh()
 		if err := s.np1Fire(); err != nil {
 			return err
 		}
