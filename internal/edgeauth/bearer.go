@@ -20,7 +20,8 @@ import (
 const (
 	// BearerGuessBudget is how many wrong proofs a live bearer code survives.
 	BearerGuessBudget = 10
-	// maxBearerCodes caps the live bearer codes, so a request costs at most this many stretches.
+	// maxBearerCodes caps the live bearer codes, so a stranger's request costs at most this many
+	// stretches, and an allowed key's at most one more (bearerFind: its newest spent code).
 	maxBearerCodes = 8
 	bearerPrefix   = "bearer:"
 )
@@ -116,7 +117,8 @@ func (l *Local) bearerMatch(r Request) (string, bool, error) {
 // proof: a retry after the first answer was lost on the way back (the code is spent and the key
 // allowed by then), or a device whose key stayed allowed and rejoins with a fresh invite. Found so the
 // answer can be proven with it:
-//   - a code this same key spent: checked, never counted (it is this key's own retry);
+//   - the code this same key spent most recently: checked, never counted (it is this key's own
+//     retry); an older one it spent is not checked, so the work stays bounded;
 //   - a live code, unbound or bound to this node (whose id the caller has already bound to the node
 //     key presented): checked, and a proof that matches none of them costs one guess against each,
 //     exactly as a stranger's does (audit 2026-10-13: an allowed key gets no free guesses).
@@ -129,14 +131,23 @@ func (l *Local) bearerFind(r Request) (string, bool, error) {
 		return "", false, err
 	}
 	fields := joinFields(l.Descriptor().Fingerprint, r)
+	// Only the invite this key spent most recently is checked for free: that is the one whose answer
+	// can have been lost. With the live set capped at maxBearerCodes, a request costs at most
+	// maxBearerCodes+1 stretches however many invites this key ever spent.
+	newest := -1
+	for i, c := range got {
+		if strings.HasPrefix(c.Join, bearerPrefix) && c.SpentBy != "" && c.SpentBy == r.UserKey &&
+			(newest < 0 || c.At >= got[newest].At) {
+			newest = i
+		}
+	}
 	tried := false
-	for _, c := range got {
+	for i, c := range got {
 		if !strings.HasPrefix(c.Join, bearerPrefix) {
 			continue
 		}
-		mine := c.SpentBy != "" && c.SpentBy == r.UserKey
 		live := c.SpentBy == "" && (c.For == "" || c.For == r.NodeID)
-		if !mine && !live {
+		if i != newest && !live {
 			continue
 		}
 		tried = tried || live

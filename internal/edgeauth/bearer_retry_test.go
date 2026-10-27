@@ -172,3 +172,31 @@ func TestAnAllowedKeysMissCountsAgainstAnInviteBoundToItsNode(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, resp.RootProof, "the invite was guessed at to its budget, and is void")
 }
+
+// The work a retry costs is bounded: only the invite this key spent most recently is checked for
+// free (the one whose answer can have been lost). An older invite it spent is not stretched again,
+// so a key that spent many cannot make each request cost one stretch per invite it ever spent.
+func TestOnlyTheNewestInviteAKeySpentIsCheckedForARetry(t *testing.T) {
+	local, err := edgeauth.Designate(t.TempDir(), "shed")
+	require.NoError(t, err)
+	_, user := keypair(t)
+	node, _ := keypair(t)
+	older, err := local.MintBearerCode()
+	require.NoError(t, err)
+	_, err = local.Issue(proven(t, local, user, node, older))
+	require.NoError(t, err)
+	time.Sleep(1100 * time.Millisecond) // invites are dated to the second
+	newer, err := local.MintBearerCode()
+	require.NoError(t, err)
+	_, err = local.Issue(proven(t, local, user, node, newer))
+	require.NoError(t, err)
+
+	resp, err := local.Issue(proven(t, local, user, node, older))
+	require.NoError(t, err, "the key is allowed, so it is issued")
+	require.Empty(t, resp.RootProof, "an older invite this key spent is not checked again")
+
+	retry := proven(t, local, user, node, newer)
+	resp, err = local.Issue(retry)
+	require.NoError(t, err)
+	requireProof(t, newer, resp, retry.Nonce)
+}

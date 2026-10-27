@@ -338,6 +338,16 @@ Feature: One invite, one paste, for Towers and Edge devices
     Then its answer carries no root proof from that invite
     And the first device's retry with it is still proven
 
+  # Audit 2026-10-27: the free check is bounded. Only the invite this key spent most recently is
+  # checked for free, so a request from a key that spent many invites costs no more than one more
+  # stretch than a stranger's.
+  @security
+  Scenario: Only the newest invite a key spent is checked for its retry
+    Given a device that spent an invite, then joined again with a fresh one
+    When it asks again with a proof of the older invite
+    Then it is issued as an allowed key is, with no root proof from that invite
+    And a retry with the fresh invite is still proven
+
   # Audit 2026-10-13: an invite bound to a device is bound to its KEY, through the id that key derives.
   @security
   Scenario: A bound invite cannot be reached by copying the device's node id

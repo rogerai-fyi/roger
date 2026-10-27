@@ -208,16 +208,10 @@ func (l *Local) Issue(r Request) (Response, error) {
 			l.iss.record(r)
 			return ErrKeyMismatch
 		}
+		// The id is proven against the node key above, before any invite is tried: an invite's proof is
+		// matched against invites that may be bound to a node id, and an id copied from somebody else's
+		// advert must not reach an invite bound to that device (audit 2026-10-13).
 		bearerJoin := ""
-		// An invite's proof is matched against invites that may be bound to a node id, so the id must be
-		// the one the presented node key derives BEFORE any invite is tried: an id copied from somebody
-		// else's advert must not reach an invite bound to that device (audit 2026-10-13).
-		if r.JoinProof != "" {
-			if pub, err := r.NodePublicKey(); err != nil || NodeID(pub) != r.NodeID {
-				l.iss.record(r)
-				return ErrKeyMismatch
-			}
-		}
 		if _, ok := l.registry()(r.UserKey); !ok {
 			// A key the owner never allowed may still hold a key-less invite's code (bearer.go).
 			if r.JoinProof == "" {
