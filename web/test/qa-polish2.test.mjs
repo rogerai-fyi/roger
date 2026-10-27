@@ -106,6 +106,7 @@ const NO_GROW = {
   ".pg-mode": "the Playbox deck switch stacks its modes",
   ".reel__mute": "sits on the reel screen, itself a control",
   ".code-block__copy": "beside the code line; a grown area would cover the code text",
+  ".acctsubnav > a": "the account sub-nav wraps onto tight rows at 390; it gets the room itself (next test)",
 };
 test("touch: small controls keep their look and grow an invisible 44px hit area", () => {
   assert.match(css("tokens.css"), /--hit: 44px;/);
@@ -132,6 +133,11 @@ test("touch: lists of text links get 44px rows, and form fields are 44px tall", 
   // the contents tuner's stations grow downward only (the dial's ticks and readout are laid
   // out against the band, so a station must not become a containing block or move its numeral)
   assert.match(c, /\.toc-tuner__st \{ min-height: var\(--hit\); \}/);
+  // the account pages' footer sub-nav (accountnav.html): a row of text links joined by a
+  // CSS-drawn separator, wrapping onto 19px rows at 390. A grown area would cover the row
+  // above or below (and its ::before already draws the separator), so the links get the
+  // room themselves, as the page index does: 44px rows on touch, in the sheet that owns them
+  assert.match(coarseBlocks(css("account-base.css")), /\.acctsubnav > a \{ padding-block: calc\(\(var\(--hit\) - 1lh\) \/ 2\); \}/);
 });
 
 // Item 4: the product pages' signed-out and empty states are one pattern, the account state:
