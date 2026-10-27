@@ -1,8 +1,8 @@
 package tui
 
-// MODELS (features/serving/local_models.feature §7): `roger model` as a screen. Reached with g from
-// SHARE and from the "no local model found" wizard - the moment an owner has nothing to share is the
-// moment roger can serve something itself.
+// MODELS (features/serving/local_models.feature §7): `roger model` as a screen. Reached from SHARE's
+// last row ("+ Get a model that fits this machine", Enter) and with g from the "no local model found"
+// wizard - the moment an owner has nothing to share is the moment roger can serve something itself.
 //
 // Every judgement, fetch and serve goes through Hooks.Models, which cmd/rogerai fills from the CLI's
 // own code (internal/modelview): this file draws and asks, nothing more. Hooks are called off the

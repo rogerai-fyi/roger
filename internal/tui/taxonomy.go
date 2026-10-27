@@ -288,8 +288,8 @@ func (m model) isVoiceMeta() bool {
 // enterShareMeta opens the category editor for the row at the cursor, prefilled with the
 // declaration, else the guess (flagged). Not login-gated: describing a model is not earning.
 func (m model) enterShareMeta() (tea.Model, tea.Cmd) {
-	if len(m.shareRows) == 0 || m.ctrl == nil {
-		return m, nil
+	if m.shareCursor < 0 || m.shareCursor >= len(m.shareRows) || m.ctrl == nil {
+		return m, nil // a detected row only: roger's own rows sit past these
 	}
 	row := m.shareRows[m.shareCursor]
 	d, inf, _ := m.ctrl.MetaFor(row.model)

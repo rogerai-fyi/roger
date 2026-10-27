@@ -1347,7 +1347,7 @@ func (m *model) onShareKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch k.String() {
 		case "enter", "a", " ", "space":
 			return m.onShareExtraEnter(e)
-		case "h", "b", "B", "p", "e", "y":
+		case "h", "b", "B", "p", "e", "y", "g":
 			return m, nil
 		}
 	}
