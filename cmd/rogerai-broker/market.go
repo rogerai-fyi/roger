@@ -9,6 +9,16 @@ import (
 	"rogerai.fm/roger/v6/internal/protocol"
 )
 
+// discoverCacheKey / marketCacheKey are the ONE cache entry per public view. Nothing in either
+// payload depends on the request, so no query value reaches the key: a key built from request
+// values lets anyone force a full recompute per request by varying them (and, on the in-process
+// cache, reset the whole cache past its size cap). Filters are applied AFTER the cached read
+// (taxonomyFilter), never by keying a separate entry.
+const (
+	discoverCacheKey = "discover:"
+	marketCacheKey   = "market:"
+)
+
 type offerView struct {
 	NodeID string `json:"node_id"`
 	Region string `json:"region"`
@@ -40,6 +50,9 @@ type offerView struct {
 	// text-only or undetermined. omitempty: the app treats "vision"->show photo button, absent->
 	// name-heuristic (it handles all three of vision/[]/absent identically for non-vision models).
 	Capabilities []string `json:"capabilities,omitempty"`
+	// Taxonomy is the offer's declared/inferred description (category, tags, content policy,
+	// lineage), flat on the wire. Unverified; see protocol.Taxonomy.
+	protocol.Taxonomy
 	// Curated marks a station that PROXIES a commercial upstream API rather than serving
 	// a person's hardware; CuratedProvider names it. Carried on the public feed so every
 	// surface can badge and filter it - a curated station indistinguishable from a human
@@ -223,10 +236,11 @@ func (b *broker) enrichOffersForNode(out []offerView, n protocol.NodeRegistratio
 			// map without passing registration (shared-registry mirror, lazy learn, DB
 			// re-hydrate), and these strings are rendered into a terminal and a browser -
 			// the same defence-in-depth the verified "tools" bit gets above.
-			Quant:   protocol.CanonicalQuant(o.Quant),
-			Weights: protocol.CanonicalVariantText(o.Weights),
-			Variant: protocol.CanonicalVariantText(o.Variant),
-			In:      pin, Out: pout, Ctx: o.Ctx, CtxEstimated: o.CtxEstimated, Online: online,
+			Quant:    protocol.CanonicalQuant(o.Quant),
+			Weights:  protocol.CanonicalVariantText(o.Weights),
+			Variant:  protocol.CanonicalVariantText(o.Variant),
+			Taxonomy: o.Taxonomy.Canonical(offerModality(o.Modality)),
+			In:       pin, Out: pout, Ctx: o.Ctx, CtxEstimated: o.CtxEstimated, Online: online,
 			Confidential: b.confidential[n.NodeID], FreeNow: free, Scheduled: len(o.Schedule) > 0,
 			TPS:    tps,
 			TTFTMs: ttft, Quality: quality,
@@ -262,22 +276,32 @@ func (b *broker) discover(w http.ResponseWriter, r *http.Request) {
 	// Hot-path cache (flag-gated, behind ROGERAI_REDIS_URL). /discover recomputes every
 	// offer + its multi-factor signal per request; this collapses repeated full-market
 	// recomputes into one within a tiny window, shared across instances. PUBLIC, no-auth
-	// data, so a single cache entry is safely shared across all callers - keyed by the
-	// normalized query so a future filtered view never reuses another's bytes. Flag OFF
-	// => serveCachedJSON computes directly (zero behavior change). Note: on a cache HIT
+	// data, so a single cache entry is safely shared across all callers; the taxonomy
+	// filters run over that one entry (serveFiltered). Note: on a cache HIT
 	// the demand-probe scheduling below is skipped, but a miss recomputes every ~few
 	// seconds (the TTL), so demand probing still fires steadily under browsing load.
 	// Filters (contract §8) run AFTER the cache, over the one unfiltered entry: a filtered
-	// read never recomputes, never re-keys, and takes no broker lock.
+	// read never recomputes, never re-keys, and takes no broker lock. The taxonomy filters
+	// (category, subcategory, tag, policy, source) compose with them.
 	f, ok := readFilter(w, r)
 	if !ok {
 		return
 	}
 	if !f.set {
-		b.serveCachedJSON(w, discoverCacheKey, publicMarketTTL, b.computeDiscover)
+		b.serveFiltered(w, r, discoverCacheKey, b.computeDiscover)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"offers": f.filterOffers(b.cachedOffers())})
+	offers := f.filterOffers(b.cachedOffers(nil))
+	if tf := parseTaxonomyFilter(r); tf.active {
+		kept := make([]offerView, 0, len(offers))
+		for _, o := range offers {
+			if tf.match(o.Taxonomy) {
+				kept = append(kept, o)
+			}
+		}
+		offers = kept
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"offers": offers})
 }
 
 // computeDiscover builds the /discover payload (all model offers with live status,
@@ -326,7 +350,15 @@ type marketView struct {
 	// if it can be ROUTED to any provider that reports vision. ["vision"] if any provider does,
 	// omitted otherwise (the app name-guesses for a model with no declared vision provider).
 	Capabilities []string `json:"capabilities,omitempty"`
-	Providers    int      `json:"providers"` // online HUMAN nodes offering this model
+	// Category/Subcategory: the pair MOST of this model's online stations declare (ties broken
+	// alphabetically); CategoryProviders: how many back it. Tags: the union, most-shared first.
+	// ContentPolicies: EVERY grade any station declared, so one grade never hides another.
+	Category          string   `json:"category,omitempty"`
+	Subcategory       string   `json:"subcategory,omitempty"`
+	CategoryProviders int      `json:"category_providers,omitempty"`
+	Tags              []string `json:"tags,omitempty"`
+	ContentPolicies   []string `json:"content_policies,omitempty"`
+	Providers         int      `json:"providers"` // online HUMAN nodes offering this model
 	// CuratedProviders counts the proxied commercial-API stations on this band,
 	// separately and additively (omitempty: bands with none are byte-identical to
 	// before, so nothing that parses /market today changes).
@@ -367,23 +399,36 @@ func (b *broker) market(w http.ResponseWriter, r *http.Request) {
 	// Hot-path cache (flag-gated). /market aggregates per-model signal across every live
 	// node per request; the cache collapses repeated aggregations into one within a tiny
 	// window, shared across instances. PUBLIC, no-auth data - a single entry is safe to
-	// share across all callers (keyed by the normalized query). Flag OFF => direct
-	// compute (zero behavior change).
+	// share across all callers. Filters (contract §8) and the taxonomy filters run over it.
 	f, ok := readFilter(w, r)
 	if !ok {
 		return
 	}
 	if !f.set {
-		b.serveCachedJSON(w, "market:", publicMarketTTL, b.computeMarket)
+		b.serveFiltered(w, r, marketCacheKey, b.computeMarket)
 		return
 	}
 	// The aggregates are recomputed over the SURVIVING providers (contract §8): the filter
 	// picks the (node, model) offers out of the cached feed, the market aggregates only those.
 	keep := map[string]bool{}
-	for _, o := range f.filterOffers(b.cachedOffers()) {
+	for _, o := range f.filterOffers(b.cachedOffers(nil)) {
 		keep[o.NodeID+"\x00"+o.Model] = true
 	}
-	writeJSON(w, http.StatusOK, b.computeMarketKeep(func(node, model string) bool { return keep[node+"\x00"+model] }))
+	view := b.computeMarketKeep(func(node, model string) bool { return keep[node+"\x00"+model] })
+	if tf := parseTaxonomyFilter(r); tf.active {
+		if m, ok := view.(map[string]any); ok {
+			if rows, ok := m["market"].([]marketView); ok {
+				out := make([]marketView, 0, len(rows))
+				for _, row := range rows {
+					if tf.matchRow(row.Category, row.Subcategory, row.Tags, row.ContentPolicies) {
+						out = append(out, row)
+					}
+				}
+				view = map[string]any{"market": out}
+			}
+		}
+	}
+	writeJSON(w, http.StatusOK, view)
 }
 
 // computeMarket builds the /market payload: a per-model marketplace view aggregated
@@ -447,6 +492,7 @@ func (b *broker) computeMarketKeep(keep func(node, model string) bool) any {
 		bestStaleness float64         // freshest measurement-confidence across providers (0.7..1.0)
 		capsUnion     map[string]bool // union of chat sub-capabilities across providers
 		capsSeen      bool            // any provider DECLARED capabilities (so [] means text-only, not unknown)
+		tax           taxonomyVotes   // what this model's online stations say it is for
 	}
 	now := time.Now()
 	agg := map[string]*acc{}
@@ -511,6 +557,7 @@ func (b *broker) computeMarketKeep(keep func(node, model string) bool) any {
 			// market's human-supply claim, and letting proxies inflate it would make the
 			// dial's own story unverifiable (the exact dishonesty the curated flag exists
 			// to prevent).
+			a.tax.add(o.Taxonomy.Canonical(offerModality(o.Modality)), n.Curated)
 			if n.Curated {
 				a.curated++
 			} else {
@@ -579,7 +626,7 @@ func (b *broker) computeMarketKeep(keep func(node, model string) bool) any {
 		// b.mu/b.metricsMu, both released above). A FREE/thin model yields tier 0.
 		ref, _ := b.refOut(model)
 		tier := priceTier(a.minOut, ref, a.outPrices)
-		out = append(out, marketView{
+		mv := marketView{
 			Model: model, Modality: a.modality, Capabilities: marketCapabilities(model, a.capsUnion, a.capsSeen),
 			Providers: a.providers, CuratedProviders: a.curated, InFlight: a.inflight,
 			MinPrice: a.minPrice, MinOut: a.minOut, PriceTier: tier, BestTPS: a.bestTPS, BestTTFTMs: round6(a.bestTTFT),
@@ -588,7 +635,9 @@ func (b *broker) computeMarketKeep(keep func(node, model string) bool) any {
 			Verified:    a.anyVerified,
 			Signal:      terms.Total,
 			Terms:       terms,
-		})
+		}
+		a.tax.into(&mv)
+		out = append(out, mv)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Signal > out[j].Signal })
 	return map[string]any{"market": out}

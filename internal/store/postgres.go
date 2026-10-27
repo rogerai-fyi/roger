@@ -275,6 +275,16 @@ CREATE TABLE IF NOT EXISTS rogerai.offer_overrides (
     updated_at BIGINT NOT NULL DEFAULT 0,
     PRIMARY KEY (node, model));
 CREATE INDEX IF NOT EXISTS offer_overrides_owner ON rogerai.offer_overrides (owner);
+-- owner-authored TAXONOMY (what the model is for) per (node, model), set from the web
+-- console. A sibling of offer_overrides, never the same row, so a category edit can never
+-- change a price. Re-applied on every register like the price.
+CREATE TABLE IF NOT EXISTS rogerai.offer_meta_overrides (
+    node       TEXT NOT NULL,
+    model      TEXT NOT NULL,
+    owner      TEXT NOT NULL,
+    taxonomy   JSONB NOT NULL DEFAULT '{}'::jsonb,
+    updated_at BIGINT NOT NULL DEFAULT 0,
+    PRIMARY KEY (node, model));
 -- safety: preserved child-exploitation hits (18 USC 2258A). ACCESS-RESTRICTED +
 -- retention-limited: the offending prompt is stored ENCRYPTED-AT-REST (the broker
 -- encrypts before insert; the column is ciphertext, never plaintext). report_state

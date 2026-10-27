@@ -79,7 +79,7 @@ func (s *docState) chatResponse(code string) map[string]any {
 	return m
 }
 
-func str(v any) string {
+func docStr(v any) string {
 	if v == nil {
 		return ""
 	}
@@ -100,7 +100,7 @@ func (s *docState) prefDescriptionNamesValues() error {
 	if p == nil {
 		return fmt.Errorf("X-Roger-Pref is not documented")
 	}
-	d := str(p["description"])
+	d := docStr(p["description"])
 	for _, v := range []string{"cheap", "balanced", "fast", "reliable"} {
 		if !strings.Contains(d, v) {
 			return fmt.Errorf("X-Roger-Pref description does not name %q: %q", v, d)
@@ -114,7 +114,7 @@ func (s *docState) maxOutDescribesDefault() error {
 	if p == nil {
 		return fmt.Errorf("X-Roger-Max-Price-Out is not documented")
 	}
-	d := str(p["description"])
+	d := docStr(p["description"])
 	if !strings.Contains(d, "$10") && !strings.Contains(d, "10/1M") {
 		return fmt.Errorf("X-Roger-Max-Price-Out description does not name the $10/1M default consumer cap: %q", d)
 	}
@@ -129,7 +129,7 @@ func (s *docState) maxOutDescribesClamp() error {
 	if p == nil {
 		return fmt.Errorf("X-Roger-Max-Price-Out is not documented")
 	}
-	d := strings.ToLower(str(p["description"]))
+	d := strings.ToLower(docStr(p["description"]))
 	if !strings.Contains(d, "clamp") || !strings.Contains(d, "ceiling") {
 		return fmt.Errorf("X-Roger-Max-Price-Out description does not say a value above the ceiling is clamped: %q", d)
 	}
@@ -146,14 +146,14 @@ func (s *docState) listsResponseHeader(name string) error {
 			return nil
 		}
 	}
-	if strings.Contains(str(r["description"]), "`"+name+"`") {
+	if strings.Contains(docStr(r["description"]), "`"+name+"`") {
 		return nil
 	}
 	return fmt.Errorf("openapi.yaml does not list the response header %s on the 200 of /v1/chat/completions", name)
 }
 
 func (s *docState) streamDescriptionNamesUsageChunk() error {
-	d := strings.ToLower(str(s.chatResponse("200")["description"]))
+	d := strings.ToLower(docStr(s.chatResponse("200")["description"]))
 	if !strings.Contains(d, "usage chunk") {
 		return fmt.Errorf("the 200 description does not name the final usage chunk for stream:true: %q", d)
 	}
@@ -161,7 +161,7 @@ func (s *docState) streamDescriptionNamesUsageChunk() error {
 }
 
 func (s *docState) streamDescriptionNamesCostComment() error {
-	d := strings.ToLower(str(s.chatResponse("200")["description"]))
+	d := strings.ToLower(docStr(s.chatResponse("200")["description"]))
 	if !strings.Contains(d, "rogerai-cost=") || !strings.Contains(d, "deprecated") {
 		return fmt.Errorf("the 200 description does not name the `: rogerai-cost=` comment as deprecated-but-present: %q", d)
 	}
@@ -177,7 +177,7 @@ func (s *docState) noCheapestActivePrice() error {
 }
 
 func (s *docState) describesFiltersAndScoring() error {
-	d := strings.ToLower(str(s.chatPost()["description"]))
+	d := strings.ToLower(docStr(s.chatPost()["description"]))
 	if !strings.Contains(d, "eligib") || !strings.Contains(d, "scor") {
 		return fmt.Errorf("the endpoint description does not name the eligibility filters and the scored selection: %q", d)
 	}
@@ -228,7 +228,7 @@ func (s *docState) routingKeysTyped() error {
 			if km == nil {
 				return fmt.Errorf("ChatRequest.%s.%s is not documented", obj, k)
 			}
-			if str(km["type"]) == "" && km["$ref"] == nil && km["oneOf"] == nil {
+			if docStr(km["type"]) == "" && km["$ref"] == nil && km["oneOf"] == nil {
 				return fmt.Errorf("ChatRequest.%s.%s has no type", obj, k)
 			}
 			var have any = km[facet]
@@ -241,7 +241,7 @@ func (s *docState) routingKeysTyped() error {
 		}
 	}
 	m, _ := dig(props, "models").(map[string]any)
-	if str(m["type"]) != "array" || m["maxItems"] == nil {
+	if docStr(m["type"]) != "array" || m["maxItems"] == nil {
 		return fmt.Errorf("ChatRequest.models is not an array with a maxItems bound")
 	}
 	for _, k := range []string{"prompt", "completion", "request"} {

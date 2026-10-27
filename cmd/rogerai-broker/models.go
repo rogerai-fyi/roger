@@ -43,7 +43,7 @@ func (b *broker) models(w http.ResponseWriter, r *http.Request) {
 	}
 	// A filter, or one id: collapsed from the cached feed (filtered), with each model's
 	// created read off the cached catalog - never a per-hit recompute of the discover view.
-	data := b.collapseModels(f.filterOffers(b.cachedOffers()), b.catalogCreated())
+	data := b.collapseModels(f.filterOffers(b.cachedOffers(nil)), b.catalogCreated())
 	if !one {
 		writeJSON(w, http.StatusOK, map[string]any{"object": "list", "data": data})
 		return

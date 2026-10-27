@@ -160,7 +160,8 @@
 
 /* base price line + window rows: inline, wrapping fields. */
 .md-base,
-.md-win {
+.md-win,
+.md-catrow {
   display: flex;
   align-items: center;
   gap: var(--s-2) var(--s-3);
@@ -179,7 +180,9 @@
 /* mono number fields - tabular, hairline, red focus ring (matches account inputs). */
 .md-in,
 .md-time,
-.md-days {
+.md-days,
+.md-catsel,
+.md-cattext {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums slashed-zero;
   font-size: var(--t-sm);
@@ -192,9 +195,13 @@
 .md-in   { width: 6.5em; }
 .md-time { width: 7.5em; }
 .md-days { width: 7em; }
+.md-cattext { width: 18em; max-width: 100%; }
+.md-catbox { margin-top: var(--s-2); padding-left: var(--s-3); border-left: 1px solid var(--hairline-2); }
 .md-in:focus-visible,
 .md-time:focus-visible,
-.md-days:focus-visible {
+.md-days:focus-visible,
+.md-catsel:focus-visible,
+.md-cattext:focus-visible {
   outline: none;
   border-color: var(--live);
   box-shadow: 0 0 0 1px var(--live) inset;
