@@ -190,7 +190,15 @@ func (l *Local) proveBearer(resp *Response, join, nonce, userKey string) error {
 		}
 		resp.ProofStatus = ""
 		resp.RootProof = RootProof(c.Code, RootFingerprint(root), resp.Account, resp.NodeID, nonce)
-		got[i].SpentBy, got[i].SpentAt = userKey, l.now().Unix()
+		// SpentAt orders spends: never earlier than any spend already recorded, so two spends in one
+		// second (or under a held clock) still order by spend, not by mint.
+		at := l.now().Unix()
+		for _, o := range got {
+			if o.SpentAt >= at {
+				at = o.SpentAt + 1
+			}
+		}
+		got[i].SpentBy, got[i].SpentAt = userKey, at
 		break
 	}
 	return l.writeJSON(CodesFile, got)

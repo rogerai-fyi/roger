@@ -29,8 +29,8 @@ type enrollCode struct {
 	// proves a retried answer to the key that spent it until it expires, so a reply lost on the way
 	// back does not strand the device with a certificate it cannot verify (bearer.go).
 	SpentBy string `json:"spent_by,omitempty"`
-	// SpentAt is when it was spent (unix seconds): the code a key spent LAST is the one its retry is
-	// checked against for free (bearer.go, bearerFind).
+	// SpentAt orders spends (unix seconds, raised past any earlier spend so it is strictly increasing):
+	// the code a key spent LAST is the one its retry is checked against for free (bearer.go, bearerFind).
 	SpentAt int64 `json:"spent_at,omitempty"`
 }
 

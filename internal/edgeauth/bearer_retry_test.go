@@ -227,3 +227,28 @@ func TestTheRetryCheckedIsTheInviteSpentLastNotMintedLast(t *testing.T) {
 	require.NoError(t, err)
 	requireProof(t, a, resp, retry.Nonce)
 }
+
+// Re-review 2026-10-27: two spends inside one second are still ordered by spend, not by mint.
+func TestTwoSpendsInOneSecondAreStillOrderedBySpend(t *testing.T) {
+	local, err := edgeauth.Designate(t.TempDir(), "shed")
+	require.NoError(t, err)
+	at := time.Now().Truncate(time.Second) // requests are dated by the real clock; the authority's is held
+	local.SetNow(func() time.Time { return at })
+	_, user := keypair(t)
+	node, _ := keypair(t)
+	a, err := local.MintBearerCode()
+	require.NoError(t, err)
+	at = at.Add(2 * time.Second)
+	b, err := local.MintBearerCode()
+	require.NoError(t, err)
+	_, err = local.Issue(proven(t, local, user, node, b))
+	require.NoError(t, err)
+	first := proven(t, local, user, node, a) // the same second as the spend of b
+	_, err = local.Issue(first)
+	require.NoError(t, err)
+
+	retry := proven(t, local, user, node, a)
+	resp, err := local.Issue(retry)
+	require.NoError(t, err)
+	requireProof(t, a, resp, retry.Nonce)
+}
