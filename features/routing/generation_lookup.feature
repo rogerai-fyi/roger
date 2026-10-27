@@ -110,6 +110,7 @@ Feature: GET /generation returns one request's full routing and billing history 
     And served.model is "qwen3-32b"
     # the skipped "qwen3-235b" is not a synthetic attempt: nothing was dispatched (contract §3)
 
+  @slice5
   Scenario: A key-funded request records key_id, and the consumer view carries the key state
     # features/relay/key_limits.feature owns the semantics; this pins the record shape.
     Given "alice" holds key "key_a1" with limit_usd 5.00 reset monthly
@@ -173,11 +174,12 @@ Feature: GET /generation returns one request's full routing and billing history 
     When "alice" GETs /generation for it
     Then status is 402 and attempts is [] and cost is 0
 
+  # corrected 2026-10-02 (founder-approved): $0.000100 is not billable at the Background's $0.60/1M; 200 tokens = $0.000120
   Scenario: A cancelled stream shows cancelled true and the settled cost
-    Given "alice" disconnects mid-stream and the settle still bills $0.000100
+    Given "alice" disconnects mid-stream and the settle still bills $0.000120
     When "alice" GETs /generation for it
     Then cancelled is true
-    And cost is 0.000100
+    And cost is 0.000120
     And receipt is present
 
   Scenario: A voided attempt names its void_reason and upstream status
@@ -411,6 +413,8 @@ Feature: GET /generation returns one request's full routing and billing history 
     Then the status is 200
     And the record equals the one instance A returns
 
+  # deferred 2026-10-02 (founder-approved): needs stations polling two instances; the harness cannot build it yet
+  @later
   Scenario: A failover that crossed instances still lists every attempt in order
     Given a two-instance broker
     And attempt 1 ran on instance A and attempt 2 on instance B
@@ -425,6 +429,7 @@ Feature: GET /generation returns one request's full routing and billing history 
 
   # --- clients --------------------------------------------------------------------------------
 
+  @cli
   Scenario: `roger generation <id>` prints the record
     Given "alice" made a request served by "n-1" that failed over from "n-2"
     When the operator runs `roger generation <id>`
@@ -432,30 +437,36 @@ Feature: GET /generation returns one request's full routing and billing history 
     And lists each attempt with its status and duration
     And says the receipt verifies
 
+  @cli
   Scenario: `roger generation --last` looks up the most recent request of this session
     Given the local proxy just relayed a request
     When the operator runs `roger generation --last`
     Then the record for that request id is printed
 
+  @cli
   Scenario: `roger generation` with a malformed id fails locally
     When the operator runs `roger generation nope`
     Then the command exits non-zero without contacting the broker
 
+  @cli
   Scenario: `roger generation --json` prints the raw record
     When the operator runs `roger generation <id> --json`
     Then stdout is the broker's JSON body unchanged
 
+  @tui
   Scenario: The TUI last-request pane reads the record
     Given the TUI is tuned to "qwen3-32b" and a turn just settled
     When the operator opens the last-request pane
     Then it shows served station, cost, tokens, tps, ttft, and each attempt
     And it reads them from /generation, not from a local guess
 
+  @web
   Scenario: The Playbox request inspector reads the record for its own session
     Given a Playbox session made a request
     When the inspector opens that request
     Then it shows the served station, cost and attempts from /generation
 
+  @docs
   Scenario: OpenAPI documents /generation
     Then openapi.yaml has GET /generation with the id query param
     And documents the 200 record schema, 400, 404, 429 and 503

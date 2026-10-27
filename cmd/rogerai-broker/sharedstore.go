@@ -118,6 +118,10 @@ type sharedStore interface {
 	// non-nil err (incl. errNoSharedStore on memStore) means the shared path is unavailable
 	// and the caller uses its per-instance fallback map. ttl<=0 is treated as no-store.
 	putCapsule(lookup string, blob []byte, ttl time.Duration) error
+	// putGen / getGen hold one request's /generation record under its request id, readable
+	// from any instance. getGen's found=false with a nil error is a clean miss.
+	putGen(id string, rec []byte, ttl time.Duration) error
+	getGen(id string) (rec []byte, found bool, err error)
 
 	// takeCapsule ATOMICALLY returns AND deletes the blob under lookup (one-time,
 	// delete-on-read via GETDEL), so exactly one of N concurrent resolves across all
@@ -412,6 +416,10 @@ func (m *memStore) cacheDel(string) error { return errNoSharedStore }
 // per-instance capsuleStore map (single-instance / no-Valkey path).
 func (m *memStore) putCapsule(string, []byte, time.Duration) error { return errNoSharedStore }
 func (m *memStore) takeCapsule(string) ([]byte, bool, error)       { return nil, false, errNoSharedStore }
+
+// /generation records are inert on memStore too: the broker keeps them per instance.
+func (m *memStore) putGen(string, []byte, time.Duration) error { return errNoSharedStore }
+func (m *memStore) getGen(string) ([]byte, bool, error)        { return nil, false, errNoSharedStore }
 
 // The counter / setIfAbsent primitives on memStore are all "unavailable" no-ops, so
 // every money/seed fast-path falls back to its Postgres-authoritative computation.
@@ -1648,6 +1656,45 @@ func (v *valkeyStore) cacheDel(key string) error {
 // they never collide with another project or with the rl:/node:/cache: keys. Every capsule
 // key is rogerai:cap:<lookup>. The value is opaque ciphertext; the broker never reads it.
 const capsuleKeyPrefix = keyPrefix + "cap:"
+
+// genKeyPrefix namespaces the /generation records: rogerai:gen:<request id>.
+const genKeyPrefix = keyPrefix + "gen:"
+
+// putGen SETs a /generation record with its TTL (atomic set+expire).
+func (v *valkeyStore) putGen(id string, rec []byte, ttl time.Duration) error {
+	if v == nil || v.rdb == nil {
+		return errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	if err := v.rdb.Set(ctx, genKeyPrefix+id, rec, ttl).Err(); err != nil {
+		v.noteErr("putGen", err)
+		return err
+	}
+	v.setUp(true)
+	return nil
+}
+
+// getGen reads one /generation record: a miss is found=false with a nil error; a backend
+// error is returned (the lookup fails closed on it).
+func (v *valkeyStore) getGen(id string) ([]byte, bool, error) {
+	if v == nil || v.rdb == nil {
+		return nil, false, errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	val, err := v.rdb.Get(ctx, genKeyPrefix+id).Bytes()
+	if err == redis.Nil {
+		v.setUp(true)
+		return nil, false, nil
+	}
+	if err != nil {
+		v.noteErr("getGen", err)
+		return nil, false, err
+	}
+	v.setUp(true)
+	return val, true, nil
+}
 
 // putCapsule SETs the opaque blob under the lookup with a TTL (atomic set+expire), so an
 // expired blob can never outlive its window. ttl<=0 is a no-op. Content-blind: only the

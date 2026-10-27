@@ -2803,7 +2803,7 @@ func mf1Thens() []mf1Step {
 				return fmt.Errorf("GET /generation as another identity = %d %.200s, want 404", s.genCode, s.genBody)
 			}
 			foreign := append([]byte(nil), s.genBody...)
-			s.readGeneration("req-does-not-exist", s.anonPriv)
+			s.readGeneration("0123456789abcdef", s.anonPriv) // well-formed but unknown (a malformed id is a 400 by generation_lookup.feature)
 			if !bytes.Equal(foreign, s.genBody) {
 				return fmt.Errorf("the 404 for a foreign id (%.120s) differs from the 404 for an unknown id (%.120s)", foreign, s.genBody)
 			}
