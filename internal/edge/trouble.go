@@ -64,6 +64,8 @@ type TroubleTransition struct {
 	Firing   bool   `json:"firing"`
 	Priority string `json:"priority"`
 	Test     bool   `json:"test,omitempty"`
+	// Unreported marks a power call closed because the node stopped reporting its power.
+	Unreported bool `json:"unreported,omitempty"`
 }
 
 type TroubleSignOff struct {
@@ -215,11 +217,14 @@ func (l AlertLog) feedFrom(hist []Alert, calls []TroubleCall, rate int, so SignO
 		when := a.RuleID
 		if a.Test {
 			when = "TEST · " + a.RuleID
+		} else if a.Unreported {
+			when = "no longer reports its power"
 		} else if a.Op != "" {
 			when = fmt.Sprintf("%s %s %s", a.Metric, a.Op, fmtThreshold(a.Threshold))
 		}
 		feed.Transitions = append(feed.Transitions, TroubleTransition{At: a.At.Unix(), Rule: a.RuleID, NodeID: a.NodeID,
-			Node: name(a.NodeID, a.Node), When: when, Firing: a.Firing, Priority: Priority(a.Metric), Test: a.Test})
+			Node: name(a.NodeID, a.Node), When: when, Firing: a.Firing, Priority: Priority(a.Metric), Test: a.Test,
+			Unreported: a.Unreported})
 	}
 	for id, d := range so.DeadAir {
 		feed.SignOff.DeadAir = append(feed.SignOff.DeadAir, TroubleDeadAir{Node: name(id, ""), ForS: int64(d.Seconds())})

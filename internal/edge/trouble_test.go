@@ -309,3 +309,28 @@ func TestTroubleFeedRefusesAMemberOfAnotherAccount(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, code)
 	require.NotContains(t, body, "desk")
 }
+
+// Re-review 2026-10-27: the phone's feed is one of "every surface". A power call closed because the
+// node stopped reporting its power says so there too, and is marked for the app.
+func TestTheFeedSaysAPowerCallClosedBecauseItIsNoLongerReported(t *testing.T) {
+	rig := newTroubleRig(t)
+	now := time.Now()
+	pct, no := 80, false
+	on := NodeHealth{ID: "n_desk", Name: "desk", Kind: "host", Presence: string(PresenceVerified),
+		Power: &store.EdgePower{BatteryPct: &pct, Charging: &no, Source: "battery"}}
+	_, _, _ = rig.log.Judge([]NodeHealth{on}, now.Add(-time.Second))
+	gone := NodeHealth{ID: "n_desk", Name: "desk", Kind: "host", Presence: string(PresenceVerified)}
+	_, _, _ = rig.log.Judge([]NodeHealth{gone}, now)
+	_, body := rig.get(t, &rig.phone, "")
+	var feed TroubleFeed
+	require.NoError(t, json.Unmarshal([]byte(body), &feed))
+	var closed *TroubleTransition
+	for i, tr := range feed.Transitions {
+		if tr.Rule == "on_battery" && !tr.Firing {
+			closed = &feed.Transitions[i]
+		}
+	}
+	require.NotNil(t, closed, body)
+	require.True(t, closed.Unreported)
+	require.Equal(t, "no longer reports its power", closed.When)
+}
