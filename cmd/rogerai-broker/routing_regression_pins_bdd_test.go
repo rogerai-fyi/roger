@@ -71,6 +71,8 @@ type rpResult struct {
 type rpState struct {
 	*foState
 
+	prevHubBackoff time.Duration // towerhub.PollBackoff before this suite shortened it
+
 	// the request under test
 	pref, minTPS, excludeHdr, maxOutHdr, maxPriceHdr string
 	bodyShape                                        string // "", "tools", "image", "text"
@@ -95,6 +97,14 @@ func (s *rpState) resetPins() error {
 	if err := s.foState.reset(); err != nil {
 		return err
 	}
+	// A Tower's share node starts polling the hub before the fixture registers its station
+	// there, so its first poll is refused and the worker backs off. In production that costs
+	// one PollBackoff (2 s) once per node start-up; here it was paid by every scenario's first
+	// bridged relay and again at teardown. Restored in teardownPins.
+	if s.prevHubBackoff == 0 {
+		s.prevHubBackoff = towerhub.PollBackoff
+	}
+	towerhub.PollBackoff = 50 * time.Millisecond
 	s.pref, s.minTPS, s.excludeHdr, s.maxOutHdr, s.maxPriceHdr = "", "", "", "", ""
 	s.bodyShape, s.extraBody, s.callerPriv = "", nil, nil
 	s.towerSrv, s.towers, s.edgeConsumer = nil, map[string]*rpTower{}, nil
@@ -105,6 +115,11 @@ func (s *rpState) resetPins() error {
 }
 
 func (s *rpState) teardownPins() {
+	defer func() {
+		if s.prevHubBackoff != 0 {
+			towerhub.PollBackoff = s.prevHubBackoff
+		}
+	}()
 	for _, tw := range s.towers {
 		for _, c := range tw.closers {
 			c()

@@ -10,6 +10,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -32,6 +33,7 @@ type blState struct {
 	second   client.DeviceLogin
 	account  string
 	pollErr  error
+	pollStat string // the broker's verdict on the last single poll ("pending", "approved", ...)
 	approveC int
 	pendingB []byte
 	seenURI  string
@@ -47,7 +49,7 @@ func (s *blState) reset(t *testing.T) {
 	t.Cleanup(srv.Close)
 	s.url = srv.URL
 	s.d, s.second = client.DeviceLogin{}, client.DeviceLogin{}
-	s.account, s.pollErr, s.approveC = "", nil, 0
+	s.account, s.pollErr, s.approveC, s.pollStat = "", nil, 0, ""
 	s.pendingB, s.seenURI = nil, ""
 }
 
@@ -98,9 +100,49 @@ func (s *blState) approveWith(cookie string) error {
 
 func (s *blState) startALogin() error { return s.aStartedLogin() }
 
+// pollOnce makes ONE signed poll as the CLI's own key and maps the verdict exactly as
+// client.DeviceLoginPoll does (approved -> the account, denied / expired -> those errors).
+// Running the client's loop instead would wait out its 60-second minimum deadline whenever
+// the login is still pending, and could only report "did not resolve"; a single poll reads
+// the broker's actual answer.
 func (s *blState) pollOnce() error {
-	s.d.ExpiresIn, s.d.Interval = 2, 1
-	s.account, s.pollErr = client.DeviceLoginPoll(s.url, s.d)
+	body, err := json.Marshal(map[string]string{"device_code": s.d.DeviceCode})
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequest(http.MethodPost, s.url+"/auth/device/token", strings.NewReader(string(body)))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	client.SignRequest(req, body)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	var out struct {
+		Status  string `json:"status"`
+		Account string `json:"account"`
+	}
+	if resp.StatusCode != http.StatusOK {
+		s.pollErr = fmt.Errorf("poll answered %d", resp.StatusCode)
+		return nil
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return err
+	}
+	s.pollStat = out.Status
+	switch out.Status {
+	case "approved":
+		s.account, s.pollErr = out.Account, nil
+	case "denied":
+		s.pollErr = client.ErrLoginDenied
+	case "expired":
+		s.pollErr = client.ErrLoginExpired
+	default:
+		s.pollErr = fmt.Errorf("login not resolved: %s", out.Status)
+	}
 	return nil
 }
 
@@ -202,7 +244,10 @@ func (s *blState) codesAreUnique() error {
 }
 
 func (s *blState) statusIsPending() error {
-	return check(s.pollErr != nil, "a never-approved login must not resolve")
+	return allTrue(
+		check(s.pollStat == "pending", "the broker's verdict was "+fmt.Sprintf("%q", s.pollStat)+", want \"pending\""),
+		check(s.pollErr != nil, "a never-approved login must not resolve"),
+	)
 }
 
 func (s *blState) accountIsBound() error {

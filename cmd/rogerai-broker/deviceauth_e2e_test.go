@@ -121,11 +121,26 @@ func TestTwoConcurrentLoginsAreIndependent(t *testing.T) {
 	code, _ := approveAs(t, b, githubSession(b, "alice", 4242), first.UserCode)
 	require.Equal(t, http.StatusOK, code)
 
-	// The second is untouched: still pending, so a poll times out rather than succeeding.
-	second.ExpiresIn = 2
-	second.Interval = 1
-	_, err = client.DeviceLoginPoll(url, second)
-	require.ErrorIs(t, err, client.ErrLoginExpired, "approving one login must not approve another")
+	// The second is untouched: one signed poll as this CLI's key gets the broker's verdict
+	// "pending", not "approved". (Running client.DeviceLoginPoll here would wait out its
+	// 60-second minimum deadline just to report that nothing resolved.)
+	body, err := json.Marshal(map[string]string{"device_code": second.DeviceCode})
+	require.NoError(t, err)
+	req, err := http.NewRequest(http.MethodPost, url+"/auth/device/token", strings.NewReader(string(body)))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	client.SignRequest(req, body)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	var out struct {
+		Status  string `json:"status"`
+		Account string `json:"account"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.Equal(t, "pending", out.Status, "approving one login must not approve another")
+	require.Empty(t, out.Account)
 }
 
 // The CLI writes the account, and nothing that looks like a provider token.

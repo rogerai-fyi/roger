@@ -871,7 +871,6 @@ Feature: Node preference - allow, deny, order, no-fallback, sort and pref
     When 20 funded consumers relay with provider.sort "latency"
     Then every pick is "s3"
 
-  @slice2
 
   Scenario: sort latency with max_ttft_ms filters first, then sorts
     Given measured ttft "s1" 900ms, "s2" 300ms, "s3" 600ms

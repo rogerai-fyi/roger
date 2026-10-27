@@ -79,6 +79,7 @@ import (
 
 	"github.com/cucumber/godog"
 	"rogerai.fm/roger/v6/internal/agent"
+	"rogerai.fm/roger/v6/internal/detect"
 	"rogerai.fm/roger/v6/internal/protocol"
 	"rogerai.fm/roger/v6/internal/store"
 	"rogerai.fm/roger/v6/internal/towercore/admit"
@@ -139,8 +140,10 @@ type eb1Consumer struct {
 
 type eb1State struct {
 	*rpState
-	tw   map[string]*eb1Tower
-	pool []eb1Consumer
+	tw map[string]*eb1Tower
+	// mismatchTower: the Tower a "declares ... but its known-model table entry says" Given named
+	mismatchTower string
+	pool          []eb1Consumer
 
 	// the request under test (rebuilt by every When)
 	hdr      map[string]string
@@ -182,6 +185,7 @@ func (s *eb1State) eb1Reset() error {
 		return err
 	}
 	s.tw = map[string]*eb1Tower{}
+	s.mismatchTower = ""
 	s.bands = map[string]string{}
 	s.bodies = map[string][][]byte{}
 	s.caller, s.sessionCk = "", ""
@@ -2779,10 +2783,38 @@ func (s *eb1State) eb1CollisionWarned() error {
 	return nil
 }
 
-func (s *eb1State) eb1DeclaresQuantParamsMismatch(tower, quant string, params float64, _ string) error {
+// eb1AlsoOffers gives an existing Tower a routable row for a second model on the same
+// station (Core places one share node per Tower, so a second Tower for one scenario is not
+// constructible; the station's upstream answers any model). Later Givens edit that model's
+// offer on the joined registration.
+func (s *eb1State) eb1AlsoOffers(tower, model, _ string) error {
+	tw, err := s.eb1T(tower)
+	if err != nil {
+		return err
+	}
+	routableEdgePriced(s.t, s.b, tw.rp.id, tw.stationID, model, tw.endpoint, tw.inMicros, tw.outMicros)
+	tw.model = model
+	return nil
+}
+
+func (s *eb1State) eb1DeclaresQuantParamsMismatch(tower, quant string, params float64, table string) error {
+	tw, err := s.eb1T(tower)
+	if err != nil {
+		return err
+	}
+	// The scenario's "table entry says 7B" is checked against the real estimator, so the
+	// fixture cannot silently drift from what the broker will compare the declaration to.
+	want, perr := strconv.ParseFloat(strings.TrimSuffix(strings.ToUpper(table), "B"), 64)
+	if perr != nil {
+		return fmt.Errorf("table entry %q is not a size like 7B", table)
+	}
+	if got, ok := detect.ParamsFromID(tw.model); !ok || got != want {
+		return fmt.Errorf("the known-model estimate for %q is %v (ok=%v), the scenario says %v", tw.model, got, ok, want)
+	}
 	if err := s.eb1Quant(tower, quant); err != nil {
 		return err
 	}
+	s.mismatchTower = strings.TrimSuffix(tower, "-a")
 	return s.eb1Param(tower, params)
 }
 
@@ -2791,7 +2823,10 @@ func (s *eb1State) eb1FlaggedMismatch() error {
 		return err
 	}
 	raw, _ := json.Marshal(s.adminResp)
-	tw, _ := s.eb1T("t1")
+	tw, err := s.eb1T(s.mismatchTower)
+	if err != nil {
+		return err
+	}
 	low := strings.ToLower(string(raw))
 	if !strings.Contains(low, "params") || !strings.Contains(low, "mismatch") || !strings.Contains(string(raw), tw.rp.nodeID) {
 		return fmt.Errorf("/admin/live does not flag the row's params_b declaration as a mismatch")
@@ -2801,8 +2836,11 @@ func (s *eb1State) eb1FlaggedMismatch() error {
 
 func (s *eb1State) eb1RowIneligible() error {
 	t := s.eb1Tally()
-	if t.relay["t1"] != 0 {
-		return fmt.Errorf("%d relay(s) rode the Tower whose declaration contradicts the known-model table (%s)", t.relay["t1"], t)
+	if t.total == 0 {
+		return fmt.Errorf("no relay was fired")
+	}
+	if n := t.relay[s.mismatchTower]; n != 0 {
+		return fmt.Errorf("%d relay(s) rode the Tower whose declaration contradicts the known-model table (%s)", n, t)
 	}
 	return nil
 }
@@ -2997,6 +3035,7 @@ func TestRoutingEdgeBridgeParityBDD(t *testing.T) {
 			sc.Step(`^no log line contains a band code$`, st.eb1NoBandInLogs)
 			sc.Step(`^the share served through "([^"]+)" is within the approved fan-out band of edge_fanout\.feature$`, st.eb1FanoutBand)
 			sc.Step(`^the operator is warned once on /admin/live about the id collision$`, st.eb1CollisionWarned)
+			sc.Step(`^the Tower "([^"]+)" also offers "([^"]+)" through station "([^"]+)"$`, st.eb1AlsoOffers)
 			sc.Step(`^the row is flagged params_estimated false with a mismatch on /admin/live$`, st.eb1FlaggedMismatch)
 			sc.Step(`^the row is ineligible under the filter until the declaration is corrected$`, st.eb1RowIneligible)
 		},

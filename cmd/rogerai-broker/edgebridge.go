@@ -102,6 +102,7 @@ type edgeConstraints struct {
 	maxPriceIn     float64 // $/1M ceilings, 0 = none (the relay's effective caps)
 	maxPriceOut    float64
 	capReq         float64 // provider.max_price.request: a row whose input cost alone meets it buys no output
+	netFilters             // params_b, min_ctx, max_ttft_ms, trust_min verified, region, on the joined node
 	// declined tallies, per constraint, the Tower ids a row was declined for during one
 	// request (nil = not recorded): the edge_bridge_declined{<constraint>} counters and the
 	// one decline log line per request and constraint (edge_bridge_parity.feature).

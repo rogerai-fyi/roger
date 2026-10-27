@@ -15,8 +15,8 @@ import (
 // cache, reset the whole cache past its size cap). Filters are applied AFTER the cached read
 // (taxonomyFilter), never by keying a separate entry.
 const (
-	discoverCacheKey = "discover"
-	marketCacheKey   = "market"
+	discoverCacheKey = "discover:"
+	marketCacheKey   = "market:"
 )
 
 type offerView struct {
@@ -35,6 +35,11 @@ type offerView struct {
 	Quant   string `json:"quant,omitempty"`
 	Weights string `json:"weights,omitempty"`
 	Variant string `json:"variant,omitempty"`
+	// ParamsB is the parameter count in billions: the station's declaration, else the
+	// broker's estimate from the model id. ParamsEstimated says which (false = declared,
+	// true = estimated); both are omitted when nothing is known (contract §5/§8).
+	ParamsB         float64 `json:"params_b,omitempty"`
+	ParamsEstimated *bool   `json:"params_estimated,omitempty"`
 	// Modality is what the offer DOES: "chat" (the back-compat default), "tts" (speak), or
 	// "stt" (listen). Carried on the public feed so the consumer's client + TUI can tell a
 	// VOICE station apart from a chat station and never (wrongly) offer a voice band as a chat
@@ -177,8 +182,9 @@ func (b *broker) enrichOffersForNode(out []offerView, n protocol.NodeRegistratio
 	sr, srSeen := b.success[n.NodeID]
 	quality := tq.score()
 	ttft := tq.ttftMs
-	// A declared probe minimum never extends the mark: past the normal window it lapses.
-	verified := tq.verifiedServing() && !b.probeMinLapsedLocked(n.NodeID, now, b.probe.ceiling)
+	// verified means what routing's trust_min=verified means: a passed canary within the
+	// measurement freshness window (verifiedFreshLocked), so the feed and the pick agree.
+	verified := b.verifiedFreshLocked(n.NodeID, tq, now)
 	staleness := b.measurementStalenessLocked(n.NodeID, now)
 	capacity := capacityOf(b.concurrentTPS[n.NodeID], n.HW)
 	radius := 0.0
@@ -210,7 +216,13 @@ func (b *broker) enrichOffersForNode(out []offerView, n protocol.NodeRegistratio
 			continue
 		}
 		pin, pout, free, _ := o.ActivePrice(now)
+		var paramsEst *bool
+		params, est, known := offerParams(o)
+		if known {
+			paramsEst = &est
+		}
 		out = append(out, offerView{
+			ParamsB: params, ParamsEstimated: paramsEst,
 			NodeID: n.NodeID, Region: n.Region, HW: n.HW, Model: o.Model, Modality: offerModality(o.Modality),
 			Curated: n.Curated, CuratedProvider: n.CuratedProvider,
 			UpstreamIn: o.UpstreamIn, UpstreamOut: o.UpstreamOut,
@@ -268,7 +280,28 @@ func (b *broker) discover(w http.ResponseWriter, r *http.Request) {
 	// filters run over that one entry (serveFiltered). Note: on a cache HIT
 	// the demand-probe scheduling below is skipped, but a miss recomputes every ~few
 	// seconds (the TTL), so demand probing still fires steadily under browsing load.
-	b.serveFiltered(w, r, discoverCacheKey, b.computeDiscover)
+	// Filters (contract §8) run AFTER the cache, over the one unfiltered entry: a filtered
+	// read never recomputes, never re-keys, and takes no broker lock. The taxonomy filters
+	// (category, subcategory, tag, policy, source) compose with them.
+	f, ok := readFilter(w, r)
+	if !ok {
+		return
+	}
+	if !f.set {
+		b.serveFiltered(w, r, discoverCacheKey, b.computeDiscover)
+		return
+	}
+	offers := f.filterOffers(b.cachedOffers(nil))
+	if tf := parseTaxonomyFilter(r); tf.active {
+		kept := make([]offerView, 0, len(offers))
+		for _, o := range offers {
+			if tf.match(o.Taxonomy) {
+				kept = append(kept, o)
+			}
+		}
+		offers = kept
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"offers": offers})
 }
 
 // computeDiscover builds the /discover payload (all model offers with live status,
@@ -366,8 +399,36 @@ func (b *broker) market(w http.ResponseWriter, r *http.Request) {
 	// Hot-path cache (flag-gated). /market aggregates per-model signal across every live
 	// node per request; the cache collapses repeated aggregations into one within a tiny
 	// window, shared across instances. PUBLIC, no-auth data - a single entry is safe to
-	// share across all callers; the taxonomy filters run over it (serveFiltered).
-	b.serveFiltered(w, r, marketCacheKey, b.computeMarket)
+	// share across all callers. Filters (contract §8) and the taxonomy filters run over it.
+	f, ok := readFilter(w, r)
+	if !ok {
+		return
+	}
+	if !f.set {
+		b.serveFiltered(w, r, marketCacheKey, b.computeMarket)
+		return
+	}
+	// The aggregates are recomputed over the SURVIVING providers (contract §8): the filter
+	// picks the (node, model) offers out of the cached feed, the market aggregates only those.
+	keep := map[string]bool{}
+	for _, o := range f.filterOffers(b.cachedOffers(nil)) {
+		keep[o.NodeID+"\x00"+o.Model] = true
+	}
+	view := b.computeMarketKeep(func(node, model string) bool { return keep[node+"\x00"+model] })
+	if tf := parseTaxonomyFilter(r); tf.active {
+		if m, ok := view.(map[string]any); ok {
+			if rows, ok := m["market"].([]marketView); ok {
+				out := make([]marketView, 0, len(rows))
+				for _, row := range rows {
+					if tf.matchRow(row.Category, row.Subcategory, row.Tags, row.ContentPolicies) {
+						out = append(out, row)
+					}
+				}
+				view = map[string]any{"market": out}
+			}
+		}
+	}
+	writeJSON(w, http.StatusOK, view)
 }
 
 // computeMarket builds the /market payload: a per-model marketplace view aggregated
@@ -406,7 +467,10 @@ func marketCapabilities(model string, union map[string]bool, seen bool) []string
 	return out
 }
 
-func (b *broker) computeMarket() any {
+func (b *broker) computeMarket() any { return b.computeMarketKeep(nil) }
+
+// computeMarketKeep aggregates the market over the offers keep admits (nil = every offer).
+func (b *broker) computeMarketKeep(keep func(node, model string) bool) any {
 	type acc struct {
 		modality      string // canonical modality of this model's offers (offerModality; first seen sets it)
 		providers     int
@@ -456,7 +520,7 @@ func (b *broker) computeMarket() any {
 		tq := b.trust[n.NodeID]
 		ttft := tq.ttftMs
 		quality := tq.score()
-		verified := tq.verifiedServing() && !b.probeMinLapsedLocked(n.NodeID, now, b.probe.ceiling)
+		verified := b.verifiedFreshLocked(n.NodeID, tq, now) // one verified rule for the feed, /discover and routing
 		// Per-node time-decayed success evidence (organic EWMA, else probe-verified or
 		// neutral) - NOT the old constant 1.0, so an unproven idle node doesn't inflate
 		// the channel's reliability.
@@ -469,6 +533,9 @@ func (b *broker) computeMarket() any {
 			b.demandProbeSoonLocked(n.NodeID, now)
 		}
 		for _, o := range n.Offers {
+			if keep != nil && !keep(n.NodeID, o.Model) {
+				continue
+			}
 			a := agg[o.Model]
 			if a == nil {
 				// The SAME canonical modality the per-offer feed carries (offerView):

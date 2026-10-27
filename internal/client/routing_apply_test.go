@@ -279,6 +279,24 @@ func TestGuestModelsWithin(t *testing.T) {
 		"a non-string entry":                {`{"models":[42]}`, "m", "models must be a list of model ids"},
 		"not a list":                        {`{"models":"m"}`, "m", "models must be a list of model ids"},
 		"legacy session with no tuned band": {`{"models":["x"]}`, "", ""},
+		// founder ruling 2026-10-02: with a carrier, the guest's own model must be the tuned one
+		"carrier + the tuned model":        {`{"model":"m","provider":{"sort":"price"}}`, "m", ""},
+		"carrier + the tuned model, sugar": {`{"model":"m:free","roger":{"pref":"cheap"}}`, "m", ""},
+		"carrier + another model":          {`{"model":"x","roger":{"pref":"cheap"}}`, "m", "model x is outside this session's band"},
+		"empty carrier + another model":    {`{"model":"x","provider":{}}`, "m", "model x is outside this session's band"},
+		"models carrier + another model":   {`{"model":"x","models":["m"]}`, "m", "model x is outside this session's band"},
+		"no carrier + another model":       {`{"model":"x"}`, "m", ""},
+		"null carriers + another model":    {`{"model":"x","provider":null,"roger":null,"models":null}`, "m", ""},
+		"carrier + no model":               {`{"roger":{"pref":"cheap"}}`, "m", ""},
+		"carrier + a profile reference":    {`{"model":"@profile/coding","roger":{"pref":"cheap"}}`, "m", ""},
+		// bug fix 2026-10-02: guests send the tuned model behind the provider prefix their
+		// materialized config uses (hermes/opencode roger/, aider openai/)
+		"carrier + roger/ prefixed tuned model":  {`{"model":"roger/m","roger":{"pref":"cheap"}}`, "m", ""},
+		"carrier + openai/ prefixed tuned model": {`{"model":"openai/m:free","provider":{"sort":"price"}}`, "m", ""},
+		"prefixed tuned model in models[]":       {`{"models":["roger/m","openai/m:floor"]}`, "m", ""},
+		"carrier + prefixed another model":       {`{"model":"roger/x","roger":{"pref":"cheap"}}`, "m", "model roger/x is outside this session's band"},
+		"prefixed another model in models[]":     {`{"models":["openai/x"]}`, "m", "model openai/x is outside this session's band"},
+		"an unknown prefix is part of the id":    {`{"model":"vendor/m","roger":{"pref":"cheap"}}`, "m", "model vendor/m is outside this session's band"},
 	} {
 		err := GuestModelsWithin([]byte(tc.body), tc.tuned)
 		if tc.refusal == "" {

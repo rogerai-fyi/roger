@@ -1,7 +1,6 @@
 package main
 
 import (
-	"sort"
 	"sync"
 	"sync/atomic"
 )
@@ -79,7 +78,12 @@ type instStats struct {
 	edgeCoinFlips atomic.Int64
 	edgeMu        sync.Mutex
 	edgeDeclined  map[string]int64
+	// noMatchFilter counts no_match refusals by each filter that emptied the pool
+	// (relay_no_match_<filter>, contract §5). Guarded by edgeMu.
+	noMatchFilter map[string]int64
 	collisions    map[string]bool
+	// paramsMismatch: node ids whose declared params_b the model id contradicts (§5).
+	paramsMismatch map[string]bool
 }
 
 // edgeDeclineAdd counts one request in which a Tower row was declined for reason.
@@ -104,24 +108,28 @@ func (s *instStats) edgeDeclinedSnapshot() map[string]int64 {
 }
 
 // noteCollision records an id that names both a direct node and a Tower (warned once).
-func (s *instStats) noteCollision(id string) {
+func (s *instStats) noteCollision(id string) { s.noteID(&s.collisions, id) }
+
+func (s *instStats) collisionsSnapshot() []string { return s.idsOf(s.collisions) }
+
+// noteParamsMismatch records a node whose declared params_b its model id contradicts.
+func (s *instStats) noteParamsMismatch(id string) { s.noteID(&s.paramsMismatch, id) }
+
+func (s *instStats) paramsMismatchSnapshot() []string { return s.idsOf(s.paramsMismatch) }
+
+func (s *instStats) noteID(set *map[string]bool, id string) {
 	s.edgeMu.Lock()
-	if s.collisions == nil {
-		s.collisions = map[string]bool{}
+	if *set == nil {
+		*set = map[string]bool{}
 	}
-	s.collisions[id] = true
+	(*set)[id] = true
 	s.edgeMu.Unlock()
 }
 
-func (s *instStats) collisionsSnapshot() []string {
+func (s *instStats) idsOf(set map[string]bool) []string {
 	s.edgeMu.Lock()
 	defer s.edgeMu.Unlock()
-	out := make([]string, 0, len(s.collisions))
-	for id := range s.collisions {
-		out = append(out, id)
-	}
-	sort.Strings(out)
-	return out
+	return sortedKeys(set)
 }
 
 // snapshot returns the counters as a plain map for the admin overview JSON. Read-only.
@@ -151,7 +159,7 @@ func (s *instStats) countVariants(suffixes []string) {
 
 // routingCounters is the flat /admin/live view of the routing-expression counters.
 func (s *instStats) routingCounters() map[string]int64 {
-	return map[string]int64{
+	m := map[string]int64{
 		"routing_body_requests":      s.routingBodyRequests.Load(),
 		"routing_body_rejects":       s.routingBodyRejects.Load(),
 		"routing_strict_order":       s.routingStrictOrder.Load(),
@@ -164,4 +172,19 @@ func (s *instStats) routingCounters() map[string]int64 {
 		"relay_no_match_capability":  s.relayNoMatchCapability.Load(),
 		"edge_coin_flips":            s.edgeCoinFlips.Load(),
 	}
+	s.edgeMu.Lock()
+	for f, n := range s.noMatchFilter {
+		m["relay_no_match_"+f] = n
+	}
+	s.edgeMu.Unlock()
+	return m
+}
+
+func (s *instStats) noteNoMatchFilter(f string) {
+	s.edgeMu.Lock()
+	if s.noMatchFilter == nil {
+		s.noMatchFilter = map[string]int64{}
+	}
+	s.noMatchFilter[f]++
+	s.edgeMu.Unlock()
 }

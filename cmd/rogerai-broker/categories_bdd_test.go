@@ -393,6 +393,19 @@ func (s *catState) ascending() error {
 	return nil
 }
 
+// errorCodeIs reads the error envelope's code from the last response.
+func (s *catState) errorCodeIs(code string) error {
+	var e struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(s.raw), &e); err != nil || e.Error.Code != code {
+		return fmt.Errorf("error code %q, got %q: %s", code, e.Error.Code, s.raw)
+	}
+	return nil
+}
+
 func (s *catState) statusIs(code int) error {
 	if s.code != code {
 		return fmt.Errorf("status %d, got %d: %s", code, s.code, s.raw)
@@ -674,6 +687,7 @@ func TestCategoriesBDD(t *testing.T) {
 			sc.Step(`^the listed nodes are `+q+`$`, st.listed)
 			sc.Step(`^the listed offers are in ascending input-price order$`, st.ascending)
 			sc.Step(`^the response status is (\d+)$`, st.statusIs)
+			sc.Step(`^the error code is "([^"]*)"$`, st.errorCodeIs)
 			sc.Step(`^the market row for `+q+` has category `+q+`, subcategory `+q+` and category providers (\d+)$`, st.rowCat)
 			sc.Step(`^the market row for `+q+` has providers (\d+)$`, st.rowProviders)
 			sc.Step(`^the market row for `+q+` has tags `+q+`$`, st.rowTags)

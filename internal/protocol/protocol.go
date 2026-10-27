@@ -20,6 +20,7 @@ import (
 	"crypto/sha512"
 	"encoding/hex"
 	"encoding/json"
+	"math"
 	"net/http"
 	"regexp"
 	"sort"
@@ -70,6 +71,11 @@ type ModelOffer struct {
 	Quant   string `json:"quant,omitempty"`
 	Weights string `json:"weights,omitempty"`
 	Variant string `json:"variant,omitempty"`
+	// ParamsB is the model's parameter count in billions as the STATION declares it
+	// (ROUTING-EXPRESSION-CONTRACT §5): a declared attribute, never measured or verified.
+	// 0 = not declared (the broker may estimate it from the model id, marked as an estimate).
+	// Excluded from the possession proof and omitempty for the reason given on Capabilities.
+	ParamsB float64 `json:"params_b,omitempty"`
 	// Taxonomy says what the model is FOR (category, tags, lineage, content policy). Embedded
 	// so its keys sit flat on the offer. Unverified DISPLAY + FILTER attributes, excluded from
 	// the possession proof for the same reason as Capabilities. See taxonomy.go.
@@ -107,6 +113,19 @@ type ModelOffer struct {
 	Voice string  `json:"voice,omitempty"`
 	Speed float64 `json:"speed,omitempty"`
 }
+
+// ParamsBMax is the largest parameter count (billions) a station may declare.
+const ParamsBMax = 10000
+
+// ValidParamsB reports whether a declared parameter count is acceptable: finite, positive,
+// at most ParamsBMax. Zero means "not declared" and is checked separately by the caller.
+func ValidParamsB(v float64) bool {
+	return !math.IsNaN(v) && !math.IsInf(v, 0) && v > 0 && v <= ParamsBMax
+}
+
+// QuantUnknown is the reserved quantization value a consumer uses to admit an UNLABELED
+// offer (contract §5). A station may not label itself with it.
+const QuantUnknown = "unknown"
 
 // Modality + Unit values. The enum is CLOSED (ValidModality); the unit is DERIVED from the
 // modality (canonicalUnit), never trusted from the wire — truth-in-labeling for how a request
@@ -467,6 +486,7 @@ func (r NodeRegistration) regSigningBytes() []byte {
 			// The variant fields are excluded for the same reason and with the same
 			// consequence if they are not: see their doc on ModelOffer.
 			offers[i].Quant, offers[i].Weights, offers[i].Variant = "", "", ""
+			offers[i].ParamsB = 0
 			offers[i].Taxonomy = Taxonomy{} // display-only too: see Taxonomy
 		}
 		c.Offers = offers

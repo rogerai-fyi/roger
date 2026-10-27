@@ -995,6 +995,12 @@ func (b *broker) edgeEligibleM(rows []fleet.Station, bannedNode map[string]bool,
 			c.note("ctx", row.TowerID)
 			continue
 		}
+		if c.netFilters.any() {
+			if why := b.netRejectLocked(c.netFilters, reg, offer, declared, now); why != "" {
+				c.note(why, row.TowerID)
+				continue
+			}
+		}
 		load := b.edgeLoadLocked(nodeID)
 		// REAL CAPACITY, DERIVED HERE RATHER THAN CARRIED. This is the one place the input is
 		// already under the lock that guards it - concurrentTPS under metricsMu - so it costs a

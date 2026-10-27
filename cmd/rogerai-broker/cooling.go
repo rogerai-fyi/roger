@@ -489,6 +489,11 @@ func (b *broker) routingLive() map[string]any {
 	if ids := b.stats.collisionsSnapshot(); len(ids) > 0 {
 		out["namespace_warning"] = fmt.Sprintf("id collision: %v name both a direct node and a Tower; each is matched in its own namespace", ids)
 	}
+	// A declared params_b the model id contradicts leaves the offer ineligible under a
+	// params_b filter (contract §5); the operator sees which nodes until they correct it.
+	if ids := b.stats.paramsMismatchSnapshot(); len(ids) > 0 {
+		out["params_mismatch"] = ids
+	}
 	return out
 }
 
