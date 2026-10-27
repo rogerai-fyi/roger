@@ -1,7 +1,8 @@
 package joinsas
 
 // Golden vectors for the matching phrase (features/join/approve.feature §2). testdata/sas_vectors.json
-// was generated INDEPENDENTLY in Python (hashlib) from the written derivation, not from this package,
+// was generated INDEPENDENTLY in Python (hashlib, testdata/gen_sas_vectors.py, which regenerates it byte
+// for byte) from the written derivation, not from this package,
 // so a phone or any other implementation can check itself offline against the same file, and a
 // change to the domain string, the length prefix, the bit slicing or the word list fails here byte
 // for byte.
