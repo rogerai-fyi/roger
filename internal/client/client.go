@@ -759,6 +759,13 @@ func ProxyHandlerLive(h *ProxyOptionsHolder) http.Handler {
 			openAIError(w, http.StatusBadRequest, "invalid_request_error", "", "request body is not valid JSON")
 			return
 		}
+		// A guest may only tighten the owner's routing: a models[] list reaching beyond the
+		// tuned band is refused here, before any relay or hold. (Header mode refuses every
+		// models[] itself - an old broker cannot honour one - with its own honest message.)
+		if err := GuestModelsWithin(rewritten, opts.Model); err != nil && !opts.HeaderRouting {
+			routingRefused(w, err)
+			return
+		}
 		crit := Criteria{Model: model, Confidential: opts.Confidential, MinTPS: opts.MinTPS, MaxPriceIn: opts.MaxPriceIn, MaxPriceOut: opts.MaxPriceOut, Pref: opts.Pref}
 		// Per-session spend budget (rulings 1/2, the literal ceiling). UNCAPPED sessions
 		// (Budget <= 0: `roger use`, the TUI) skip the admission gate entirely and relay fully

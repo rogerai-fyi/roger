@@ -805,7 +805,7 @@ func (p *Postgres) claimReceipt(tx *sql.Tx, user, node string, cost float64, rec
 	res, err := tx.Exec(`INSERT INTO rogerai.receipts
 		(request_id,usr,node,model,prompt_tokens,completion_tokens,cost,owner_share,ts,receipt,grant_id)
 		VALUES($1,$2,$3,$4,$5,$6,$7,0,$8,$9,$10) ON CONFLICT (request_id) DO NOTHING`,
-		rec.RequestID, user, node, rec.Model, bpt, bct, cost, rec.TS, rj, nullStr(rec.GrantID))
+		rec.RequestID, user, node, rec.ServedModel(), bpt, bct, cost, rec.TS, rj, nullStr(rec.GrantID))
 	if err != nil {
 		return false, 0, err
 	}
@@ -832,7 +832,7 @@ func (p *Postgres) fillEarnShare(tx *sql.Tx, user, node string, cost float64, re
 	_, err := tx.Exec(`INSERT INTO rogerai.receipts
 		(request_id,usr,node,model,prompt_tokens,completion_tokens,cost,owner_share,ts,receipt,grant_id)
 		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (request_id) DO NOTHING`,
-		rec.RequestID, user, node, rec.Model, bpt, bct, cost, earnShare, rec.TS, rj, nullStr(rec.GrantID))
+		rec.RequestID, user, node, rec.ServedModel(), bpt, bct, cost, earnShare, rec.TS, rj, nullStr(rec.GrantID))
 	return err
 }
 

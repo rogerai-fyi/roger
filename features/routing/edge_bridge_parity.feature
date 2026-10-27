@@ -337,37 +337,44 @@ Feature: The bridge honors every consumer constraint the direct path honors
     Then every relay is served by "s1"
 
   # --- params_b ---------------------------------------------------------------
+  @slice2
   Scenario: params_b binds on the bridge - Tower row out of range
     Given "t1-a" declares params_b 7 and "s1" declares params_b 32
     When 40 consumers relay with roger.params_b [20, 70]
     Then every relay is served by "s1"
 
+  @slice2
   Scenario: params_b binds on the bridge - direct out of range
     Given "t1-a" declares params_b 32 and "s1" declares params_b 7
     When 40 consumers relay with roger.params_b [20, 70]
     Then every relay is served through "t1"
 
+  @slice2
   Scenario: a Tower row with no params_b is ineligible under a params filter
     Given "t1-a" declares no params_b and "s1" declares params_b 32
     When 40 consumers relay with roger.params_b [20, 70]
     Then every relay is served by "s1"
 
+  @slice2
   Scenario: params_b inclusive bounds apply identically on both fabrics
     Given "t1-a" declares params_b 70 and "s1" declares params_b 20
     When 40 consumers relay with roger.params_b [20, 70]
     Then some relays ride "t1" and some "s1"
 
   # --- min_ctx ----------------------------------------------------------------
+  @slice2
   Scenario: min_ctx binds on the bridge - Tower row too small
     Given "t1-a" declares ctx 8192 and "s1" declares ctx 65536
     When 40 consumers relay with roger.min_ctx 32768
     Then every relay is served by "s1"
 
+  @slice2
   Scenario: min_ctx binds on the bridge - direct too small
     Given "t1-a" declares ctx 65536 and "s1" declares ctx 8192
     When 40 consumers relay with roger.min_ctx 32768
     Then every relay is served through "t1"
 
+  @slice2
   Scenario: an estimated ctx on a Tower row is unknown under min_ctx, ineligible
     Given "t1-a"'s ctx 65536 is an estimate and "s1" declares ctx 65536
     When 40 consumers relay with roger.min_ctx 32768
@@ -404,32 +411,38 @@ Feature: The bridge honors every consumer constraint the direct path honors
     When 40 consumers relay with roger.min_tps 20
     Then every relay is served through "t1"
 
+  @slice2
   Scenario: max_ttft_ms binds on the bridge - Tower row too slow to first token
     Given the node behind "t1-a" measures 3000ms TTFT and "s1" 400ms
     When 40 consumers relay with roger.max_ttft_ms 1000
     Then every relay is served by "s1"
 
+  @slice2
   Scenario: max_ttft_ms binds on the bridge - direct too slow
     Given the node behind "t1-a" measures 300ms TTFT and "s1" 3000ms
     When 40 consumers relay with roger.max_ttft_ms 1000
     Then every relay is served through "t1"
 
+  @slice2
   Scenario: an unmeasured TTFT on a Tower row passes max_ttft_ms
     Given the node behind "t1-a" has no TTFT measurement and "s1" measures 3000ms
     When 40 consumers relay with roger.max_ttft_ms 1000
     Then every relay is served through "t1"
 
   # --- trust_min --------------------------------------------------------------
+  @slice2
   Scenario: trust_min verified binds on the bridge - Tower node not canary-verified
     Given the node behind "t1-a" is not verified and "s1" is verified
     When 40 consumers relay with roger.trust_min "verified"
     Then every relay is served by "s1"
 
+  @slice2
   Scenario: trust_min verified binds on the bridge - direct not verified
     Given the node behind "t1-a" is verified and "s1" is not
     When 40 consumers relay with roger.trust_min "verified"
     Then every relay is served through "t1"
 
+  @slice2
   Scenario: trust_min confidential declines the bridge outright (a Tower is a third party)
     Given "s1" is TEE-attested
     When 40 consumers relay with roger.trust_min "confidential"
@@ -449,6 +462,7 @@ Feature: The bridge honors every consumer constraint the direct path honors
     Then the response is 503 {"error":{"code":"no_match"}}
     And the message says no confidential station matches
 
+  # corrected 2026-10-01 (founder-approved): kept as written; contract §6 now states the two-tier health gate holds ACROSS fabrics.
   Scenario: the Tier A before Tier B gate holds across fabrics
     Given the node behind "t1-a" is Tier B and "s1" is Tier A
     When 40 consumers relay for "m"
@@ -476,21 +490,25 @@ Feature: The bridge honors every consumer constraint the direct path honors
     Then some relays ride "t1" and some "s1"
 
   # --- region -----------------------------------------------------------------
+  @slice2
   Scenario: region binds on the bridge - Tower row elsewhere
     Given "t1-a" declares region "us" and "s1" declares region "eu"
     When 40 consumers relay with roger.region ["eu"]
     Then every relay is served by "s1"
 
+  @slice2
   Scenario: region binds on the bridge - direct elsewhere
     Given "t1-a" declares region "eu" and "s1" declares region "us"
     When 40 consumers relay with roger.region ["eu"]
     Then every relay is served through "t1"
 
+  @slice2
   Scenario: a Tower row with no region is ineligible under a region filter
     Given "t1-a" declares no region and "s1" declares region "eu"
     When 40 consumers relay with roger.region ["eu"]
     Then every relay is served by "s1"
 
+  @slice2
   Scenario: region with several values admits any listed region on either fabric
     Given "t1-a" declares region "us" and "s1" declares region "eu"
     When 40 consumers relay with roger.region ["eu", "us"]
@@ -521,6 +539,13 @@ Feature: The bridge honors every consumer constraint the direct path honors
     Then attempt 1 hit "s1" for "m" and attempt 2 rode "t1" for "m2"
     And X-RogerAI-Model is "m2" and X-RogerAI-Relay is "t1"
 
+  Scenario: an earlier listed model whose only supply is a Tower is tried before a later model's direct station
+    # added 2026-10-02 (review fix A4): §3 moves on only when the current model has no eligible
+    # server on EITHER fabric, so a Tower-only first model is planned ahead of the second model
+    Given "s1" serves "m" only and "t1" hosts "m2" only, and "s1" 429s
+    When a consumer relays with model "m2" and models ["m"]
+    Then X-RogerAI-Model is "m2" and X-RogerAI-Relay is "t1"
+
   Scenario: a models[] entry with no eligible server on either fabric is skipped silently
     Given no station or Tower serves "m0", "s1" serves "m"
     When a consumer relays with model "m0" and models ["m"]
@@ -538,11 +563,21 @@ Feature: The bridge honors every consumer constraint the direct path honors
     Then the hold covers 4.00 per 1M
     And on success at "s1" the consumer is charged at 1.00
 
+  Scenario: a bridged pair's hold is never below the bridge's own ceiling, so the Tower operator is never underpaid
+    # added 2026-10-02 (founder ruling): the plan sizes a Tower pair at the larger of its
+    # context-window estimate and the bridge's own grant ceiling (the bound its own hold always
+    # used); the consumer's own caps still bound it
+    Given "s1" serves "m" at out 1.00 and "t1" hosts "m2" at out 4.00
+    When a consumer relays with model "m" and models ["m2"]
+    Then the hold is at least the bridge's own ceiling for "t1"
+
   # ============================================================================
   # what the Tower sees and what the consumer learns
   # ============================================================================
 
   Scenario: the carriers are stripped before the Tower's hub sees the sealed body
+    # corrected 2026-10-02 (founder-approved): the request requires tools, so the Tower's node must hold a verified tools verdict
+    Given the node behind "t1-a" has a verified tools verdict
     When a consumer relays with provider.order ["t1"], roger.pref "cheap", roger.require ["tools"], models ["m2"]
     Then the plaintext sealed to "t1-a" has no "provider", "roger" or "models" key
     And its "model" is the served model id
@@ -558,6 +593,11 @@ Feature: The bridge honors every consumer constraint the direct path honors
     Then the receipt names model "m", the relay, and Tower "t1"
     And the receipt's model equals X-RogerAI-Model
 
+  @later
+  # @later: the only key on the fabric is the Tower hub's epoch key, which the broker never holds,
+  # and the hub cannot see token counts (the answer is sealed). Satisfying this needs a hub-side
+  # protocol change (the Tower signing a UsageReceipt from the station's dispatch receipt).
+  # Bridged receipts carry the broker signature today.
   Scenario: a bridged receipt is signed by the Tower's relay key and co-signed by the broker, and VerifyBroker covers it
     # §7: the node signature on a bridged receipt is the party the broker dispatched to, the
     # Tower's relay key; the broker co-signs exactly as on the direct path. Today a bridged
@@ -636,6 +676,7 @@ Feature: The bridge honors every consumer constraint the direct path honors
     Then relays may be served by either, and each is matched in its own namespace
     And the operator is warned once on /admin/live about the id collision
 
+  @slice2
   Scenario: a Tower cannot declare attributes it does not have to pass a filter it would fail
     Given "t1-a" declares quant "Q8_0" and params_b 70 but its known-model table entry says 7B
     When 40 consumers relay with roger.params_b [60, 80]

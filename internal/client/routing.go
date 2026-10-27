@@ -77,6 +77,74 @@ type RoutingRefusal struct{ Msg string }
 
 func (e *RoutingRefusal) Error() string { return e.Msg }
 
+// GuestModelsWithin enforces "a guest may only tighten" on a caller's models[] (founder
+// ruling 2026-10-02): every entry's bare id (variant sugar :free / :floor / :nitro removed)
+// must be the tuned band's model, or the proxy refuses locally - a guest's list would
+// otherwise reach models the owner never tuned, billed to the owner. A body with no models
+// key, or a session with no tuned model (legacy single-user), passes.
+func GuestModelsWithin(body []byte, tuned string) error {
+	if tuned == "" {
+		return nil
+	}
+	var m struct {
+		Models json.RawMessage `json:"models"`
+	}
+	if json.Unmarshal(body, &m) != nil || len(m.Models) == 0 || string(m.Models) == "null" {
+		return nil
+	}
+	var entries []any
+	if json.Unmarshal(m.Models, &entries) != nil {
+		return &RoutingRefusal{Msg: "models must be a list of model ids"}
+	}
+	for _, e := range entries {
+		id, ok := e.(string)
+		if !ok {
+			return &RoutingRefusal{Msg: "models must be a list of model ids"}
+		}
+		if bareModel(id) != tuned {
+			return &RoutingRefusal{Msg: "model " + id + " is outside this session's band"}
+		}
+	}
+	return nil
+}
+
+// guestStatesSort reports whether a caller body already names a strict sort: provider.sort,
+// or a :floor / :nitro suffix on its model or any models[] entry.
+func guestStatesSort(m map[string]json.RawMessage, provider map[string]any) bool {
+	if v, ok := provider["sort"]; ok && v != nil {
+		return true
+	}
+	ids := []string{}
+	var model string
+	if json.Unmarshal(m["model"], &model) == nil {
+		ids = append(ids, model)
+	}
+	var models []string
+	if json.Unmarshal(m["models"], &models) == nil {
+		ids = append(ids, models...)
+	}
+	for _, id := range ids {
+		if b := bareModel(id); b != id && (strings.Contains(id[len(b):], ":floor") || strings.Contains(id[len(b):], ":nitro")) {
+			return true
+		}
+	}
+	return false
+}
+
+// bareModel strips the routing sugar suffixes (contract §4), right to left.
+func bareModel(id string) string {
+	for {
+		trimmed := id
+		for _, sfx := range []string{":free", ":floor", ":nitro"} {
+			trimmed = strings.TrimSuffix(trimmed, sfx)
+		}
+		if trimmed == id {
+			return id
+		}
+		id = trimmed
+	}
+}
+
 // Apply merges r into a JSON request body, keeping every other field's raw value
 // byte-identical. r is the session OWNER's routing; a caller (guest) that already sent
 // `roger` / `provider` may only TIGHTEN it (§1a, §9): `pref` is a default the caller may
@@ -86,15 +154,19 @@ func (e *RoutingRefusal) Error() string { return e.Msg }
 // `freq` is never taken (the owner's band stands; the code travels as the X-Roger-Freq
 // header, not in the body); the owner's price caps (MaxOut, MaxIn) are a ceiling: a caller
 // `provider.max_price.completion` / `.prompt` above them is clamped (one log line), one
-// below is kept, and the effective cap is always written. A zero Routing returns the body
-// unchanged; a body that is not a JSON object is an error.
+// below is kept, and the effective cap is always written. The body is always re-encoded
+// (every value's raw JSON is kept byte-identical; top-level key order may change), even for
+// a zero Routing; a body that is not a JSON object is an error.
 func (r Routing) Apply(body []byte) ([]byte, error) {
 	var m map[string]json.RawMessage
 	if err := json.Unmarshal(body, &m); err != nil || m == nil {
 		return nil, fmt.Errorf("request body is not a JSON object")
 	}
 	roger, provider := rawObject(m["roger"]), rawObject(m["provider"])
-	if r.Pref != "" {
+	// The owner's pref is a DEFAULT, and a sort the guest stated (provider.sort, or a :floor /
+	// :nitro suffix on any model id) excludes pref (§1a), so adding it would earn the guest a
+	// self-inflicted 400 conflicting_routing_keys.
+	if r.Pref != "" && !guestStatesSort(m, provider) {
 		setDefault(roger, "pref", r.Pref)
 	}
 	if r.MinTPS > 0 {

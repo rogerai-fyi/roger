@@ -50,6 +50,17 @@ func jsonErrCode(w http.ResponseWriter, code int, errCode, msg string) {
 	writeJSON(w, code, map[string]any{"error": map[string]string{"code": errCode, "message": msg}})
 }
 
+// errorBody is the JSON error envelope as bytes, for paths that hand a body to a writer
+// (the lazy SSE fail path) rather than answering directly. code may be "".
+func errorBody(code, msg string) []byte {
+	e := map[string]string{"message": msg}
+	if code != "" {
+		e["code"] = code
+	}
+	b, _ := json.Marshal(map[string]any{"error": e})
+	return b
+}
+
 // cors lets the public website (rogerai.fm) fetch read-only market data from a
 // browser. Applied only to public GET endpoints (/discover, /market).
 func cors(w http.ResponseWriter) {

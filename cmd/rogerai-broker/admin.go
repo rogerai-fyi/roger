@@ -200,5 +200,8 @@ func (b *broker) adminLive(w http.ResponseWriter, r *http.Request) {
 	for _, p := range []pref{prefBalanced, prefCheap, prefFast, prefReliable} {
 		live["routing_pref_"+p.String()] = b.stats.routingPref[p].Load()
 	}
+	for k, v := range b.stats.routingCounters() {
+		live[k] = v
+	}
 	writeJSON(w, http.StatusOK, live)
 }

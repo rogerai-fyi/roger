@@ -132,6 +132,8 @@ Feature: Node preference - allow, deny, order, no-fallback, sort and pref
     And "p1" received nothing
     And the error message does not reveal that "p1" exists or is private
 
+  # corrected 2026-10-01 (founder-approved): assumes a private band with several stations; a band is ONE node id today (resolveFreqAllow). Multi-station bands are not part of this set.
+  @later
   Scenario: only narrows a private band to one of its stations when the code is presented
     Given a private band "B" with stations "p1" and "p2" for "m"
     When a funded consumer relays with roger.freq for band "B" and provider.only ["p2"]
@@ -320,6 +322,8 @@ Feature: Node preference - allow, deny, order, no-fallback, sort and pref
     Then the response is 503 {"error":{"code":"no_match"}}
     And the message says no node of this grant's owner matches
 
+  # corrected 2026-10-01 (founder-approved): assumes a private band with several stations; a band is ONE node id today (resolveFreqAllow). Multi-station bands are not part of this set.
+  @later
   Scenario: ignore on a private-band relay narrows the band
     Given a private band "B" with stations "p1" and "p2" for "m"
     When a funded consumer relays with roger.freq for band "B" and provider.ignore ["p1"]
@@ -506,6 +510,8 @@ Feature: Node preference - allow, deny, order, no-fallback, sort and pref
     Then the pick is "s3"
     And fallbacks are allowed (the body's default), not disabled by the header
 
+  # corrected 2026-10-01 (founder-approved): assumes a private band with several stations; a band is ONE node id today (resolveFreqAllow). Multi-station bands are not part of this set.
+  @later
   Scenario: order on a private band ranks within the band
     Given a private band "B" with stations "p1" and "p2" for "m"
     When a funded consumer relays with roger.freq for band "B" and provider.order ["p2", "p1"]
@@ -865,6 +871,8 @@ Feature: Node preference - allow, deny, order, no-fallback, sort and pref
     When 20 funded consumers relay with provider.sort "latency"
     Then every pick is "s3"
 
+  @slice2
+
   Scenario: sort latency with max_ttft_ms filters first, then sorts
     Given measured ttft "s1" 900ms, "s2" 300ms, "s3" 600ms
     When 20 funded consumers relay with provider.sort "latency" and roger.max_ttft_ms 700
@@ -937,6 +945,8 @@ Feature: Node preference - allow, deny, order, no-fallback, sort and pref
     Then exactly one attempt was made, to "s1"
     And the response is 429
 
+  # corrected 2026-10-01 (founder-approved): assumes a private band with several stations; a band is ONE node id today (resolveFreqAllow). Multi-station bands are not part of this set.
+  @later
   Scenario: sort on a private band sorts within the band
     Given a private band "B" with stations "p1" (out 2.00) and "p2" (out 1.00) for "m"
     When 20 funded consumers relay with roger.freq for band "B" and provider.sort "price"
@@ -974,8 +984,9 @@ Feature: Node preference - allow, deny, order, no-fallback, sort and pref
     When 200 funded consumers relay with roger.pref "cheap"
     Then "s1" is picked more often than under balanced
 
+  # corrected 2026-10-01 (founder-approved): at tps 90 vs 20 "s3" already took every pick under every pref, so its share could not rise; at 90 vs 60 balanced splits the picks (about 70/30) and fast moves it.
   Scenario: pref fast favors the faster station more than balanced does
-    Given measured tps "s3" 90 and "s1" 20
+    Given measured tps "s3" 90 and "s1" 60
     When 200 funded consumers relay with roger.pref "fast"
     Then "s3" is picked more often than under balanced
 
@@ -1022,8 +1033,9 @@ Feature: Node preference - allow, deny, order, no-fallback, sort and pref
     When a funded consumer relays for "m:floor" with roger.pref "reliable"
     Then the response is 400 with error.code "conflicting_routing_keys"
 
+  # corrected 2026-10-01 (founder-approved): same fixture defect as the pref-fast scenario (90 vs 20 left no share to move); 90 vs 60 lets cheap and fast disagree.
   Scenario: body pref wins over the X-Roger-Pref header
-    Given measured tps "s3" 90 and "s1" 20
+    Given measured tps "s3" 90 and "s1" 60
     When 200 funded consumers relay with X-Roger-Pref "cheap" and roger.pref "fast"
     Then "s3" is picked more often than under cheap
 
@@ -1046,35 +1058,42 @@ Feature: Node preference - allow, deny, order, no-fallback, sort and pref
     Then every relay made exactly one attempt
 
   # --- pref: reachable from the first-party clients (closes the dead knob) ------
+  @cli
   Scenario: roger use --pref sends the body pref
     When a consumer runs `roger use m --pref fast`
     Then every relay through the local proxy carries roger.pref "fast"
 
+  @cli
   Scenario: roger use --pref rejects an unknown value locally
     When a consumer runs `roger use m --pref cheapest`
     Then the command exits non-zero naming the allowed values
     And no request reached the broker
 
+  @cli
   Scenario: the config file's routing pref is sent when no flag is given
     Given the config sets limits.default.pref "reliable"
     When a consumer runs `roger use m`
     Then every relay carries roger.pref "reliable"
 
+  @cli
   Scenario: the flag overrides the config file's pref
     Given the config sets limits.default.pref "reliable"
     When a consumer runs `roger use m --pref cheap`
     Then every relay carries roger.pref "cheap"
 
+  @tui
   Scenario: the TUI limits editor exposes pref
     When the consumer opens the limits editor and chooses "fast"
     Then relays from the tuned band carry roger.pref "fast"
     And the choice persists to the config file
 
+  @harness
   Scenario: the agent harness forwards the session's pref
     Given a session with pref "reliable"
     When an agent turn relays
     Then the relay carries roger.pref "reliable"
 
+  @docs
   Scenario: OpenAPI documents pref, sort, order, only, ignore and allow_fallbacks
     When a client reads the OpenAPI document
     Then the chat-completions request schema lists provider.order, provider.only, provider.ignore, provider.allow_fallbacks, provider.sort and roger.pref with their allowed values

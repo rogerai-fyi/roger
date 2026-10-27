@@ -1343,7 +1343,7 @@ func (m *Mem) Settle(user, node string, cost, ownerShare float64, rec protocol.U
 	m.earnings[node] += earnShare
 	bpt, bct := billedTokens(rec)
 	m.entries = append(m.entries, Entry{
-		RequestID: rec.RequestID, User: user, Node: node, Model: rec.Model,
+		RequestID: rec.RequestID, User: user, Node: node, Model: rec.ServedModel(),
 		PromptTokens: bpt, CompletionTokens: bct,
 		Cost: cost, OwnerShare: earnShare, TS: rec.TS,
 	})
@@ -1498,7 +1498,7 @@ func (m *Mem) Finalize(user, node string, held, cost, ownerShare float64, rec pr
 	m.earnings[node] += earnShare
 	bpt, bct := billedTokens(rec)
 	m.entries = append(m.entries, Entry{
-		RequestID: rec.RequestID, User: user, Node: node, Model: rec.Model,
+		RequestID: rec.RequestID, User: user, Node: node, Model: rec.ServedModel(),
 		PromptTokens: bpt, CompletionTokens: bct,
 		Cost: cost, OwnerShare: earnShare, TS: rec.TS,
 	})
@@ -1558,7 +1558,7 @@ func (m *Mem) SettleEdge(user, stationNode, stationAcct, towerNode, towerAcct st
 	m.earnings[stationNode] += stationEarn
 	bpt, bct := billedTokens(rec)
 	m.entries = append(m.entries, Entry{
-		RequestID: rec.RequestID, User: user, Node: stationNode, Model: rec.Model,
+		RequestID: rec.RequestID, User: user, Node: stationNode, Model: rec.ServedModel(),
 		PromptTokens: bpt, CompletionTokens: bct,
 		Cost: cost, OwnerShare: stationEarn, TS: rec.TS,
 	})

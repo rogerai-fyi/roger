@@ -129,7 +129,13 @@ func (e EdgeExecutor) ServeSealed(ctx context.Context, grantRaw, sealedReq []byt
 		// request (validation errors often quote what they rejected), and err.Error() embeds a
 		// slice of that body - so forwarding it would hand consumer plaintext to the exact
 		// party this design blinds. The operator still has the full error in their own logs;
-		// the wire gets only the class.
+		// the wire gets only the class. A TYPED status reply adds its status and Retry-After
+		// (two numbers, no echo), so the relay can answer a consumer's 429 as a 429 with its
+		// wait (features/routing/edge_bridge_parity.feature) instead of a generic failure.
+		var se *UpstreamStatusError
+		if errors.As(err, &se) {
+			return nil, nil, se.Class()
+		}
 		return nil, nil, "the model did not answer"
 	}
 	// The output ceiling is enforced at the party being paid, exactly as on the TLS edge.

@@ -80,9 +80,11 @@ Feature: Variant sugar on a model id - :free, :floor, :nitro
     Then the response is 503
     And the error code is "no_match"
 
-  Scenario: :free places no hold
+  # corrected 2026-10-01 (founder-approved): a 0/0 public offer places the 1e-6 floor hold
+  # (approved features/money/holds.feature:16), never a priced one.
+  Scenario: :free places only the floor hold
     When "u-1" posts a chat completion for "qwen3-32b:free"
-    Then no hold was placed
+    Then only the floor hold was placed
 
   Scenario: :floor is a strict price sort - cheapest out price first, then in price
     When "u-1" posts a chat completion for "qwen3-32b:floor"
@@ -217,6 +219,7 @@ Feature: Variant sugar on a model id - :free, :floor, :nitro
     And the error code is "no_match"
     And the error message starts with "no node offers qwen3-32b:FREE"
 
+  # corrected 2026-10-01 (founder-approved): dropped the row that was literally "qwen3-32b:free" (table cells are trimmed, so it was real sugar per §4, not a near-miss).
   Scenario Outline: Other casings and near-misses are part of the id too
     When "u-1" posts a chat completion for "<id>"
     Then the response is 503
@@ -232,7 +235,6 @@ Feature: Variant sugar on a model id - :free, :floor, :nitro
       | qwen3-32b:nitro2    |
       | qwen3-32b:floor-    |
       | qwen3-32b: free     |
-      | qwen3-32b:free      |
 
   Scenario: A trailing colon with nothing after it is a 400 invalid_routing_value naming model
     When "u-1" posts a chat completion for "qwen3-32b:"
@@ -433,7 +435,10 @@ Feature: Variant sugar on a model id - :free, :floor, :nitro
     When "u-1" posts a chat completion for "qwen3-32b:free"
     Then the screening job was submitted with model "qwen3-32b"
 
+  # corrected 2026-10-01 (founder-approved): /console shows a GitHub-linked account the OWNER
+  # view (its stations' traffic), so the consumer here is one that gets the CONSUMER view.
   Scenario: /console lineage and /usage show the bare id
+    Given "u-1" is signed in with an account that gets the consumer view of /console
     When "u-1" posts a chat completion for "qwen3-32b:floor"
     Then /console for "u-1" lists the request under model "qwen3-32b"
 
@@ -484,6 +489,22 @@ Feature: Variant sugar on a model id - :free, :floor, :nitro
     Given owner "o-1" owns node "n-mid" and minted grant "rog-grant_1" for "qwen3-32b"
     When the grant holder posts a chat completion for "qwen3-32b:floor"
     Then the served node is "n-mid"
+
+  Scenario: :free under a priced grant is a no_match - nothing the grant can reach costs the caller nothing
+    # added 2026-10-02 (founder ruling): :free means "costs this caller nothing"; a priced grant
+    # bills its own price whichever station serves, so no station can satisfy :free under it
+    Given owner "o-1" owns node "n-free" and minted grant "rog-grant_1" for "qwen3-32b" at price_out $0.50
+    When the grant holder posts a chat completion for "qwen3-32b:free"
+    Then the response is 503
+    And the error code is "no_match"
+    And no station received anything
+
+  Scenario: :free under a free grant is admitted (the grant costs the caller nothing)
+    # added 2026-10-02 (founder ruling, the other side of the line)
+    Given owner "o-1" owns node "n-free" and minted grant "rog-grant_1" for "qwen3-32b"
+    When the grant holder posts a chat completion for "qwen3-32b:free"
+    Then the response is 200
+    And the served node is "n-free"
 
   Scenario: A private-band :nitro request stays inside the band
     Given a private band "band-1" with code "FREQ-1" whose only station is "n-p" on air for "qwen3-32b" at in $0 out $0 with 5 tok/s
@@ -545,16 +566,19 @@ Feature: Variant sugar on a model id - :free, :floor, :nitro
     When the public feed is fetched
     Then no offer's model ends in ":free", ":floor" or ":nitro"
 
+  @proxy
   Scenario: The local proxy passes a suffixed model through untouched when the band's model matches the bare id
     Given a local proxy tuned to "qwen3-32b"
     When a guest operator posts a chat completion for "qwen3-32b:floor" to the proxy
     Then the broker received model "qwen3-32b:floor"
 
+  @proxy
   Scenario: The local proxy's model rewrite keeps a suffix the guest put on a FOREIGN id
     Given a local proxy tuned to "qwen3-32b"
     When a guest operator posts a chat completion for "gpt-4o:floor" to the proxy
     Then the broker received model "qwen3-32b:floor"
 
+  @proxy
   Scenario: The local proxy's /v1/models does not advertise suffixed ids
     Given a local proxy tuned to "qwen3-32b"
     When a guest operator lists /v1/models on the proxy

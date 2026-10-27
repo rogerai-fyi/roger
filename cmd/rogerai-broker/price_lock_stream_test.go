@@ -16,7 +16,7 @@ import (
 // TestStreamHonorsNonStreamPriceLock locks the price-lock parity between the non-stream
 // and STREAM relay paths. The 24h lock protects a consumer from an owner's mid-engagement
 // price hike. The non-stream relay keys the lock on the SIGNED consumer identity
-// (lockedPrice(user,...)); for a logged-in caller that id differs from the payer wallet
+// (quotedPrice(user,...)); for a logged-in caller that id differs from the payer wallet
 // ("u_gh_<id>"). The streaming relay previously keyed the lock on the PAYER wallet, so it
 // minted a SEPARATE lock and a logged-in user's streamed request escaped the lock the
 // non-stream path had already established - eating the hiked price. This drives a real

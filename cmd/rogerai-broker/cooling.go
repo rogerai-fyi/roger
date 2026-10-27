@@ -108,6 +108,16 @@ type attemptCand struct {
 	t       *nodeTunnel
 	pricing pricingPlan
 	maxCost float64 // this candidate's hold ceiling (0 = free plan: no hold)
+	// The (model, station) pair: with a model list the plan spans models, so each candidate
+	// names the BARE model it is dispatched for and carries the body sent to it (the
+	// consumer's body with `model` set to that id, and max_tokens lowered when a per-request
+	// cap buys less at this station's prices). Nothing else in the body differs.
+	model string
+	body  []byte
+	// edge is set when the candidate is a Tower routable row (contract §6): the attempt is
+	// bridged through the Tower's sealed hub instead of dispatched to a tunnel (t is nil, and
+	// node carries only the Tower id so the plan's bookkeeping names it).
+	edge *edgeCand
 }
 
 // holdCostFor is the upper-bound cost of a request on one candidate, at the price the
@@ -116,22 +126,31 @@ type attemptCand struct {
 // C1), with an ESTIMATED context window clamped so a display sentinel can't inflate the
 // pre-auth. A free plan holds nothing.
 func holdCostFor(p pricingPlan, offer protocol.ModelOffer, body []byte, now time.Time) float64 {
-	if p.free {
+	holdIn, holdOut, free := billedPrices(p, offer, now)
+	if free {
 		return 0
-	}
-	holdIn, holdOut := p.in, p.out
-	if !p.fixed {
-		ain, aout, afree, _ := offer.ActivePrice(now)
-		holdIn, holdOut = ain, aout
-		if afree {
-			holdIn, holdOut = 0, 0
-		}
 	}
 	holdCtx := offer.Ctx
 	if offer.CtxEstimated && holdCtx > 32768 {
 		holdCtx = 32768
 	}
 	return estimateMaxCost(body, holdIn, holdOut, holdCtx)
+}
+
+// billedPrices is the per-1M price a pair bills at: $0 for a free plan (free reports it), the
+// plan's fixed price (a grant, a lock), else the offer's active price ($0 in a free window).
+func billedPrices(p pricingPlan, offer protocol.ModelOffer, now time.Time) (in, out float64, free bool) {
+	if p.free {
+		return 0, 0, true
+	}
+	if p.fixed {
+		return p.in, p.out, false
+	}
+	ain, aout, afree, _ := offer.ActivePrice(now)
+	if afree {
+		return 0, 0, false
+	}
+	return ain, aout, false
 }
 
 // anonCannotPay mirrors the relay's login gate for a failover candidate: a signed but
@@ -156,6 +175,28 @@ func planCeiling(plan []attemptCand) float64 {
 	return c
 }
 
+// planCeilings lists the distinct hold sizes ABOVE the first pick's that would make more of
+// the plan tryable, priciest first. The hold is attempted at each in turn (balance and
+// monthly cap permitting), so a pair the wallet cannot cover is trimmed while a cheaper later
+// pair stays in the plan; the first pick's own cost is the fallback the caller holds last.
+func planCeilings(plan []attemptCand) []float64 {
+	var out []float64
+	for _, a := range plan[1:] {
+		if a.maxCost > plan[0].maxCost {
+			out = append(out, a.maxCost)
+		}
+	}
+	sort.Sort(sort.Reverse(sort.Float64Slice(out)))
+	n := 0
+	for i, v := range out {
+		if i == 0 || v != out[n-1] {
+			out[n] = v
+			n++
+		}
+	}
+	return out[:n]
+}
+
 // trimPlan drops the candidates the placed hold cannot cover (their attempt would settle
 // above the reservation). The first candidate is the one the hold was placed for and stays.
 func trimPlan(plan []attemptCand, held float64) []attemptCand {
@@ -175,11 +216,30 @@ func trimPlan(plan []attemptCand, held float64) []attemptCand {
 // air during attempt 1 still has its tunnel in the plan; dispatching into it would only burn
 // the deadline on a channel nobody drains).
 func (b *broker) nextAttempt(plan []attemptCand, i, status int, deadline time.Time) int {
-	if !failoverable(status) || (!deadline.IsZero() && time.Until(deadline) < relayMinAttemptBudget) {
+	if !failoverable(status) {
+		return -1
+	}
+	return b.nextLive(plan, i, "", deadline)
+}
+
+// nextModelAttempt is nextAttempt for a CONTEXT-WINDOW refusal: the prompt does not fit the
+// model, so the remaining stations of that model are passed over and the request moves on to
+// the first live candidate of a LATER model in the list (-1 when there is none).
+func (b *broker) nextModelAttempt(plan []attemptCand, i int, deadline time.Time) int {
+	return b.nextLive(plan, i, plan[i].model, deadline)
+}
+
+// nextLive is the first candidate after i that can still be tried: enough of the deadline
+// left, not cooling, its tunnel still the one planned, and not of skipModel.
+func (b *broker) nextLive(plan []attemptCand, i int, skipModel string, deadline time.Time) int {
+	if !deadline.IsZero() && time.Until(deadline) < relayMinAttemptBudget {
 		return -1
 	}
 	for j := i + 1; j < len(plan); j++ {
 		c := plan[j]
+		if skipModel != "" && c.model == skipModel {
+			continue
+		}
 		if _, cooling := b.coolingUntil(c.node.NodeID); cooling {
 			continue
 		}
@@ -360,14 +420,9 @@ func (b *broker) soonestCoolingExpiry(model string, confidentialOnly bool, minTP
 	return soonest, found
 }
 
-// refuseBandCooling answers a request whose every eligible station is cooling: a fast, honest
-// 503 with Retry-After = the soonest expiry - no hold, no receipt, no upstream call. Caller
-// holds b.mu. Returns false when the band is not a cooling-only band.
-func (b *broker) refuseBandCooling(w http.ResponseWriter, model string, confidentialOnly bool, minTPS, maxPriceIn, maxPriceOut float64, pin string, exclude, allow, privateAllow map[string]bool, req pickReq) bool {
-	until, ok := b.soonestCoolingExpiry(model, confidentialOnly, minTPS, maxPriceIn, maxPriceOut, pin, exclude, allow, privateAllow, req)
-	if !ok {
-		return false
-	}
+// answerBandCooling writes the band-cooling 503 for a model whose soonest cooldown expiry is
+// until (with a model list: the soonest across the list, and the model it belongs to).
+func (b *broker) answerBandCooling(w http.ResponseWriter, model string, until time.Time) {
 	secs := int(math.Ceil(until.Sub(b.now()).Seconds()))
 	if secs < 1 {
 		secs = 1
@@ -375,7 +430,6 @@ func (b *broker) refuseBandCooling(w http.ResponseWriter, model string, confiden
 	b.stats.bandCooling503.Add(1)
 	w.Header().Set("Retry-After", strconv.Itoa(secs))
 	jsonErrCode(w, http.StatusServiceUnavailable, "band_cooling", fmt.Sprintf("band cooling - the station serving %s was rate limited upstream, retry after %ds", model, secs))
-	return true
 }
 
 // retryAfterHint is the Retry-After the consumer sees on a final upstream 429/503: the
@@ -398,6 +452,8 @@ func (b *broker) setRetryAfter(h http.Header, res protocol.JobResult) {
 // stations cooling right now.
 func (b *broker) routingLive() map[string]any {
 	now := b.now()
+	b.mu.Lock() // b.nodes (the capacity prior below); same order as every pick: b.mu, then metricsMu
+	defer b.mu.Unlock()
 	b.metricsMu.Lock()
 	stations := make([]map[string]any, 0, len(b.cooling))
 	for node, until := range b.cooling {
@@ -405,14 +461,35 @@ func (b *broker) routingLive() map[string]any {
 			stations = append(stations, map[string]any{"node": node, "model": b.coolModel[node], "cooling_until": until.Unix()})
 		}
 	}
+	// The capacity-aware load factor of every station carrying traffic right now (the same
+	// 1/(1+inflight/capacity) the score applies): a strict order can pile onto one station by
+	// the consumer's choice, and this is where that shows.
+	loaded := make([]map[string]any, 0)
+	for node, n := range b.inflight {
+		if n <= 0 {
+			continue
+		}
+		capacity := capacityOf(b.concurrentTPS[node], b.nodes[node].HW)
+		loaded = append(loaded, map[string]any{"node": node, "inflight": n, "capacity": capacity, "load_factor": loadFactor(n, capacity)})
+	}
 	b.metricsMu.Unlock()
 	sort.Slice(stations, func(i, j int) bool { return stations[i]["node"].(string) < stations[j]["node"].(string) })
-	return map[string]any{
-		"relay_failovers":   b.stats.relayFailovers.Load(),
-		"station_cooldowns": b.stats.stationCooldowns.Load(),
-		"band_cooling_503":  b.stats.bandCooling503.Load(),
-		"stations":          stations,
+	sort.Slice(loaded, func(i, j int) bool { return loaded[i]["node"].(string) < loaded[j]["node"].(string) })
+	out := map[string]any{
+		"relay_failovers":      b.stats.relayFailovers.Load(),
+		"model_fallbacks":      b.stats.modelFallbacks.Load(),
+		"station_cooldowns":    b.stats.stationCooldowns.Load(),
+		"band_cooling_503":     b.stats.bandCooling503.Load(),
+		"stations":             stations,
+		"loaded":               loaded,
+		"edge_bridge_declined": b.stats.edgeDeclinedSnapshot(),
 	}
+	// An id that names both a direct node and a Tower is matched in its own namespace on each
+	// side (contract §5); the operator is told once, here, which ids those are.
+	if ids := b.stats.collisionsSnapshot(); len(ids) > 0 {
+		out["namespace_warning"] = fmt.Sprintf("id collision: %v name both a direct node and a Tower; each is matched in its own namespace", ids)
+	}
+	return out
 }
 
 // checkCoolingAlerts pages the founder ONCE when a station has been cooling for more than

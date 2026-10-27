@@ -1,6 +1,10 @@
 package main
 
-import "sync/atomic"
+import (
+	"sort"
+	"sync"
+	"sync/atomic"
+)
 
 // instmetrics.go is the MULTI-INSTANCE OBSERVABILITY surface: a handful of low-overhead,
 // lock-free counters that make cross-instance (Valkey-bus) dispatch vs. local dispatch
@@ -49,10 +53,75 @@ type instStats struct {
 	// Upstream failover / cooldown (features/routing/upstream_failover.feature): relays
 	// re-dispatched to a sibling after a no-output failure, stations cooled by an upstream
 	// 429, and consumer requests refused fast with the band-cooling 503.
-	relayFailovers   atomic.Int64
-	routingPref      [4]atomic.Int64 // per-profile routing passes, indexed by pref
-	stationCooldowns atomic.Int64
-	bandCooling503   atomic.Int64
+	relayFailovers atomic.Int64
+	routingPref    [4]atomic.Int64 // per-profile routing passes, indexed by pref
+	// The routing expression (features/routing/ROUTING-EXPRESSION-CONTRACT.md): requests
+	// that carried a routing body / were refused with a routing 400, requests that used a
+	// strict order / a strict sort, no-fallback requests refused no_match, the variant sugar
+	// per suffix, unknown X-Roger-Pref header values (lenient: balanced), and refusals that
+	// named a capability. Counts only - never a node id, a price or a band code.
+	routingBodyRequests      atomic.Int64
+	routingBodyRejects       atomic.Int64
+	routingStrictOrder       atomic.Int64
+	routingStrictSort        atomic.Int64
+	modelFallbacks           atomic.Int64 // a failover that moved to a LATER model of the list
+	routingNoFallbackRefused atomic.Int64
+	variantFree              atomic.Int64
+	variantFloor             atomic.Int64
+	variantNitro             atomic.Int64
+	prefHeaderUnknown        atomic.Int64
+	relayNoMatchCapability   atomic.Int64
+	stationCooldowns         atomic.Int64
+	bandCooling503           atomic.Int64
+	// The Tower bridge inside the plan (contract §6): fan-out coin flips (counted only when
+	// the coin is consulted), Tower rows declined per consumer constraint (once per request
+	// and constraint), and ids that name both a direct node and a Tower.
+	edgeCoinFlips atomic.Int64
+	edgeMu        sync.Mutex
+	edgeDeclined  map[string]int64
+	collisions    map[string]bool
+}
+
+// edgeDeclineAdd counts one request in which a Tower row was declined for reason.
+func (s *instStats) edgeDeclineAdd(reason string) {
+	s.edgeMu.Lock()
+	if s.edgeDeclined == nil {
+		s.edgeDeclined = map[string]int64{}
+	}
+	s.edgeDeclined[reason]++
+	s.edgeMu.Unlock()
+}
+
+// edgeDeclinedSnapshot is the per-constraint decline counters (edge_bridge_declined{<c>}).
+func (s *instStats) edgeDeclinedSnapshot() map[string]int64 {
+	s.edgeMu.Lock()
+	defer s.edgeMu.Unlock()
+	out := make(map[string]int64, len(s.edgeDeclined))
+	for k, v := range s.edgeDeclined {
+		out[k] = v
+	}
+	return out
+}
+
+// noteCollision records an id that names both a direct node and a Tower (warned once).
+func (s *instStats) noteCollision(id string) {
+	s.edgeMu.Lock()
+	if s.collisions == nil {
+		s.collisions = map[string]bool{}
+	}
+	s.collisions[id] = true
+	s.edgeMu.Unlock()
+}
+
+func (s *instStats) collisionsSnapshot() []string {
+	s.edgeMu.Lock()
+	defer s.edgeMu.Unlock()
+	out := make([]string, 0, len(s.collisions))
+	for id := range s.collisions {
+		out = append(out, id)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // snapshot returns the counters as a plain map for the admin overview JSON. Read-only.
@@ -68,5 +137,31 @@ func (s *instStats) snapshot() map[string]any {
 		"dq_busy":          s.dqBusy.Load(),
 		"dq_lost":          s.dqLost.Load(),
 		"dq_off_air":       s.dqOffAir.Load(),
+	}
+}
+
+// countVariants bumps the per-suffix sugar counters for one request (each suffix once).
+func (s *instStats) countVariants(suffixes []string) {
+	for sfx, ctr := range map[string]*atomic.Int64{"free": &s.variantFree, "floor": &s.variantFloor, "nitro": &s.variantNitro} {
+		if containsString(suffixes, sfx) {
+			ctr.Add(1)
+		}
+	}
+}
+
+// routingCounters is the flat /admin/live view of the routing-expression counters.
+func (s *instStats) routingCounters() map[string]int64 {
+	return map[string]int64{
+		"routing_body_requests":      s.routingBodyRequests.Load(),
+		"routing_body_rejects":       s.routingBodyRejects.Load(),
+		"routing_strict_order":       s.routingStrictOrder.Load(),
+		"routing_strict_sort":        s.routingStrictSort.Load(),
+		"routing_nofallback_refused": s.routingNoFallbackRefused.Load(),
+		"variant_free":               s.variantFree.Load(),
+		"variant_floor":              s.variantFloor.Load(),
+		"variant_nitro":              s.variantNitro.Load(),
+		"pref_header_unknown":        s.prefHeaderUnknown.Load(),
+		"relay_no_match_capability":  s.relayNoMatchCapability.Load(),
+		"edge_coin_flips":            s.edgeCoinFlips.Load(),
 	}
 }
