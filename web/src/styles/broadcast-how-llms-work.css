@@ -1,0 +1,500 @@
+/* Broadcast 016 - how an LLM works, in pictures. Scoped under .llm-post.
+   Every diagram is complete as drawn: the base rules ARE the finished figure (no-JS, reduced
+   motion, print and browsers without the newer features all get it). Two kinds of motion sit
+   on top. The shared scrubber (scrub.js, [data-scrub]) tunes one stop of a list; where a
+   figure has a stage beside its stops, the stage reads the tuned stop through :has() and the
+   last stop is the drawn default. Where the browser supports scroll-driven animation the
+   opener's parts assemble as it scrolls in; the reader's scroll drives it, nothing loops.
+   Mono + one red: red marks the one thing each figure is about. */
+
+/* ---- the figure ground: the shared plate; each diagram sits on it ---- */
+.llm-post .llm-fig { view-timeline: --llm-fig block; }
+
+/* ---- a token chip: one piece of text ---- */
+.llm-tok {
+  display: inline-block; padding: 3px 8px; margin: 3px 2px;
+  font-family: var(--font-mono); font-size: var(--t-sm); line-height: 1.5;
+  color: var(--ink-900); background: var(--paper);
+  border: 1px solid var(--hairline-2); border-radius: var(--r-md);
+  white-space: pre;
+}
+.llm-tok--new, .llm-tok--live { border-color: var(--live); color: var(--live-text); font-weight: var(--weight-semi); }
+.llm-tok--now { background: var(--ink-900); border-color: var(--ink-900); color: var(--paper); }
+
+/* ---- the stops of a scrubbed stage: a wrapping row of short labels, the tuned one lit ---- */
+.llm-stops { list-style: none; margin: 0 0 var(--s-4); padding: 0; display: flex; flex-wrap: wrap; gap: var(--s-2); }
+.llm-stops > li {
+  display: flex; flex-direction: column; gap: 2px; min-width: 0;
+  padding: var(--s-2) var(--s-3); border: 1px solid transparent; border-radius: var(--r-md);
+  transition: background-color var(--d-2), border-color var(--d-2);
+}
+.llm-stops > li > b {
+  font-family: var(--font-mono); font-size: var(--t-micro); font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--ink-500);
+}
+.llm-stops > li > span { font-size: var(--t-xs); color: var(--ink-500); }
+.llm-stops > li.is-tuned { background: var(--paper); border-color: var(--hairline-2); }
+.llm-stops > li.is-tuned > b { color: var(--live-text); }
+
+/* ---- FIG. 2: the whole machine on one strip, with its loop back to the start ---- */
+.llm-flow { padding: var(--s-2) var(--s-1) 0; }
+.llm-flow__steps {
+  list-style: none; margin: 0; padding: 0;
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s-4) var(--s-6);
+}
+.llm-flow__steps > li {
+  position: relative; display: flex; flex-direction: column; gap: var(--s-1); min-width: 0;
+  padding: var(--s-3); background: var(--paper); border: 1px solid var(--hairline-2); border-radius: var(--r-md);
+}
+/* the arrow between cards: one type rule for every card but the last; the layout rules
+   below only choose the glyph and place it (across on a wide screen, where the third
+   card ends a row and gets none; down on a phone, where every card gets one) */
+.llm-flow__steps > li:not(:last-child)::after {
+  position: absolute; text-align: center;
+  font-family: var(--font-mono); font-size: var(--t-xs); color: var(--ink-500);
+}
+.llm-flow__steps > li:not(:last-child, :nth-child(3))::after {
+  content: "\2192"; right: calc(-1 * var(--s-6)); top: 50%; width: var(--s-6); translate: 0 -50%;
+}
+.llm-flow__no { font-family: var(--font-mono); font-size: var(--t-micro); letter-spacing: var(--tracking-label); color: var(--ink-400); }
+.llm-flow__steps b { color: var(--ink-900); font-size: var(--t-sm); font-weight: var(--weight-semi); line-height: 1.3; }
+.llm-flow__steps small { font-family: var(--font-mono); font-size: var(--t-xs); color: var(--ink-500); line-height: 1.4; overflow-wrap: anywhere; }
+.llm-flow__out { border-color: var(--live); }
+.llm-flow__out .llm-flow__no { color: var(--live-text); }
+.llm-flow__loop {
+  margin: 0 calc(100% / 6) 0; padding: var(--s-4) 0 var(--s-2); text-align: center;
+  border: 1px dashed var(--hairline-2); border-top: 0; border-radius: 0 0 var(--r-lg) var(--r-lg);
+  font-family: var(--font-mono); font-size: var(--t-xs); color: var(--ink-500);
+}
+.llm-flow__arrow { color: var(--live-text); }
+@media (max-width: 820px) {
+  .llm-flow__steps { grid-template-columns: minmax(0, 1fr); gap: var(--s-5); }
+  .llm-flow__steps > li { flex-direction: row; flex-wrap: wrap; align-items: baseline; column-gap: var(--s-3); }
+  .llm-flow__steps > li:not(:last-child)::after { content: "\2193"; width: var(--s-4); right: auto; left: 50%; top: auto; bottom: calc(-1 * var(--s-5)); translate: -50% 0; height: var(--s-5); line-height: var(--s-5); }
+  .llm-flow__steps small { flex-basis: 100%; }
+  .llm-flow__loop { margin: var(--s-3) 0 0; padding: var(--s-2) 0 0; border: 0; border-top: 1px dashed var(--hairline-2); }
+}
+
+/* ---- the ranked bars: word, bar, percentage (FIG. 3) ---- */
+.llm-bars { margin: var(--s-2) 0 0; display: grid; gap: 4px; }
+.llm-bars__row {
+  display: grid; grid-template-columns: minmax(5.5rem, 7rem) minmax(0, 1fr) 2.8rem;
+  align-items: center; gap: var(--s-3);
+  font-family: var(--font-mono); font-size: var(--t-xs); color: var(--ink-700);
+}
+.llm-bars__p { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink-500); }
+.llm-bars__track { display: block; height: 8px; background: var(--hairline); border-radius: var(--r-xs); overflow: hidden; }
+.llm-bars__bar { display: block; height: 100%; width: var(--p); background: var(--ink-500); }
+.llm-bars__row--win .llm-bars__w, .llm-bars__row--win .llm-bars__p { color: var(--live-text); font-weight: var(--weight-semi); }
+.llm-bars__row--win .llm-bars__bar { background: var(--live); }
+.llm-bars__row--tail { color: var(--ink-500); }
+.llm-bars__row--tail .llm-bars__bar { background: var(--ink-300); }
+.llm-p9 { --p: 9%; } .llm-p10 { --p: 10%; } .llm-p11 { --p: 11%; } .llm-p12 { --p: 12%; } .llm-p14 { --p: 14%; }
+.llm-p15 { --p: 15%; } .llm-p16 { --p: 16%; } .llm-p18 { --p: 18%; } .llm-p21 { --p: 21%; } .llm-p22 { --p: 22%; }
+.llm-p25 { --p: 25%; } .llm-p28 { --p: 28%; } .llm-p31 { --p: 31%; } .llm-p41 { --p: 41%; } .llm-p44 { --p: 44%; }
+.llm-p47 { --p: 47%; } .llm-p52 { --p: 52%; } .llm-p54 { --p: 54%; }
+
+/* ---- FIG. 3: one sentence written piece by piece, a filmstrip of five steps on the scrubber.
+   Every step is drawn whole (no-JS); once the scrubber runs, only the tuned step opens its bars ---- */
+.llm-gen { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s-2); }
+.llm-gen > li {
+  position: relative; padding: var(--s-3) var(--s-3) var(--s-3) var(--s-10);
+  border: 1px solid transparent; border-radius: var(--r-md);
+  transition: background-color var(--d-2), border-color var(--d-2);
+}
+.llm-gen > li > b {
+  position: absolute; left: var(--s-3); top: calc(var(--s-3) + 6px);
+  font-family: var(--font-mono); font-size: var(--t-micro); font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--ink-500);
+  writing-mode: vertical-rl; rotate: 180deg;
+}
+.llm-gen__line { margin: 0; }
+.llm-gen__note { display: block; margin-top: var(--s-2); font-family: var(--font-mono); font-size: var(--t-xs); color: var(--ink-500); }
+.llm-gen__note--live { color: var(--live-text); }
+.llm-gen > li.is-tuned { background: var(--paper); border-color: var(--hairline-2); }
+.llm-gen > li.is-tuned > b { color: var(--live-text); }
+.llm-gen:has(li.is-tuned) > li:not(.is-tuned) .llm-bars { display: none; }
+@media (max-width: 640px) {
+  .llm-gen > li { padding-left: var(--s-3); padding-top: var(--s-7); }
+  .llm-gen > li > b { top: var(--s-2); left: var(--s-3); writing-mode: horizontal-tb; rotate: none; }
+  .llm-bars__row { grid-template-columns: minmax(4.5rem, 6rem) minmax(0, 1fr) 2.6rem; }
+}
+
+/* ---- FIG. 4: five kinds of text cut into tokens, on the scrubber ---- */
+.llm-cut { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s-1); }
+.llm-cut > li {
+  display: grid; grid-template-columns: 8.5rem minmax(0, 1fr); align-items: center; gap: var(--s-3);
+  padding: var(--s-2) var(--s-3); border: 1px solid transparent; border-radius: var(--r-md);
+  transition: background-color var(--d-2), border-color var(--d-2);
+}
+.llm-cut > li > b {
+  font-family: var(--font-mono); font-size: var(--t-micro); font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--ink-500);
+}
+.llm-cut__row { margin: 0; display: flex; flex-wrap: wrap; }
+.llm-cut__row .llm-tok { margin: 2px 0; border-radius: 0; }
+.llm-cut__row .llm-tok + .llm-tok { border-left-style: dashed; margin-left: -1px; }
+.llm-cut__row .llm-tok:first-child { border-radius: var(--r-md) 0 0 var(--r-md); }
+.llm-cut__row .llm-tok:last-child { border-radius: 0 var(--r-md) var(--r-md) 0; }
+.llm-cut > li.is-tuned { background: var(--paper); border-color: var(--hairline-2); }
+.llm-cut > li.is-tuned > b { color: var(--live-text); }
+.llm-cut > li.is-tuned .llm-tok { border-color: var(--ink-500); }
+@media (max-width: 640px) {
+  .llm-cut > li { grid-template-columns: minmax(0, 1fr); gap: var(--s-1); }
+}
+
+/* ---- FIG. 5: the map. Three hand-placed positions per word, all percentages of the map:
+   trained --x/--y, halfway --mx/--my (groups forming, nothing touching), scattered --rx/--ry;
+   the stops before the map choose which the words take ---- */
+.llm-map {
+  position: relative; aspect-ratio: 16 / 10; overflow: clip;
+  font-family: var(--font-mono);
+}
+.llm-map__zone {
+  position: absolute; left: var(--x); top: var(--y); width: var(--w); height: var(--h);
+  translate: -50% -50%; border: 1px dashed var(--hairline-2); border-radius: 50%;
+  transition: opacity var(--d-4);
+}
+.llm-map__name {
+  position: absolute; left: var(--x); top: var(--y);
+  font-size: var(--t-micro); letter-spacing: var(--tracking-label); color: var(--ink-400);
+  transition: opacity var(--d-4);
+}
+.llm-map__w {
+  position: absolute; left: var(--x); top: var(--y); translate: -50% -50%;
+  margin: 0; padding: 4px 10px; font: inherit; font-size: var(--t-sm); line-height: 1.3; color: var(--ink-900);
+  background: var(--paper); border: 1px solid var(--hairline-2); border-radius: var(--r-pill);
+  white-space: nowrap; cursor: default; appearance: none; -webkit-appearance: none;
+  transition: left var(--d-5) var(--ease-out-quint), top var(--d-5) var(--ease-out-quint), border-color var(--d-2), color var(--d-2);
+}
+.llm-map__w:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
+.llm-map__w--live { border-color: var(--live); color: var(--live-text); font-weight: var(--weight-semi); }
+/* point at a word, or tab to it: its neighbours light up */
+.llm-map:has(.llm-map__w[data-g="a"]:is(:hover, :focus-visible)) .llm-map__w[data-g="a"],
+.llm-map:has(.llm-map__w[data-g="b"]:is(:hover, :focus-visible)) .llm-map__w[data-g="b"],
+.llm-map:has(.llm-map__w[data-g="c"]:is(:hover, :focus-visible)) .llm-map__w[data-g="c"] { border-color: var(--live); color: var(--live-text); }
+/* the stops: untrained scatters the words and hides the groups; halfway puts them midway */
+.llm-mapstage:has(.llm-stops > li:nth-child(1).is-tuned) .llm-map__w { left: var(--rx); top: var(--ry); }
+.llm-mapstage:has(.llm-stops > li:nth-child(2).is-tuned) .llm-map__w { left: var(--mx); top: var(--my); }
+.llm-mapstage:has(.llm-stops > li:nth-child(1).is-tuned) :is(.llm-map__zone, .llm-map__name) { opacity: 0; }
+.llm-mapstage:has(.llm-stops > li:nth-child(2).is-tuned) :is(.llm-map__zone, .llm-map__name) { opacity: 0.4; }
+.llm-map__zone--a { --x: 27%; --y: 36%; --w: 40%; --h: 54%; }
+.llm-map__zone--b { --x: 74%; --y: 34%; --w: 38%; --h: 48%; }
+.llm-map__zone--c { --x: 50%; --y: 82%; --w: 34%; --h: 30%; }
+.llm-map__name--a { --x: 6%; --y: 4%; }
+.llm-map__name--b { --x: 58%; --y: 4%; }
+.llm-map__name--c { --x: 20%; --y: 80%; }
+.llm-w1  { --x: 17%; --y: 24%; --mx: 24%; --my: 14%; --rx: 72%; --ry: 70%; }
+.llm-w2  { --x: 33%; --y: 20%; --mx: 44%; --my: 12%; --rx: 60%; --ry: 88%; }
+.llm-w3  { --x: 18%; --y: 44%; --mx: 10%; --my: 50%; --rx: 86%; --ry: 30%; }
+.llm-w4  { --x: 37%; --y: 37%; --mx: 46%; --my: 46%; --rx: 48%; --ry: 62%; }
+.llm-w5  { --x: 28%; --y: 54%; --mx: 34%; --my: 64%; --rx: 80%; --ry: 12%; }
+.llm-w6  { --x: 66%; --y: 22%; --mx: 62%; --my: 12%; --rx: 14%; --ry: 70%; }
+.llm-w7  { --x: 83%; --y: 26%; --mx: 90%; --my: 16%; --rx: 10%; --ry: 30%; }
+.llm-w8  { --x: 70%; --y: 42%; --mx: 64%; --my: 50%; --rx: 36%; --ry: 14%; }
+.llm-w9  { --x: 84%; --y: 46%; --mx: 88%; --my: 38%; --rx: 26%; --ry: 88%; }
+.llm-w10 { --x: 41%; --y: 80%; --mx: 30%; --my: 88%; --rx: 88%; --ry: 52%; }
+.llm-w11 { --x: 57%; --y: 76%; --mx: 72%; --my: 86%; --rx: 10%; --ry: 12%; }
+.llm-w12 { --x: 50%; --y: 89%; --mx: 52%; --my: 70%; --rx: 56%; --ry: 36%; }
+@media (max-width: 640px) {
+  .llm-map { aspect-ratio: 4 / 5; }
+  .llm-map__zone--a { --x: 50%; --y: 20%; --w: 92%; --h: 30%; }
+  .llm-map__zone--b { --x: 50%; --y: 52%; --w: 92%; --h: 26%; }
+  .llm-map__zone--c { --x: 50%; --y: 83%; --w: 80%; --h: 22%; }
+  .llm-map__name--a { --x: 4%; --y: 1%; }
+  .llm-map__name--b { --x: 4%; --y: 36%; }
+  .llm-map__name--c { --x: 4%; --y: 69%; }
+  .llm-w1  { --x: 24%; --y: 13%; --mx: 22%; --my: 12%; } .llm-w2  { --x: 52%; --y: 10%; --mx: 56%; --my: 6%; } .llm-w3  { --x: 78%; --y: 16%; --mx: 84%; --my: 20%; }
+  .llm-w4  { --x: 34%; --y: 27%; --mx: 32%; --my: 20%; } .llm-w5  { --x: 64%; --y: 28%; --mx: 60%; --my: 30%; }
+  .llm-w6  { --x: 24%; --y: 46%; --mx: 26%; --my: 44%; } .llm-w7  { --x: 52%; --y: 44%; --mx: 50%; --my: 42%; } .llm-w8  { --x: 76%; --y: 53%; --mx: 78%; --my: 52%; }
+  .llm-w9  { --x: 40%; --y: 58%; --mx: 38%; --my: 56%; }
+  .llm-w10 { --x: 30%; --y: 81%; --mx: 34%; --my: 74%; } .llm-w11 { --x: 58%; --y: 78%; --mx: 62%; --my: 70%; } .llm-w12 { --x: 70%; --y: 89%; --mx: 46%; --my: 88%; }
+}
+
+/* ---- FIG. 6: attention. Six equal columns (8.3, 25, 41.7, 58.3, 75, 91.7 of 100 units),
+   one set of arcs per current word; the stops choose the set, "it" is the drawn default ---- */
+.llm-attn { padding: var(--s-2) 0 0; }
+.llm-attn__arcs { display: block; width: 100%; height: auto; overflow: visible; }
+.llm-arc { fill: none; stroke: var(--ink-500); stroke-linecap: round; stroke-width: 0.3; }
+.llm-arc--w30 { stroke-width: 0.3; } .llm-arc--w35 { stroke-width: 0.35; } .llm-arc--w45 { stroke-width: 0.45; }
+.llm-arc--w55 { stroke-width: 0.55; } .llm-arc--w90 { stroke-width: 0.9; }
+.llm-arc--live { stroke: var(--live); stroke-width: 1.1; }
+.llm-attn__set { display: none; }
+.llm-attn__set--5 { display: block; }
+.llm-attn:has(.llm-stops > li.is-tuned) .llm-attn__set--5 { display: none; }
+.llm-attn:has(.llm-stops > li:nth-child(2).is-tuned) .llm-attn__set--2,
+.llm-attn:has(.llm-stops > li:nth-child(3).is-tuned) .llm-attn__set--3,
+.llm-attn:has(.llm-stops > li:nth-child(4).is-tuned) .llm-attn__set--4,
+.llm-attn:has(.llm-stops > li:nth-child(5).is-tuned) .llm-attn__set--5,
+.llm-attn:has(.llm-stops > li:nth-child(6).is-tuned) .llm-attn__set--6 { display: block; }
+/* the words are the stops: a row of chips, the current one in ink */
+.llm-attn__row.llm-stops { margin: 0; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 0; }
+.llm-attn__row.llm-stops > li { align-items: center; padding: 0; border: 0; background: none; }
+.llm-attn__row.llm-stops > li > b {
+  display: inline-block; padding: 3px 6px; font-size: var(--t-sm); font-weight: var(--weight-regular); letter-spacing: 0; text-transform: none;
+  color: var(--ink-900); background: var(--paper); border: 1px solid var(--hairline-2); border-radius: var(--r-md);
+}
+.llm-attn__row.llm-stops > li.is-tuned > b, .llm-attn:not(:has(.llm-stops > li.is-tuned)) .llm-attn__row > li:nth-child(5) > b {
+  background: var(--ink-900); border-color: var(--ink-900); color: var(--paper);
+}
+/* the weights under the words: one row per current word */
+.llm-attn__wts { list-style: none; margin: var(--s-1) 0 0; padding: 0; }
+.llm-attn__wt {
+  display: none; grid-template-columns: repeat(6, minmax(0, 1fr)); text-align: center;
+  font-family: var(--font-mono); font-size: var(--t-xs); color: var(--ink-500); font-variant-numeric: tabular-nums;
+}
+.llm-attn__wt--5 { display: grid; }
+.llm-attn:has(.llm-stops > li.is-tuned) .llm-attn__wt--5 { display: none; }
+.llm-attn:has(.llm-stops > li:nth-child(1).is-tuned) .llm-attn__wt--1,
+.llm-attn:has(.llm-stops > li:nth-child(2).is-tuned) .llm-attn__wt--2,
+.llm-attn:has(.llm-stops > li:nth-child(3).is-tuned) .llm-attn__wt--3,
+.llm-attn:has(.llm-stops > li:nth-child(4).is-tuned) .llm-attn__wt--4,
+.llm-attn:has(.llm-stops > li:nth-child(5).is-tuned) .llm-attn__wt--5,
+.llm-attn:has(.llm-stops > li:nth-child(6).is-tuned) .llm-attn__wt--6 { display: grid; }
+.llm-attn__wt .is-live { color: var(--live-text); font-weight: var(--weight-semi); }
+/* a phone: the six chips must fit their columns, or the row reads as a gallery and loses its start stop */
+@media (max-width: 640px) {
+  .llm-attn__row.llm-stops > li > b { font-size: var(--t-micro); padding: 2px 0; border-color: transparent; background: none; }
+  .llm-attn__row.llm-stops > li.is-tuned > b, .llm-attn:not(:has(.llm-stops > li.is-tuned)) .llm-attn__row > li:nth-child(5) > b {
+    background: none; border-color: transparent; color: var(--live-text); font-weight: var(--weight-semi); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--live);
+  }
+}
+/* the narrowest phones: the longest word still has to sit inside its sixth of the row */
+@media (max-width: 360px) {
+  .llm-attn__row.llm-stops > li { overflow: hidden; }
+  .llm-attn__row.llm-stops > li > b { letter-spacing: -0.05em; }
+}
+
+/* ---- FIG. 8: the stack. Four plates, the signal rising up the left rail ---- */
+.llm-stack {
+  counter-reset: layer 5; position: relative; list-style: none; margin: 0; padding: 0 0 0 var(--s-8);
+  display: grid; gap: var(--s-2);
+}
+.llm-stack::before {
+  content: ""; position: absolute; left: 9px; top: 0; bottom: 0; width: 2px;
+  background: var(--live); transform-origin: bottom center;
+}
+.llm-stack > li {
+  counter-increment: layer -1; position: relative;
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s-1) var(--s-3);
+  padding: var(--s-3) var(--s-4); background: var(--paper); border: 1px solid var(--hairline-2); border-radius: var(--r-md);
+}
+.llm-stack > li::before {
+  content: counter(layer); position: absolute; left: calc(-1 * var(--s-8)); top: 50%; translate: 0 -50%;
+  width: 20px; height: 20px; line-height: 18px; text-align: center; box-sizing: border-box;
+  font-family: var(--font-mono); font-size: var(--t-micro); color: var(--ink-500);
+  background: var(--paper-2); border: 1px solid var(--hairline-2); border-radius: 50%;
+}
+.llm-stack > li:first-child::before { color: var(--live-text); border-color: var(--live); }
+.llm-stack > li > b { color: var(--ink-900); font-size: var(--t-sm); font-weight: var(--weight-semi); }
+.llm-stack > li > small { font-family: var(--font-mono); font-size: var(--t-xs); color: var(--ink-500); }
+.llm-stack > li:first-child { border-color: var(--live); }
+
+/* ---- FIG. 10: training. The stops carry the ticker (guess vs answer, a mini wave each);
+   the chart after them carries two error curves and a marker per stop ---- */
+.llm-train.llm-stops { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--s-2); margin-bottom: var(--s-4); }
+.llm-train.llm-stops > li { gap: var(--s-2); padding: var(--s-3); }
+.llm-train__wave { display: block; width: 100%; height: auto; }
+.llm-train__wave path { fill: none; stroke: var(--ink-500); stroke-width: 1.6; stroke-linejoin: round; }
+.llm-train__guess { font-family: var(--font-mono); font-size: var(--t-xs); color: var(--ink-500); overflow-wrap: anywhere; }
+.llm-train__guess q { color: var(--ink-900); font-weight: var(--weight-semi); quotes: "\201C" "\201D"; }
+.llm-train__label { font-size: var(--t-xs); color: var(--ink-500); }
+.llm-train.llm-stops > li.is-tuned .llm-train__wave path { stroke: var(--live); }
+.llm-train.llm-stops > li.is-tuned .llm-train__guess q:first-of-type { color: var(--live-text); }
+.llm-loss__chart { position: relative; padding: 0 0 var(--s-2); }
+.llm-loss__svg { display: block; width: 100%; height: auto; }
+.llm-loss__grid { fill: none; stroke: var(--hairline-2); stroke-width: 1; }
+.llm-loss__curve { fill: none; stroke-width: 2.4; stroke-linecap: round; }
+.llm-loss__curve--web { stroke: var(--ink-500); }
+.llm-loss__curve--small { stroke: var(--live); }
+.llm-loss__mark { display: none; }
+.llm-loss__mark path { fill: none; stroke: var(--ink-500); stroke-width: 1; stroke-dasharray: 3 4; }
+.llm-loss__mark circle { fill: var(--paper); stroke: var(--ink-900); stroke-width: 2; }
+.llm-loss__mark circle:last-child { stroke: var(--live); }
+.llm-loss__mark--5 { display: block; }
+.llm-loss:has(.llm-stops > li.is-tuned) .llm-loss__mark--5 { display: none; }
+.llm-loss:has(.llm-stops > li:nth-child(1).is-tuned) .llm-loss__mark--1,
+.llm-loss:has(.llm-stops > li:nth-child(2).is-tuned) .llm-loss__mark--2,
+.llm-loss:has(.llm-stops > li:nth-child(3).is-tuned) .llm-loss__mark--3,
+.llm-loss:has(.llm-stops > li:nth-child(4).is-tuned) .llm-loss__mark--4,
+.llm-loss:has(.llm-stops > li:nth-child(5).is-tuned) .llm-loss__mark--5 { display: block; }
+.llm-loss__y, .llm-loss__x {
+  font-family: var(--font-mono); font-size: var(--t-micro); letter-spacing: var(--tracking-label); color: var(--ink-400);
+}
+.llm-loss__y { position: absolute; left: 0; top: 0; writing-mode: vertical-rl; rotate: 180deg; }
+.llm-loss__x { display: block; text-align: right; margin-top: var(--s-1); }
+@media (max-width: 640px) {
+  .llm-train.llm-stops { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .llm-train.llm-stops > li:last-child { grid-column: 1 / -1; }
+}
+
+/* ---- the key under a chart, and its swatches, shared by FIG. 10 and FIG. 14 ---- */
+.llm-chartkey {
+  list-style: none; margin: var(--s-3) 0 0; padding: 0;
+  display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-6);
+  font-family: var(--font-mono); font-size: var(--t-xs); color: var(--ink-500);
+}
+.llm-chartkey li { display: inline-flex; align-items: center; gap: var(--s-2); }
+.llm-key { display: inline-block; width: 18px; height: 10px; border-radius: var(--r-xs); flex: none; }
+.llm-key--band { background: var(--ink-300); }
+.llm-key--real { height: 2px; background: var(--ink-900); }
+.llm-key--live { height: 3px; background: var(--live); }
+.llm-key--web { height: 3px; background: var(--ink-500); }
+.llm-key--small { height: 3px; background: var(--live); }
+
+/* ---- FIG. 13: the size ladder. One row per tier; the bar is the parameter count on a
+   log scale (100M at the left edge, 1T at the right); the status is the ledger's word ---- */
+.llm-ladder { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.llm-ladder__row {
+  display: grid; grid-template-columns: 7.5rem minmax(0, 1fr) 5.5rem minmax(0, 1.2fr);
+  align-items: center; gap: var(--s-3); padding: var(--s-2) var(--s-3); border-radius: var(--r-md);
+  font-size: var(--t-xs); color: var(--ink-700);
+}
+.llm-ladder__name { font-weight: var(--weight-semi); color: var(--ink-900); }
+.llm-ladder__bar { display: block; height: 10px; background: var(--hairline); border-radius: var(--r-xs); overflow: hidden; }
+.llm-ladder__bar > i { display: block; height: 100%; width: var(--w); background: var(--ink-500); }
+.llm-ladder__size { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--ink-700); }
+.llm-ladder__fit { font-family: var(--font-mono); color: var(--ink-500); }
+.llm-ladder__fit em {
+  display: inline-block; margin-left: var(--s-2); padding: 1px 6px; font-style: normal; font-size: var(--t-micro);
+  letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--ink-500);
+  border: 1px solid var(--hairline-2); border-radius: var(--r-pill);
+}
+.llm-ladder__row--live { background: var(--paper); }
+.llm-ladder__row--live .llm-ladder__name { color: var(--live-text); }
+.llm-ladder__row--live .llm-ladder__bar > i { background: var(--live); }
+.llm-ladder__row--live .llm-ladder__fit em { color: var(--live-text); border-color: var(--live); }
+.llm-ladder__row--mcu { color: var(--ink-500); }
+.llm-ladder__row--mcu .llm-ladder__name { color: var(--ink-500); font-weight: var(--weight-regular); }
+.llm-at0 { --w: 0%; } .llm-at11 { --w: 11%; } .llm-at27 { --w: 27%; } .llm-at47 { --w: 47%; }
+.llm-at62 { --w: 62%; } .llm-at75 { --w: 75%; } .llm-at81 { --w: 81%; } .llm-at86 { --w: 86%; }
+@media (max-width: 640px) {
+  .llm-ladder__row { grid-template-columns: minmax(0, 1fr) 5rem; grid-template-areas: "name size" "bar bar" "fit fit"; row-gap: var(--s-1); padding-block: var(--s-3); }
+  .llm-ladder__name { grid-area: name; }
+  .llm-ladder__bar { grid-area: bar; }
+  .llm-ladder__size { grid-area: size; text-align: right; }
+  .llm-ladder__fit { grid-area: fit; }
+}
+
+/* ---- FIG. 14: a machine sentence, the trace and the surprise score; the stops move a cursor ---- */
+.llm-fault__line { margin: 0 0 var(--s-3); }
+.llm-fault__svg { display: block; width: 100%; height: auto; }
+.llm-trace__band { fill: var(--ink-300); fill-opacity: 0.35; }
+.llm-trace__exp { fill: none; stroke: var(--ink-500); stroke-width: 1.5; stroke-dasharray: 5 5; }
+.llm-trace__real { fill: none; stroke: var(--ink-900); stroke-width: 2.4; stroke-linejoin: round; }
+.llm-trace__spike { fill: none; stroke: var(--live); stroke-width: 3.2; stroke-linejoin: round; }
+.llm-fault__thr { fill: none; stroke: var(--ink-500); stroke-width: 1.2; stroke-dasharray: 6 5; }
+.llm-fault__score rect { fill: var(--ink-500); }
+.llm-fault__score rect.is-over { fill: var(--live); }
+.llm-fault__cur { display: none; }
+.llm-fault__cur path { fill: none; stroke: var(--ink-900); stroke-width: 1.5; }
+.llm-fault__cur--3 { display: block; }
+.llm-fault:has(.llm-stops > li.is-tuned) .llm-fault__cur--3 { display: none; }
+.llm-fault:has(.llm-stops > li:nth-child(1).is-tuned) .llm-fault__cur--1,
+.llm-fault:has(.llm-stops > li:nth-child(2).is-tuned) .llm-fault__cur--2,
+.llm-fault:has(.llm-stops > li:nth-child(3).is-tuned) .llm-fault__cur--3,
+.llm-fault:has(.llm-stops > li:nth-child(4).is-tuned) .llm-fault__cur--4 { display: block; }
+.llm-fault:has(.llm-stops > li:nth-child(3).is-tuned) .llm-stops > li:nth-child(3) > span,
+.llm-fault:not(:has(.llm-stops > li.is-tuned)) .llm-stops > li:nth-child(3) > span { color: var(--live-text); }
+
+/* ---- FIG. 15: two bets on the next reading; the specialist's is sharper ---- */
+.llm-dist { padding: var(--s-2) var(--s-1) 0; }
+.llm-dist__pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-6); }
+.llm-dist__name { display: block; margin-bottom: var(--s-2); }   /* the site's .fig label, placed */
+.llm-dist__one--live .llm-dist__name { color: var(--live-text); }
+.llm-dist__bars { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); align-items: end; gap: 4px; height: 120px; border-bottom: 1px solid var(--hairline-2); }
+.llm-dist__bars > li { height: var(--h); background: var(--ink-500); border-radius: var(--r-xs) var(--r-xs) 0 0; }
+.llm-dist__one--live .llm-dist__bars > li { background: var(--live); }
+.llm-dist__axis {
+  list-style: none; margin: var(--s-1) 0 0; padding: 0; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); text-align: center;
+  font-family: var(--font-mono); font-size: var(--t-xs); color: var(--ink-500);
+}
+.llm-dist__axis > li:nth-child(4) { color: var(--ink-900); font-weight: var(--weight-semi); }
+.llm-dist__why { list-style: none; margin: var(--s-4) 0 0; padding: 0; display: grid; gap: var(--s-1); font-family: var(--font-mono); font-size: var(--t-xs); color: var(--ink-500); }
+.llm-dist__why b { color: var(--ink-900); font-weight: var(--weight-semi); margin-right: var(--s-2); }
+.llm-h2 { --h: 2%; } .llm-h3 { --h: 3%; } .llm-h6 { --h: 6%; } .llm-h8 { --h: 8%; } .llm-h26 { --h: 26%; } .llm-h28 { --h: 28%; }
+.llm-h30 { --h: 30%; } .llm-h40 { --h: 40%; } .llm-h42 { --h: 42%; } .llm-h52 { --h: 52%; } .llm-h55 { --h: 55%; } .llm-h60 { --h: 60%; } .llm-h100 { --h: 100%; }
+@media (max-width: 640px) {
+  .llm-dist__pair { grid-template-columns: minmax(0, 1fr); gap: var(--s-4); }
+  .llm-dist__bars { height: 90px; }
+}
+
+/* ---- FIG. 18: two lanes, the control system in charge and the model alongside ---- */
+.llm-path { display: grid; gap: var(--s-4); padding: var(--s-2) var(--s-1); }
+.llm-path__lane { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2) var(--s-3); }
+.llm-path__tag {
+  flex: 0 0 6.5rem; font-size: var(--t-micro); letter-spacing: var(--tracking-label); color: var(--ink-400);
+}
+.llm-path__box {
+  display: inline-flex; flex-direction: column; padding: var(--s-2) var(--s-3);
+  background: var(--paper); border: 1px solid var(--hairline-2); border-radius: var(--r-md);
+  color: var(--ink-900); font-size: var(--t-sm); font-weight: var(--weight-semi); line-height: 1.35;
+}
+.llm-path__box small { font-family: var(--font-mono); font-size: var(--t-xs); font-weight: var(--weight-regular); color: var(--ink-500); }
+.llm-path__box--live { border-color: var(--live); }
+.llm-path__box--live::before {
+  content: ""; width: 7px; height: 7px; margin-bottom: var(--s-1); border-radius: 50%; background: var(--live);
+}
+.llm-path__to { color: var(--ink-500); font-family: var(--font-mono); }
+@media (max-width: 640px) {
+  .llm-path__lane { flex-direction: column; align-items: flex-start; gap: var(--s-1); }
+  .llm-path__tag { flex-basis: auto; margin-bottom: var(--s-1); }
+  .llm-path__to { padding-left: var(--s-4); rotate: 90deg; }
+}
+
+/* ---- a sentence that only makes sense with the scrubber: gone without scripts, and in print ---- */
+html:not(.js) .llm-js { display: none; }
+@media print { .llm-js { display: none; } }
+
+/* ---- §9: the vendor questions, a plain numbered list in the body size ---- */
+.llm-ask { margin: var(--s-4) 0 0; padding-left: 1.4rem; color: var(--ink-700); font-size: var(--bc-body); line-height: 1.7; }
+.llm-ask li + li { margin-top: var(--s-2); }
+.llm-ask li::marker { font-family: var(--font-mono); color: var(--live-text); }
+
+/* ---- §11: the glossary, a quiet panel of term and line ---- */
+.llm-gloss {
+  margin: var(--s-6) 0 0; padding: var(--s-5) var(--s-6);
+  display: grid; grid-template-columns: 8rem minmax(0, 1fr); column-gap: var(--s-4); row-gap: var(--s-3);
+  font-size: var(--t-sm); line-height: 1.5;
+}
+.llm-gloss dt { margin: 0; color: var(--ink-900); font-weight: var(--weight-semi); }
+.llm-gloss dd { margin: 0; color: var(--ink-500); }
+@media (min-width: 760px) {
+  .llm-gloss { grid-template-columns: 7.5rem minmax(0, 1fr) 7.5rem minmax(0, 1fr); }
+}
+
+/* ---- the motion: only where the browser can tie it to the reader's scroll ---- */
+@media (prefers-reduced-motion: no-preference) {
+  @supports (animation-timeline: view()) {
+    .llm-flow__steps > li, .llm-flow__loop, .llm-stack::before, .llm-stack > li,
+    .llm-loss__curve, .llm-dist__bars > li {
+      animation-duration: 1ms; animation-timing-function: linear; animation-fill-mode: both;
+      animation-timeline: --llm-fig;
+    }
+    /* FIG. 2: the stages arrive left to right, then the loop closes */
+    .llm-flow__steps > li { animation-name: llm-arrive; }
+    .llm-flow__steps > li:nth-child(1) { animation-range: entry 30% entry 70%; }
+    .llm-flow__steps > li:nth-child(2) { animation-range: entry 40% entry 80%; }
+    .llm-flow__steps > li:nth-child(3) { animation-range: entry 50% entry 90%; }
+    .llm-flow__steps > li:nth-child(4) { animation-range: entry 60% entry 100%; }
+    .llm-flow__steps > li:nth-child(5) { animation-range: entry 70% cover 30%; }
+    .llm-flow__steps > li:nth-child(6) { animation-range: entry 80% cover 35%; }
+    .llm-flow__loop { animation-name: llm-fade; animation-range: cover 30% cover 42%; }
+    /* FIG. 8: the signal climbs the rail, the plates light from the bottom up */
+    .llm-stack::before { animation-name: llm-rise; animation-range: entry 30% cover 45%; }
+    .llm-stack > li { animation-name: llm-arrive; }
+    .llm-stack > li:nth-child(4) { animation-range: entry 30% entry 60%; }
+    .llm-stack > li:nth-child(3) { animation-range: entry 45% entry 80%; }
+    .llm-stack > li:nth-child(2) { animation-range: entry 60% cover 25%; }
+    .llm-stack > li:nth-child(1) { animation-range: entry 75% cover 40%; }
+    /* FIG. 10: the curves draw as the reader arrives */
+    .llm-loss__curve { stroke-dasharray: 1; animation-name: llm-draw; animation-range: entry 40% cover 45%; }
+    /* FIG. 15: the bets grow from the baseline */
+    .llm-dist__bars > li { transform-origin: bottom center; animation-name: llm-grow-y; animation-range: entry 40% cover 40%; }
+  }
+}
+@keyframes llm-arrive { from { opacity: 0; transform: translateY(6px) scale(0.92); } }
+@keyframes llm-fade { from { opacity: 0; } }
+@keyframes llm-rise { from { transform: scaleY(0); } }
+@keyframes llm-draw { from { stroke-dashoffset: 1; } }
+@keyframes llm-grow-y { from { transform: scaleY(0); } }

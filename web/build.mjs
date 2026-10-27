@@ -81,6 +81,7 @@ const CSS_BUNDLES = {
   "broadcasts-agent-governance-identity.html": [...CSS_MARKETING, "broadcasts.css", "broadcast-agent-governance.css"], // broadcast 013 · dispatch (agent misalignment incident + Governance Identity)
   "broadcasts-sharing-your-gpu-is-safe.html": [...CSS_MARKETING, "broadcasts.css", "broadcast-gpu-isolation.css"], // broadcast 014 · field guide (model vs. harness isolation)
   "broadcasts-jev-vs-wave.html": [...CSS_MARKETING, "broadcasts.css"], // broadcast 015 · field guide (Jev vs the Wave family: decision models, the map, the ladder)
+  "broadcasts-how-llms-work.html": [...CSS_MARKETING, "broadcasts.css", "broadcast-how-llms-work.css"], // broadcast 016 · field guide (how an LLM works and learns, in pictures)
   "bands.html":     [...CSS_MARKETING],                  // redirect shell: shared chrome only
   "app.html":       [...CSS_MARKETING, "app.css"],       // the App Store launch page (shipped 2026-07-09)
   "404.html":       [...CSS_MARKETING, "notfound.css"],

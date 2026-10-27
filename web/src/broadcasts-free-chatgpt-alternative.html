@@ -40,6 +40,22 @@
         <figcaption class="fig mono">FIG. 1 - YOUR OWN FREQUENCY, INDEPENDENT OF THE GIANT'S TOWER</figcaption>
       </figure>
 
+      <!-- contents: the shared toc-tuner; its names repeat the section labels below -->
+      <nav class="toc-tuner" data-tuner aria-label="Sections">
+        <div class="wrap toc-tuner__band">
+        <div class="toc-tuner__readout" aria-hidden="true"></div>
+        <ol class="toc-tuner__scale">
+          <li><a class="toc-tuner__st" href="#s1"><b>§1</b><span class="toc-tuner__name">THE SHORT ANSWER</span></a></li>
+          <li><a class="toc-tuner__st" href="#s2"><b>§2</b><span class="toc-tuner__name">CAPABILITY</span></a></li>
+          <li><a class="toc-tuner__st" href="#s3"><b>§3</b><span class="toc-tuner__name">SETUP</span></a></li>
+          <li><a class="toc-tuner__st" href="#s4"><b>§4</b><span class="toc-tuner__name">PRIVACY</span></a></li>
+          <li><a class="toc-tuner__st" href="#s5"><b>§5</b><span class="toc-tuner__name">THE HONEST TRADE</span></a></li>
+          <li><a class="toc-tuner__st" href="#s6"><b>§6</b><span class="toc-tuner__name">FAQ</span></a></li>
+        </ol>
+        <span class="toc-tuner__needle" aria-hidden="true"></span>
+        </div>
+      </nav>
+
       <blockquote class="bc-answer" data-reveal>
         <b>Quick answer.</b> The best free ChatGPT alternative is an open model - gpt-oss, Qwen, or
         Llama - run on your own machine or on a community GPU. It's free, private, and has no
@@ -56,7 +72,7 @@
           company by default.
         </p>
 
-        <section class="bc-sec" data-reveal>
+        <section class="bc-sec" id="s1" data-reveal>
           <span class="bc-sec__no">&sect;1 &middot; The short answer</span>
           <h2>Is there a truly free ChatGPT alternative?</h2>
           <p>
@@ -67,7 +83,7 @@
           </p>
         </section>
 
-        <section class="bc-sec" data-reveal>
+        <section class="bc-sec" id="s2" data-reveal>
           <span class="bc-sec__no">&sect;2 &middot; Capability</span>
           <h2>What can a self-hosted model actually do?</h2>
           <p>
@@ -79,7 +95,7 @@
           </p>
         </section>
 
-        <section class="bc-sec" data-reveal>
+        <section class="bc-sec" id="s3" data-reveal>
           <span class="bc-sec__no">&sect;3 &middot; Setup</span>
           <h2>How do I set one up - even without a GPU?</h2>
           <p>Two paths, depending on your hardware:</p>
@@ -94,7 +110,7 @@
           </figure>
         </section>
 
-        <section class="bc-sec" data-reveal>
+        <section class="bc-sec" id="s4" data-reveal>
           <span class="bc-sec__no">&sect;4 &middot; Privacy</span>
           <h2>Is a self-hosted alternative private?</h2>
           <p>
@@ -106,7 +122,7 @@
           </p>
         </section>
 
-        <section class="bc-sec" data-reveal>
+        <section class="bc-sec" id="s5" data-reveal>
           <span class="bc-sec__no">&sect;5 &middot; The honest trade</span>
           <h2>Free alternative vs. paid ChatGPT: the honest trade</h2>
           <p>
@@ -118,7 +134,7 @@
           </p>
         </section>
 
-        <section class="bc-sec" data-reveal>
+        <section class="bc-sec" id="s6" data-reveal>
           <span class="bc-sec__no">&sect;6 &middot; FAQ</span>
           <h2>Frequently asked questions</h2>
           <dl class="bc-faq">
@@ -141,7 +157,7 @@
           <span class="tint-panel__tag">roger that</span>
           <p>Start your own station or just tune in - install the set:</p>
           <div class="install">
-            <!-- include: install-box.html id=signoffInstall cmd='curl <span class="tok">-fsSL</span> <span class="tok">https://rogerai.fm/install.sh</span> | sh' -->
+            <!-- include: install-box.html id=signoffInstall cmd='curl <span class="tok">-fsSL</span> <span class="tok">https://rogerai.fm/install.sh</span> <span class="tok">| sh</span>' -->
           </div>
         </aside>
 

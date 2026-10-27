@@ -131,6 +131,70 @@ test("resolver: loadWaveStatus reads the real data file", () => {
   assert.deepEqual(loadWaveStatus(), data());
 });
 
+/* ---- 2b. stage words: a tier's live stage, rendered as one short public word ---- */
+
+// {{wave-stage:<tier>}} renders stageWords[tier.stage]. Unlike a label, nothing is typed per
+// page: move a tier's stage in the data file and every stage-word token on the site follows.
+test("stage words: one short public word per stage, the same six as the vocabulary", () => {
+  const d = data();
+  assert.deepEqual(Object.keys(d.stageWords), STAGES);
+  assert.deepEqual(d.stageWords, {
+    planned: "PLANNED", "base-selected": "BASE SELECTED", training: "TRAINING",
+    gated: "GATED", "on-air": "ON AIR", released: "RELEASED",
+  });
+});
+
+const SFIX = {
+  stageWords: { planned: "PLANNED", "on-air": "ON AIR", training: "TRAINING" },
+  tiers: [{ id: "pico", stage: "on-air", labels: {} }, { id: "nano", stage: "training", labels: {} },
+    { id: "odd", stage: "mystery", labels: {} }],
+};
+
+test("resolver: a stage token renders the tier's stage word", () => {
+  assert.equal(resolveWaveTokens("<i>PICO {{wave-stage:pico}} · NANO {{wave-stage:nano}}</i>", "index.html", SFIX),
+    "<i>PICO ON AIR · NANO TRAINING</i>");
+});
+
+test("resolver: a stage token for an unknown tier, or a stage with no word, fails the build", () => {
+  assert.throws(() => resolveWaveTokens("{{wave-stage:zeta}}", "index.html", SFIX), /zeta/);
+  assert.throws(() => resolveWaveTokens("{{wave-stage:odd}}", "index.html", SFIX), /mystery/);
+});
+
+test("resolver: a malformed stage token fails rather than shipping literally", () => {
+  assert.throws(() => resolveWaveTokens("{{wave-stage:}}", "index.html", SFIX), /unresolved/);
+  assert.throws(() => resolveWaveTokens("{{wave-stage:Pico}}", "index.html", SFIX), /unresolved/);
+});
+
+/* ---- 2c. the homepage Labs plate (founder ruling 2026-10-16) ------------- */
+
+const plateOf = (html) => norm((html.match(/<a class="hero__proof"[\s\S]*?<\/a>/) || [""])[0]
+  .replace(/<!--[\s\S]*?-->/g, "").replace(/<[^>]+>/g, " "));
+const SRC_INDEX = () => readFileSync(path.join(SRC, "index.html"), "utf8");
+
+test("plate: the homepage Labs plate names the Spectrum and the live stages of Pico and Nano", () => {
+  const d = data();
+  const w = (id) => d.stageWords[tierById(id).stage];
+  assert.equal(plateOf(dist("index.html")), `ROGERAI LABS THE WAVE SPECTRUM PICO ${w("pico")} · NANO ${w("nano")}`);
+  assert.equal(plateOf(dist("index.html")), "ROGERAI LABS THE WAVE SPECTRUM PICO ON AIR · NANO TRAINING",
+    "today: Pico on air, Nano training");
+});
+
+test("plate: the status words come from the stage tokens, not hand-typed copy", () => {
+  const src = SRC_INDEX().match(/<a class="hero__proof"[\s\S]*?<\/a>/)[0];
+  assert.match(src, /PICO \{\{wave-stage:pico\}\} · NANO \{\{wave-stage:nano\}\}/);
+  assert.match(src, /aria-label="The Wave Spectrum at RogerAI Labs"/);
+  assert.match(src, /href="\/research\.html"/);
+});
+
+test("plate: moving a stage in a copy of the data moves the rendered plate", () => {
+  const copy = structuredClone(data());
+  copy.tiers.find((t) => t.id === "nano").stage = "gated";
+  copy.tiers.find((t) => t.id === "pico").stage = "released";
+  const plate = plateOf(resolveWaveTokens(SRC_INDEX(), "index.html", copy));
+  assert.equal(plate, "ROGERAI LABS THE WAVE SPECTRUM PICO RELEASED · NANO GATED");
+  assert.notEqual(plate, plateOf(resolveWaveTokens(SRC_INDEX(), "index.html", data())));
+});
+
 /* ---- 3. every inventoried page shows exactly the label the data says ----- */
 
 test("pages: a wired label comes from its token, and ships as the data text", () => {

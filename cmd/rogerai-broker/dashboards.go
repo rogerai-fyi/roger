@@ -130,6 +130,9 @@ func (b *broker) me(w http.ResponseWriter, r *http.Request) {
 	// balance/spend, so the client surfaces "log in to use your wallet" rather than a
 	// seeded-looking 0. A logged-in caller reads the github-scoped wallet.
 	if !walletLoggedIn(user) {
+		if login != "" { // a valid web session that reads as anonymous: see session_refused_alert.go
+			b.noteSessionRefused(time.Now())
+		}
 		writeJSON(w, http.StatusOK, map[string]any{
 			"user": user, "logged_in": false, "recent": []store.Entry{},
 		})
@@ -202,7 +205,7 @@ func (b *broker) earnings(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusUnauthorized, "not logged in - run `roger login` to view earnings")
 		return
 	}
-	if o.GitHubID == 0 {
+	if !hasVerifiedIdentity(o) {
 		jsonErr(w, http.StatusForbidden, "no operator account for this login")
 		return
 	}
