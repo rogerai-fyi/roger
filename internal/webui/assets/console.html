@@ -144,11 +144,12 @@
                 <th class="num">SERVED</th>
                 <th class="num">OUT TOK</th>
                 <th class="num">AT LIST</th>
+                <th class="col-cat">CATEGORY</th>
                 <th class="col-actions">ACTIONS</th>
               </tr>
             </thead>
             <tbody id="share-rows">
-              <tr class="empty-row"><td colspan="8">No models detected yet. Try <b>re-detect</b>.</td></tr>
+              <tr class="empty-row"><td colspan="9">No models detected yet. Try <b>re-detect</b>.</td></tr>
             </tbody>
           </table>
         </div>
@@ -396,6 +397,30 @@
       <div class="modal-actions">
         <button class="btn ghost" data-close>Cancel</button>
         <button class="btn primary" id="price-save">Save pricing</button>
+      </div>
+    </div>
+
+    <!-- category modal (features/categories/console_editor.feature) -->
+    <div class="modal wide" id="modal-cat" hidden>
+      <h3>Category <span class="mono" id="cat-model">&mdash;</span> <span class="muted small" id="cat-guess" hidden>guess until saved</span></h3>
+      <div class="price-grid">
+        <label class="field"><span>Category</span><select class="inp" id="cat-cat"></select></label>
+        <label class="field"><span>Subcategory</span><select class="inp" id="cat-sub"></select></label>
+        <label class="field"><span>Tags (comma-separated)</span><input class="inp" id="cat-tags" type="text" placeholder="manufacturing, ppe"></label>
+        <label class="field"><span>Tuning</span><select class="inp" id="cat-tuning">
+          <option value="">(none)</option><option>base</option><option>instruct</option><option>finetune</option>
+          <option>merge</option><option>quantized</option><option>adapter</option></select></label>
+        <label class="field"><span>Content policy</span><select class="inp" id="cat-policy">
+          <option value="">(none)</option><option>aligned</option><option>reduced-refusal</option><option>uncensored</option></select></label>
+        <label class="field"><span>License</span><input class="inp" id="cat-license" type="text" placeholder="Apache-2.0"></label>
+        <label class="field"><span>Base model</span><input class="inp" id="cat-base" type="text" placeholder="Qwen/Qwen3-VL-8B-Instruct"></label>
+      </div>
+      <p class="muted small">A category is your own description: consumers see whether it was declared or guessed. A content-policy grade describes the weights - RogerAI still screens every request.</p>
+      <p class="err small" id="cat-err" hidden></p>
+      <div class="modal-actions">
+        <button class="btn ghost" data-close>Cancel</button>
+        <button class="btn ghost" id="cat-clear">Clear</button>
+        <button class="btn primary" id="cat-save">Save category</button>
       </div>
     </div>
   </div>
