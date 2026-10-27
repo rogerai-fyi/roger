@@ -20,12 +20,14 @@
 //   {{wave:<tier>.<label>}}      (scripts/wave-status.mjs; an unknown token fails the build)
 // A Wave model page's facts render from src/data/model-cards.json:
 //   {{card:<model>.<item>}}      (scripts/model-cards.mjs; every number carries its R-number)
+// Adapter, skill and device status renders from src/data/capabilities.json:
+//   {{cap:<id>.<field>}}         (scripts/wave-status.mjs; an unknown token fails the build)
 
 import { readFileSync, writeFileSync, readdirSync, mkdirSync, rmSync, statSync, copyFileSync, renameSync, existsSync } from "node:fs";
 import { join, dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
-import { loadWaveStatus, resolveWaveTokens } from "./scripts/wave-status.mjs";
+import { loadWaveStatus, resolveWaveTokens, loadCapabilities, resolveCapTokens } from "./scripts/wave-status.mjs";
 import { loadModelCards, resolveCardTokens } from "./scripts/model-cards.mjs";
 import { glueDashes } from "./scripts/glue-dashes.mjs";   // a heading's " - " never starts a line
 
@@ -177,7 +179,7 @@ function copyAssets(dir) {
     }
     const rel = relative(SRC, abs);
     if (rel.startsWith("_partials")) continue;
-    if (rel === join("data", "wave-status.json")) continue;   // build input, rendered into pages
+    if (rel === join("data", "wave-status.json") || rel === join("data", "capabilities.json")) continue;   // build input, rendered into pages
     if (rel === join("data", "model-cards.json")) continue;   // build input, rendered into the model pages
     // top-level *.html in src/ are pages, built separately below
     if (!rel.includes("/") && ent.name.endsWith(".html")) continue;
@@ -419,11 +421,13 @@ function build() {
   const htmlByPage = new Map();
   const wave = loadWaveStatus();
   const cards = loadModelCards();
+  const caps = loadCapabilities();
   for (const page of pages) {
     const raw = readFileSync(join(SRC, page), "utf8");
     let out = resolveIncludes(raw, 0);
     out = resolveWaveTokens(out, page, wave);   // wave status labels from the one data file
     out = resolveCardTokens(out, page, cards);  // model page facts from the one data file
+    out = resolveCapTokens(out, page, caps);    // adapter, skill and device status, likewise
     out = emitCssBundle(out, page);     // expand the per-page stylesheet bundle
     out = ensureCanonical(out, page);   // exactly one self-referential canonical per page
     out = glueDashes(out);             // a heading's " - " never starts a line

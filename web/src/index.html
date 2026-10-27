@@ -34,10 +34,16 @@
 
       <!-- Each line is a block span (was <br>) so the lines can stagger in
            (home.css, lift-line). The newline between spans keeps the word
-           boundary in the accessible name and in copied text. -->
+           boundary in the accessible name and in copied text.
+           The operative word is the shared cycle word (DESIGN-SYSTEM.md, "Cycle word"):
+           it tunes decentralized -> specialized -> industrialized on the carrier's beat,
+           each load starting on the next. The HTML ships "decentralized" (SEO, no JS,
+           print, the hero text fixture); the slot reserves that word, the widest, and
+           "Models." closes up on a shorter word by transform (hero__tail), so the line
+           never reflows. FOR FOUNDER REVIEW. -->
       <h1 class="hero__title">
         <span class="hero__line"><span class="carrier">Tune in</span> to the world&rsquo;s</span>
-        <span class="hero__line"><span class="hero__op"><span class="carrier">decentralized</span> Models</span>.</span>
+        <span class="hero__line"><span class="hero__op"><span class="carrier cycle-word cycle-word--tune" data-cycle="decentralized|specialized|industrialized" data-cycle-reserve="decentralized" data-cycle-store="hero-word" data-cycle-fit=".hero__line">decentralized</span> <span class="hero__tail">Models</span></span><span class="hero__tail">.</span></span>
         <span class="hero__line hero__fast">In under 30 seconds.</span>
       </h1>
       </div>
@@ -260,12 +266,13 @@
       <li><a class="toc-tuner__st" href="#demo"><b>§1</b><span class="toc-tuner__name">OPERATING PROCEDURE</span></a></li>
       <li><a class="toc-tuner__st" href="#market"><b>§2</b><span class="toc-tuner__name">THE BAND</span></a></li>
       <li><a class="toc-tuner__st" href="#company"><b>§3</b><span class="toc-tuner__name">COMPANY</span></a></li>
-      <li><a class="toc-tuner__st" href="#what"><b>§4</b><span class="toc-tuner__name">THE TUNE</span></a></li>
-      <li><a class="toc-tuner__st" href="#spec"><b>§5</b><span class="toc-tuner__name">SPECIFICATIONS</span></a></li>
-      <li><a class="toc-tuner__st" href="#books"><b>§6</b><span class="toc-tuner__name">THE INDUSTRIAL SERIES</span></a></li>
-      <li><a class="toc-tuner__st" href="#monetize"><b>§7</b><span class="toc-tuner__name">MONETIZE</span></a></li>
-      <li><a class="toc-tuner__st" href="#operator"><b>§8</b><span class="toc-tuner__name">PRIVACY-FIRST AIRWAVES</span></a></li>
-      <li><a class="toc-tuner__st" href="#go"><b>§9</b><span class="toc-tuner__name">GO</span></a></li>
+      <li><a class="toc-tuner__st" href="#sensor"><b>§4</b><span class="toc-tuner__name">ON SITE</span></a></li>
+      <li><a class="toc-tuner__st" href="#what"><b>§5</b><span class="toc-tuner__name">THE TUNE</span></a></li>
+      <li><a class="toc-tuner__st" href="#spec"><b>§6</b><span class="toc-tuner__name">SPECIFICATIONS</span></a></li>
+      <li><a class="toc-tuner__st" href="#books"><b>§7</b><span class="toc-tuner__name">THE INDUSTRIAL SERIES</span></a></li>
+      <li><a class="toc-tuner__st" href="#monetize"><b>§8</b><span class="toc-tuner__name">MONETIZE</span></a></li>
+      <li><a class="toc-tuner__st" href="#operator"><b>§9</b><span class="toc-tuner__name">PRIVACY-FIRST AIRWAVES</span></a></li>
+      <li><a class="toc-tuner__st" href="#go"><b>§10</b><span class="toc-tuner__name">GO</span></a></li>
     </ol>
     <span class="toc-tuner__needle" aria-hidden="true"></span>
     </div>
@@ -510,11 +517,51 @@
     </div>
   </section>
 
+  <!-- ===================== ON SITE: YOUR DEVICE, NOW A SENSOR =====================
+       features/web/sensor_positioning.feature (PROPOSED 2026-10-15, founder review).
+       Design tense and number-free on purpose: nothing here is claimed in the field, and
+       every status (the step 3 lamp words, the dial) is a cap token from
+       src/data/capabilities.json, so this section can never run ahead of the file. -->
+  <section class="section sensor" id="sensor">
+    <div class="wrap">
+      <div class="section__head section__head--left" data-reveal>
+        <span class="sectionno">§4 / ON SITE</span>
+        <h2>Your device, now a sensor.</h2>
+        <p>No box to buy. RogerAI is built to turn a computer the site already has into a
+          watch on its own sensors: a Wave model, and a small adapter for the job.</p>
+      </div>
+
+      <ol class="steps sensor__steps" data-reveal data-reveal-delay="60">
+        <li><b>Install RogerAI.</b> One command on a computer you already have: a laptop, a
+          desktop, or the industrial PC on the floor.</li>
+        <li><b>Pick a Wave model.</b> Sized to the machine. Wave Pico, the smallest, is built
+          for one machine&rsquo;s telemetry.</li>
+        <li><b>Pick an adapter.</b> A small add-on for one job. The first, fire early
+          warning, is <span data-cap="fire-warning" data-cap-stage="{{cap:fire-warning.stage}}"><span class="cap-stage cap-stage--inline">{{cap:fire-warning.label}}</span></span>.
+          Telemetry drift needs no adapter: it is built into the base.</li>
+      </ol>
+
+      <p class="sensor__get" data-reveal>It is built to run on site, offline if you want,
+        and to read the sensors you point it at. It says what it sees and how sure it is,
+        and hands anything it cannot vouch for to a person. It is advisory, beside the
+        control system and never in it: it never moves a machine, and a person makes every
+        call.</p>
+
+      <div class="sensor__dial" data-reveal>
+        <!-- include: adapter-dial.html -->
+      </div>
+      <p class="home-spectrum__foot">Every lamp reads the same status file as every other page. A
+        lamp turns red only when you can install that adapter on your own machine.
+        <a href="/research-industry.html#adapters">See where it sits &rarr;</a>
+        <a href="/research-hardware.html#devices-row">The devices &rarr;</a></p>
+    </div>
+  </section>
+
   <!-- ===================== THE TUNE ===================== -->
   <section class="section band band--inset" id="what">
     <div class="wrap">
       <div class="section__head" data-reveal>
-        <span class="sectionno">§4 / THE TUNE</span>
+        <span class="sectionno">§5 / THE TUNE</span>
         <h2>Two sides of the same network.</h2>
       </div>
 
@@ -556,7 +603,7 @@
              heading leaves a hole in the document outline, so it stays an h2 and
              is styled down rather than replaced by a span. -->
         <h2 class="plate__etch">
-          <span class="sectionno">§5 / SPECIFICATIONS</span>
+          <span class="sectionno">§6 / SPECIFICATIONS</span>
           <span class="plate__sub">the whole instrument, one plate</span>
         </h2>
         <dl class="plate__grid" aria-label="RogerAI specifications">
@@ -588,7 +635,7 @@
   <section class="section band band--inset" id="books">
     <div class="wrap shelf">
       <div class="shelf__copy" data-reveal>
-        <span class="sectionno">§6 / THE INDUSTRIAL SERIES</span>
+        <span class="sectionno">§7 / THE INDUSTRIAL SERIES</span>
         <h2>We wrote the book on this. Then we wrote the next one.</h2>
         <p>Two field books for people who own machines: what a small local model can
            honestly do on a plant floor, and the physics of running one on hardware you
@@ -627,7 +674,7 @@
   <section class="section band" id="monetize">
     <div class="wrap monetize">
       <div class="monetize__copy" data-reveal>
-        <span class="sectionno">§7 / MONETIZE</span>
+        <span class="sectionno">§8 / MONETIZE</span>
         <h2>Two kinds of transmitter. One dial.</h2>
         <p><b>Your GPU.</b> Set a rate and keep 90% of every token you serve - or run open
           for free, plenty of stations broadcast for the love of the band.</p>
@@ -676,7 +723,7 @@
   <section class="section band" id="operator">
     <div class="wrap">
       <div class="section__head section__head--left" data-reveal>
-        <span class="sectionno">§8 / PRIVACY-FIRST AIRWAVES</span>
+        <span class="sectionno">§9 / PRIVACY-FIRST AIRWAVES</span>
         <h2>The provider hears a station. Never you.</h2>
       </div>
       <div class="pcards" data-reveal>
@@ -749,7 +796,7 @@
   <!-- ===================== CTA STRIP ===================== -->
   <section class="cta" id="go">
     <div class="wrap cta__inner" data-reveal>
-      <span class="sectionno">§9 / GO</span>
+      <span class="sectionno">§10 / GO</span>
       <h2>Start with one command.</h2>
       <p>You are installing <code class="inline">roger</code>: one binary, <b>a local
         harness for local models</b>. It finds the models already on your machine, puts

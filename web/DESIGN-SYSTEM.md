@@ -23,6 +23,7 @@ is the module that wakes on the hook (every page loads it via `site-js.html`).
 | Tinted panel | `.tint-panel`, `.tint-panel__tag` | - | 42 pages (cards, notes, sign-offs, account panel) |
 | Wave Spectrum scale | `.spectrum` + `.wave-bar` | `scrub.js` `[data-scrub]` | Company (homepage: `.home-spectrum` + `.wave-bar`) |
 | Wave bar | `.wave-bar` (in a tier `<li>`) | - | Company, homepage |
+| Adapter dial, status lamp | `.spectrum--dial` (the `adapter-dial.html` partial), `.cap-lamp`, `.cap-stage` (`--inline`) | `scrub.js` `[data-scrub]` | homepage, Industrial (lamps also on Wave family, Hardware) |
 | Step path | `.steps` | - | Careers |
 | Page index | `.page-index` | - | FAQ, legal pages |
 | TOC tuner | `.toc-tuner` | `tuner.js` `[data-tuner]` | 26 pages |
@@ -30,6 +31,7 @@ is the module that wakes on the hook (every page loads it via `site-js.html`).
 | Range twin | `[data-range-twin]` -> `.range-twin` | `range-twin.js` | Pricing |
 | Reveal / scroll lift | `[data-reveal]` (base), `[data-lift]`, `data-lift-skip` | `site.js` | 9 pages opt in to the lift |
 | Anchor hold | `[data-anchor-hold]` | `anchor-hold.js` | homepage |
+| Cycle word | `.cycle-word` (`--tune`), `[data-cycle]` (`-hrefs`, `-store`, `-fit`, `-reserve`) | `cycle.js` `[data-cycle]` | nav App item (every page), homepage headline |
 | Figure | `.figure` (`--plate`, `--phone`, `--chart`, `--mono`) | - | the articles |
 | Scroll box | `.scroll-box` (`--diagram`) | - | every wide table; the Tower, Pricing, Industrial, Wave family, Hardware ladder and Research scope diagrams |
 | Data table | `.data-table` | - | articles, manual, Integrations, Hardware, Wave family |
@@ -255,6 +257,17 @@ cells, size / name / use on three lines, a touch gallery the scrubber drives) an
 shares only the wave bar; moving it onto `.spectrum` would restyle every one of its
 rules, so it stays its own.
 
+### Adapter dial and status lamp
+`<!-- include: adapter-dial.html -->`: the Wave Spectrum scale (`.spectrum.spectrum--dial`)
+tuned to capability stations, one column each, the scrubber's red needle as the dial on a
+wide screen and a hairline scale where the scrubber steps aside; a stack on phones. Every
+value is a `{{cap:}}` token from `src/data/capabilities.json` (see web/README.md). Any element
+carrying `data-cap="<id>" data-cap-stage="<stage>"` shows a `.cap-lamp` and its
+`.cap-stage` words (`.cap-stage--inline` inside a sentence; the words share the tinted
+panel tag's one rule). The lamp is red ONLY for `available`, like the on-air dot; lab is a
+ring, a release candidate a filled ink dot, planned a dashed ring. No-JS: the complete
+list. Nothing moves.
+
 ### Step path
 ```html
 <ol class="steps"><li><b>Lead.</b> The step.</li> ...</ol>
@@ -365,6 +378,24 @@ done by 85% of the viewport. `data-lift-skip` opts a block out. Reduced motion: 
 Mark any element `[data-anchor-hold]` on a page whose content grows above its anchors after
 load (live data, media). A `#fragment` stays on its target until the reader scrolls, types
 or touches, or 4s pass.
+
+### Cycle word
+A word that tunes to the next station: `<span class="carrier cycle-word" data-cycle="a|b|c">a</span>`.
+It wears the carrier sweep and swaps every second loop of it (6.4s), a fade-and-lift
+(`--tune` adds the hero's blur, for a headline-sized word). The HTML ships the first word,
+so JS off, crawlers and print read it; the list lives only in that attribute.
+`data-cycle-hrefs` makes the enclosing link follow the word (the nav's App / TUI / WebUI);
+`data-cycle-store="key"` starts each load on the next word (localStorage, first visit = the
+first word, blocked storage = the first word). Hover or focus on the link pauses it.
+Reduced motion: the load's word, never cycled.
+No reflow: `data-cycle-reserve="widest"` lays a zero-height ghost of that word under the
+slot, so the slot never changes width (or reserve it in CSS, as the monospace nav does
+with `min-width: 5ch`). List the widest word first or reserve it, or the line moves.
+`data-cycle-fit=".ancestor"` sets `--cycle-slack` (em) there, the slot's spare width, so
+the words after it close up by transform only (the homepage `.hero__tail`): CLS stays 0.
+Accessible name: unless the word sits in an element named by `aria-label` (the nav link),
+cycle.js puts a visually hidden twin with the first word before it and marks the moving
+word `aria-hidden` (and unselectable), so a heading reads one stable phrase.
 
 ### Directory
 `.bands-hero` (`__inner`, `__title`, `__sub`), `.bands-panel` (`__bar`, `__status` with

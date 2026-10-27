@@ -578,6 +578,16 @@
              will be wrong if you push it past that thing. Guard is what turns being wrong
              from dangerous into safe, which is why it belongs at every slot rather
              than arriving late.</p>
+          <!-- Adapters (features/web/sensor_positioning.feature, PROPOSED 2026-10-15): the
+               status words are cap tokens from src/data/capabilities.json. No size and no
+               score until a card is publishable. -->
+          <p class="adapter-note"><b>One base model, a small add-on per job.</b> Each tier is
+             built as one base model that answers the way it always has. A job of its own
+             comes as an adapter: a small add-on switched on only for that job, and the base
+             stays as it was for everything else. The first, fire early warning on Wave Pico,
+             is <span data-cap="fire-warning" data-cap-stage="{{cap:fire-warning.stage}}"><span class="cap-stage cap-stage--inline">{{cap:fire-warning.label}}</span></span>.
+             Spotting a reading drifting out of its normal band is built into the base, not
+             an adapter; that skill, telemetry drift, is <span data-cap="telemetry-drift" data-cap-stage="{{cap:telemetry-drift.stage}}"><span class="cap-stage cap-stage--inline">{{cap:telemetry-drift.label}}</span></span>.</p>
         </div>
 
         <div class="research-actions research-actions--lead">
