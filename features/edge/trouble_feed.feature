@@ -170,3 +170,81 @@ Feature: The owner's phone receives the Edge's trouble calls, privately, and can
     And it prints the standing calls with priority, age, unit, wording and value, each with why it matters and what to do
     And "--json" prints the feed as the phone receives it
     And a face that does not match its pin is refused before a byte is sent
+
+  # =========================================================================
+  # 8. A MEMBER THAT CANNOT PRESENT A TLS CLIENT CERTIFICATE - PROPOSED 2026-10-27, BLOCKED
+  # =========================================================================
+  # BLOCKED ON AN iOS SPIKE (needs a Mac). Reviewed 2026-10-27: the face serves the node's Ed25519
+  # leaf, marked for client authentication only, with no DNS or IP name. An iPhone very likely cannot
+  # complete even one-way TLS to it (Apple's TLS stacks are not known to offer the ed25519 signature
+  # scheme), so the design below may be as unreachable as §1. Nothing here is built until a spike on
+  # a real phone answers:
+  #   A. Can the app present its CryptoKit Ed25519 key as a TLS client certificate through a bundled
+  #      BoringSSL-based stack (e.g. swift-nio-ssl)? If yes, §1 works unchanged and this section is
+  #      withdrawn: no new protocol, no server change.
+  #   B. If not: can iOS verify a face that ALSO carries a P-256 serving certificate from the root?
+  #      Then the scenarios below are built, with these requirements from the review:
+  #      - the signature binds the TARGET machine's node id, so a request signed for desk is refused
+  #        by bench;
+  #      - the caller must be a member of this fleet, as §1 requires;
+  #      - the phone checks the face against the authority's fleet record (node id and pinned
+  #        fingerprint), never against an mDNS advert, and refuses a machine the Edge forgot;
+  #      - an unreachable or unverifiable face reads "not checked since <time>", never as no trouble,
+  #        and the phone never falls back to a plain-HTTP route;
+  #      - every refusal is one status and one message; a server challenge rather than the phone's
+  #        clock and nonce is preferred, so a skewed machine clock cannot lock the phone out.
+  # The never-merged 2026-09-28 commit (f3cec7d1, branch wt/edge-trouble-phone-auth, kept in the
+  # 2026-10-27 local-branch archive) is superseded and is not to be ported as written.
+  # Found 2026-09-28 (wt/edge-trouble-phone-auth, never merged; flagged again 2026-10-27): the phone's
+  # node identity is an Ed25519 key kept by CryptoKit, and Apple's Security framework has no SecKey
+  # type for Ed25519, so iOS cannot present a client certificate for mutual TLS. The feed in §1 is
+  # unreachable from the one device it exists for.
+  #
+  # The 2026-09-28 commit served the feed on the authority's PLAIN-HTTP listener. Audited 2026-10-27,
+  # that is refused: the answer would cross the LAN readable by anyone on it, and unauthenticated, so
+  # a device on the network could hand the phone an empty feed and silence the alarms this feature
+  # exists to deliver. Instead the phone uses the face it already reaches, over TLS it CAN do: it
+  # checks the face's certificate against the Edge root it holds, and proves itself by signing the
+  # request, the way presence does. The feed, the log, the names and the bounds are the same code.
+
+  @edge @security
+  Scenario: a member that cannot present a client certificate reads the feed by signing its request
+    Given the phone cannot present a client certificate
+    When it opens TLS to the machine's face without one
+    And asks for the feed with its certificate in the body, signed by that certificate's key
+    Then it gets the same standing calls, cursor and sign-off it would get with a client certificate
+
+  @edge @security
+  Scenario: the phone talks only to a face whose certificate this Edge's root issued, to the node it meant
+    Given the phone holds this Edge's root
+    When the face it reaches presents a certificate that does not chain to that root, or names another node
+    Then the phone sends nothing and reads nothing, and says the machine could not be verified
+
+  @edge @security
+  Scenario: the feed never crosses the network readable or alterable
+    Then a signed read, its answer, roger and stand by travel only inside TLS to a verified face
+    And no route serves any of them without TLS
+
+  @edge @security
+  Scenario: a signed request is refused unless every check passes, and the refusal tells a stranger nothing
+    When a request carries a certificate that does not chain to this root, is out of date, is revoked, or names an id its key does not derive
+    Or its signature does not verify, its time is outside the freshness window, or its nonce was used before
+    Then it is refused with one and the same answer whichever check failed
+    And nothing is said about the feed before the caller is proven - not even whether this machine keeps a log
+
+  @edge @security
+  Scenario: a signature is bound to the action it was made for
+    Given a phone's signed request to read the feed
+    When the same signature is sent to say roger or to stand a call by
+    Then it is refused: the path and every field of the action are inside what was signed
+
+  @edge @security
+  Scenario: a member revoked while the machine runs is refused at once, whichever way it proves itself
+    Given a member that read the feed a moment ago by signing
+    When the owner forgets it
+    Then its next signed request is refused, without a restart
+
+  @edge
+  Scenario: roger and stand by from a signed request are attributed and bounded as with a client certificate
+    When the phone says roger, or stands a call by for 12 hours, through a signed request
+    Then the acknowledgement names the phone, and the stand by is held to the same 1 to 8 hours
