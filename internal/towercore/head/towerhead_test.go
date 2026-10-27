@@ -3,14 +3,12 @@ package head
 import (
 	"database/sql"
 	"errors"
-	"net/url"
-	"os"
-	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"rogerai.fm/roger/v6/internal/pgtest"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
@@ -21,49 +19,14 @@ import (
 
 const tower = "tw-1"
 
-// privateDSN redirects THIS package's Postgres tests to their own database.
-//
-// WHY: the parity harness TRUNCATEs its tables, which is safe within one package because its
-// tests run sequentially - but `go test ./...` runs PACKAGES in parallel against the ONE
-// shared ROGERAI_TEST_DATABASE_URL. Without this, a truncate here wipes rows the broker
-// suite is mid-scenario on, and the failure surfaces over there as something inexplicable.
-// internal/store hit exactly this and solved it the same way; the comment there is the
-// standing record of how long it took to diagnose.
-//
-// A DSN that does not parse as a URL keeps the old shared-database behaviour.
-var privateOnce sync.Once
-
-func privateDSN(t *testing.T, dsn, suffix string) string {
-	t.Helper()
-	u, err := url.Parse(dsn)
-	if err != nil || u.Path == "" || u.Path == "/" {
-		return dsn
-	}
-	name := strings.TrimPrefix(u.Path, "/") + "_" + suffix
-	privateOnce.Do(func() {
-		admin, aerr := sql.Open("pgx", dsn)
-		if aerr != nil {
-			t.Fatalf("private db: open admin: %v", aerr)
-		}
-		defer admin.Close()
-		// No CREATE DATABASE IF NOT EXISTS in PostgreSQL: create and tolerate "already exists".
-		if _, cerr := admin.Exec(`CREATE DATABASE "` + name + `"`); cerr != nil &&
-			!strings.Contains(cerr.Error(), "already exists") {
-			t.Fatalf("private db: create %s: %v", name, cerr)
-		}
-	})
-	u.Path = "/" + name
-	return u.String()
-}
-
 func stores(t *testing.T) map[string]Store {
 	t.Helper()
 	out := map[string]Store{"mem": NewMemStore()}
-	dsn := os.Getenv("ROGERAI_TEST_DATABASE_URL")
+	dsn := pgtest.DSN(t)
 	if dsn == "" {
 		return out
 	}
-	db, err := sql.Open("pgx", privateDSN(t, dsn, "towerhead"))
+	db, err := sql.Open("pgx", dsn)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 	_, _ = db.Exec(`CREATE SCHEMA IF NOT EXISTS rogerai`)
@@ -285,11 +248,11 @@ func TestPGStoreNeedsADatabase(t *testing.T) {
 }
 
 func TestAClosedPoolReportsAnOutage(t *testing.T) {
-	dsn := os.Getenv("ROGERAI_TEST_DATABASE_URL")
+	dsn := pgtest.DSN(t)
 	if dsn == "" {
 		t.Skip("no ROGERAI_TEST_DATABASE_URL")
 	}
-	db, err := sql.Open("pgx", privateDSN(t, dsn, "towerhead"))
+	db, err := sql.Open("pgx", dsn)
 	require.NoError(t, err)
 	_, _ = db.Exec(`CREATE SCHEMA IF NOT EXISTS rogerai`)
 	pg, err := NewPGStore(db)
@@ -309,11 +272,11 @@ func TestAClosedPoolReportsAnOutage(t *testing.T) {
 // The CHECK constraint is the database refusing what the code already refuses. Belt and
 // braces on the one column whose monotonicity everything else rests on.
 func TestTheDatabaseRefusesANonPositiveRevision(t *testing.T) {
-	dsn := os.Getenv("ROGERAI_TEST_DATABASE_URL")
+	dsn := pgtest.DSN(t)
 	if dsn == "" {
 		t.Skip("no ROGERAI_TEST_DATABASE_URL")
 	}
-	db, err := sql.Open("pgx", privateDSN(t, dsn, "towerhead"))
+	db, err := sql.Open("pgx", dsn)
 	require.NoError(t, err)
 	defer db.Close()
 	_, _ = db.Exec(`CREATE SCHEMA IF NOT EXISTS rogerai`)

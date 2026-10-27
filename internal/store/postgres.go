@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -724,6 +725,20 @@ func (p *Postgres) Settle(user, node string, cost, ownerShare float64, rec proto
 		return 0, err
 	}
 	defer tx.Rollback()
+	// A $0 metering settle (signed self-use, a free grant, a voided attempt's lineage receipt)
+	// has no hold in front of it, so nothing has created the payer's wallet row: it reaches
+	// here for a wallet that was never read or seeded. Create the row at balance 0 - the same
+	// upsert BalanceOf performs, WITHOUT the seed grant - so the receipt is recorded instead
+	// of the whole settle failing on a missing row. No money is created, and the wallet's
+	// one-time starter seed is still granted by its first seeding read. In this transaction:
+	// a settle that records nothing leaves no row behind. A PAID settle (cost > 0) is left to
+	// fail on a missing row: debiting a wallet that does not exist is an upstream bug, and
+	// the hold gate (which seeds first) is what makes a paid wallet exist.
+	if cost == 0 {
+		if _, err := tx.Exec(`INSERT INTO rogerai.wallet(usr,balance) VALUES($1,0) ON CONFLICT (usr) DO NOTHING`, user); err != nil {
+			return 0, err
+		}
+	}
 	// Idempotency claim: the receipt row IS the lock. A non-empty request id is
 	// inserted FIRST (owner_share backfilled below once the seed-scaled share is
 	// known); a duplicate finds the row already present, touches NO money, and
@@ -1353,6 +1368,23 @@ func (p *Postgres) OwnerByLogin(login string) (Owner, bool, error) {
 		ORDER BY created_at ASC, pubkey ASC LIMIT 1`, login)
 }
 
+// LinkVerifiedEmail: the partial unique index owners_verified_email_uniq is the arbiter of
+// "one live account per verified address", so a concurrent pair of links cannot both win.
+func (p *Postgres) LinkVerifiedEmail(pubkey, email string, at int64) error {
+	res, err := p.db.Exec(`UPDATE rogerai.owners SET email=$2, email_verified_at=$3
+		WHERE pubkey=$1 AND NOT COALESCE(anonymized,false)`, pubkey, email, time.Unix(at, 0).UTC())
+	if err != nil {
+		if strings.Contains(err.Error(), "owners_verified_email_uniq") {
+			return ErrEmailTaken
+		}
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNoOwner
+	}
+	return nil
+}
+
 // OwnerByVerifiedEmail resolves the account that PROVED it holds this address.
 //
 // The email_verified_at guard is the security boundary: owners.email alone is
@@ -1413,7 +1445,12 @@ func (p *Postgres) scanOwner(query string, arg string) (Owner, bool, error) {
 }
 
 func (p *Postgres) UpdateAccount(login, email string) (Owner, bool, error) {
-	res, err := p.db.Exec(`UPDATE rogerai.owners SET email=$2 WHERE login=$1 AND NOT COALESCE(anonymized,false)`, login, email)
+	// A changed address drops the verified stamp (the proof was for the old one); SET
+	// expressions read the OLD row, so the comparison sees the previous email.
+	res, err := p.db.Exec(`UPDATE rogerai.owners
+		SET email_verified_at = CASE WHEN lower(email) IS NOT DISTINCT FROM lower($2) THEN email_verified_at ELSE NULL END,
+		    email=$2
+		WHERE login=$1 AND NOT COALESCE(anonymized,false)`, login, email)
 	if err != nil {
 		return Owner{}, false, err
 	}

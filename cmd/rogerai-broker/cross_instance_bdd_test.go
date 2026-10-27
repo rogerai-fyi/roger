@@ -40,6 +40,7 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/cucumber/godog"
 	"github.com/redis/go-redis/v9"
+	"rogerai.fm/roger/v6/internal/pgtest"
 	"rogerai.fm/roger/v6/internal/protocol"
 	"rogerai.fm/roger/v6/internal/store"
 )
@@ -77,7 +78,7 @@ func xiRedisURL(t *testing.T) string {
 // ROGERAI_TEST_DATABASE_URL is set, else the in-memory reference.
 func xiStore(t *testing.T) store.Store {
 	t.Helper()
-	if dsn := os.Getenv("ROGERAI_TEST_DATABASE_URL"); dsn != "" {
+	if dsn := pgtest.DSN(t); dsn != "" {
 		pg, err := store.NewPostgres(dsn)
 		if err != nil {
 			t.Fatalf("postgres: %v", err)
@@ -1146,13 +1147,26 @@ func (s *xiState) operatorEarnedNothing() error {
 	return nil
 }
 
+// sweepFindsNoOrphan runs the real stale-hold sweep and fails if it credited anything back
+// to this scenario's payer. It judges by the payer's balance, not the released count, so
+// holds other suites left in a shared Postgres can't fail it.
 func (s *xiState) sweepFindsNoOrphan() error {
-	n, err := s.db.ReleaseStaleHolds(time.Now().Add(time.Minute))
+	if s.consumerWallet == "" {
+		return fmt.Errorf("no scenario payer to check the sweep against")
+	}
+	before, err := s.db.BalanceOf(s.consumerWallet, 0)
 	if err != nil {
 		return err
 	}
-	if n != 0 {
-		return fmt.Errorf("the stale-hold sweep released %d hold(s) - the relay's own give-up path left an orphan", n)
+	if _, err := s.db.ReleaseStaleHolds(time.Now().Add(time.Minute)); err != nil {
+		return err
+	}
+	after, err := s.db.BalanceOf(s.consumerWallet, 0)
+	if err != nil {
+		return err
+	}
+	if after != before {
+		return fmt.Errorf("the stale-hold sweep credited %v back to the consumer - the relay's own give-up path left an orphan hold", after-before)
 	}
 	return nil
 }

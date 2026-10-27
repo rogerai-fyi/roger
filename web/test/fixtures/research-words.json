@@ -49,6 +49,15 @@
    "/models.html"
   ]
  },
+ "broadcasts-how-llms-work.html": {
+  "sha": "a69e429c452ae28e3a2e1e1c09b88e1615b04f833e7fdf5c8eb0aca3364840cf",
+  "length": 12386,
+  "hrefs": [
+   "/broadcasts.html",
+   "/research-wave-family.html",
+   "/broadcasts-vram-for-llm.html"
+  ]
+ },
  "broadcasts-how-rogerai-routes-models.html": {
   "sha": "0639731a2df8df52a2c64a52d9308de6e07402eb08276803443d7270a3dc748f",
   "length": 5928,
@@ -150,9 +159,10 @@
   ]
  },
  "broadcasts.html": {
-  "sha": "4b25939664615ab78446fc412771a848248d8e29191066ae1531b8c484176b0f",
-  "length": 4709,
+  "sha": "6067e66c4aac55325bad26696839e5b07789862f4ece491f911cf3233368caa5",
+  "length": 4928,
   "hrefs": [
+   "/broadcasts-how-llms-work.html",
    "/broadcasts-jev-vs-wave.html",
    "/broadcasts-sharing-your-gpu-is-safe.html",
    "/broadcasts-agent-governance-identity.html",

@@ -42,6 +42,7 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/cucumber/godog"
 	"rogerai.fm/roger/v6/internal/client"
+	"rogerai.fm/roger/v6/internal/pgtest"
 	"rogerai.fm/roger/v6/internal/protocol"
 	"rogerai.fm/roger/v6/internal/store"
 )
@@ -246,7 +247,11 @@ func (s *foState) reset() error {
 	s.jobLog = nil
 	s.jobMu.Unlock()
 	s.nonce = utNonce()
-	if dsn := os.Getenv("ROGERAI_TEST_DATABASE_URL"); dsn != "" {
+	dsn, err := pgtest.Private()
+	if err != nil {
+		return err
+	}
+	if dsn != "" {
 		pg, err := store.NewPostgres(dsn)
 		if err != nil {
 			return fmt.Errorf("postgres: %w", err)
@@ -2392,12 +2397,24 @@ func (s *foState) isStatus(status string) error {
 	return nil
 }
 
+// noSecondAttempt asserts the budget gate from the broker's own record of the request, not
+// from the wall clock: the sibling saw nothing, the only attempt was the first, and no
+// failover was counted or logged. The old "relay took < 3s" bound measured scheduler latency
+// on top of s1's 1.9s hold and failed on a loaded CI runner (5.4s) while every one of these
+// facts held; the gate's arithmetic itself is pinned clock-free in
+// TestNextAttemptHonorsTheMinimumAttemptBudget.
 func (s *foState) noSecondAttempt() error {
 	if err := s.receivedNothing("s2"); err != nil {
 		return err
 	}
-	if s.relayEnd.Sub(s.relayStart) > 3*time.Second {
-		return fmt.Errorf("relay took %s, past the (scaled) deadline", s.relayEnd.Sub(s.relayStart))
+	if n := s.st("s1").upstreamCount(); n != 1 {
+		return fmt.Errorf("s1 received %d request(s), want exactly the one attempt", n)
+	}
+	if n := s.b.stats.relayFailovers.Load(); n != 0 {
+		return fmt.Errorf("relay_failovers=%d, want 0: a second attempt was started under the minimum budget", n)
+	}
+	if strings.Contains(s.logs.String(), "FAILOVER request=") {
+		return fmt.Errorf("a FAILOVER line was logged under the minimum budget:\n%s", s.logs.String())
 	}
 	return nil
 }

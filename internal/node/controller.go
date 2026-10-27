@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"rogerai.fm/roger/v6/internal/agent"
 	"rogerai.fm/roger/v6/internal/detect"
@@ -156,7 +157,10 @@ type Config struct {
 	// AutoStart seeds the per-model "put this back on air at launch" decision. Present =
 	// the operator has decided; absent = they have not, and the opt-out default applies.
 	AutoStart map[string]bool
-	Hooks     Hooks
+	// ProbeMin is the saved per-model minimum probe interval (config.json share_prices
+	// probe_min) every share of that model registers with; absent = undeclared.
+	ProbeMin map[string]time.Duration
+	Hooks    Hooks
 }
 
 // Controller is the single, concurrency-safe owner of a node's live share state.
@@ -182,6 +186,7 @@ type Controller struct {
 	// marks it for next launch - and that default must not silently re-arm a model the
 	// operator deliberately turned off and then toggled on for one session.
 	autostart map[string]bool
+	probeMin  map[string]time.Duration // seeded from Config.ProbeMin; read-only after New
 	// locks holds each live session's ON-AIR lock release (keyed by model, like
 	// sessions). The lock is the cross-process one-broadcaster-per-node-id guard
 	// shared with the headless CLI (internal/onair; the eager-puma-54-voice
@@ -214,6 +219,7 @@ func New(cfg Config) *Controller {
 		prices:      map[string]Pricing{},
 		voices:      map[string]VoiceConfig{},
 		autostart:   map[string]bool{},
+		probeMin:    cfg.ProbeMin,
 		locks:       map[string]func(){},
 		// Seed the saved/verified upstream so the first scan probes it first and a saved
 		// keyed upstream is reused without re-prompting. savedUp/Key mirror what is already
@@ -611,6 +617,7 @@ func (c *Controller) startLocked(row ShareRow, p Pricing, private bool) (*agent.
 		Quant: row.Quant, Weights: row.Weights, Variant: row.Variant,
 		Private: private, Schedule: SchedToProtocol(p.Windows),
 		Name: vc.Name, Voice: vc.Voice, Speed: vc.Speed, Language: vc.Language, SampleURL: vc.SampleURL,
+		ProbeMin: c.probeMin[row.Model],
 	})
 	if err != nil {
 		release() // a failed start must not leave the node id locked
