@@ -606,7 +606,11 @@ func (s *opsState) settle() {
 		if s.scr.enabled {
 			summary = 1
 		}
-		if snap.InFlight == 0 && snap.IdleWorkers+snap.BackingOff == snap.Workers && s.clock.sleepers() == snap.BackingOff+summary {
+		// A queued job with an idle worker is runnable, not quiet: pop only waits on an empty
+		// queue, so that worker was signaled and has not resumed yet. Advancing the virtual
+		// clock past it would age the job out as stale before it ever reached the classifier.
+		runnable := snap.QueueDepth > 0 && snap.IdleWorkers > 0
+		if !runnable && snap.InFlight == 0 && snap.IdleWorkers+snap.BackingOff == snap.Workers && s.clock.sleepers() == snap.BackingOff+summary {
 			return
 		}
 		if time.Now().After(deadline) {
@@ -1226,6 +1230,14 @@ func (s *opsState) policyDataOnly() error {
 	return nil
 }
 func (s *opsState) relaysToolsBody(phrase string) error {
+	// A tools body routes only to a station whose tool-call canary passed. That verdict
+	// normally comes from the background probe, which loses the race to this relay on a
+	// loaded machine: the relay is then refused (no_match), its screening job is dropped
+	// as not-served, and the classifier never sees the tools text. This scenario is about
+	// what screening sends, not about the canary, so record the station's passing verdict
+	// first through the canary's own writer.
+	s.build()
+	s.b.recordToolProbe("n1", opsModel, true, false, true)
 	body := []byte(`{"model":"` + opsModel + `","max_tokens":64,"messages":[{"role":"user","content":"use the tool"}],` +
 		`"tools":[{"type":"function","function":{"name":"t","description":"` + phrase + ` does a thing","parameters":{"type":"object"}}}]}`)
 	s.relay(1, body)
