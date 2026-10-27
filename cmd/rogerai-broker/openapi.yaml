@@ -90,8 +90,9 @@ paths:
 
         The taxonomy filters below ARE honored: an unknown or invalid value matches
         nothing (200 with an empty list), an empty value is no filter. Taxonomy
-        values are declared by the operator or inferred by the node's detector and
-        are NOT verified.
+        values are declared by the operator or inferred (by the node's detector, or
+        by the broker when a station sends no taxonomy; never for curated proxies),
+        and are NOT verified.
       parameters:
         - $ref: '#/components/parameters/Category'
         - $ref: '#/components/parameters/Subcategory'
@@ -1149,7 +1150,7 @@ components:
       in: query
       name: source
       schema: { type: string, enum: [declared, inferred] }
-      description: Only offers whose taxonomy was declared by the operator or inferred by detection.
+      description: Only offers whose taxonomy was declared by the operator or inferred (by the node's detection, or by the broker when a station sends no taxonomy; never for curated proxies).
     User:
       in: header
       name: X-Roger-User

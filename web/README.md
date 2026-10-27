@@ -79,6 +79,17 @@ rules: set `stage`, rewrite the tier's labels so they all imply it, delete `ruli
 the tier from the pending list at the bottom of the test. The ledger only shrinks when the
 pages actually agree.
 
+## Capability status (one source)
+
+Adapters, base skills and device rows (the "your device, now a sensor" blocks) read
+`src/data/capabilities.json`: each entry's `stage` is one of `planned`, `lab`,
+`release-candidate`, `available` (defined in `stages`, with the public words in
+`stageLabels`). Pages write `{{cap:<id>.<name|stage|label|description>}}` and `build.mjs`
+fills them in (`scripts/wave-status.mjs`). The file is build input only and is not shipped.
+Flip a stage in the file and every lamp follows; `test/capabilities.test.mjs` checks every
+`data-cap` element on every built page against it and sweeps the site for any adapter
+claimed available, live or running ahead of the file. A lamp is red only for `available`.
+
 ## Deploy
 
 Two layers (this is **not** Cloudflare Pages):
