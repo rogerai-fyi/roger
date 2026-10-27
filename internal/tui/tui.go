@@ -119,6 +119,10 @@ type Hooks struct {
 	// so a saved identity - including the BOOTH-less sample_url - arms the offer without
 	// a BOOTH pass (nil = none). The host owns the disk read; the TUI does no I/O.
 	SavedVoices map[string]VoiceConfig
+	// SavedMeta seeds each model's DECLARED taxonomy from config.json share_meta, and
+	// SaveMeta persists a change (an empty taxonomy = remove). The host owns the disk I/O.
+	SavedMeta map[string]protocol.Taxonomy
+	SaveMeta  func(model string, t protocol.Taxonomy)
 	// Compact seeds the "windowshade" compact mode at launch from the saved config, so
 	// the [m] choice sticks across sessions (the host owns the disk read).
 	Compact bool
@@ -418,6 +422,9 @@ type offer struct {
 	Quant   string `json:"quant,omitempty"`
 	Weights string `json:"weights,omitempty"`
 	Variant string `json:"variant,omitempty"`
+	// Taxonomy is what the station says (or its detector guessed) the model is FOR.
+	// Decode-only like the fields above: absent claims nothing.
+	protocol.Taxonomy
 	// Curated marks a station that PROXIES a commercial upstream API rather than serving
 	// a person's hardware; CuratedProvider names it and UpstreamIn/Out carry the declared
 	// list price, so the band card can show the list and the routing fee separately.
@@ -475,6 +482,7 @@ const (
 	modeShare             // k9s-style provider table: list local models, toggle on/off-air
 	modeBandCard          // private band code card: shows the one-time frequency code after going private
 	modeShareEditor       // per-model pricing + time-of-use schedule editor (login-gated)
+	modeShareMeta         // per-model category / tags editor (not login-gated)
 	modeShareSetup        // guided fallback: no local model detected, pick a tool / paste a URL
 	modeQuitConfirm       // on-air quit-guard: confirm before going off air on quit
 	modeAgent             // [0] AGENT: the embedded tool-capable agent harness (dj.md persona)
@@ -654,6 +662,8 @@ type quote struct {
 }
 
 type model struct {
+	metaEditor          // the SHARE tab category editor (modeShareMeta)
+	fCat         string // the dial category filter (G): "" = off
 	broker, user string
 	offers       []offer
 	cursor       int
@@ -1292,8 +1302,10 @@ func NewController(broker string, hooks Hooks) *node.Controller {
 		Prices:      hooks.SavedPrices,
 		Voices:      hooks.SavedVoices,
 		AutoStart:   hooks.SavedAutoStart,
+		Meta:        hooks.SavedMeta,
 		ProbeMin:    hooks.SavedProbeMin,
 		Hooks: node.Hooks{
+			SaveMeta:      hooks.SaveMeta,
 			SaveUpstream:  hooks.SaveUpstream,
 			SavePrice:     hooks.SavePrice,
 			SaveStation:   hooks.SaveStation,
@@ -2203,6 +2215,7 @@ func (m *model) syncShareCache() {
 			upstream: r.Upstream, upstreamKey: r.UpstreamKey,
 			quant: r.Quant, weights: r.Weights, variant: r.Variant,
 		}
+		rows[i].declared, rows[i].inferred, _ = m.ctrl.MetaFor(r.Model)
 	}
 	m.shareRows = rows
 	m.shares = m.ctrl.Sessions()
@@ -2314,7 +2327,7 @@ func clipboardWrite(s string) tea.Cmd {
 		return nil
 	}
 	return func() tea.Msg {
-		fmt.Print(osc52(s))
+		fmt.Fprint(clipboardOut, osc52(s))
 		copyToClipboard(s)
 		return nil
 	}
@@ -2329,6 +2342,13 @@ func (m model) transcriptText() string {
 	}
 	return strings.Join(lines, "\n")
 }
+
+// clipboardLookPath finds a clipboard tool and clipboardOut receives the OSC 52 escape;
+// tests replace both so a run never touches the developer's real clipboard.
+var (
+	clipboardLookPath           = exec.LookPath
+	clipboardOut      io.Writer = os.Stdout
+)
 
 // copyToClipboard best-effort copies s to the OS clipboard via the platform tool
 // (wl-copy / xclip / xsel on Linux, pbcopy on macOS, clip on Windows). Returns true
@@ -2352,7 +2372,7 @@ func copyToClipboard(s string) bool {
 		tools = []tool{{"wl-copy", nil}, {"xclip", []string{"-selection", "clipboard"}}, {"xsel", []string{"--clipboard", "--input"}}}
 	}
 	for _, t := range tools {
-		path, err := exec.LookPath(t.bin)
+		path, err := clipboardLookPath(t.bin)
 		if err != nil {
 			continue
 		}
@@ -3078,7 +3098,7 @@ func pulseWith(frame int, eyeStyle lipgloss.Style) string {
 // never ambiguous that RogerAI does both.
 func (m model) inShareSection() bool {
 	switch m.mode {
-	case modeShare, modeBandCard, modeShareEditor, modeShareSetup, modeShareVoice, modeVoicePicker:
+	case modeShare, modeBandCard, modeShareEditor, modeShareMeta, modeShareSetup, modeShareVoice, modeVoicePicker:
 		// The SHARE VOICE BOOTH + its picker are reached FROM the SHARE table (via `p` on a tts
 		// row, same depth as the chat price editor), so they belong to the SHARE section.
 		return true
@@ -3131,6 +3151,8 @@ func (m model) modeName() string {
 		return "SHARE"
 	case modeShareEditor:
 		return "PRICE + SCHEDULE"
+	case modeShareMeta:
+		return "CATEGORY"
 	case modeShareSetup:
 		return "SET UP A MODEL"
 	default:
@@ -3451,6 +3473,9 @@ func (m model) visibleBands() []band {
 		if m.fQuant != "" && !strings.EqualFold(b.quant, m.fQuant) {
 			continue
 		}
+		if m.fCat != "" && b.tax.cat != m.fCat {
+			continue
+		}
 		if m.fNoCurated && b.curated > 0 {
 			// Hiding curated is a SUPPLY subtraction, not a band deletion: a band that
 			// also has human stations stays, re-counted without its proxies; a
@@ -3503,7 +3528,7 @@ func (m model) visibleBands() []band {
 // filtersActive reports whether any name filter or quick toggle is narrowing the
 // list (used to show the "filter: ... (n/total)" line + the clear hint).
 func (m model) filtersActive() bool {
-	return strings.TrimSpace(m.filterApplied) != "" || m.fFree || m.fConf || m.fOn || m.fQuant != "" || m.fNoCurated
+	return strings.TrimSpace(m.filterApplied) != "" || m.fFree || m.fConf || m.fOn || m.fQuant != "" || m.fCat != "" || m.fNoCurated
 }
 
 // cycleQuantFilter advances the quant filter: off -> each quant on air -> off. Cycling
@@ -3649,6 +3674,12 @@ func plainBandBadge(bd band, limits *LimitStore, connected bool) string {
 	parts := []string{}
 	if connected {
 		parts = append(parts, glyphOnAir+" connected")
+	}
+	if l := bandCategoryLabel(bd); l != "" {
+		parts = append(parts, l)
+	}
+	if g := bandGrade(bd); g != "" {
+		parts = append(parts, g)
 	}
 	if bd.verified {
 		parts = append(parts, glyphLineage+" verified")
@@ -4498,7 +4529,7 @@ func (m model) footer(w int) string {
 		}
 		return modalFooter(m.effWidth(), left, m.accountTag(true), m.status)
 	case modeShare:
-		left = stDim.Render("↑↓ move  ·  ⏎/a on-air  ·  p price+schedule  ·  r re-detect  ·  s/esc tune in")
+		left = stDim.Render("↑↓ move  ·  ⏎/a on-air  ·  p price+schedule  ·  g category  ·  r re-detect  ·  s/esc tune in")
 		if m.narrow() {
 			left = stDim.Render("↑↓ · ⏎/a air · p · r · esc")
 		}

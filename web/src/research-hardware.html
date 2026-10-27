@@ -163,6 +163,45 @@
           <figcaption class="fig">FIG. 1 - the spectrum is a hardware ladder before it is a
             model ladder. Hover a board below to find its stop.</figcaption>
         </figure>
+
+        <!-- DEVICES A SITE ALREADY HAS (features/web/sensor_positioning.feature, PROPOSED
+             2026-10-15, founder review): three devices, one install. Every name, stage and
+             line is a cap token from src/data/capabilities.json; a planned device (the iPad
+             today) is drawn as a dashed ghost by its data-cap-stage alone. No speed is printed:
+             none is measured, and the device evidence contract on the industrial page says
+             what a speed claim must name. Not .hw-card on purpose: the board cards are
+             counted and held to the model catalogue. -->
+        <div class="devices" id="devices-row">
+          <h3>Devices a site already has.</h3>
+          <p class="devices__lead">Or start with a computer that is already there. One install,
+            then a Wave model and an adapter for the job. Each lamp reads the same status file
+            as every other page.</p>
+          <div class="install devices__install">
+            <!-- include: install-box.html id=installDevices cmd='curl <span class="tok">-fsSL</span> <span class="tok">https://rogerai.fm/install.sh</span> <span class="tok">| sh</span>' -->
+          </div>
+          <ol class="devices__list">
+            <li class="device tint-panel" data-cap="laptop" data-cap-stage="{{cap:laptop.stage}}">
+              <svg class="device__art" viewBox="0 0 120 72" aria-hidden="true"><rect x="22" y="6" width="76" height="48" rx="3"/><rect x="28" y="12" width="64" height="36" rx="1"/><path d="M8 62h104l-6 6H14Z"/><path d="M22 54 8 62M98 54l14 8"/></svg>
+              <b>{{cap:laptop.name}}</b>
+              <span class="device__status">Wave model + adapter <i class="cap-lamp" aria-hidden="true"></i> <span class="cap-stage cap-stage--inline">{{cap:laptop.label}}</span></span>
+              <p>{{cap:laptop.description}}</p>
+            </li>
+            <li class="device tint-panel" data-cap="industrial-pc" data-cap-stage="{{cap:industrial-pc.stage}}">
+              <svg class="device__art" viewBox="0 0 120 72" aria-hidden="true"><rect x="16" y="14" width="88" height="46" rx="3"/><path d="M28 14V6M40 14V6M52 14V6M64 14V6M76 14V6M88 14V6"/><rect x="26" y="40" width="12" height="8" rx="1"/><rect x="44" y="40" width="12" height="8" rx="1"/><circle cx="90" cy="44" r="3"/></svg>
+              <b>{{cap:industrial-pc.name}}</b>
+              <span class="device__status">Wave model + adapter <i class="cap-lamp" aria-hidden="true"></i> <span class="cap-stage cap-stage--inline">{{cap:industrial-pc.label}}</span></span>
+              <p>{{cap:industrial-pc.description}}</p>
+            </li>
+            <li class="device tint-panel" data-cap="ipad" data-cap-stage="{{cap:ipad.stage}}">
+              <svg class="device__art" viewBox="0 0 120 72" aria-hidden="true"><rect x="30" y="4" width="60" height="64" rx="6"/><rect x="36" y="10" width="48" height="50" rx="1"/><circle cx="60" cy="64" r="1.6"/></svg>
+              <b>{{cap:ipad.name}}</b>
+              <span class="device__status">Wave model + adapter <i class="cap-lamp" aria-hidden="true"></i> <span class="cap-stage cap-stage--inline">{{cap:ipad.label}}</span></span>
+              <p>{{cap:ipad.description}}</p>
+            </li>
+          </ol>
+          <p class="fig devices__cap">Three devices, one install. A dashed device is planned, not
+            here yet.</p>
+        </div><!-- /devices -->
       </div>
     </section>
 
@@ -478,8 +517,8 @@
             <h3>How small can a model get and still be worth asking?</h3>
             <p>The other direction. Wave Pico targets 250&ndash;300M on a Raspberry Pi with
                no accelerator and a response near 50 ms - small enough to sit where the
-               network stops, large enough to answer rather than classify. The waypoint is
-               trained; the retrain at full size is the next gate.</p>
+               network stops, large enough to answer rather than classify. The 293M release
+               is on air as wave-pico-293m.</p>
             <p class="hw-exp__stage mono">{{wave:pico.research-hardware.exp}}</p>
           </article>
         </div>

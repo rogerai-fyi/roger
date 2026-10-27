@@ -77,7 +77,8 @@ type band struct {
 	inFlight int // active (in-flight) requests summed across online stations - the REAL
 	// activity that animates the signal meter (idle band steady, busy band scans). Honest:
 	// it is the broker's live load, never a fabricated pulse.
-	all []offer // every station in this band (online first)
+	all []offer      // every station in this band (online first)
+	tax bandTaxonomy // what the stations say the band is for (foldTaxonomy)
 }
 
 // confirmView is the connect-time cost confirmation (3.2): the deal + an explicit
@@ -119,7 +120,11 @@ func (m model) bandDetailView(w int) string {
 	b.WriteString("  " + truncVisible(stSelBar.Render("▌")+" "+stBrand.Render("STATION LOG")+
 		stDim.Render("   ")+stKey.Render(bd.model)+stDim.Render(" · ")+on+ctxTag+curTag, w-2) + "\n")
 	// One line of purpose (founder, 2026-09-02: "what am I actually seeing?").
-	b.WriteString("  " + truncVisible(stDim.Render("every station carrying this band, with its real numbers - ◉ marks the route the switchboard dials first"), w-2) + "\n\n")
+	b.WriteString("  " + truncVisible(stDim.Render("every station carrying this band, with its real numbers - ◉ marks the route the switchboard dials first"), w-2) + "\n")
+	for _, line := range bandTaxonomyDetail(bd) {
+		b.WriteString("  " + truncVisible(stDim.Render(line), w-2) + "\n")
+	}
+	b.WriteString("\n")
 
 	if len(bd.all) == 0 {
 		empty := "no station detail for this band right now - r to re-scan, esc to go back"
@@ -376,6 +381,13 @@ func bandBadge(bd band, limits *LimitStore, connected bool) string {
 	if connected {
 		parts = append(parts, stRed.Render(glyphOnAir+" connected"))
 	}
+	// What the band is FOR (a guess marked ~), and a reduced-refusal/uncensored grade.
+	if l := bandCategoryLabel(bd); l != "" {
+		parts = append(parts, stKey.Render(l))
+	}
+	if g := bandGrade(bd); g != "" {
+		parts = append(parts, stEmber.Render(g))
+	}
 	// verified ✓ = a station passed the broker's live serving probe (the IDENTITY/lineage
 	// glint), kept DISTINCT from the gold confidential ◆ tier per the codebase's mark split.
 	if bd.verified {
@@ -417,7 +429,8 @@ func bandBadge(bd band, limits *LimitStore, connected bool) string {
 // Rendered plain (dim) and folded for ASCII so a legacy console shows "%~ / [v]".
 func bandBadgeLegend() string {
 	ar := agentReadyGlyph()
-	return stDim.Render("  " + ar + " agent-ready (" + ar + "~ inferred) · " + visionGlyph() + " vision")
+	return stDim.Render("  " + ar + " agent-ready (" + ar + "~ inferred) · " + visionGlyph() + " vision · " +
+		guessMark + " guessed, not declared")
 }
 
 // groupBands groups offers by model into bands, computing each band's live
@@ -533,7 +546,9 @@ func groupBands(offers []offer, limits *LimitStore) []band {
 	}
 	out := make([]band, 0, len(order))
 	for _, k := range order {
-		out = append(out, *byKey[k])
+		b := byKey[k]
+		b.tax = foldTaxonomy(b.all) // by the /market rule: online human stations vote
+		out = append(out, *b)
 	}
 	sort.SliceStable(out, func(i, j int) bool {
 		oi := bandOverLimit(out[i], limits)
