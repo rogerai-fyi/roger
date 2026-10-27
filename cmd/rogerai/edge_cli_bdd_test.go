@@ -950,7 +950,9 @@ func (s *edgeCLIBDD) theNodeIsGoneAndPinCleared() error {
 	if err != nil {
 		return err
 	}
-	if strings.Contains(string(b), "1177") {
+	// The pin is stored as the JSON string "1177" (pin and fingerprint). Match it quoted: a bare
+	// 1177 also turns up inside unix timestamps around 17931117xx, which failed this by the clock.
+	if strings.Contains(string(b), `"1177"`) {
 		return fmt.Errorf("the pin survived the forget:\n%s", b)
 	}
 	return nil
