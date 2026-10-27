@@ -140,8 +140,9 @@ Feature: A Wave model on an edge device, from the RogerAI channel, on a runtime 
   # LAN mode already lists the own serve as a band (cmd/rogerai/lan.go). Outside LAN mode roger use
   # asked the market first. An owner who just ran "roger model serve" and then "roger use" of the
   # same name should not be sent to the market for the model under their hands. BUILT for `roger
-  # use` (the session and the relay's first rung); the TUI chat, the console and the agent outside
-  # LAN mode still take the Edge-then-market ladder and are a later slice.
+  # use` (the session and the relay's first rung) 2026-10-24, and 2026-10-27 for every front end
+  # that tunes a band (the TUI chat and agent, `roger webui`, `roger resume`): the front-end ladder
+  # carries the own serve as its first rung (TestTheBoothTakesTheOwnServeFirstOutsideLANMode).
 
   # BUILT 2026-10-24: TestRogerUsePrefersWhatThisMachineServes (cmd/rogerai), verified live
   Scenario: roger use prefers the model this machine serves
