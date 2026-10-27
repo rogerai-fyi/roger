@@ -82,11 +82,20 @@ func TestThePlainListenerNamesTLSAndRefusesThePhonesPaths(t *testing.T) {
 	port := 0
 	h := edgePlainAuthority(next, func() int { return port }, "n_auth")
 
-	// Before TLS is up: everything passes, nothing is added.
+	// Before TLS is up (no node identity, or the TLS bind failed): the enrolment paths pass with
+	// nothing added, but a phone's turn is still refused. "Over TLS only" (RULED 2026-10-13) does not
+	// lapse when there is no TLS listener; a band list in clear would show the fleet to the LAN.
 	w := httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/edge/phone/bands", nil))
-	require.Equal(t, "served /edge/phone/bands", w.Body.String())
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/edge/present", nil))
+	require.Equal(t, "served /edge/present", w.Body.String())
 	require.Empty(t, w.Header().Get(edgeTLSHeader))
+	for _, p := range []string{"/edge/phone/bands", "/edge/phone/infer", "/edge/phone/speech"} {
+		w = httptest.NewRecorder()
+		h.ServeHTTP(w, httptest.NewRequest(http.MethodPost, p, strings.NewReader("{}")))
+		require.Equal(t, http.StatusServiceUnavailable, w.Code, p)
+		require.NotContains(t, w.Body.String(), "served "+p, "nothing reaches the phone handler")
+		require.Contains(t, w.Body.String(), "only over TLS")
+	}
 
 	port = 39443
 	for _, p := range []string{"/edge/enroll", "/edge/claim", "/edge/root", "/edge/present"} {

@@ -103,20 +103,26 @@ func edgeAuthorityTLSConfig(sc *edgeServerCert) *tls.Config {
 	return &tls.Config{MinVersion: tls.VersionTLS12, GetCertificate: sc.get}
 }
 
-// edgePlainAuthority wraps the plain listener's mux once the TLS listener is up: every answer says
-// where TLS is and which authority to expect there, and the phone's paths are refused here.
+// edgePlainAuthority wraps the plain listener's mux: once the TLS listener is up every answer says
+// where TLS is and which authority to expect there. The phone's paths are never served here (RULED
+// 2026-10-13, over TLS only): 421 naming the port when TLS is up, 503 when there is no TLS listener.
 func edgePlainAuthority(next http.Handler, tlsPort func() int, authorityID string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		port := tlsPort()
 		if port > 0 {
 			w.Header().Set(edgeTLSHeader, strconv.Itoa(port))
 			w.Header().Set(edgeAuthorityHeader, authorityID)
-			if strings.HasPrefix(r.URL.Path, "/edge/phone/") {
-				w.Header().Set("Content-Type", "application/json")
+		}
+		if strings.HasPrefix(r.URL.Path, "/edge/phone/") {
+			w.Header().Set("Content-Type", "application/json")
+			if port > 0 {
 				w.WriteHeader(http.StatusMisdirectedRequest)
 				_, _ = fmt.Fprintf(w, `{"error":{"message":"a phone's requests are served over TLS on port %d","type":"edge_error"}}`+"\n", port)
 				return
 			}
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = fmt.Fprint(w, `{"error":{"message":"a phone's requests are served only over TLS, and this authority has no TLS listener","type":"edge_error"}}`+"\n")
+			return
 		}
 		next.ServeHTTP(w, r)
 	})
