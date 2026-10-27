@@ -98,19 +98,20 @@ type Limits struct {
 }
 
 type config struct {
-	Broker          string                `json:"broker"`
-	User            string                `json:"user"`
-	Limits          Limits                `json:"limits"`
-	Onboarded       bool                  `json:"onboarded,omitempty"`         // first-run wizard completed
-	Share           *Share                `json:"share,omitempty"`             // saved provider config (the wizard's earn/free choice)
-	Prices          map[string]SharePrice `json:"share_prices,omitempty"`      // per-model price + schedule from the in-TUI editor
-	Voices          map[string]ShareVoice `json:"share_voices,omitempty"`      // per-model voice identity (dj name / voice / speed / language / sample_url)
-	Compact         bool                  `json:"compact,omitempty"`           // windowshade compact-mode toggle (the in-TUI [m] choice, persisted)
-	Webui           *bool                 `json:"webui,omitempty"`             // browser node console: nil/true = on (default), false = off; --no-webui overrides off for a run
-	WebuiOpen       *bool                 `json:"webui_open,omitempty"`        // auto-open the console in a browser at launch: nil/false = no (default; founder respec 2026-07-14 - it hijacked terminal-embedded browsers), true = yes
-	Palette         string                `json:"palette,omitempty"`           // TUI color layer: ""/"full" = the lamp board (default), "mono" = the mono+red escape hatch. ROGER_PALETTE overrides per-run. (design overhaul increment 0)
-	Deck            string                `json:"deck,omitempty"`              // the painted deck ground behind the whole TUI: ""/"on" = the RogerAI faceplate (default), "off" = inherit the terminal's own background. ROGER_DECK overrides per-run.
-	LastSeenVersion string                `json:"last_seen_version,omitempty"` // the Version last launched; the tube warm-up boot plays only when this differs (first run + after an upgrade). (design overhaul increment 10)
+	Broker          string                       `json:"broker"`
+	User            string                       `json:"user"`
+	Limits          Limits                       `json:"limits"`
+	Onboarded       bool                         `json:"onboarded,omitempty"`         // first-run wizard completed
+	Share           *Share                       `json:"share,omitempty"`             // saved provider config (the wizard's earn/free choice)
+	Prices          map[string]SharePrice        `json:"share_prices,omitempty"`      // per-model price + schedule from the in-TUI editor
+	Voices          map[string]ShareVoice        `json:"share_voices,omitempty"`      // per-model voice identity (dj name / voice / speed / language / sample_url)
+	Meta            map[string]protocol.Taxonomy `json:"share_meta,omitempty"`        // per-model DECLARED taxonomy (category, tags, tuning, policy, license, base model)
+	Compact         bool                         `json:"compact,omitempty"`           // windowshade compact-mode toggle (the in-TUI [m] choice, persisted)
+	Webui           *bool                        `json:"webui,omitempty"`             // browser node console: nil/true = on (default), false = off; --no-webui overrides off for a run
+	WebuiOpen       *bool                        `json:"webui_open,omitempty"`        // auto-open the console in a browser at launch: nil/false = no (default; founder respec 2026-07-14 - it hijacked terminal-embedded browsers), true = yes
+	Palette         string                       `json:"palette,omitempty"`           // TUI color layer: ""/"full" = the lamp board (default), "mono" = the mono+red escape hatch. ROGER_PALETTE overrides per-run. (design overhaul increment 0)
+	Deck            string                       `json:"deck,omitempty"`              // the painted deck ground behind the whole TUI: ""/"on" = the RogerAI faceplate (default), "off" = inherit the terminal's own background. ROGER_DECK overrides per-run.
+	LastSeenVersion string                       `json:"last_seen_version,omitempty"` // the Version last launched; the tube warm-up boot plays only when this differs (first run + after an upgrade). (design overhaul increment 10)
 	// UseKey is an account key (`rog-key_...`) `roger use` relays with instead of the device
 	// signature. Written ONLY by `roger use --key ... --save-key`; never stored otherwise.
 	UseKey string `json:"use_key,omitempty"`
@@ -640,6 +641,12 @@ func tuiHooks(cfg config) tui.Hooks {
 			c.Prices[model] = sp
 			_ = saveConfig(c)
 		},
+		// Persist a model's declared taxonomy (share_meta); an empty one removes it.
+		SaveMeta: func(model string, t protocol.Taxonomy) {
+			c := loadConfig()
+			setShareMeta(&c, model, t)
+			_ = saveConfig(c)
+		},
 		// Persist the per-model auto-start decision beside its price (share_prices), so
 		// the models an operator chose come back on air at the next launch. Merges for
 		// the same reason SavePrice does.
@@ -764,6 +771,7 @@ func tuiHooks(cfg config) tui.Hooks {
 			}
 		}
 	}
+	h.SavedMeta = cfg.Meta
 	// Seed each model's saved voice identity (share_voices) so the on-air offer carries
 	// the operator's dj name / voice / speed / language / sample_url without a BOOTH pass.
 	if len(cfg.Voices) > 0 {
@@ -1333,8 +1341,9 @@ func cmdShare(cfg config, args []string) error {
 	curated := fs.String("curated", "", "declare this station a CURATED proxy for the named commercial provider (e.g. openrouter). Requires an explicit --upstream (the commercial endpoint); declare its list via --upstream-price-in/out (zero = a free upstream). The broker posts list + its routing markup and settles back your list plus half the routing fee. Verification: one canary at registration earns the check mark, then a minimal weekly recheck - billed to your upstream, typically under a cent a month per band")
 	upIn := fs.Float64("upstream-price-in", 0, "curated: the upstream's list $/1M input the broker derives the posted price from")
 	upOut := fs.Float64("upstream-price-out", 0, "curated: the upstream's list $/1M output")
+	meta := addShareMetaFlags(fs)
 	probeMin := fs.Duration("probe-min", 0, probeMinUsage)
-	advanced := fs.Bool("advanced", false, "show advanced flags (--node --region --parallel --upstream --modality --ctx --confidential --free-window --schedule --curated --upstream-price-in --upstream-price-out --probe-min)")
+	advanced := fs.Bool("advanced", false, "show advanced flags (--node --region --parallel --upstream --modality --ctx --confidential --free-window --schedule --curated --upstream-price-in --upstream-price-out --probe-min --category --tag --tuning --policy --license --base-model)")
 	fs.Usage = func() {
 		fmt.Print(`roger share - go on air as a provider (auto-detects your local model)
 
@@ -1349,6 +1358,7 @@ func cmdShare(cfg config, args []string) error {
   --private           hidden band, frequency-code only (needs ` + "`roger login`" + `)
   --check             hardware preflight: report and exit (never blocks a share)
   --advanced          reveal: --node --region --parallel --upstream --modality --ctx --confidential --free-window --schedule --curated --upstream-price-in/out --probe-min
+                      and the model taxonomy: --category --tag --tuning --policy --license --base-model
 
 Earning needs a GitHub-linked owner: run ` + "`roger login`" + ` first. Free sharing
 needs no login. When you earn, payouts are a 30-day hold (10% reserved to day 90), $25 min, monthly.
@@ -1368,7 +1378,7 @@ needs no login. When you earn, payouts are a 30-day hold (10% reserved to day 90
 		return fmt.Errorf("--probe-min %s: %v", *probeMin, err)
 	}
 	if *advanced {
-		fmt.Println("advanced flags: --node --region --parallel --upstream --upstream-key --modality --ctx --confidential --free-window --schedule --curated --upstream-price-in --upstream-price-out --probe-min")
+		fmt.Println("advanced flags: --node --region --parallel --upstream --upstream-key --modality --ctx --confidential --free-window --schedule --curated --upstream-price-in --upstream-price-out --probe-min --category --tag --tuning --policy --license --base-model")
 	}
 	// EARN login-gate, UP FRONT (mirrors the --private pre-check below): a priced share
 	// 401s at the broker if the owner is not GitHub-linked. Fail FAST here - before any
@@ -1666,6 +1676,13 @@ needs no login. When you earn, payouts are a 30-day hold (10% reserved to day 90
 	// language / sample_url + default voice/speed) rides the headless offer exactly as it
 	// does the TUI's, explicit flags winning.
 	applyShareVoice(cfg, mdl, &cfgRun)
+	// The declared taxonomy (flags, else the saved share_meta) or, failing both, the guess.
+	// Validated BEFORE anything goes on air: a typo must stop the share, not vanish.
+	tax, metaErr := resolveShareMeta(fs, meta, mdl, foundModality, foundCapabilities)
+	if metaErr != nil {
+		return metaErr
+	}
+	cfgRun.Taxonomy = tax
 
 	// A STANDALONE Tower as the broker: serve its own local network directly. A probe of
 	// /local/poll tells a standalone Tower (which answers) apart from the public broker (which

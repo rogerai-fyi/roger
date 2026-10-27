@@ -718,3 +718,61 @@ main .band--inset :is(.developer-step, .deployment-grid article, .research-onwar
   :where(.wf-back, .scope__mode, .model-note, .model-download) { position: relative; }
   :is(.wf-back, .scope__mode, .model-note)::before, .model-download::after { content: ""; position: absolute; inset: var(--hit-inset); }
 }
+
+/* Status lamp (research-models.html rows, the Wave model pages): read from wave-status.json
+   by the {{wave-air:<tier>}} token. Lit red only for a tier that is on air as a band; a ring
+   otherwise. A small lamp, no glow. */
+.model-lamp {
+  display: inline-block; width: 8px; height: 8px; margin-right: var(--s-2); border-radius: 50%;
+  vertical-align: middle; box-shadow: inset 0 0 0 1.5px var(--ink-400);
+}
+.model-lamp[data-air="on"] { background: var(--live); box-shadow: none; }
+
+/* Models and status: the model-page pair, two tinted panels that are whole links (each a
+   .tint-panel). The status line reads the status file, the numbers the model cards. */
+.model-pages { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-4); }
+.model-page { display: grid; gap: var(--s-3); align-content: start; padding: var(--s-6); color: var(--ink-500); }
+.model-page__status {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 0 var(--s-1); color: var(--ink-400);
+  font-family: var(--font-mono); font-size: var(--t-micro); letter-spacing: var(--tracking-label); text-transform: uppercase;
+}
+.model-page__status code { text-transform: none; letter-spacing: .02em; }
+.model-page__name { color: var(--ink-900); font-size: var(--t-h2); font-weight: var(--weight-semi); letter-spacing: var(--tracking-h2); line-height: var(--lh-tight); }
+.model-page__name span { color: var(--ink-400); font-family: var(--font-mono); font-size: var(--t-sm); font-weight: var(--weight-regular); letter-spacing: .02em; }
+.model-page__line { max-width: 46ch; font-size: var(--t-sm); line-height: var(--lh-body); }
+.model-page__go {
+  margin-top: var(--s-2); color: var(--ink-900); font-family: var(--font-mono); font-size: var(--t-xs);
+  letter-spacing: var(--tracking-label); text-transform: uppercase; transition: color var(--d-2);
+}
+.model-page__go::after { content: " \2192"; color: var(--live-text); }
+.model-page:hover .model-page__go, .model-page:focus-visible .model-page__go { color: var(--live-text); }
+.model-row__identity .model-lamp { margin-right: var(--s-2); }
+@media (max-width: 720px) { .model-pages { grid-template-columns: 1fr; } .model-page { padding: var(--s-5); } }
+#model-pages { padding-bottom: 0; }   /* the Wave list follows directly; its group head carries the gap */
+
+/* ---- industrial: the adapter shelf (features/web/sensor_positioning.feature) -------
+   An h3 and a lead, the shared adapter dial (.spectrum--dial, components.css), then the
+   "escalates when unsure" figure on the shared figure plate: a confidence scale with one
+   red tick (the gate, no number) over two outcomes. Handing off to a person is the good
+   outcome, so it is drawn first, with the heavier ink edge. No motion; no-JS complete. */
+.adapter-shelf { margin-top: var(--s-12); }
+.adapter-shelf > h3 { margin: 0 0 var(--s-3); }
+.adapter-shelf > p { max-width: 44rem; margin: 0 0 var(--s-6); color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body); }
+.gate__scale {
+  position: relative; display: grid; grid-template-columns: 1fr 1fr; gap: var(--s-4);
+  margin-bottom: var(--s-4);
+  font-family: var(--font-mono); font-size: var(--t-micro); letter-spacing: var(--tracking-label);
+  text-transform: uppercase; color: var(--ink-500);
+}
+.gate__scale span { padding-top: var(--s-3); border-top: 1px solid var(--hairline-2); }
+.gate__scale span:last-child { text-align: right; }
+.gate__tick { position: absolute; left: 50%; top: -8px; width: 2px; height: 17px; margin-left: -1px; background: var(--live); }
+.gate__ways { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s-4); }
+.gate__way {
+  padding: var(--s-4); border: 1px solid var(--hairline-2); border-radius: var(--r-xl);
+  background: var(--paper); color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body);
+}
+.gate__way b { display: block; margin-bottom: var(--s-2); color: var(--ink-900); }
+.gate__way--good { border: 2px solid var(--ink-900); }
+.gate .fig { margin-top: var(--s-4); }
+@media (max-width: 560px) { .gate__way { padding: var(--s-3); } }

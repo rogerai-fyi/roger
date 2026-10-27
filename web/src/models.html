@@ -121,6 +121,14 @@
               <option value="ctx">largest context</option>
             </select>
           </label>
+          <label class="tuner__sel">
+            <span class="tuner__k">CATEGORY</span>
+            <select id="bandCat" class="mono" aria-label="Category"><option value="">All categories</option></select>
+          </label>
+          <label class="tuner__sel" hidden>
+            <span class="tuner__k">SUB</span>
+            <select id="bandSub" class="mono" aria-label="Subcategory"><option value="">All</option></select>
+          </label>
           <button class="tuner__chip" id="fltFree"  type="button" aria-pressed="false">free now</button>
           <button class="tuner__chip" id="fltVer"   type="button" aria-pressed="false">verified serving <span aria-hidden="true">&#10003;</span></button>
           <button class="tuner__chip" id="fltConf"  type="button" aria-pressed="false">confidential <span class="cs" aria-hidden="true">&#9670;</span></button>
@@ -232,6 +240,10 @@
               <p class="mono qsl__line" id="qslSched">schedule: continuous</p>
             </div>
             <div class="qsl__block">
+              <span class="qsl__bk mono">CATEGORY</span>
+              <p class="mono qsl__line" id="qslTax">category: -</p>
+            </div>
+            <div class="qsl__block">
               <span class="qsl__bk mono">HOW TO TUNE IN</span>
               <button class="install__box qsl__cmd" id="qslCmd" type="button" data-os-lock="any"
                       aria-label="Copy the use command to clipboard">
@@ -302,6 +314,7 @@
   <!-- ============================ FOOTER ============================ -->
   <!-- include: footer.html anchors=/ -->
 
+  <script src="js/taxonomy.js" defer></script>
   <script src="js/bands.js" defer></script>
   <script src="js/report.js" defer></script>
   <!-- include: site-js.html -->
