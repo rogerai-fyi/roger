@@ -13,7 +13,9 @@
 //   4. A box that scrolls sideways can be scrolled from the keyboard.
 //   5. Headings never skip a level going down; every image has an alt; every page has
 //      a language and shows one <main>.
-//   6. Small stacked link lists leave room between targets (24px, WCAG 2.2 target size).
+//   6. Small stacked link lists leave room between targets (24px, WCAG 2.2 target size),
+//      and the signed-in pages' sub-nav links are 24px targets themselves on every pointer
+//      (the sweep saw them only once a dropped connection stopped bouncing to login).
 import { test, before } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -131,6 +133,32 @@ test("every page declares its language and shows exactly one <main>", () => {
 test("the governance article's source list spaces its links at least 24px apart", () => {
   const c = css("broadcast-agent-governance.css");
   assert.match(c, /\.gov-sources li \+ li\s*{\s*margin-top:\s*var\(--s-2\);?\s*}/);
+});
+
+// The account pages' footer sub-nav (accountnav.html) is a paragraph of nothing but links, so
+// the target-size rule does not exempt it as running text. Its 12px inline links stood 17px
+// tall on a 19px line pitch: under 24px and too close to the row above or below for the
+// spacing exception. The links take the room themselves (an inline-block, padded to the
+// --hit-min floor at every pointer; the touch block in the same sheet lifts it to --hit),
+// so no hit area ever covers a neighbouring row. Look unchanged: same ink, same face.
+test("the account sub-nav links are 24px targets on every pointer, on every page that shows them", () => {
+  assert.match(css("tokens.css"), /--hit-min: 24px;/);
+  const c = css("account-base.css");
+  assert.match(c, /\.acctsubnav > a \{ display: inline-block; padding-block: calc\(\(var\(--hit-min\) - 1lh\) \/ 2\); \}/);
+  // the four pages the sweep failed (their fault state shows the card offline), and the four
+  // others that carry the same sub-nav: each one is built with the sub-nav and its sheet
+  const shown = ["account.html", "billing.html", "payouts.html", "stations.html"];
+  const carried = ["console.html", "dashboard.html", "keys.html", "usage.html"];
+  for (const p of [...shown, ...carried]) {
+    const h = noComments(page(p));
+    const links = [...h.matchAll(/<p class="fine acctsubnav">([\s\S]*?)<\/p>/g)];
+    assert.equal(links.length, 1, `${p}: one sub-nav`);
+    assert.ok(/<a href="\/[a-z]+\.html">[A-Za-z ]+<\/a>/.test(links[0][1]), `${p}: the sub-nav is a row of links`);
+    assert.doesNotMatch(links[0][1], />\s*-\s*</, `${p}: separators are CSS-drawn, never text between the links`);
+    assert.match(h, /href="styles\/account-base\.css\?v=/, `${p}: account-base.css styles the sub-nav`);
+  }
+  // the fault state keeps the sub-nav in view (it is the page nav), so it must be a real target there too
+  assert.match(c, /\.card\.is-fault > \*:not\(h1\)[^{]*:not\(\.acctsubnav\) \{ display: none; \}/);
 });
 
 /* ---- 7. focus you can see ------------------------------------------------------------- */
