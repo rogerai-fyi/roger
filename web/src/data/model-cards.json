@@ -1,0 +1,120 @@
+{
+  "_about": "Single source of a Wave model page's public facts. Build input only: not shipped. Pages render from it via {{card:<model>.<item>}} tokens (web/scripts/model-cards.mjs), so a number appears in exactly one place. Every measured item carries the R-number of the lab's results log and the date it was measured; ranges are published as ranges. Facts come only from the lab's UI handoff of 2026-10-20 and the release READMEs it names. To add a model page (Giga is next, when the lab supplies its facts): add an entry here with its page slug and status tier, build the page from the tokens, and add it to the Research menu, Models and status and the Wave family page; test/model-pages.test.mjs then holds it to the same rules. Status words (stage, band) are NOT here: they render from wave-status.json.",
+  "_meshCodes": ["T11", "T12", "T13", "T14", "T15", "T16", "T17"],
+  "models": [
+    {
+      "id": "pico",
+      "statusTier": "pico",
+      "page": "research-wave-pico.html",
+      "name": "Wave Pico",
+      "size": "293M",
+      "params": "293-million-parameter",
+      "author": "RogerAI Labs",
+      "builds": "GGUF and MLX",
+      "purpose": [
+        "Reads one industrial telemetry channel at a time: Modbus registers, Sparkplug B, Prometheus, InfluxDB line protocol, Datadog series, syslog and feature summaries.",
+        "Names the instrument fault (stuck, dropout, noisy, drifting, railed, or none) or the process state the channel is in.",
+        "Answers only when its own confidence clears a measured gate. Below the gate it escalates, and an escalation is a record, not an answer."
+      ],
+      "uses": [
+        { "title": "An edge reader.", "text": "Beside one machine: one channel in, one typed verdict out, or an escalation." },
+        { "title": "A fleet reader.", "text": "As a parent node it reads its children's records and the broker log, and answers the mesh questions." },
+        { "title": "A fire-site reader.", "text": "With the routed fire adapter switched on for the requests that need it." }
+      ],
+      "runsOn": [
+        { "title": "CPU", "text": "llama.cpp, GGUF", "state": "ok" },
+        { "title": "Any GPU", "text": "llama.cpp GGUF, or PyTorch", "state": "ok" },
+        { "title": "Raspberry Pi class", "text": "llama.cpp, GGUF, no GPU", "state": "ok" },
+        { "title": "Apple Silicon", "text": "MLX; the Mac run is owed", "state": "owed" }
+      ],
+      "limits": [
+        { "text": "Root-cause chains read at chance. That is a larger tier's job." },
+        { "text": "Process state is its weakest family." },
+        { "text": "A healthy frame raises a false alarm on a small share of reads, independently from read to read. Integrate it with a three-read debounce.", "ref": "R.349" },
+        { "text": "The per-class calibration lifts tag truthfulness by recovering one class; the other class it covers stays at zero recall with or without it.", "ref": "R.378" },
+        { "text": "Fire numbers are simulator-internal until a site has recorded months of its own normal days." },
+        { "text": "The MLX build was checked on another backend. The run on a Mac with Metal is still owed.", "ref": "R.377" }
+      ],
+      "measured": [
+        { "id": "t01", "label": "Fault identification", "value": "72.2", "num": 72.2, "unit": "macro-F1", "ref": "R.373", "date": "2026-10-18" },
+        { "id": "t02", "label": "Process state", "value": "68.4", "num": 68.4, "unit": "macro-F1", "ref": "R.373", "date": "2026-10-18" },
+        { "id": "t05", "label": "Tag truthfulness, before calibration", "value": "50.0", "num": 50.0, "unit": "macro-recall", "ref": "R.378", "date": "2026-10-18" },
+        { "id": "t05-cal", "label": "Tag truthfulness, with the shipped per-class calibration", "value": "75.0", "num": 75.0, "unit": "macro-recall", "ref": "R.378", "date": "2026-10-18" },
+        { "id": "gate-accept", "label": "Real work the gate accepts", "value": "55.4%", "num": 55.4, "ref": "R.378", "date": "2026-10-18" },
+        { "id": "gate-precision", "label": "Precision when it answers", "value": "96.4%", "num": 96.4, "ref": "R.378", "date": "2026-10-18" },
+        { "id": "oos", "label": "Out-of-scope input refused", "value": "100%", "num": 100, "ref": "R.378", "date": "2026-10-18" },
+        { "id": "false-alarm", "label": "False alarm on a healthy frame, per read, read on the previous release", "value": "2.3&ndash;2.7%", "lo": 2.3, "hi": 2.7, "better": "lower", "ref": "R.349", "date": "2026-10-14" },
+        { "id": "dup", "label": "Duplicated-line frames accepted wrong", "value": "0.7%", "num": 0.7, "better": "lower", "ref": "R.373", "date": "2026-10-18" },
+        { "id": "mesh", "label": "IEB-Mesh fleet reading", "value": "94.6", "num": 94.6, "unit": "macro", "ref": "R.373", "date": "2026-10-18" },
+        { "id": "comparator", "label": "Versus a popular open base of its size, fine-tuned identically, read on the previous release", "value": "+13 points", "ref": "R.360", "date": "2026-10-15" },
+        { "id": "fire-full", "label": "Fire adapter, threat call / escalation, full sensor suite", "value": "99.4 / 97.0", "num": 99.4, "fire": true, "ref": "R.375", "date": "2026-10-18" },
+        { "id": "fire-nocam", "label": "Fire adapter, threat call / escalation, without a camera", "value": "99.2 / 97.0", "num": 99.2, "fire": true, "ref": "R.375", "date": "2026-10-18" },
+        { "id": "fire-gate", "label": "Fire adapter gate lines passing, in each configuration", "value": "7 of 7", "num": 100, "fire": true, "ref": "R.375", "date": "2026-10-18" },
+        { "id": "adapter-size", "label": "Routed adapter size", "value": "28 MB", "ref": "R.377", "date": "2026-10-18" },
+        { "id": "mlx", "label": "MLX build, item agreement with the reference", "value": "99.4%", "num": 99.4, "ref": "R.377", "date": "2026-10-18" },
+        { "id": "gguf", "label": "GGUF builds, f16 to Q4_K_M", "value": "270&ndash;562 MB", "lo": 270, "hi": 562, "ref": "R.378", "date": "2026-10-18" },
+        { "id": "gguf-agree", "label": "Every GGUF build against the reference, frozen subset", "value": "within one item", "ref": "R.378", "date": "2026-10-18" }
+      ]
+    },
+    {
+      "id": "nano",
+      "statusTier": "nano",
+      "page": "research-wave-nano.html",
+      "name": "Wave Nano",
+      "size": "1.45B",
+      "params": "1.45B",
+      "author": "RogerAI Labs",
+      "builds": "GGUF",
+      "vlName": "Wave Nano-VL",
+      "vlSize": "1.56B",
+      "purpose": [
+        "Everything Wave Pico does: one telemetry channel in, the instrument fault or the process state out, behind the same kind of calibrated escalation gate.",
+        "Conversation, general questions, SQL and short technical writing, in a plain chat format.",
+        "Fleet reading as a parent node, the fire-site rollup, classifier reading of edge-AI payloads, and tolerance of damaged telemetry."
+      ],
+      "uses": [
+        { "title": "A gateway reader.", "text": "Rolls up many child nodes, resolves their conflicts and answers the mesh questions." },
+        { "title": "A fire-site reader.", "text": "The T17 rollup: site state, next action, which input decided, and what is inconsistent." },
+        { "title": "A plant assistant.", "text": "Explains a reading, writes a query, answers a question in plain words." }
+      ],
+      "runsOn": [
+        { "title": "CPU", "text": "the stock llama.cpp server, GGUF", "state": "ok" },
+        { "title": "Apple Silicon", "text": "MLX; owed", "state": "owed" }
+      ],
+      "limits": [
+        { "text": "Classifier reading (T11a) is 2.6 points under its pre-registered floor.", "ref": "R.381" },
+        { "text": "Sizing arithmetic and tool-plan JSON are new skills still being trained in.", "ref": "R.382" },
+        { "text": "The vision module reads single frames. The full watch design adds persistence and a per-camera baseline on top." },
+        { "text": "The vision numbers are on held-out frames from camera networks like the ones it learned on. On another network's cameras it does not carry over yet." },
+        { "text": "Fire numbers are simulator-internal until a site has recorded months of its own normal days." },
+        { "text": "The MLX build for Apple Silicon is owed." }
+      ],
+      "measured": [
+        { "id": "t01", "label": "Fault identification", "value": "72.8", "num": 72.8, "unit": "macro-F1", "ref": "R.381", "date": "2026-10-19" },
+        { "id": "t02", "label": "Process state", "value": "75.9", "num": 75.9, "unit": "macro-F1", "ref": "R.381", "date": "2026-10-19" },
+        { "id": "general", "label": "General knowledge", "value": "48.1", "num": 48.1, "unit": "macro", "ref": "R.381", "date": "2026-10-19" },
+        { "id": "gate-accept", "label": "Real work the gate accepts", "value": "52.6%", "num": 52.6, "ref": "R.381", "date": "2026-10-19" },
+        { "id": "gate-precision", "label": "Precision when it answers", "value": "96.7%", "num": 96.7, "ref": "R.381", "date": "2026-10-19" },
+        { "id": "leak", "label": "Fault leaks on out-of-scope input", "value": "0.0%", "num": 0, "better": "lower", "ref": "R.381", "date": "2026-10-19" },
+        { "id": "dup", "label": "Duplicated-line frames answered wrong", "value": "1.3%", "num": 1.3, "better": "lower", "ref": "R.381", "date": "2026-10-19" },
+        { "id": "mesh", "label": "IEB-Mesh fleet reading", "value": "95.6", "num": 95.6, "unit": "macro", "ref": "R.381", "date": "2026-10-19" },
+        { "id": "t11", "label": "Classifier reading, T11a / T11b", "value": "67.4 / 100", "num": 67.4, "ref": "R.381", "date": "2026-10-19" },
+        { "id": "gguf", "label": "GGUF builds, Q4_K_M to f16", "value": "0.83&ndash;2.9 GB", "lo": 0.83, "hi": 2.9, "ref": "R.381", "date": "2026-10-19" },
+        { "id": "gguf-agree", "label": "f16, Q6_K and Q5_K_M against the reference on the stock server, frozen subset", "value": "item for item", "ref": "R.381", "date": "2026-10-19" },
+        { "id": "fire-gated", "label": "Fire adapter, threat call / escalation, gated configurations", "value": "100 / 100", "num": 100, "fire": true, "ref": "R.381", "date": "2026-10-19" },
+        { "id": "fire-gate", "label": "Fire adapter gate lines passing", "value": "7 of 7", "num": 100, "fire": true, "ref": "R.381", "date": "2026-10-19" },
+        { "id": "fire-off", "label": "Fire adapter switched off, through the stock server", "value": "chance", "fire": true, "ref": "R.381", "date": "2026-10-19" },
+        { "id": "t17", "label": "T17 fire-site rollup, state / action / deciding input / inconsistency, read on the previous Instruct build", "value": "99.0 / 82.5 / 80.0 / 50.0", "num": 99.0, "fire": true, "ref": "R.374", "date": "2026-10-18" },
+        { "id": "cmp-headline", "label": "Versus Qwen3.5-2B fine-tuned identically, fault identification", "value": "parity", "ref": "R.379", "date": "2026-10-18" },
+        { "id": "cmp-leak", "label": "Comparator fault leaks on out-of-scope input", "value": "7.5%", "num": 7.5, "better": "lower", "ref": "R.379", "date": "2026-10-18" },
+        { "id": "cmp-dup", "label": "Comparator duplicated-line frames answered wrong", "value": "10.7%", "num": 10.7, "better": "lower", "ref": "R.379", "date": "2026-10-18" },
+        { "id": "vl-auc", "label": "Nano-VL smoke reading, AUC over three seeds", "value": "0.930 &plusmn; 0.009", "lo": 0.921, "hi": 0.939, "ref": "R.F65", "date": "2026-10-20" },
+        { "id": "vl-fa", "label": "Nano-VL false alarms on empty frames at the field recall bar", "value": "12.4 &plusmn; 1.7%", "lo": 10.7, "hi": 14.1, "better": "lower", "ref": "R.F65", "date": "2026-10-20" },
+        { "id": "vl-frames", "label": "Nano-VL held-out frames, read in float32", "value": "1,129 frames from 84 cameras", "ref": "R.F65", "date": "2026-10-20" },
+        { "id": "vl-served", "label": "Nano-VL served through our llama.cpp branch, correlation with the reference", "value": "0.992", "ref": "R.F65", "date": "2026-10-20" },
+        { "id": "vl-text", "label": "Nano-VL telemetry reading kept, sealed fault identification", "value": "70.8", "num": 70.8, "ref": "R.F65", "date": "2026-10-20" },
+        { "id": "new-skills", "label": "Sizing arithmetic and tool-plan JSON, this build", "value": "0 of 100", "ref": "R.382", "date": "2026-10-20" }
+      ]
+    }
+  ]
+}

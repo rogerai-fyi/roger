@@ -423,6 +423,8 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.onBandCardKey(k)
 	case modeShareEditor:
 		return m.onShareEditorKey(k)
+	case modeShareMeta:
+		return m.onShareMetaKey(k)
 	case modeShareSetup:
 		return m.onShareSetupKey(k)
 	case modeAgent:
@@ -618,6 +620,9 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// still advertises the supply the operator just hid, until the next tick.
 			m.status = m.ambientStatus()
 			return m, nil
+		case "G":
+			// CYCLE the category filter, Q's twin: off -> each category on the dial -> off.
+			return m.cycleCategoryFilter(), nil
 		case "Q":
 			// CYCLE the quant filter: off -> each quant on the dial -> off. It joins the
 			// F/C/O family deliberately - one keypress, no input box - because splitting
@@ -1333,6 +1338,9 @@ func (m *model) onShareKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.stationEdit = m.station
 		m.status = stDim.Render("rename station - type a callsign, ") + stKey.Render("enter") + stDim.Render(" save · ") + stKey.Render("esc") + stDim.Render(" cancel")
 		return m, nil
+	case "g":
+		// What the model is FOR: the category editor (not login-gated - describing is not earning).
+		return m.enterShareMeta()
 	case "b", "B":
 		// THE BAND CARD for this row: on air, visibility, band, price and spend caps
 		// together, instead of the four screens they were split across.

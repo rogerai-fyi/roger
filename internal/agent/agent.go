@@ -93,9 +93,12 @@ type Config struct {
 	// local runtime - see internal/detect - and passed through to the offer; the broker
 	// routes on none of them. Empty means the runtime and the file said nothing, which is
 	// common and must render as absent rather than as a guess.
-	Quant     string
-	Weights   string
-	Variant   string
+	Quant   string
+	Weights string
+	Variant string
+	// Taxonomy is what the operator declared (or detection inferred) the model is FOR. Like
+	// the variant fields it rides the offer unverified; the broker normalizes it.
+	Taxonomy  protocol.Taxonomy
 	Name      string // display name for the /voices picker (e.g. "1950s Operator")
 	Language  string
 	SampleURL string
@@ -466,7 +469,7 @@ func Start(cfg Config) (*Session, error) {
 	}
 
 	offer := protocol.ModelOffer{Model: cfg.Model, Modality: cfg.Modality, Capabilities: cfg.Capabilities,
-		Quant: cfg.Quant, Weights: cfg.Weights, Variant: cfg.Variant,
+		Quant: cfg.Quant, Weights: cfg.Weights, Variant: cfg.Variant, Taxonomy: cfg.Taxonomy,
 		PriceIn: cfg.PriceIn, PriceOut: cfg.PriceOut,
 		Ctx: cfg.Ctx, CtxEstimated: cfg.CtxEstimated, Schedule: cfg.Schedule,
 		UpstreamIn: cfg.UpstreamPriceIn, UpstreamOut: cfg.UpstreamPriceOut,

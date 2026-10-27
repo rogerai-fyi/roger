@@ -246,6 +246,15 @@ type Store interface {
 	// node-supplied price/schedule.
 	ClearOfferOverride(owner, node, model string) (bool, error)
 
+	// A MetaOverride is an owner-authored TAXONOMY (what the model is for) for one (node,
+	// model), set from the web console (features/categories/owner_override.feature). A
+	// SIBLING of OfferOverride, never the same row, so a category edit can never change a
+	// price. Seeded into the node's offer on every register, like the price.
+	SetMetaOverride(ov MetaOverride) error
+	MetaOverride(node, model string) (MetaOverride, bool, error)
+	// ClearMetaOverride is owner-scoped like ClearOfferOverride.
+	ClearMetaOverride(owner, node, model string) (bool, error)
+
 	// --- account hub (ACCOUNT-PAYOUTS-DESIGN) -------------------------------
 
 	// OwnerByLogin returns the owner with the given GitHub login, ok=false if none.
@@ -979,16 +988,17 @@ type Mem struct {
 	// pendingHolds is the deploy-orphan backstop registry: requestID -> the still-open
 	// relay pre-auth hold (HoldFor records it; Finalize/ReleaseHoldFor clear it; the
 	// ReleaseStaleHolds sweep reclaims any left stranded by a SIGKILLed relay). Guarded by mu.
-	pendingHolds map[string]pendingHold
-	acctKeys     map[string]AccountKey    // account keys by id (keys.go); guarded by mu
-	recountHold  map[string]int64         // node id -> unix when the open L1 re-count hold was placed (holds promotion, P0-2; auto-expires)
-	nodeAcct     map[string]string        // node id -> owner pubkey (TOFU)
-	charges      map[string]charge        // stripe payment_intent/charge id -> checkout mapping
-	gs           *grantStore              // grant keys + per-grant usage rollups
-	bs           *bandStore               // private bands ("frequency codes": private discovery)
-	rc           *rcStore                 // remote-control session roster (BASE STATION; metadata only)
-	nodes        map[string]NodeRecord    // persisted node registry (re-hydrated on restart)
-	overrides    map[string]OfferOverride // owner-authored price/schedule overrides, keyed node\x00model
+	pendingHolds  map[string]pendingHold
+	acctKeys      map[string]AccountKey    // account keys by id (keys.go); guarded by mu
+	recountHold   map[string]int64         // node id -> unix when the open L1 re-count hold was placed (holds promotion, P0-2; auto-expires)
+	nodeAcct      map[string]string        // node id -> owner pubkey (TOFU)
+	charges       map[string]charge        // stripe payment_intent/charge id -> checkout mapping
+	gs            *grantStore              // grant keys + per-grant usage rollups
+	bs            *bandStore               // private bands ("frequency codes": private discovery)
+	rc            *rcStore                 // remote-control session roster (BASE STATION; metadata only)
+	nodes         map[string]NodeRecord    // persisted node registry (re-hydrated on restart)
+	overrides     map[string]OfferOverride // owner-authored price/schedule overrides, keyed node\x00model
+	metaOverrides map[string]MetaOverride  // owner-authored taxonomy overrides, keyed node\x00model (a sibling of overrides)
 
 	// safety surfaces (safety.go): preserved CSAM incidents + the abuse/report log +
 	// banned-node set. Rare, off the hot path; guarded by the same m.mu.
