@@ -87,6 +87,17 @@ paths:
         client-side on the offer fields below. Server-side filtering (and a 400
         `unknown_query_param` for a name outside the list above) arrives with the
         discovery slice of the routing contract.
+
+        The taxonomy filters below ARE honored: an unknown or invalid value matches
+        nothing (200 with an empty list), an empty value is no filter. Taxonomy
+        values are declared by the operator or inferred by the node's detector and
+        are NOT verified.
+      parameters:
+        - $ref: '#/components/parameters/Category'
+        - $ref: '#/components/parameters/Subcategory'
+        - $ref: '#/components/parameters/Tag'
+        - $ref: '#/components/parameters/Policy'
+        - $ref: '#/components/parameters/Source'
       responses:
         "200":
           description: Offers
@@ -247,7 +258,13 @@ paths:
         per-model aggregates computed over the filtered providers. Honored today:
         NONE. This release ignores every query parameter here and returns the
         unfiltered market; server-side filtering arrives with the discovery slice
-        of the routing contract.
+        of the routing contract. The taxonomy filters below ARE honored: they match
+        each row's aggregated taxonomy (see MarketModel).
+      parameters:
+        - $ref: '#/components/parameters/Category'
+        - $ref: '#/components/parameters/Subcategory'
+        - $ref: '#/components/parameters/Tag'
+        - $ref: '#/components/parameters/Policy'
       responses:
         "200":
           description: Market
@@ -257,6 +274,35 @@ paths:
                 type: object
                 properties:
                   market: { type: array, items: { $ref: '#/components/schemas/MarketModel' } }
+
+  /categories:
+    get:
+      tags: [consumer]
+      summary: The model category list with live supply per category
+      description: |
+        Every category and subcategory of the current taxonomy version, in canonical order,
+        empty ones included, with the online stations and distinct models in each, the
+        cheapest active output price and the best measured speed. Stations with no category
+        are counted under uncategorized. Private bands are never counted.
+      responses:
+        "200":
+          description: Categories
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  version: { type: integer, description: taxonomy version }
+                  categories:
+                    type: array
+                    items:
+                      allOf:
+                        - $ref: '#/components/schemas/CategorySupply'
+                        - type: object
+                          properties:
+                            subcategories: { type: array, items: { $ref: '#/components/schemas/CategorySupply' } }
+                  uncategorized: { $ref: '#/components/schemas/CategorySupply' }
+        "405": { description: method not allowed }
 
   /promo:
     get:
@@ -1075,6 +1121,35 @@ components:
         surface for the CLI/curl path. Closed-by-default: if neither this key nor
         `ADMIN_GITHUB_ID` is configured, every admin request is rejected.
   parameters:
+    Category:
+      in: query
+      name: category
+      schema: { type: string, enum: [language, vision, audio, retrieval, generation, signals] }
+      description: Only offers in this category (case-insensitive).
+    Subcategory:
+      in: query
+      name: subcategory
+      schema: { type: string }
+      description: Only offers with this subcategory (must belong to category when both are given).
+    Tag:
+      in: query
+      name: tag
+      schema: { type: array, items: { type: string } }
+      style: form
+      explode: true
+      description: Only offers carrying this tag; repeat to require several.
+    Policy:
+      in: query
+      name: policy
+      schema: { type: array, items: { type: string, enum: [aligned, reduced-refusal, uncensored, none] } }
+      style: form
+      explode: true
+      description: Only offers declaring one of these content-policy grades; "none" = no declared grade. A grade describes the weights; broker screening applies to every request regardless.
+    Source:
+      in: query
+      name: source
+      schema: { type: string, enum: [declared, inferred] }
+      description: Only offers whose taxonomy was declared by the operator or inferred by detection.
     User:
       in: header
       name: X-Roger-User
@@ -1294,6 +1369,14 @@ components:
         price_out: { type: number, description: credits per 1M output tokens (base/fallback) }
         ctx: { type: integer }
         schedule: { type: array, items: { $ref: '#/components/schemas/PriceWindow' } }
+        category: { type: string, description: "primary category (closed list, see GET /categories); a tts/stt offer is always audio" }
+        subcategory: { type: string, description: must belong to category }
+        tags: { type: array, maxItems: 8, items: { type: string, pattern: "^[a-z0-9-]{1,32}$" } }
+        tuning: { type: string, enum: [base, instruct, finetune, merge, quantized, adapter] }
+        base_model: { type: string, maxLength: 128 }
+        content_policy: { type: string, enum: [aligned, reduced-refusal, uncensored], description: "describes the weights; broker screening applies regardless" }
+        license: { type: string, maxLength: 64 }
+        taxonomy_source: { type: string, enum: [declared, inferred], description: "who made the (unverified) taxonomy claim" }
     Offer:
       allOf:
         - $ref: '#/components/schemas/ModelOffer'
@@ -1361,6 +1444,19 @@ components:
         quality: { type: number, description: "mean broker-measured trust/verification signal across providers (0..1)" }
         success_rate: { type: number, description: mean EWMA success across providers (0..1) }
         signal: { type: integer, description: 0..100 demand/quality/reliability/verification signal }
+        category: { type: string, description: "the category most of this model's online stations declare (ties alphabetical)" }
+        subcategory: { type: string }
+        category_providers: { type: integer, description: how many stations declare that category }
+        tags: { type: array, maxItems: 8, items: { type: string }, description: tag union, most-shared first }
+        content_policies: { type: array, items: { type: string }, description: every content-policy grade any station declared }
+    CategorySupply:
+      type: object
+      properties:
+        name: { type: string }
+        providers: { type: integer, description: online stations }
+        models: { type: integer, description: distinct models }
+        min_out: { type: number, description: cheapest active output price (credits/1M); absent when empty }
+        best_tps: { type: number, description: fastest measured output tok/s; absent when unmeasured }
     Entry:
       type: object
       description: One settled request, as surfaced to the /me and /earnings dashboards.

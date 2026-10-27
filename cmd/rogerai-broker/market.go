@@ -3,28 +3,21 @@ package main
 import (
 	"net/http"
 	"sort"
-	"strings"
 	"time"
 
 	"rogerai.fm/roger/v6/internal/detect"
 	"rogerai.fm/roger/v6/internal/protocol"
 )
 
-// normalizedMarketQuery builds the STABLE cache key suffix for the PUBLIC market
-// views from the request's filter params. It reads only the KNOWN filter keys
-// (model / confidential / freq) - never the whole raw query - so unrelated or
-// cache-busting params can't fragment (or poison) the shared cache, and two
-// equivalent requests map to one entry. Values are lowercased + the parts joined in
-// a fixed order so "?model=x&confidential=1" and "?confidential=1&model=x" key alike.
-// /discover + /market do not filter today, so this is normally "" (one shared entry);
-// it is here so any future filter is correctly keyed from day one.
-func normalizedMarketQuery(r *http.Request) string {
-	q := r.URL.Query()
-	model := strings.ToLower(strings.TrimSpace(q.Get("model")))
-	conf := strings.ToLower(strings.TrimSpace(q.Get("confidential")))
-	freq := strings.ToLower(strings.TrimSpace(q.Get("freq")))
-	return "m=" + model + "|c=" + conf + "|f=" + freq
-}
+// discoverCacheKey / marketCacheKey are the ONE cache entry per public view. Nothing in either
+// payload depends on the request, so no query value reaches the key: a key built from request
+// values lets anyone force a full recompute per request by varying them (and, on the in-process
+// cache, reset the whole cache past its size cap). Filters are applied AFTER the cached read
+// (taxonomyFilter), never by keying a separate entry.
+const (
+	discoverCacheKey = "discover"
+	marketCacheKey   = "market"
+)
 
 type offerView struct {
 	NodeID string `json:"node_id"`
@@ -52,6 +45,9 @@ type offerView struct {
 	// text-only or undetermined. omitempty: the app treats "vision"->show photo button, absent->
 	// name-heuristic (it handles all three of vision/[]/absent identically for non-vision models).
 	Capabilities []string `json:"capabilities,omitempty"`
+	// Taxonomy is the offer's declared/inferred description (category, tags, content policy,
+	// lineage), flat on the wire. Unverified; see protocol.Taxonomy.
+	protocol.Taxonomy
 	// Curated marks a station that PROXIES a commercial upstream API rather than serving
 	// a person's hardware; CuratedProvider names it. Carried on the public feed so every
 	// surface can badge and filter it - a curated station indistinguishable from a human
@@ -228,10 +224,11 @@ func (b *broker) enrichOffersForNode(out []offerView, n protocol.NodeRegistratio
 			// map without passing registration (shared-registry mirror, lazy learn, DB
 			// re-hydrate), and these strings are rendered into a terminal and a browser -
 			// the same defence-in-depth the verified "tools" bit gets above.
-			Quant:   protocol.CanonicalQuant(o.Quant),
-			Weights: protocol.CanonicalVariantText(o.Weights),
-			Variant: protocol.CanonicalVariantText(o.Variant),
-			In:      pin, Out: pout, Ctx: o.Ctx, CtxEstimated: o.CtxEstimated, Online: online,
+			Quant:    protocol.CanonicalQuant(o.Quant),
+			Weights:  protocol.CanonicalVariantText(o.Weights),
+			Variant:  protocol.CanonicalVariantText(o.Variant),
+			Taxonomy: o.Taxonomy.Canonical(offerModality(o.Modality)),
+			In:       pin, Out: pout, Ctx: o.Ctx, CtxEstimated: o.CtxEstimated, Online: online,
 			Confidential: b.confidential[n.NodeID], FreeNow: free, Scheduled: len(o.Schedule) > 0,
 			TPS:    tps,
 			TTFTMs: ttft, Quality: quality,
@@ -267,12 +264,11 @@ func (b *broker) discover(w http.ResponseWriter, r *http.Request) {
 	// Hot-path cache (flag-gated, behind ROGERAI_REDIS_URL). /discover recomputes every
 	// offer + its multi-factor signal per request; this collapses repeated full-market
 	// recomputes into one within a tiny window, shared across instances. PUBLIC, no-auth
-	// data, so a single cache entry is safely shared across all callers - keyed by the
-	// normalized query so a future filtered view never reuses another's bytes. Flag OFF
-	// => serveCachedJSON computes directly (zero behavior change). Note: on a cache HIT
+	// data, so a single cache entry is safely shared across all callers; the taxonomy
+	// filters run over that one entry (serveFiltered). Note: on a cache HIT
 	// the demand-probe scheduling below is skipped, but a miss recomputes every ~few
 	// seconds (the TTL), so demand probing still fires steadily under browsing load.
-	b.serveCachedJSON(w, "discover:"+normalizedMarketQuery(r), publicMarketTTL, b.computeDiscover)
+	b.serveFiltered(w, r, discoverCacheKey, b.computeDiscover)
 }
 
 // computeDiscover builds the /discover payload (all model offers with live status,
@@ -321,7 +317,15 @@ type marketView struct {
 	// if it can be ROUTED to any provider that reports vision. ["vision"] if any provider does,
 	// omitted otherwise (the app name-guesses for a model with no declared vision provider).
 	Capabilities []string `json:"capabilities,omitempty"`
-	Providers    int      `json:"providers"` // online HUMAN nodes offering this model
+	// Category/Subcategory: the pair MOST of this model's online stations declare (ties broken
+	// alphabetically); CategoryProviders: how many back it. Tags: the union, most-shared first.
+	// ContentPolicies: EVERY grade any station declared, so one grade never hides another.
+	Category          string   `json:"category,omitempty"`
+	Subcategory       string   `json:"subcategory,omitempty"`
+	CategoryProviders int      `json:"category_providers,omitempty"`
+	Tags              []string `json:"tags,omitempty"`
+	ContentPolicies   []string `json:"content_policies,omitempty"`
+	Providers         int      `json:"providers"` // online HUMAN nodes offering this model
 	// CuratedProviders counts the proxied commercial-API stations on this band,
 	// separately and additively (omitempty: bands with none are byte-identical to
 	// before, so nothing that parses /market today changes).
@@ -362,9 +366,8 @@ func (b *broker) market(w http.ResponseWriter, r *http.Request) {
 	// Hot-path cache (flag-gated). /market aggregates per-model signal across every live
 	// node per request; the cache collapses repeated aggregations into one within a tiny
 	// window, shared across instances. PUBLIC, no-auth data - a single entry is safe to
-	// share across all callers (keyed by the normalized query). Flag OFF => direct
-	// compute (zero behavior change).
-	b.serveCachedJSON(w, "market:"+normalizedMarketQuery(r), publicMarketTTL, b.computeMarket)
+	// share across all callers; the taxonomy filters run over it (serveFiltered).
+	b.serveFiltered(w, r, marketCacheKey, b.computeMarket)
 }
 
 // computeMarket builds the /market payload: a per-model marketplace view aggregated
@@ -425,6 +428,7 @@ func (b *broker) computeMarket() any {
 		bestStaleness float64         // freshest measurement-confidence across providers (0.7..1.0)
 		capsUnion     map[string]bool // union of chat sub-capabilities across providers
 		capsSeen      bool            // any provider DECLARED capabilities (so [] means text-only, not unknown)
+		tax           taxonomyVotes   // what this model's online stations say it is for
 	}
 	now := time.Now()
 	agg := map[string]*acc{}
@@ -486,6 +490,7 @@ func (b *broker) computeMarket() any {
 			// market's human-supply claim, and letting proxies inflate it would make the
 			// dial's own story unverifiable (the exact dishonesty the curated flag exists
 			// to prevent).
+			a.tax.add(o.Taxonomy.Canonical(offerModality(o.Modality)), n.Curated)
 			if n.Curated {
 				a.curated++
 			} else {
@@ -554,7 +559,7 @@ func (b *broker) computeMarket() any {
 		// b.mu/b.metricsMu, both released above). A FREE/thin model yields tier 0.
 		ref, _ := b.refOut(model)
 		tier := priceTier(a.minOut, ref, a.outPrices)
-		out = append(out, marketView{
+		mv := marketView{
 			Model: model, Modality: a.modality, Capabilities: marketCapabilities(model, a.capsUnion, a.capsSeen),
 			Providers: a.providers, CuratedProviders: a.curated, InFlight: a.inflight,
 			MinPrice: a.minPrice, MinOut: a.minOut, PriceTier: tier, BestTPS: a.bestTPS, BestTTFTMs: round6(a.bestTTFT),
@@ -563,7 +568,9 @@ func (b *broker) computeMarket() any {
 			Verified:    a.anyVerified,
 			Signal:      terms.Total,
 			Terms:       terms,
-		})
+		}
+		a.tax.into(&mv)
+		out = append(out, mv)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Signal > out[j].Signal })
 	return map[string]any{"market": out}
