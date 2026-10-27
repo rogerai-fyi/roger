@@ -296,6 +296,9 @@ type Alert struct {
 	DarkForS  int64     `json:"dark_for_s,omitempty"` // offline only: how long unheard, seconds
 	LastHeard int64     `json:"last_heard,omitempty"` // unix seconds; absent when never heard
 	Test      bool      `json:"test,omitempty"`
+	// Unreported closes a power call on a node that is still heard but no longer reports that
+	// reading: nothing is left to judge, and the power is not claimed to be back.
+	Unreported bool `json:"unreported,omitempty"`
 }
 
 // alertUnit is the unit an alert names: its owner's name, or - for a unit nobody named, whose record
@@ -324,6 +327,9 @@ func (a Alert) String() string {
 		}
 		return fmt.Sprintf("%s: %s is no longer throttled", state, a.Node)
 	}
+	if a.Unreported {
+		return fmt.Sprintf("%s: %s no longer reports its power, so this call is closed", state, a.Node)
+	}
 	switch a.Metric {
 	case MetricOnBattery:
 		if a.Firing {
@@ -351,6 +357,15 @@ func (a Alert) String() string {
 		fmtThreshold(a.Value), unit, a.Op, fmtThreshold(a.Threshold), unit)
 }
 
+// isPowerMetric is a metric read from the node's power report (presence v3 or its own readings).
+func isPowerMetric(m Metric) bool {
+	switch m {
+	case MetricBattery, MetricBatteryCritical, MetricOnBattery, MetricLowPower:
+		return true
+	}
+	return false
+}
+
 // Reading is the node's current value for m. ok is false when the node does not report it, or
 // its report is older than the liveness window - a stale reading is never judged as current.
 func (h NodeHealth) Reading(m Metric) (float64, bool) {
@@ -360,8 +375,7 @@ func (h NodeHealth) Reading(m Metric) (float64, bool) {
 		}
 		return 0, true
 	}
-	switch m {
-	case MetricBattery, MetricBatteryCritical, MetricOnBattery, MetricLowPower:
+	if isPowerMetric(m) {
 		return h.powerReading(m)
 	}
 	r := h.Readings
@@ -459,7 +473,13 @@ func Evaluate(rules RuleSet, hs []NodeHealth, prev AlertState, now time.Time) (A
 			v, have := h.Reading(m)
 			was := prev.Firing(r.ID, h.ID)
 			if !have {
-				if was {
+				switch {
+				case was && isPowerMetric(m) && !h.Dark:
+					// A node still heard that no longer reports this power reading has nothing left to
+					// judge: the call closes, without claiming the power is back.
+					alerts = append(alerts, Alert{At: now, RuleID: r.ID, NodeID: h.ID, Node: alertUnit(h), Metric: m,
+						Threshold: r.Value, Op: r.Op, Unreported: true})
+				case was:
 					next[stateKey(r.ID, h.ID)] = true // no reading is no verdict: hold what we knew
 				}
 				continue

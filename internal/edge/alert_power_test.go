@@ -120,3 +120,36 @@ func TestSupplyLineWordsAnyNodesPower(t *testing.T) {
 	require.Empty(t, SupplyLine(nil))
 	require.False(t, strings.Contains(SupplyLine(&store.EdgePower{Source: "unknown"}), "unknown"))
 }
+
+// Audit 2026-10-27: a power call does not stand forever once the reading is gone. A node still heard
+// with no power report (or a stale one) has the call closed, in words that do not claim the power is
+// back; a dark node keeps it, as every other metric does.
+func TestAPowerCallClosesWhenAHeardNodeStopsReportingIt(t *testing.T) {
+	now := time.Now()
+	rules := RuleSet(DefaultRules())
+	st, alerts := Evaluate(rules, []NodeHealth{powered("n_pi", "host", 80, false, "battery", false)}, nil, now)
+	require.Equal(t, []string{"on_battery"}, firingIDs(alerts))
+
+	dark := NodeHealth{ID: "n_pi", Name: "pi", Kind: "host", Dark: true, DarkFor: time.Minute, LastHeard: now.Add(-time.Minute)}
+	held, alerts := Evaluate(rules, []NodeHealth{dark}, st, now)
+	require.True(t, held.Firing("on_battery", "n_pi"), "a dark node is no evidence either way")
+	for _, a := range alerts {
+		require.NotEqual(t, "on_battery", a.RuleID, "the power call is neither cleared nor repeated while dark")
+	}
+
+	for name, h := range map[string]NodeHealth{
+		"no power report": {ID: "n_pi", Name: "pi", Kind: "host", Presence: string(PresenceVerified)},
+		"a stale one": func() NodeHealth {
+			s := powered("n_pi", "host", 80, false, "battery", false)
+			s.Name, s.PowerAge = "pi", 2*DefaultTTL
+			return s
+		}(),
+	} {
+		next, alerts := Evaluate(rules, []NodeHealth{h}, st, now)
+		require.False(t, next.Firing("on_battery", "n_pi"), name)
+		require.Len(t, alerts, 1, name)
+		require.False(t, alerts[0].Firing, name)
+		require.Contains(t, alerts[0].String(), "pi no longer reports its power", name)
+		require.NotContains(t, alerts[0].String(), "back on external power", name)
+	}
+}

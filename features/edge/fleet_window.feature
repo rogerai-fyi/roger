@@ -383,6 +383,16 @@ Feature: From the authority, every unit can be seen, judged and acted on without
       | source battery on a phone                        | on_battery       | does not fire: phones run on battery by nature   |
       | low power mode on, any kind                      | low_power        | fires                                            |
 
+  # Audit 2026-10-27: a power call held while the reading was missing never cleared, because "no
+  # reading is no verdict" was the only rule. A node still heard that no longer reports that reading
+  # (its battery came out, or its power report went stale while it answers) has nothing left to judge.
+  @edge
+  Scenario: a power call closes when a node that is still heard stops reporting that reading
+    Given "pi" has the call "on_battery" standing
+    When "pi" is heard again with no power report, or with one older than the liveness window
+    Then the call is closed with a line saying "pi no longer reports its power"
+    But while "pi" is dark the call stands, because a dark node is no evidence either way
+
   @edge
   Scenario: the owner sets power thresholds per node, per tag or per kind
     Given a rule "battery lt 40" scoped to the sensor "sensor-1"
