@@ -66,10 +66,21 @@ func TestAnAdapterIsServedBesideItsBaseUnderACombinedBand(t *testing.T) {
 	require.Equal(t, "tiny+fire-decision-adapter", o.Band())
 	require.Equal(t, "tiny", ServeOpts{Model: m}.Band(), "no adapter, the base's own band")
 
+	// The base is a hand-placed file, so its digest is written into the serve record in the
+	// background; wait for it, so the record is not read while it is being replaced.
+	digested := make(chan struct{}, 1)
+	prev := digestDone
+	digestDone = func() { digested <- struct{}{} }
+	t.Cleanup(func() { digestDone = prev })
 	o.Exe, o.Tag, o.ReadyWithin, o.Env = os.Args[0], "bX", 10*time.Second, map[string]string{"FAKE_LLAMA": "1"}
 	srv, s, err := h.Serve(context.Background(), o)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = srv.Stop(context.Background()) })
+	select {
+	case <-digested:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the background digest never finished")
+	}
 	require.Equal(t, "tiny+fire-decision-adapter", s.Band)
 	require.Equal(t, "fire-decision-adapter-f16.gguf", s.Adapter)
 	live, ok := h.Live()
