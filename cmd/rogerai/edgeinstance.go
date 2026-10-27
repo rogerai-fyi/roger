@@ -378,11 +378,12 @@ func edgeReadResourcesFrom(root string, now time.Time) *store.EdgeResources {
 			}
 		}
 	}
+	// Power is read before the emptiness check: on macOS (no /proc) it can be the only reading.
+	r.Power = edgeReadPower(root, now)
 	if r.RAMTotalGB == 0 && r.GPU == "" && r.CPULoad1 == nil && r.UptimeS == 0 && r.CPUTempC == nil && len(r.Disks) == 0 &&
-		r.PiPower == nil && r.SDWearPct == nil {
+		r.PiPower == nil && r.SDWearPct == nil && r.Power == nil {
 		return nil // nothing could be read: no record, rather than a record of zeros
 	}
-	r.Power = edgeReadPower(root, now)
 	r.ReadAt = now.Unix()
 	return r
 }

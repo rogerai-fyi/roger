@@ -76,3 +76,19 @@ func TestPmsetIsRead(t *testing.T) {
 	_, ok = parsePmsetLowPower("Currently in use:\n standby 1\n")
 	require.False(t, ok)
 }
+
+// A machine whose only reading is its power still reports it: on macOS there is no /proc at all,
+// and a board may expose a battery and nothing else. The resources record was dropped as "nothing
+// could be read" before power was looked at, so pmset never ran in production.
+func TestPowerAloneIsStillARecord(t *testing.T) {
+	t.Setenv("PATH", "") // no nvidia-smi: the GPU line must not be what keeps the record
+	now := time.Unix(1_760_400_000, 0)
+	root := t.TempDir()
+	fakeSupply(t, root, "BAT0", map[string]string{"type": "Battery", "capacity": "50", "status": "Discharging"})
+	r := edgeReadResourcesFrom(root, now)
+	require.NotNil(t, r, "a battery reading is a reading")
+	require.NotNil(t, r.Power)
+	require.Equal(t, 50, *r.Power.BatteryPct)
+
+	require.Nil(t, edgeReadResourcesFrom(t.TempDir(), now), "and truly nothing is still no record")
+}
