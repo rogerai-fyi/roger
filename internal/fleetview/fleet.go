@@ -113,6 +113,12 @@ type FleetItem struct {
 	Serving string
 	// Phone is a phone's own signed vitals (battery, charging, thermal, app in front); nil otherwise.
 	Phone *store.EdgePhone
+	// Power is any node's battery and power source (edge.NodePower); nil when it reports none.
+	Power *store.EdgePower
+	// Codes is what the member said, when it joined, about checking this Edge's code (ruling D9):
+	// "checks" when it said, with a signature, that it verifies the root proof, "old" when it joined without saying so (a
+	// roger or app from before root proofs), "" when this machine never heard it join.
+	Codes string
 }
 
 // crew is the unit's CREW line: who runs the Edge and what the unit served. jobLine is what the
@@ -1404,6 +1410,10 @@ func (it FleetItem) rowFacts(used, width int, now time.Time) []lm.Span {
 	case it.Phone != nil && it.Phone.BatteryPct != nil:
 		// A phone has no processor figures to give; its battery is the number that matters.
 		out = append(out, span(pad(fmt.Sprintf("batt %d%%", *it.Phone.BatteryPct), 10), ink))
+	case edge.Kind(it.NodeKind) == edge.Mobile || it.Phone != nil:
+		// A phone with no battery reading yet: its battery column is drawn absent. It never gets the
+		// temperature and memory columns, because iOS gives no such figures (fleet_window.feature).
+		out = append(out, span(pad("batt ┈┈", 10), ash))
 	case it.Health == nil || it.Health.Readings == nil:
 		out = append(out, span("┈┈┈   ┈┈┈ ", ash))
 		if withDisk {
@@ -1602,8 +1612,21 @@ func (f *Fleet) drawReadout(fr *lm.Frame, area lm.Rect) int {
 			}
 			row("", span(edge.Age(now.Sub(time.Unix(it.Phone.ReadAt, 0)))+" ago", muted))
 		}
+		if sl := edge.SupplyLine(it.Power); sl != "" {
+			label := "battery"
+			for _, piece := range wrapDots(sl, 46) {
+				row(label, span(piece, ink))
+				label = ""
+			}
+		}
 		if !it.LastRead.IsZero() {
 			row("hears", span("hears the Edge · read the feed "+edge.Age(now.Sub(it.LastRead))+" ago", signal))
+		}
+		switch it.Codes {
+		case "checks":
+			row("joined", span("said it checks codes when it joined", ink))
+		case "old":
+			row("joined", span("did not say it checks codes: a roger or app from before root proofs. update it", glow))
 		}
 		tagRow()
 		software()

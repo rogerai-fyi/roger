@@ -58,14 +58,14 @@ func (l *Local) MintBearerCodeFor(nodeID string) (string, error) {
 		}
 		var bearer int
 		for _, c := range got {
-			if strings.HasPrefix(c.Join, bearerPrefix) {
+			if strings.HasPrefix(c.Join, bearerPrefix) && c.SpentBy == "" {
 				bearer++
 			}
 		}
-		// The oldest bearer code makes room, so the live set never exceeds the cap.
+		// The oldest unspent bearer code makes room, so the live set never exceeds the cap.
 		for bearer >= maxBearerCodes {
 			for i, c := range got {
-				if strings.HasPrefix(c.Join, bearerPrefix) {
+				if strings.HasPrefix(c.Join, bearerPrefix) && c.SpentBy == "" {
 					got = append(got[:i:i], got[i+1:]...)
 					bearer--
 					break
@@ -91,7 +91,7 @@ func (l *Local) bearerMatch(r Request) (string, bool, error) {
 	}
 	fields := joinFields(l.Descriptor().Fingerprint, r)
 	for _, c := range got {
-		if strings.HasPrefix(c.Join, bearerPrefix) &&
+		if strings.HasPrefix(c.Join, bearerPrefix) && c.SpentBy == "" &&
 			joincode.EdgeJoin.Check(c.Code, r.JoinProof, r.Nonce, fields...) == nil {
 			if c.For != "" && c.For != r.NodeID {
 				return "", false, ErrInviteForOther
@@ -101,7 +101,7 @@ func (l *Local) bearerMatch(r Request) (string, bool, error) {
 	}
 	out := got[:0]
 	for _, c := range got {
-		if strings.HasPrefix(c.Join, bearerPrefix) {
+		if strings.HasPrefix(c.Join, bearerPrefix) && c.SpentBy == "" {
 			c.Fails++
 			if c.Fails >= BearerGuessBudget {
 				continue
@@ -110,6 +110,79 @@ func (l *Local) bearerMatch(r Request) (string, bool, error) {
 		out = append(out, c)
 	}
 	return "", false, l.writeJSON(CodesFile, out)
+}
+
+// bearerFind is bearerMatch for a key the owner ALREADY allowed that still carries an invite's
+// proof: a retry after the first answer was lost on the way back (the code is spent and the key
+// allowed by then), or a device whose key stayed allowed and rejoins with a fresh invite. Found so the
+// answer can be proven with it:
+//   - a code this same key spent: checked, never counted (it is this key's own retry);
+//   - a live code, unbound or bound to this node (whose id the caller has already bound to the node
+//     key presented): checked, and a proof that matches none of them costs one guess against each,
+//     exactly as a stranger's does (audit 2026-10-13: an allowed key gets no free guesses).
+//
+// A code bound to another node, or spent by another key, is never checked at all. Unlocked; the
+// caller holds the lock and has checked that r.NodeID is the one r.NodeKey derives.
+func (l *Local) bearerFind(r Request) (string, bool, error) {
+	got, err := l.readCodes()
+	if err != nil {
+		return "", false, err
+	}
+	fields := joinFields(l.Descriptor().Fingerprint, r)
+	tried := false
+	for _, c := range got {
+		if !strings.HasPrefix(c.Join, bearerPrefix) {
+			continue
+		}
+		mine := c.SpentBy != "" && c.SpentBy == r.UserKey
+		live := c.SpentBy == "" && (c.For == "" || c.For == r.NodeID)
+		if !mine && !live {
+			continue
+		}
+		tried = tried || live
+		if joincode.EdgeJoin.Check(c.Code, r.JoinProof, r.Nonce, fields...) == nil {
+			return c.Join, true, nil
+		}
+	}
+	if !tried {
+		return "", false, nil
+	}
+	out := got[:0]
+	for _, c := range got {
+		if strings.HasPrefix(c.Join, bearerPrefix) && c.SpentBy == "" && (c.For == "" || c.For == r.NodeID) {
+			c.Fails++
+			if c.Fails >= BearerGuessBudget {
+				continue
+			}
+		}
+		out = append(out, c)
+	}
+	return "", false, l.writeJSON(CodesFile, out)
+}
+
+// proveBearer attaches the root proof made with a bearer code to an issuing answer and marks the code
+// spent by this key (not deleted: a retry from the same key is proven with it until it expires).
+// Unlocked; the caller holds the lock and has not yet released the answer.
+func (l *Local) proveBearer(resp *Response, join, nonce, userKey string) error {
+	got, err := l.readCodes()
+	if err != nil {
+		return err
+	}
+	resp.ProofStatus = ProofNone
+	for i, c := range got {
+		if c.Join != join {
+			continue
+		}
+		root, err := DecodeCert(resp.Root)
+		if err != nil {
+			return err
+		}
+		resp.ProofStatus = ""
+		resp.RootProof = RootProof(c.Code, RootFingerprint(root), resp.Account, resp.NodeID, nonce)
+		got[i].SpentBy = userKey
+		break
+	}
+	return l.writeJSON(CodesFile, got)
 }
 
 // allowLocked adds a user key to the allow-list. Unlocked; the caller holds the lock.

@@ -138,6 +138,56 @@ func UnitNames(all []store.EdgeNode) map[string]string {
 	return out
 }
 
+// PhoneAsleep reports whether a phone's last signed beat said the system had put its app in the
+// background. Only a phone, and only when it said so: silence alone is not sleep.
+func PhoneAsleep(kind string, p *store.EdgePhone) bool {
+	return Kind(kind) == Mobile && p != nil && p.Foreground != nil && !*p.Foreground
+}
+
+// NodePower is a node's newest power report: its own readings when it is dialed (an instance's
+// Resources), its signed v3 presence when it dials out. nil when it reports none.
+func NodePower(n store.EdgeNode) *store.EdgePower {
+	best := n.Power
+	for _, in := range n.Instances {
+		if r := in.Resources; r != nil && r.Power != nil && (best == nil || r.Power.ReadAt > best.ReadAt) {
+			best = r.Power
+		}
+	}
+	return best
+}
+
+// SupplyLine is any node's power in words, absent readings left out: "battery 64% · charging · on AC
+// power · low power mode · about 3h12m left".
+func SupplyLine(p *store.EdgePower) string {
+	if p == nil {
+		return ""
+	}
+	var parts []string
+	if p.BatteryPct != nil {
+		parts = append(parts, fmt.Sprintf("battery %d%%", *p.BatteryPct))
+	}
+	if p.Charging != nil {
+		if *p.Charging {
+			parts = append(parts, "charging")
+		} else {
+			parts = append(parts, "not charging")
+		}
+	}
+	switch p.Source {
+	case "ac":
+		parts = append(parts, "on external power")
+	case "battery":
+		parts = append(parts, "on battery")
+	}
+	if p.LowPower != nil && *p.LowPower {
+		parts = append(parts, "low power mode")
+	}
+	if p.MinutesLeft != nil {
+		parts = append(parts, "about "+Age(time.Duration(*p.MinutesLeft)*time.Minute)+" left")
+	}
+	return strings.Join(parts, " · ")
+}
+
 // PhoneLine is a phone's own vitals in words, absent readings left out: iOS gives no processor load
 // or temperature, and nothing here pretends it does.
 func PhoneLine(p *store.EdgePhone) string {

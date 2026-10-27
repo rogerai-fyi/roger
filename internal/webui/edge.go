@@ -205,7 +205,9 @@ type edgeNodeJSON struct {
 	State string `json:"state,omitempty"`
 	Model string `json:"model,omitempty"`
 	// Phone is a phone's own signed vitals in words (edge.PhoneLine).
-	Phone        string   `json:"phone,omitempty"`
+	Phone string `json:"phone,omitempty"`
+	// Supply is any node's power in words (edge.SupplyLine): battery, charging, source, low power.
+	Supply       string   `json:"supply,omitempty"`
 	ModelHave    []string `json:"model_have,omitempty"`
 	ServeControl bool     `json:"serve_control,omitempty"`
 }
@@ -668,6 +670,7 @@ func (s *Server) edgeSnapshot() (edgeSnap, error) {
 		n.ServeControl = edge.Declares(r.Node, edge.ServeControl)
 		_, n.State = edge.UnitWord(r.Node, len(n.Alerts), now)
 		n.Phone = edge.PhoneLine(r.Node.Phone)
+		n.Supply = edge.SupplyLine(edge.NodePower(r.Node))
 		n.Model = edge.ModelLineFor(r.Node) // only a proven band is said to be served
 		if mm := edge.ModelOf(r.Node); mm != nil {
 			n.ModelHave = mm.Have

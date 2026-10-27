@@ -36,6 +36,11 @@ type ClaimRequest struct {
 	Nonce   string `json:"nonce"`
 	TS      int64  `json:"ts"`
 	Sig     string `json:"sig"` // hex ed25519 signature over canonical(), by the node key
+	// ChecksRoot is the claimant saying it verifies the answer's root proof with the adopt's code, and
+	// ChecksRootSig proves it said so, by the node key (checksroot.go). Outside canonical() for the
+	// reason Request.ChecksRoot gives.
+	ChecksRoot    bool   `json:"checks_root,omitempty"`
+	ChecksRootSig string `json:"checks_root_sig,omitempty"` // hex ed25519 by the node key over ChecksRootBytes()
 }
 
 // NewClaimRequest builds an unsigned claim for a node key this phone generated.

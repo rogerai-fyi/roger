@@ -87,7 +87,11 @@ type edgeHost struct {
 	cfg     config
 	auth    *http.Server
 	authLn  net.Listener
-	issuer  *edgeauth.Issuer
+	// authTLS serves the same authority mux over TLS (edgeauthtls.go); nil when this machine has no
+	// node identity to name in its server certificate.
+	authTLS   *http.Server
+	authTLSLn net.Listener
+	issuer    *edgeauth.Issuer
 	// pair answers `roger join <authority address>`: a device asks, the owner approves on their
 	// screen with the matching phrase (features/join/approve.feature).
 	pair     *localplane.Server
@@ -679,6 +683,7 @@ func (h *edgeHost) arm() bool {
 				self.AuthPort = tcp.Port
 			}
 		}
+		self.TLSPort = edgeAuthorityTLSPort(h.authTLSLn)
 		opts.Self = self
 	}
 	h.registerInstance(h.cfg)
@@ -798,13 +803,29 @@ func (h *edgeHost) startAuthority() {
 	// Presence reads the authority FRESH per request (a reload picks up revoked.json a CLI forget
 	// wrote beside us), so a forgotten node stops verifying at once, not at the next restart.
 	authDir := edgeAuthDir()
-	authMux.Handle(edge.PresencePath, edge.PresenceHandlerFunc(h.st.fleet, func() *cert.Authority {
-		fresh, ok, err := edgeauth.OpenLocal(authDir)
-		if err != nil || !ok {
-			return nil
-		}
-		return fresh.Authority()
-	}, nil))
+	// Presence and the phone's paths verify members the SAME way: a verify-only authority built per
+	// request from the root certificate and the revocation list as they are on disk now (a CLI forget
+	// beside this process is honoured at once). The root KEY is never re-read per request; it is held
+	// once, here, only to sign the relay attestation.
+	memberTrust := func() *cert.Authority { return edgeMemberTrust(authDir, local) }
+	authMux.Handle(edge.PresencePath, edge.PresenceHandlerFunc(h.st.fleet, memberTrust, nil))
+	// A phone consumes the Edge's bands here (features/edge/phone_consume.feature): it cannot present a
+	// client certificate over TLS, so it signs each request with its member key, and this machine
+	// relays the turn to the member that serves the band over its own pinned mutual TLS. Registered
+	// under each path so they win over the "/" catch-all below.
+	phone := edge.PhoneConsumeHandler(edge.PhoneConsume{
+		Fleet: h.st.fleet,
+		Trust: memberTrust,
+		Root:  local.Authority().RootKey(),
+		Member: func(id string) bool {
+			_, ok, err := h.st.fleet.Get(id)
+			return err == nil && ok
+		},
+		Self: edgeCallerCert,
+	})
+	for _, p := range []string{edge.PhoneBandsPath, edge.PhoneInferPath, edge.PhoneSpeechPath} {
+		authMux.Handle(p, phone)
+	}
 	authMux.Handle("/", enrollhttp.Handler(local))
 	// Request-and-approve: POST /local/pair/start, /local/pair/reveal and /local/pair/wait on THIS
 	// listener, the wire documented at internal/localplane/pair.go (the iOS handoff cites it).
@@ -818,11 +839,45 @@ func (h *edgeHost) startAuthority() {
 	if os.Getenv("ROGERAI_EDGE_AUTHLOG") == "1" {
 		handler = edgeAuthAccessLog(authMux)
 	}
-	auth := &http.Server{Handler: handler, ReadHeaderTimeout: 10 * time.Second}
+	// The same mux on a TLS listener (edgeauthtls.go, ruled 2026-10-13): a phone's turns, presence and
+	// trouble reads ride it, proven to the phone by a server certificate under the Edge root. Once it
+	// is up the plain listener names it on every answer and refuses the phone's paths.
+	tlsLn, tlsSrv := startAuthorityTLS(local, handler)
+	tlsPort := edgeAuthorityTLSPort(tlsLn)
+	authorityID := ""
+	if id, _, ok, _ := edgeIdentityStore().LoadIdentity(); ok {
+		authorityID = id.NodeID
+	}
+	plain := edgePlainAuthority(handler, func() int { return tlsPort }, authorityID)
+	auth := &http.Server{Handler: plain, ReadHeaderTimeout: 10 * time.Second}
 	h.mu.Lock()
 	h.authLn, h.issuer, h.auth, h.pair, h.pairDesc = ln, local.Issuer(), auth, pair, local.Descriptor()
+	h.authTLSLn, h.authTLS = tlsLn, tlsSrv
 	h.mu.Unlock()
 	go func() { _ = auth.Serve(ln) }()
+}
+
+// edgeMemberTrust is the verify-only authority members are checked against on the authority listener:
+// the root CERTIFICATE read from disk (never the key) and the revocation list as it is now. nil (fail
+// closed) when either cannot be read.
+func edgeMemberTrust(authDir string, local *edgeauth.Local) *cert.Authority {
+	b, err := os.ReadFile(filepath.Join(authDir, edgeauth.AuthorityDir, edgeauth.RootCertFile))
+	if err != nil {
+		return nil
+	}
+	root, err := edgeauth.DecodeCert(string(b))
+	if err != nil {
+		return nil
+	}
+	revoked, err := local.Revocations()
+	if err != nil {
+		return nil
+	}
+	v, err := cert.NewVerifier(root, revoked)
+	if err != nil {
+		return nil
+	}
+	return v
 }
 
 // EnvFaceBind and EnvAuthorityBind let an operator pin the ports. Both default to an
@@ -1116,10 +1171,10 @@ func (h *edgeHost) stop() {
 // a socket open leaves a machine advertising an identity nothing is behind.
 func (h *edgeHost) closeListeners() {
 	h.mu.Lock()
-	face, auth := h.face, h.auth
-	h.face, h.auth = nil, nil
+	face, auth, authTLS := h.face, h.auth, h.authTLS
+	h.face, h.auth, h.authTLS, h.authTLSLn = nil, nil, nil, nil
 	h.mu.Unlock()
-	for _, srv := range []*http.Server{face, auth} {
+	for _, srv := range []*http.Server{face, auth, authTLS} {
 		if srv != nil {
 			_ = srv.Close()
 		}

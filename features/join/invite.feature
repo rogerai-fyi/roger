@@ -295,3 +295,53 @@ Feature: One invite, one paste, for Towers and Edge devices
     And the server it shares from also lists "qwen3-8b" and "claude"
     When the station's next poll reaches the Tower
     Then the poll reports only "smollm2-135m-instruct"
+
+  # =========================================================================
+  # AN EDGE INVITE ON A KEY THAT IS ALREADY ALLOWED
+  # =========================================================================
+  # PROPOSED 2026-10-13 (found by the iOS invite validation; not yet ruled). Pinned by
+  # internal/edgeauth/bearer_retry_test.go. An Edge invite spends its code and allows the joiner's
+  # key in the same step that issues. If that answer is lost on the way back, the device's retry
+  # arrives on an allowed key; before this, the allowed-key path ignored join_proof and answered with
+  # root_proof_status "none", which the device rightly refuses: a certificate issued and thrown away.
+  # The same happened to a device whose key stayed allowed and that rejoined with a fresh invite, and
+  # that fresh invite was never spent.
+
+  @security
+  Scenario: A device's retry after a lost answer is proven with the invite it spent
+    Given a device joined an Edge with an invite and the answer was lost on the way back
+    When the device asks again with the same invite
+    Then the answer carries a root proof made with that invite's code
+    And the spent invite still admits no other device
+
+  @security
+  Scenario: A fresh invite on a key that is still allowed proves the answer and is spent
+    Given a device whose key this Edge still allows, holding a fresh invite
+    When it joins with the invite
+    Then the answer carries a root proof made with the fresh invite's code
+    And that invite is spent
+
+  # Audit 2026-10-13: an allowed key gets no free guesses. It tries only an invite it spent itself, one
+  # bound to its own node, and live unbound invites; a proof that matches nothing counts one guess
+  # against every live unbound invite, exactly as a stranger's does.
+  @security
+  Scenario: A wrong invite proof from an allowed key is a guess like any other
+    Given a device whose key this Edge allows sends an invite proof that matches no live invite
+    Then it is issued as an allowed key is, with no root proof from an invite
+    And every live unbound invite loses one guess, and is void at the budget
+    # A wrong proof from a key that is NOT allowed costs the same (bearer.go); that is unchanged.
+
+  @security
+  Scenario: An invite spent by another key is not tried for an allowed key
+    Given an invite that one device spent
+    When a second device, whose key this Edge allows, presents a proof of the same invite
+    Then its answer carries no root proof from that invite
+    And the first device's retry with it is still proven
+
+  # Audit 2026-10-13: an invite bound to a device is bound to its KEY, through the id that key derives.
+  @security
+  Scenario: A bound invite cannot be reached by copying the device's node id
+    Given an invite bound to a nearby device's node id
+    When another device, whose key this Edge allows, presents that node id with a node key of its own
+    Then it is refused before any invite is tried
+    And the invite is untouched for the device it is for

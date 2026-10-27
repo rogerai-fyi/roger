@@ -952,6 +952,34 @@ func TestAPhoneShowsItsVitalsAndSleepsHonestly(t *testing.T) {
 	must(t, page.Screen(), "PHONE", "battery 64% · charging", "thermal nominal", "app in the background", "3m ago")
 }
 
+// fleet_window.feature §8: a phone with no battery reading yet (an app that still beats v1, or a first
+// read before iOS has one) draws its battery column absent, and never the temperature and memory
+// columns a phone cannot fill. Its page says whether it checked this Edge's code when it joined.
+func TestAPhoneWithNoBatteryReadingHasNoProcessorColumns(t *testing.T) {
+	now := time.Now()
+	snap := fleetSnap(now)
+	snap.Items = append(snap.Items, fleetview.FleetItem{Kind: fleetview.ItemMember, ID: "n_ivy", Name: "ivy", NodeKind: "mobile",
+		Presence: "online", LastSeen: now.Add(-20 * time.Second), Codes: "checks"})
+	f := fleetview.NewFleet(func() (fleetview.FleetSnapshot, error) { return snap, nil }, nil, (&recorder{}).actions())
+	page := uitest.Run(t, 160, 44, f.Draw)
+	var row string
+	for _, ln := range strings.Split(page.Screen(), "\n") {
+		if strings.Contains(ln, "ivy") {
+			row = ln
+			break
+		}
+	}
+	if !strings.Contains(row, "batt ┈┈") {
+		t.Errorf("the battery column is not drawn absent: %q", row)
+	}
+	if strings.Contains(row, "┈┈┈   ┈┈┈") {
+		t.Errorf("a phone's row has temperature and memory placeholders: %q", row)
+	}
+	f.SelectUnit("n_ivy")
+	page.Press("r")
+	must(t, page.Screen(), "said it checks codes when it joined")
+}
+
 // ANDON tiles stay in their columns even when a unit has no log yet (found rendering the screen at
 // 130 columns, 2026-10-01: an empty airtime strip pulled every later tile left).
 func TestAndonTilesStayInTheirColumnsWithoutALog(t *testing.T) {

@@ -541,6 +541,10 @@ func (m model) edgeNetDetailView(w int, line func(string)) {
 		if pl := edge.PhoneLine(n.Phone); pl != "" {
 			label("PHONE", pl+stDim.Render("  · "+edgeAge(m.edge.at.Sub(time.Unix(n.Phone.ReadAt, 0)))+" ago"))
 		}
+		// Any node's battery and power source (ruled 2026-10-13): a laptop, a Pi on a UPS, a sensor.
+		if sl := edge.SupplyLine(edge.NodePower(*n)); sl != "" {
+			label("BATTERY", sl)
+		}
 		if w, ok := edgePiPower(*n); ok {
 			if now, _ := edge.PowerWords(w); len(now) > 0 {
 				label("POWER", stEmber.Render(edge.PowerLine(w)))

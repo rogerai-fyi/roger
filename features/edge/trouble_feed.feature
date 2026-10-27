@@ -170,3 +170,12 @@ Feature: The owner's phone receives the Edge's trouble calls, privately, and can
     And it prints the standing calls with priority, age, unit, wording and value, each with why it matters and what to do
     And "--json" prints the feed as the phone receives it
     And a face that does not match its pin is refused before a byte is sent
+
+  # RULED 2026-10-13 (founder): power calls ride this feed, for every kind of node (fleet_window.feature
+  # section 8b): battery (lt 20, not charging), battery_critical (lt 10), on_battery (external power
+  # lost; phones excepted by default), low_power. No new transport: they are alert log lines like any.
+  Scenario: a power call reaches the phone like any other call
+    Given a Pi on a UPS HAT loses external power
+    When the authority's next pass judges it
+    Then the phone's next read of the feed carries "pi lost external power and is running on battery"
+    And when power returns, the feed carries that it is back on external power

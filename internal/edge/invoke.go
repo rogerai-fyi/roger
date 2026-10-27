@@ -119,7 +119,7 @@ func (s *Server) handleInvoke(w http.ResponseWriter, r *http.Request) {
 	}
 	// 6. Not a replay - checked AFTER authorization, so an unauthorized caller can never consume a
 	//    nonce and fill the replay cache. The cache is built in NewServer (never lazily here: that raced).
-	if !s.invokeSeen.admit(req.Nonce, time.Unix(req.TS, 0).Add(invokeFreshness).Unix(), now.Unix()) {
+	if !s.invokeSeen.admit(callerID, req.Nonce, time.Unix(req.TS, 0).Add(invokeFreshness).Unix(), now.Unix()) {
 		refuse(http.StatusForbidden, "that invocation was already seen")
 		return
 	}

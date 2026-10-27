@@ -112,6 +112,8 @@ Feature: A turn can be addressed to a specific node's model, and every reason it
     When the owner runs `roger use gentle-ibex-14`
     Then it is refused, saying a phone cannot yet serve a model to the Edge
     And it does not pretend the phone is unreachable or unknown
+  # A phone CONSUMING a band (the other direction) is features/edge/phone_consume.feature: it asks
+  # the authority, which relays to the member that serves it (ruling 2026-10-13).
 
   # =========================================================================
   # 3. THE TUI: an Ask action on a node that can serve, replacing "nothing to do"

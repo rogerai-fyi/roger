@@ -29,10 +29,16 @@ const (
 	MetricSDWear    Metric = "sd_wear"   // percent worn
 	MetricThrottled Metric = "throttled" // 1 while a Pi is under-volted, capped or throttled NOW
 	MetricOffline   Metric = "offline"   // minutes unheard, judged by the authority
+	// Power, any kind of node (ruled 2026-10-13). A charging battery is never low: it reads as 100.
+	MetricBattery         Metric = "battery"          // percent left
+	MetricBatteryCritical Metric = "battery_critical" // percent left, its own rule so both levels can stand
+	MetricOnBattery       Metric = "on_battery"       // 1 while running on battery, external power lost
+	MetricLowPower        Metric = "low_power"        // 1 while the OS energy saver is on
 )
 
 // Metrics is every metric a rule may watch, in display order.
-var Metrics = []Metric{MetricCPUTemp, MetricCPULoad, MetricMemory, MetricDisk, MetricSDWear, MetricThrottled, MetricOffline}
+var Metrics = []Metric{MetricCPUTemp, MetricCPULoad, MetricMemory, MetricDisk, MetricSDWear, MetricThrottled, MetricOffline,
+	MetricBattery, MetricBatteryCritical, MetricOnBattery, MetricLowPower}
 
 func metricLabel(m Metric) string { return strings.ReplaceAll(string(m), "_", " ") }
 
@@ -40,7 +46,7 @@ func metricUnit(m Metric) string {
 	switch m {
 	case MetricCPUTemp:
 		return "°C"
-	case MetricMemory, MetricDisk, MetricSDWear:
+	case MetricMemory, MetricDisk, MetricSDWear, MetricBattery, MetricBatteryCritical:
 		return "%"
 	case MetricOffline:
 		return "m"
@@ -84,6 +90,9 @@ type Rule struct {
 	Margin  float64 `json:"margin,omitempty"` // recovery margin; 0 means the metric's default
 	Default bool    `json:"default,omitempty"`
 	Off     bool    `json:"off,omitempty"`
+	// NotKinds are node kinds this rule does not judge (the default on_battery rule skips phones,
+	// which run on battery by nature). A kind-scoped rule ("kind:mobile") opts them back in.
+	NotKinds []string `json:"not_kinds,omitempty"`
 }
 
 // Key is how the rule is worded: "cpu_temp > 80".
@@ -103,6 +112,12 @@ func ValidateRule(r Rule) error {
 	}
 	if r.Metric == MetricOffline && r.Op != OpGT {
 		return errors.New("an offline rule only counts upwards: use offline gt <minutes>")
+	}
+	if (r.Metric == MetricOnBattery || r.Metric == MetricLowPower) && (r.Op != OpGT || r.Value != 0) {
+		return fmt.Errorf("a %s rule is on or off: use %s gt 0", r.Metric, r.Metric)
+	}
+	if k, ok := ScopeKind(r.Scope); ok && !Kind(k).Valid() {
+		return fmt.Errorf("%q is not a kind of node (host, board, mobile)", k)
 	}
 	if r.ID == "" {
 		return errors.New("a rule needs an id")
@@ -132,6 +147,10 @@ func (r Rule) margin() float64 {
 		return 0.25
 	case MetricMemory, MetricDisk, MetricSDWear:
 		return 2
+	case MetricBattery:
+		return 5 // a low battery clears at 25%, not on the first 1% of charge
+	case MetricBatteryCritical:
+		return 3
 	}
 	return 0
 }
@@ -144,7 +163,24 @@ func DefaultRules() []Rule {
 		{ID: "disk", Metric: MetricDisk, Op: OpGT, Value: 90, Default: true},
 		{ID: "offline", Metric: MetricOffline, Op: OpGT, Value: DefaultTTL.Minutes(), Default: true},
 		{ID: "throttled", Metric: MetricThrottled, Op: OpGT, Value: 0, Default: true},
+		// Power, ruled 2026-10-13: a low battery that is not charging, a critical one, a node that lost
+		// external power (phones excepted: they run on battery by nature), and energy saver on.
+		{ID: "battery", Metric: MetricBattery, Op: OpLT, Value: 20, Default: true},
+		{ID: "battery_critical", Metric: MetricBatteryCritical, Op: OpLT, Value: 10, Default: true},
+		{ID: "on_battery", Metric: MetricOnBattery, Op: OpGT, Value: 0, Default: true, NotKinds: []string{string(Mobile)}},
+		{ID: "low_power", Metric: MetricLowPower, Op: OpGT, Value: 0, Default: true},
 	}
+}
+
+// KindScopePrefix scopes a rule to every node of one kind: "kind:mobile".
+const KindScopePrefix = "kind:"
+
+// ScopeKind is the kind a scope names, when it names one.
+func ScopeKind(scope string) (string, bool) { return strings.CutPrefix(scope, KindScopePrefix) }
+
+// kindTags is a node's tags with its kind added as the pseudo-tag a kind scope matches.
+func kindTags(tags []string, kind string) []string {
+	return append(append([]string(nil), tags...), KindScopePrefix+kind)
 }
 
 // RuleSet is the rules in force.
@@ -177,6 +213,9 @@ func (rs RuleSet) applying(m Metric, nodeID string, tags []string) (Rule, bool) 
 		if r.Metric != m || r.Off {
 			continue
 		}
+		if notKind(r, tags) {
+			continue
+		}
 		switch {
 		case r.Scope != "" && r.Scope == nodeID:
 			return r, true
@@ -184,6 +223,9 @@ func (rs RuleSet) applying(m Metric, nodeID string, tags []string) (Rule, bool) 
 			fleet, haveFleet = r, true
 		default:
 			t, isTag := ScopeTag(r.Scope)
+			if _, isKind := ScopeKind(r.Scope); isKind {
+				t, isTag = r.Scope, true // matched against the kind pseudo-tag (kindTags)
+			}
 			if !isTag || !HasTag(tags, t) {
 				continue
 			}
@@ -196,6 +238,16 @@ func (rs RuleSet) applying(m Metric, nodeID string, tags []string) (Rule, bool) 
 		return tag, true
 	}
 	return fleet, haveFleet
+}
+
+// notKind reports whether r skips the node whose tags (with its kind pseudo-tag) are tags.
+func notKind(r Rule, tags []string) bool {
+	for _, k := range r.NotKinds {
+		if HasTag(tags, KindScopePrefix+k) {
+			return true
+		}
+	}
+	return false
 }
 
 // tighter reports whether a fires sooner than b on the same metric: the lower threshold for "gt",
@@ -272,6 +324,28 @@ func (a Alert) String() string {
 		}
 		return fmt.Sprintf("%s: %s is no longer throttled", state, a.Node)
 	}
+	switch a.Metric {
+	case MetricOnBattery:
+		if a.Firing {
+			return fmt.Sprintf("%s: %s lost external power and is running on battery", state, a.Node)
+		}
+		return fmt.Sprintf("%s: %s is back on external power", state, a.Node)
+	case MetricLowPower:
+		if a.Firing {
+			return fmt.Sprintf("%s: %s is in low power mode", state, a.Node)
+		}
+		return fmt.Sprintf("%s: %s left low power mode", state, a.Node)
+	case MetricBattery, MetricBatteryCritical:
+		if a.Firing {
+			level := "low"
+			if a.Metric == MetricBatteryCritical {
+				level = "critically low"
+			}
+			return fmt.Sprintf("%s: %s battery is %s at %s%% and not charging (threshold %s%%)", state, a.Node, level,
+				fmtThreshold(a.Value), fmtThreshold(a.Threshold))
+		}
+		return fmt.Sprintf("%s: %s battery is no longer low (charging, or back above the threshold)", state, a.Node)
+	}
 	unit := metricUnit(a.Metric)
 	return fmt.Sprintf("%s: %s %s %s%s (threshold %s %s%s)", state, a.Node, metricLabel(a.Metric),
 		fmtThreshold(a.Value), unit, a.Op, fmtThreshold(a.Threshold), unit)
@@ -285,6 +359,10 @@ func (h NodeHealth) Reading(m Metric) (float64, bool) {
 			return h.DarkFor.Minutes(), true
 		}
 		return 0, true
+	}
+	switch m {
+	case MetricBattery, MetricBatteryCritical, MetricOnBattery, MetricLowPower:
+		return h.powerReading(m)
 	}
 	r := h.Readings
 	if r == nil || h.ReadAge > DefaultTTL {
@@ -322,6 +400,40 @@ func (h NodeHealth) Reading(m Metric) (float64, bool) {
 	return 0, false
 }
 
+// powerReading is a power metric's current value, or ok=false when the node does not report it or
+// its report is older than the liveness window.
+func (h NodeHealth) powerReading(m Metric) (float64, bool) {
+	p := h.Power
+	if p == nil || h.PowerAge > DefaultTTL {
+		return 0, false
+	}
+	switch m {
+	case MetricBattery, MetricBatteryCritical:
+		if p.BatteryPct == nil {
+			return 0, false
+		}
+		if p.Charging != nil && *p.Charging {
+			return 100, true // charging is never low: plugging in clears it at once
+		}
+		return float64(*p.BatteryPct), true
+	case MetricOnBattery:
+		switch p.Source {
+		case "battery":
+			return 1, true
+		case "ac":
+			return 0, true
+		}
+	case MetricLowPower:
+		if p.LowPower != nil {
+			if *p.LowPower {
+				return 1, true
+			}
+			return 0, true
+		}
+	}
+	return 0, false
+}
+
 // Evaluate judges every node against the rules in force, given what was firing before, and
 // returns the new state plus one Alert per state CHANGE. Over stays over silently; recovery
 // must clear the threshold by the rule's margin. A firing that can no longer be judged - its
@@ -333,8 +445,14 @@ func Evaluate(rules RuleSet, hs []NodeHealth, prev AlertState, now time.Time) (A
 	judged := map[string]bool{}
 	for _, h := range hs {
 		for _, m := range Metrics {
-			r, ok := rules.applying(m, h.ID, h.Tags)
+			r, ok := rules.applying(m, h.ID, kindTags(h.Tags, h.Kind))
 			if !ok {
+				continue
+			}
+			// The DEFAULT offline rule does not judge a phone whose last beat said its app went to the
+			// background (ruled 2026-10-13): a suspended app cannot beat. An owner's own offline rule
+			// still does; a firing it held is cleared below, as for any rule that stops judging.
+			if m == MetricOffline && r.Default && h.Asleep {
 				continue
 			}
 			judged[stateKey(r.ID, h.ID)] = true

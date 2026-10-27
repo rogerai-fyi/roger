@@ -25,6 +25,10 @@ type enrollCode struct {
 	For string `json:"for,omitempty"`
 	// Fails counts wrong guesses at a bearer code (bearer.go); a bearer code is void at the budget.
 	Fails int `json:"fails,omitempty"`
+	// SpentBy is the user key a bearer code admitted. A spent code admits nobody else, but it still
+	// proves a retried answer to the key that spent it until it expires, so a reply lost on the way
+	// back does not strand the device with a certificate it cannot verify (bearer.go).
+	SpentBy string `json:"spent_by,omitempty"`
 }
 
 func keyJoin(userKeyHex string) string { return "key:" + userKeyHex }

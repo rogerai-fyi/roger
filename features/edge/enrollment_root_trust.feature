@@ -825,6 +825,70 @@ Feature: A machine joining an Edge for the first time believes only a root the o
     Then the output says a joiner running a roger from before root proofs does not check the code
     And it says to update roger on that machine before it joins
 
+  # RULED 2026-10-13 (founder): D9 FIXED - "fix". The warning printed on EVERY allow and adopt because
+  # nothing told the authority that a joiner checks codes. Now a joiner that verifies the root proof
+  # says so with `checks_root: true` and PROVES it said so with `checks_root_sig` on its enroll request,
+  # its bearer join (the same enroll request with join_proof) and its claim request:
+  #   checks_root_sig = hex Ed25519, by the key that signs the request (the user key for an enrolment or
+  #   a bearer join, the node key for a claim), over the request's canonical bytes + "\n" +
+  #   "rogerai-checks-root/v1". Golden vectors: internal/edgeauth/testdata/checks_root_vectors.json.
+  # The authority credits "checks" only when that signature verifies (audit 2026-10-13: an unsigned
+  # flag let a replayed old app's claim silence the warning that protects that old app). It notes what
+  # each signed, fresh request said and warns only about a joiner it heard WITHOUT a proven flag, or one
+  # it has not heard yet (the general line above). A phone polls its claim before it is adopted, so by
+  # the adopt the authority has usually heard it.
+  #
+  # Both fields are OUTSIDE the signed canonical forms (rogerai-edge-enroll/v1, rogerai-edge-claim/v1):
+  # those bytes are golden-pinned on the phone and the CLI, and an authority from before the fields
+  # would refuse a signature over a form it does not know. Every authority decodes these requests with
+  # plain json.Unmarshal, so an older one skips both. Notes from requests that were refused (not
+  # adopted, not allowed yet) are signed by keys anyone can make: they are budgeted (30 new joiners a
+  # minute), kept apart from the notes of joins that were issued (so they can never evict a member's),
+  # never overwrite a note already there, and no note is replaced by one from an older request.
+  @security @cli
+  Scenario: a phone that said it checks codes is adopted with no warning
+    Given the phone "pocket" asked to claim from "shed" saying it checks codes
+    When the owner runs "roger edge adopt pocket" on "shed"
+    Then the adopt output does not say "before root proofs"
+
+  @security @cli
+  Scenario: a phone heard without the flag is named as old at the adopt
+    Given the phone "pocket" asked to claim from "shed" without saying it checks codes
+    When the owner runs "roger edge adopt pocket" on "shed"
+    Then the adopt output says "pocket runs a roger or app from before root proofs: it will not check the code"
+
+  @security @cli
+  Scenario: roger edge enroll tells the authority it checks codes
+    When this machine enrolls with a code
+    Then its request to "shed" carried checks_root true
+    And "shed" remembers this machine as one that checks codes
+
+  @security @cli
+  Scenario: a replayed old app's claim cannot claim to check codes
+    Given the phone "pocket" asked to claim from "shed" without saying it checks codes
+    When that claim is replayed to "shed" with checks_root set and no checks_root_sig
+    Then "shed" still has "pocket" as one that does not check codes
+    And the adopt output says "pocket runs a roger or app from before root proofs: it will not check the code"
+
+  @security
+  Scenario: checks_root is outside the signature and an older authority ignores it
+    Given a joiner's request signed without checks_root
+    Then setting checks_root on it leaves the signed bytes and the signature good
+    And the same request with checks_root and a field no authority knows is answered, not refused
+
+  # The owner's fleet window says it too, on a member's page in the rack: "checked this Edge's code
+  # when it joined", or "did not say it checks codes: a roger or app from before root proofs. update
+  # it". Not a scenario here, because the @tui and @console runners of this file drive the join
+  # screens, not the rack; pinned by internal/fleetview TestAPhoneWithNoBatteryReadingHasNoProcessorColumns
+  # and read from the authority's notes by cmd/rogerai edgeFleetSource.
+
+  @security @ios
+  Scenario: an updated phone app says it checks codes on every join request
+    Given the phone runs an app that verifies root proofs
+    When it enrolls by address, joins by an invite, or claims after an adopt
+    Then the request carries "checks_root": true and a "checks_root_sig" that reproduces the golden vectors
+    And against an authority from before the flag it is answered exactly as before
+
   @security
   Scenario: an old joiner can still enroll against a new authority
     Given a joiner running a roger from before root proofs

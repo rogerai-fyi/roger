@@ -25,6 +25,12 @@ type NodeHealth struct {
 	// Readings is the newest report across the node's instances, or nil when it reports nothing.
 	Readings *store.EdgeResources
 	ReadAge  time.Duration // how old Readings is
+	// Power is the node's newest power report - from its own readings when it is dialed, from its
+	// signed v3 presence when it dials out - and PowerAge how old it is. nil when it reports none.
+	Power    *store.EdgePower
+	PowerAge time.Duration
+	// Asleep is a phone whose last beat said the system put its app in the background.
+	Asleep bool
 }
 
 // MemoryLevel is memory as a level of a REAL total, drawable as a bar. ok is false when the node
@@ -80,6 +86,11 @@ func FleetHealth(f *Fleet, now time.Time) ([]NodeHealth, error) {
 		if h.Readings != nil {
 			h.ReadAge = now.Sub(time.Unix(h.Readings.ReadAt, 0))
 		}
+		h.Power = NodePower(n)
+		if h.Power != nil {
+			h.PowerAge = now.Sub(time.Unix(h.Power.ReadAt, 0))
+		}
+		h.Asleep = PhoneAsleep(n.Kind, n.Phone)
 		out = append(out, h)
 	}
 	return out, nil

@@ -2004,9 +2004,34 @@ func edgeNodeCodeLine(nodeID, name string) string {
 	if !ok {
 		return ""
 	}
-	return fmt.Sprintf("  on %s, enter the enrollment code %s (good for %d minutes, for one join).\n"+
-		"  a device running a roger or app from before root proofs does not check it: update it before it joins.",
+	line := fmt.Sprintf("  on %s, enter the enrollment code %s (good for %d minutes, for one join).",
 		name, code, int(edgeauth.CodeLifetime.Minutes()))
+	checks, heard := edgeNodeChecksRoot(nodeID)
+	return line + edgeChecksCodeWarning(name, checks, heard)
+}
+
+// edgeNodeChecksRoot is what this authority has heard the node say about checking codes (ruling D9,
+// fixed 2026-10-13): a phone polls its claim before it is adopted, so by the adopt it has usually
+// spoken. heard is false when it has not.
+func edgeNodeChecksRoot(nodeID string) (checks, heard bool) {
+	local, ok, err := edgeauth.OpenLocal(edgeAuthDir())
+	if err != nil || !ok {
+		return false, false
+	}
+	return local.NodeChecksRoot(nodeID)
+}
+
+// edgeChecksCodeWarning is the D9 line for one joiner, worded by what it said: nothing for a joiner
+// that said it checks codes, a plain statement for one that spoke without saying so, and the general
+// warning for one not heard yet. Each non-empty answer starts on a new line.
+func edgeChecksCodeWarning(name string, checks, heard bool) string {
+	switch {
+	case heard && checks:
+		return ""
+	case heard:
+		return "\n  " + name + " runs a roger or app from before root proofs: it will not check the code. update it before it joins."
+	}
+	return "\n  a device running a roger or app from before root proofs does not check it: update it before it joins."
 }
 
 // edgeReadmitCodeLine is edgeNodeCodeLine for a re-admitted device, which may not need it.
