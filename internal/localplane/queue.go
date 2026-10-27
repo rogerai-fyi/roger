@@ -118,6 +118,13 @@ func (q *queue) take(stationID string, models []string) (*job, bool) {
 // done. A station calls this to fetch work; the Tower dials nobody.
 func (q *queue) poll(ctx context.Context, stationID string, models []string) (*job, bool) {
 	for {
+		// A station that went away never claims: a job it took would sit in flight with no one
+		// to complete it, and the consumer would wait out the timeout instead of being served
+		// by a station still polling. (select picks at random when a wake and the cancel are
+		// both ready, so the loop must check before every scan.)
+		if ctx.Err() != nil {
+			return nil, false
+		}
 		ch := q.waitCh() // taken BEFORE the scan, so a wake between scan and wait is not lost
 		if j, ok := q.take(stationID, models); ok {
 			return j, true
