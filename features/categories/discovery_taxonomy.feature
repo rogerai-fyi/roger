@@ -107,9 +107,13 @@ Feature: The public market carries and filters by the model taxonomy
     When a consumer GETs /discover?category=&tag=&policy=
     Then the listed nodes are "n1,n2,n3,n4,n5,n6"
 
-  Scenario: Unrelated query parameters are ignored
+  # corrected 2026-10-27 (founder ruling 2026-10-27): the routing contract's discovery filters
+  # (features/discovery/filters.feature) win - an unknown query parameter is refused, with or
+  # without a taxonomy filter beside it.
+  Scenario: An unknown query parameter is refused
     When a consumer GETs /discover?foo=bar&category=language
-    Then the listed nodes are "n4,n5"
+    Then the response status is 400
+    And the error code is "unknown_query_param"
 
   Scenario: A filtered /discover keeps the cheapest-first order
     When a consumer GETs /discover?category=vision
@@ -230,6 +234,11 @@ Feature: The public market carries and filters by the model taxonomy
   # model/confidential/freq query values although neither view filters on them, so varying
   # those values forced a fresh recompute each time, and enough distinct keys reset the whole
   # in-process cache. Nothing in the payload depends on them, so they no longer reach the key.
+  # corrected 2026-10-27 (founder ruling 2026-10-27): features/discovery/filters.feature wins.
+  # model and confidential are real /discover filters applied over the one cached entry, and an
+  # unknown parameter (freq) is a 400; neither recomputes. /market?model= is a real filter whose
+  # aggregates are recomputed over the surviving providers, so its row is removed here (pinned
+  # in filters.feature).
   Scenario Outline: Unused query values never recompute the market
     Given the public market cache is warm
     When a consumer GETs /<view> with 50 different random "<param>" values
@@ -240,7 +249,6 @@ Feature: The public market carries and filters by the model taxonomy
       | discover | model        |
       | discover | confidential |
       | discover | freq         |
-      | market   | model        |
       | market   | freq         |
 
   Scenario: A filtered read on a cold cache computes the market once
