@@ -51,6 +51,9 @@ type Local struct {
 	// mu serialises claim, grant and issue: check-take-issue-record-consume must be atomic so two
 	// racing claims cannot both mint a certificate for one adopt (audit 2026-09-23).
 	mu sync.Mutex
+	// OnRevoked, when set, is told the serials a claim revoked, so the running authority's own list
+	// takes them at once rather than at its next refresh.
+	OnRevoked func(serials []string)
 }
 
 // Designate generates this Edge's root, here, once.
@@ -368,6 +371,9 @@ type ClaimGrant struct {
 	NodeID string `json:"node_id"`
 	Name   string `json:"name,omitempty"`
 	At     int64  `json:"at,omitempty"`
+	// Readmit marks a routine re-admit: the node's old certificates are revoked when it claims with
+	// its key, never at the adopt, which an unauthenticated advert can trigger (claim.feature).
+	Readmit bool `json:"readmit,omitempty"`
 }
 
 // GrantClaim records that the owner has ADOPTED a node, so it may claim a certificate
@@ -377,12 +383,12 @@ func (l *Local) GrantClaim(nodeID, name string) error {
 	if strings.TrimSpace(nodeID) == "" {
 		return nil
 	}
-	return l.withLock(func() error { return l.grantClaimLocked(nodeID, name) })
+	return l.withLock(func() error { return l.grantClaimLocked(nodeID, name, false) })
 }
 
 // grantClaimLocked adds or renews a claim grant; the caller holds the authority lock. Shared by
 // GrantClaim and ReAdmit so a re-admit grants under the same lock as its revoke + clear.
-func (l *Local) grantClaimLocked(nodeID, name string) error {
+func (l *Local) grantClaimLocked(nodeID, name string, readmit bool) error {
 	got, err := l.readClaims()
 	if err != nil {
 		return err
@@ -392,13 +398,14 @@ func (l *Local) grantClaimLocked(nodeID, name string) error {
 			// A re-adopt renews the grant: it refreshes the clock (so an expired grant becomes
 			// live again rather than a silent no-op) and fills in a name it did not have.
 			got[i].At = time.Now().Unix()
+			got[i].Readmit = got[i].Readmit || readmit
 			if name != "" {
 				got[i].Name = name
 			}
 			return l.writeJSON(ClaimsFile, got)
 		}
 	}
-	return l.writeJSON(ClaimsFile, append(got, ClaimGrant{NodeID: nodeID, Name: name, At: time.Now().Unix()}))
+	return l.writeJSON(ClaimsFile, append(got, ClaimGrant{NodeID: nodeID, Name: name, At: time.Now().Unix(), Readmit: readmit}))
 }
 
 // ReAdmit deliberately re-admits a node the owner had removed, or that left the Edge and wants back.
@@ -450,8 +457,8 @@ func (l *Local) ReAdmitRoutine(nodeID, name string) ([]string, error) {
 				return ErrRevokedNeedsReadmit
 			}
 		}
-		revoked, err = l.reAdmitLocked(nodeID, name)
-		return err
+		// Nothing is revoked here: the old certificates go when the device claims with its key.
+		return l.grantClaimLocked(nodeID, name, true)
 	})
 	return revoked, err
 }
@@ -478,7 +485,7 @@ func (l *Local) reAdmitLocked(nodeID, name string) ([]string, error) {
 	if err := l.clearIssued(nodeID); err != nil {
 		return revoked, err
 	}
-	return revoked, l.grantClaimLocked(nodeID, name)
+	return revoked, l.grantClaimLocked(nodeID, name, false)
 }
 
 // clearIssued drops a node's issued-serial records (issued.json + issued_history.json). The serials
@@ -590,6 +597,7 @@ func (l *Local) Claim(c ClaimRequest, now time.Time) (Response, error) {
 	// The whole take-grant -> issue -> record -> consume runs under the authority lock (in-process
 	// AND cross-process) so two racing claims for one adopt cannot both mint a certificate.
 	var resp Response
+	var revokedNow []string
 	err := l.withLock(func() error {
 		grant, ok := l.grantFor(c.NodeID)
 		if !ok {
@@ -627,6 +635,23 @@ func (l *Local) Claim(c ClaimRequest, now time.Time) (Response, error) {
 		if _, err := l.readCodes(); err != nil {
 			return err
 		}
+		// A routine re-admit: the device has now proved its key, so its old certificates go in this
+		// same locked step as the new one is issued.
+		if grant.Readmit {
+			for _, s := range serials {
+				n, ok := parseSerial(s)
+				if !ok {
+					return fmt.Errorf("%q is not a certificate serial", s)
+				}
+				if err := l.auth.Revoke(n); err != nil {
+					return err
+				}
+				revokedNow = append(revokedNow, s)
+			}
+			if err := l.clearIssued(c.NodeID); err != nil {
+				return err
+			}
+		}
 		leaf, err := l.auth.Issue(c.NodeID, pub)
 		if err != nil {
 			return fmt.Errorf("that certificate could not be issued: %w", err)
@@ -649,6 +674,9 @@ func (l *Local) Claim(c ClaimRequest, now time.Time) (Response, error) {
 		// The adopt's code is spent with the grant, in this same locked step.
 		return l.prove(&resp, nodeJoin(c.NodeID), c.Nonce)
 	})
+	if len(revokedNow) > 0 && l.OnRevoked != nil {
+		l.OnRevoked(revokedNow)
+	}
 	if err != nil {
 		return Response{}, err
 	}

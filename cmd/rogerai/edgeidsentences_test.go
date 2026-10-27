@@ -123,3 +123,21 @@ func TestTheScreensAdoptRefusalNamesAnUnnamedMember(t *testing.T) {
 	require.NotContains(t, err.Error(), "n_7c7c", "never the id")
 	require.Contains(t, err.Error(), "board")
 }
+
+// claim.feature (2026-10-26): "an advert cannot move a member that serves a certificate onto the
+// claim path". The gate read the advert's own word that it served no certificate; a forged advert
+// carrying an offline Pi's id took the claim path, which revoked the Pi from one keypress.
+func TestAnAdvertCannotMoveAServingMemberOntoTheClaimPath(t *testing.T) {
+	newFacedAuthority(t, "desk")
+	id := "n_" + strings.Repeat("5e", 24)
+	edgeSeed(t, store.EdgeNode{ID: id, Name: "pi", Kind: "board", Pin: strings.Repeat("ab", 32), Presence: string(edge.PresenceDark)})
+	h, err := newEdgeHost("roger-desk")
+	require.NoError(t, err)
+	h.st.candidates = append(h.st.candidates, store.EdgeNode{ID: id, Name: "pi", Presence: string(edge.PresenceCandidate)}) // no Pin
+	err = h.adopt(id, "")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "pi is already a member of this Edge - forget it first")
+	local, _, err := edgeauth.OpenLocal(edgeAuthDir())
+	require.NoError(t, err)
+	require.False(t, local.ClaimGranted(id), "no claim was granted for the pi")
+}

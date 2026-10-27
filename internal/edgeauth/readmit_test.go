@@ -104,7 +104,7 @@ func TestReAdmitRoutineGatesRevokedDevices(t *testing.T) {
 	// A device that merely LEFT (not revoked): ReAdmitRoutine re-admits it.
 	revoked, err := local.ReAdmitRoutine(id, "pixel-8")
 	require.NoError(t, err)
-	require.NotEmpty(t, revoked, "the abandoned cert is revoked on a routine re-admit")
+	require.Empty(t, revoked, "nothing is revoked until the device proves its key (claim.feature, 2026-10-26)")
 	_, err = local.Claim(signedClaim(t, pub, priv, time.Now()), time.Now())
 	require.NoError(t, err, "a routine re-admit lets it claim afresh")
 
@@ -119,4 +119,60 @@ func TestReAdmitRoutineGatesRevokedDevices(t *testing.T) {
 	require.NoError(t, err)
 	_, err = local.Claim(signedClaim(t, pub, priv, time.Now()), time.Now())
 	require.NoError(t, err, "the explicit readmit lifts the revocation")
+}
+
+// claim.feature (2026-10-26): "re-adopting a member that joins by claim revokes its old certificate
+// only when the device proves its key". A discovery advert is not authenticated, so the adopt that a
+// forged advert can trigger must change nothing a real member depends on.
+func TestARoutineReAdmitRevokesTheOldCertificateOnlyWhenTheDeviceClaims(t *testing.T) {
+	_, local, pub, priv, id := secFixture(t)
+	var told []string
+	local.OnRevoked = func(serials []string) { told = append(told, serials...) }
+	require.NoError(t, local.GrantClaim(id, "pixel-8"))
+	respA, err := local.Claim(signedClaim(t, pub, priv, time.Now()), time.Now())
+	require.NoError(t, err)
+	oldCert, err := edgeauth.DecodeCert(respA.Cert)
+	require.NoError(t, err)
+	old := oldCert.SerialNumber.String()
+
+	_, err = local.ReAdmitRoutine(id, "pixel-8")
+	require.NoError(t, err)
+	revs, err := local.Revocations()
+	require.NoError(t, err)
+	require.NotContains(t, revs, old, "the adopt alone revokes nothing")
+	require.True(t, local.ClaimGranted(id), "a claim is granted")
+
+	respB, err := local.Claim(signedClaim(t, pub, priv, time.Now()), time.Now())
+	require.NoError(t, err)
+	revs, err = local.Revocations()
+	require.NoError(t, err)
+	require.Contains(t, revs, old, "the device proved its key: the old certificate is revoked")
+	require.Equal(t, []string{old}, told, "and the authority is told at once")
+	newCert, err := edgeauth.DecodeCert(respB.Cert)
+	require.NoError(t, err)
+	require.NotEqual(t, old, newCert.SerialNumber.String())
+	gotID, err := local.Authority().Authenticate(newCert)
+	require.NoError(t, err, "the new certificate stands")
+	require.Equal(t, id, gotID)
+}
+
+func TestARoutineReAdmitThatIsNeverClaimedChangesNothing(t *testing.T) {
+	_, local, pub, priv, id := secFixture(t)
+	require.NoError(t, local.GrantClaim(id, "pixel-8"))
+	respA, err := local.Claim(signedClaim(t, pub, priv, time.Now()), time.Now())
+	require.NoError(t, err)
+	oldCert, err := edgeauth.DecodeCert(respA.Cert)
+	require.NoError(t, err)
+
+	_, err = local.ReAdmitRoutine(id, "pixel-8")
+	require.NoError(t, err)
+	late := time.Now().Add(edgeauth.GrantValidity + time.Minute)
+	_, err = local.Claim(signedClaim(t, pub, priv, late), late)
+	require.ErrorIs(t, err, edgeauth.ErrNotAdopted, "the grant expired")
+	revs, err := local.Revocations()
+	require.NoError(t, err)
+	require.NotContains(t, revs, oldCert.SerialNumber.String(), "the phone's certificate still stands")
+	gotID, err := local.Authority().Authenticate(oldCert)
+	require.NoError(t, err)
+	require.Equal(t, id, gotID)
 }
