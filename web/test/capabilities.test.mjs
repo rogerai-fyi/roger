@@ -1,5 +1,5 @@
 // ONE SOURCE OF TRUTH FOR ADAPTER, SKILL AND DEVICE STATUS
-// (features/web/sensor_positioning.feature, PROPOSED 2026-10-15).
+// (features/web/sensor_positioning.feature, approved 2026-10-26).
 //
 // web/src/data/capabilities.json holds every adapter, base skill and device row with its
 // status from a fixed vocabulary. Pages render it through a {{cap:<id>.<field>}} token

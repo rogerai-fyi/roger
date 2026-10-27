@@ -282,7 +282,7 @@
     { spine: true, model: "wave-micro", label: "WAVE MICRO", sub: "7–8B · the site",
       chip: "TRAINING", why: "Its from-scratch 7B run is training - no checkpoint exists to put on air yet." },
     { spine: true, model: "wave-giga", label: "WAVE GIGA", sub: "27–35B · the plant",
-      chip: "PLANNED", why: "A planned band, not a final specification - nothing to play yet." },
+      chip: "GATED", why: "Its release build is gated - it is not on the band yet, so nothing to play." },
     { spine: true, model: "wave-tera", label: "WAVE TERA", sub: "80–120B · enterprise",
       chip: "PLANNED", why: "A planned band: faults and trends correlated across many plants at once. Nothing to play yet." },
     { spine: true, model: "wave-peta", label: "WAVE PETA", sub: "150–200B · regional",

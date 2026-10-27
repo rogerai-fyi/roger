@@ -1,9 +1,8 @@
 // The cycle word (components.css .cycle-word + js/cycle.js): ONE implementation of
 // "a word that tunes to the next station", shared by the nav's App / TUI / WebUI item and
 // the homepage headline ("Tune in to the world's [decentralized | specialized |
-// industrialized] Models."). Founder ask 2026-10-16, FOR REVIEW: the headline word changes
-// like the nav's does; compare "cycles in page" (default) with "one word per load"
-// (?hero=refresh, a dev-only preview switch).
+// industrialized] Models."). Founder ask 2026-10-16; ruled 2026-10-26: the headline word cycles
+// in the page like the nav's does, starting on a different word each load.
 //
 // Locks:
 //   - the shipped HTML (no JS, crawlers, print) still reads the canonical word, so the
@@ -257,14 +256,12 @@ test("reduced motion: the load's word, shown still", () => {
   assert.equal(p.nav.textContent, "App");
 });
 
-test("?hero=refresh (dev-only preview): one word per load, no in-page cycling", () => {
+test("founder ruling 2026-10-26: the headline cycles in the page; the dev ?hero=refresh switch is gone", () => {
   const p = page({ search: "?hero=refresh", store: { "rogerai.cycle.hero-word": "2" } });
-  assert.equal(p.hero.textContent, "industrialized");
-  p.beat(p.hero, 6); p.flush();
-  assert.equal(p.hero.textContent, "industrialized");
-  p.beat(p.nav); p.flush();
-  assert.equal(p.nav.textContent, "TUI", "the nav is unaffected");
-  assert.match(CYCLE(), /DEV-ONLY[^\n]*remove before ship/i, "the switch is marked for removal");
+  assert.equal(p.hero.textContent, "industrialized", "the load rotation still picks the first word");
+  p.beat(p.hero); p.flush();
+  assert.equal(p.hero.textContent, "decentralized", "and a stray ?hero=refresh no longer stops the cycle");
+  assert.doesNotMatch(CYCLE(), /hero=refresh|DEV-ONLY/, "no preview switch ships");
 });
 
 test("fit: the line's tail closes up on the word by the slot's spare width, in em", async () => {

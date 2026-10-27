@@ -369,7 +369,7 @@ test("ledger: nothing claims a public checkpoint while none is released", () => 
 
 test("ledger: the pending set today (update this when the founder rules)", () => {
   assert.deepEqual(data().tiers.filter((t) => t.ruling === "pending").map((t) => t.id),
-    ["giga", "exa"]);
+    ["exa"]);
 });
 
 // Founder ruling 2026-10-21: Pico is on air (the v6 release, wave-pico-293m) and Nano's
@@ -383,7 +383,7 @@ test("ruling 2026-10-21: Pico on air, Nano gated, and no page still says otherwi
   assert.equal(tierById("micro").stage, "training", "Micro's from-scratch 7B run started (ruling 2026-10-21)");
   assert.equal(tierById("micro").publicCheckpoint, false);
   assert.equal(tierById("giga").stage, "gated", "Giga stays gated");
-  assert.equal(tierById("giga").ruling, "pending", "and pending");
+  assert.equal(tierById("giga").ruling, undefined, "and ruled gated 2026-10-26");
   for (const id of ["pico", "nano", "micro"]) assert.notEqual(tierById(id).ruling, "pending", `${id} is ruled`);
   const STALE = [/certified 100M-class/i, /Certifying the waypoint/i, /300M retrain next/i, /WAYPOINT TRAINED/,
     /queued behind Pico/i, /NEXT BUILD/, /Nano is in training/i, /Wave Nano is in training/i,

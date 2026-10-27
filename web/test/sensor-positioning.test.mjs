@@ -1,5 +1,5 @@
 // "Your device, now a sensor": the page scenarios of
-// features/web/sensor_positioning.feature (PROPOSED 2026-10-15, awaiting founder approval).
+// features/web/sensor_positioning.feature (approved 2026-10-26).
 // The data file, the token and the sitewide sweeps live in capabilities.test.mjs.
 //
 // Every block here is design tense and number-free: no digit in its visible words, no

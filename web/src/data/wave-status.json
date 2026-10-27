@@ -222,31 +222,30 @@
       "stage": "gated",
       "publicCheckpoint": false,
       "onAirBand": null,
-      "ruling": "pending",
       "labels": {
         "research.scope": {
           "page": "research.html",
-          "text": "Planned",
+          "text": "Gated",
           "wired": true
         },
         "research-models.chip": {
           "page": "research-models.html",
-          "text": "PLANNED",
+          "text": "GATED",
           "wired": true
         },
         "research-models.stage": {
           "page": "research-models.html",
-          "text": "Base selection",
+          "text": "Release build gated &middot; not on the band yet",
           "wired": false
         },
         "research-hardware.card": {
           "page": "research-hardware.html",
-          "text": "Base selection",
+          "text": "Release build gated &middot; not on the band yet",
           "wired": true
         },
         "playbox.chip": {
           "page": "js/playbox.js",
-          "text": "PLANNED",
+          "text": "GATED",
           "wired": false
         },
         "jev-vs-wave.meta": {

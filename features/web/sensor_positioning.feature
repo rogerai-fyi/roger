@@ -1,5 +1,5 @@
-# PROPOSED 2026-10-15, AWAITING FOUNDER APPROVAL. Built on a review branch only; nothing
-# here is published until the founder approves this spec and the pages that follow it.
+# PROPOSED 2026-10-15. APPROVED by the founder 2026-10-26 for the next web release, with
+# the headline ruling (the word cycles in the page).
 #
 # The positioning: "your device, now a sensor". A site installs RogerAI on a computer it
 # already owns, picks a Wave model, and picks an adapter for the job. Every sentence is in

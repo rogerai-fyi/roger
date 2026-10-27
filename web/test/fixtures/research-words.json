@@ -181,8 +181,8 @@
   ]
  },
  "research-hardware.html": {
-  "sha": "eec71650bf21a963a8c94e2402422689258462e15eb40dc637e1b1ccdc0a70cf",
-  "length": 8869,
+  "sha": "cdf730286dca07557d13371db7cfead9f4238cfc6f16b8531df1feeecca2c934",
+  "length": 8896,
   "hrefs": [
    "/research.html",
    "/research-models.html",
@@ -236,8 +236,8 @@
   ]
  },
  "research-models.html": {
-  "sha": "ae8a140e3b156c7241650e872e3f5e0c92d6b38d5e57a85d90021247ed4bc1b2",
-  "length": 6762,
+  "sha": "5073ae09a575c9dd11304ac5600db2aad62951a9f11f5a653a7403f979d78dba",
+  "length": 6767,
   "hrefs": [
    "/research.html",
    "/research-wave-pico.html",
@@ -296,8 +296,8 @@
   ]
  },
  "research.html": {
-  "sha": "4a64460e27f906b81cf829c462e07ea02ad3f9168a9595d06fbb77c6447a0e4e",
-  "length": 5427,
+  "sha": "ffbc8f03d06fd52176eba6b356cb357294d470cbce3d3918352836b2778b9171",
+  "length": 5425,
   "hrefs": [
    "/research-models.html",
    "/research-wave-pico.html",

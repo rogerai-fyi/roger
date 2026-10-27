@@ -31,9 +31,6 @@
   var SWAP_MS = 260;     // the outgoing word's fade (components.css .cycle-word)
   var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)");
   var still = !!(reduce && reduce.matches);
-  // DEV-ONLY founder preview, remove before ship: ?hero=refresh shows one word per load
-  // and never cycles in the page, to compare with the default (cycles in the page).
-  var refreshOnly = /[?&]hero=refresh(?:&|$)/.test(window.location.search || "");
 
   function loadIndex(key, n) {
     try {
@@ -85,7 +82,7 @@
       else fit();
     }
 
-    if (still || (store && refreshOnly)) return;
+    if (still) return;
 
     var loops = 0, paused = false;
     var pauser = link || word;
