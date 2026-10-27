@@ -3,6 +3,7 @@ package store
 import (
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -97,6 +98,17 @@ func (m *Mem) MonthSpendOf(holder string, now time.Time) (float64, error) {
 	return sum, nil
 }
 
+// HoldGuard is every limit one hold must fit (HoldGuarded): the account key's spend limit
+// (KeyID set and Key.USD > 0; the reservation is attributed to KeyID either way) and the
+// wallet's monthly cap (MonthlyCap > 0, judged at Now).
+type HoldGuard struct {
+	KeyID      string
+	KeyTS      int64
+	Key        KeyLimit
+	MonthlyCap float64
+	Now        time.Time
+}
+
 // CappedHold is the outcome of HoldForCapped.
 type CappedHold struct {
 	OK      bool    // the hold landed
@@ -118,11 +130,19 @@ func overCap(spend, pending, amount, cap float64) bool {
 // the open pending holds are read and the hold placed in the same critical section, so two
 // concurrent requests can never both fit a cap that has room for one. See the Store interface.
 func (m *Mem) HoldForCapped(user, requestID string, amount, monthlyCap float64, now time.Time) (CappedHold, error) {
+	return m.HoldGuarded(user, requestID, amount, HoldGuard{MonthlyCap: monthlyCap, Now: now})
+}
+
+// HoldGuarded: see Store. Every check runs under the one store mutex, like the transaction.
+func (m *Mem) HoldGuarded(user, requestID string, amount float64, g HoldGuard) (CappedHold, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	var res CappedHold
-	if monthlyCap > 0 {
-		start, end := monthRange(now)
+	if g.KeyID != "" && g.Key.USD > 0 && !g.Key.fits(m.keySpendLocked(g.KeyID, g.Key.From, g.Key.To), m.keyReservedLocked(g.KeyID, requestID), amount) {
+		return res, ErrKeyLimit
+	}
+	if monthlyCap := g.MonthlyCap; monthlyCap > 0 {
+		start, end := monthRange(g.Now)
 		for _, r := range m.ledger {
 			if r.Holder == user && r.Kind == KindSpend && r.State != StateReversed && r.TS >= start && r.TS < end {
 				res.Spend += -r.Amount
@@ -138,6 +158,14 @@ func (m *Mem) HoldForCapped(user, requestID string, amount, monthlyCap float64, 
 			return res, nil
 		}
 	}
+	if g.KeyID != "" {
+		if !m.holdRefLocked(user, amount, requestID) {
+			return res, nil
+		}
+		m.pendingHolds[requestID] = pendingHold{user: user, amount: amount, placedAt: time.Now().Unix(), keyID: g.KeyID, keyTS: g.KeyTS}
+		res.OK = true
+		return res, nil
+	}
 	if !m.holdLocked(user, amount) {
 		return res, nil
 	}
@@ -150,23 +178,65 @@ func (m *Mem) HoldForCapped(user, requestID string, amount, monthlyCap float64, 
 type PriceQuote struct {
 	In, Out float64
 	Until   time.Time
+	Promo   bool // minted under a briefly posted price: it ends when that price does (LockPrice)
+}
+
+// StoredQuote is one price lock as stored: whose, on which station and model.
+type StoredQuote struct {
+	User, Node, Model string
+	PriceQuote
+}
+
+// LockOpts are LockPrice's rules: Mint writes a lock when none is live; Promo marks the one
+// it writes as a promo lock.
+type LockOpts struct {
+	Mint, Promo bool
+}
+
+// live reports whether q still binds at now against the station's current price.
+func (q PriceQuote) live(now time.Time, curIn, curOut float64) bool {
+	return now.Before(q.Until) && (!q.Promo || (q.In == curIn && q.Out == curOut))
 }
 
 // QuotePrice is the in-memory model of the price_quotes table: insert-if-absent under m.mu,
 // an expired quote replaced. See the Store interface.
 func (m *Mem) QuotePrice(user, node, model string, in, out float64, now time.Time, window time.Duration) (PriceQuote, error) {
+	q, _, err := m.LockPrice(user, node, model, in, out, now, window, LockOpts{Mint: true})
+	return q, err
+}
+
+// PriceQuotes: see Store.
+func (m *Mem) PriceQuotes(node, model string) ([]StoredQuote, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []StoredQuote
+	for k, q := range m.priceQuotes {
+		parts := strings.SplitN(k, "|", 3)
+		if len(parts) != 3 || (node != "" && parts[1] != node) || (model != "" && parts[2] != model) {
+			continue
+		}
+		out = append(out, StoredQuote{User: parts[0], Node: parts[1], Model: parts[2], PriceQuote: q})
+	}
+	return out, nil
+}
+
+// LockPrice is the in-memory model of LockPrice's statement. See the Store interface.
+func (m *Mem) LockPrice(user, node, model string, in, out float64, now time.Time, window time.Duration, o LockOpts) (PriceQuote, bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.priceQuotes == nil {
 		m.priceQuotes = map[string]PriceQuote{}
 	}
 	key := user + "|" + node + "|" + model
-	if q, ok := m.priceQuotes[key]; ok && now.Before(q.Until) {
-		return q, nil
+	if q, ok := m.priceQuotes[key]; ok && q.live(now, in, out) {
+		return q, true, nil
 	}
-	q := PriceQuote{In: in, Out: out, Until: now.Add(window)}
+	if !o.Mint {
+		return PriceQuote{}, false, nil
+	}
+	q := PriceQuote{In: in, Out: out, Until: now.Add(window), Promo: o.Promo}
 	m.priceQuotes[key] = q
-	return q, nil
+	return q, true, nil
 }
 
 // PruneExpiredPriceQuotes is the in-memory model of the bounded expired-quote delete.

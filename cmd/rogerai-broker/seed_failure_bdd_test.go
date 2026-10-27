@@ -10,9 +10,8 @@ package main
 //     "DB blip during the seed write" shape of the 2026-07-02 smell.
 //   - The W4 seeded-flag accelerator runs on miniredis (real Redis protocol), like
 //     cacheaccel_test.go / cross_instance_bdd_test.go.
-//   - The suite runs in a PRIVATE database (<db>_brokerseed) so its global seed_counter
-//     assertions can never cross-pollinate with parallel packages (the storePrivateDSN
-//     convention from internal/store).
+//   - The suite runs in this package's PRIVATE database (internal/pgtest), so its global
+//     seed_counter assertions can never cross-pollinate with parallel packages.
 // signReq lives in auth_test.go; relayBroker in enforce_test.go; feApprox/feParseFloat in
 // fee_splits_bdd_test.go; testValkeyShared in cacheaccel_test.go (same package).
 
@@ -24,8 +23,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
-	"os"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"strconv"
 	"strings"
 	"testing"
@@ -33,6 +31,7 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/cucumber/godog"
+	"rogerai.fm/roger/v6/internal/pgtest"
 	"rogerai.fm/roger/v6/internal/protocol"
 	"rogerai.fm/roger/v6/internal/store"
 )
@@ -68,38 +67,6 @@ type sfState struct {
 
 	lastCode int
 	lastBody string
-}
-
-// sfPrivateDSN mirrors internal/store's storePrivateDSN: this suite asserts the GLOBAL
-// seed_counter, so it gets its own database (<db>_brokerseed) that no parallel package
-// can touch. Created once, tolerating "already exists" across runs.
-func sfPrivateDSN(t *testing.T, dsn string) string {
-	t.Helper()
-	u, err := url.Parse(dsn)
-	if err != nil || u.Path == "" || u.Path == "/" {
-		return dsn
-	}
-	name := strings.TrimPrefix(u.Path, "/") + "_brokerseed"
-	admin, err := sql.Open("pgx", dsn)
-	if err != nil {
-		t.Fatalf("brokerseed db: open admin: %v", err)
-	}
-	defer admin.Close()
-	quoted := `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
-	if _, err := admin.Exec(`CREATE DATABASE ` + quoted); err != nil && !strings.Contains(err.Error(), "already exists") {
-		t.Fatalf("brokerseed db: create %s: %v", name, err)
-	}
-	u.Path = "/" + name
-	private := u.String()
-	pdb, err := sql.Open("pgx", private)
-	if err != nil {
-		t.Fatalf("brokerseed db: open: %v", err)
-	}
-	defer pdb.Close()
-	if _, err := pdb.Exec(`CREATE SCHEMA IF NOT EXISTS rogerai`); err != nil {
-		t.Fatalf("brokerseed db: schema: %v", err)
-	}
-	return private
 }
 
 // reset gives every scenario a clean slate: relations restored, every money table
@@ -691,17 +658,16 @@ func (s *sfState) seedStatusIs(seededStr, limitStr, remStr string) error {
 }
 
 func TestSeedFailureBDD(t *testing.T) {
-	dsn := os.Getenv("ROGERAI_TEST_DATABASE_URL")
+	dsn := pgtest.DSN(t)
 	if dsn == "" {
 		t.Skip("ROGERAI_TEST_DATABASE_URL not set; skipping the Postgres-backed seed-failure money spec")
 	}
-	private := sfPrivateDSN(t, dsn)
-	pg, err := store.NewPostgres(private)
+	pg, err := store.NewPostgres(dsn)
 	if err != nil {
 		t.Fatalf("postgres: %v", err)
 	}
 	t.Cleanup(func() { _ = pg.Close() })
-	rawDB, err := sql.Open("pgx", private)
+	rawDB, err := sql.Open("pgx", dsn)
 	if err != nil {
 		t.Fatalf("open raw db: %v", err)
 	}
@@ -768,7 +734,7 @@ func TestSeedFailureBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("money/seed_failure behavior scenarios failed (see godog output above)")
 	}
 }

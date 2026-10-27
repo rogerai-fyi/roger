@@ -77,7 +77,7 @@ func (s *cnState) issueGrant(kind string) error {
 }
 
 func (s *cnState) botRelaysWithGrant(paid bool) error {
-	rec := s.relayAs("", nil, "qwen3-32b", "", false, map[string]string{"Authorization": "Bearer " + s.grantSecret})
+	rec := s.relayAs("", nil, "qwen3-32b", "", false, map[string]string{"Authorization": "Bearer " + s.grantSecret, "X-Roger-Max-Price": paidStationCap["X-Roger-Max-Price"]})
 	if rec.Code != 200 {
 		return fmt.Errorf("the grant relay was not served: %d %s", rec.Code, rec.Body.String())
 	}

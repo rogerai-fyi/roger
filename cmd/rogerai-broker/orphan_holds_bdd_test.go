@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"sync"
 	"testing"
 	"time"
@@ -380,7 +381,7 @@ func TestOrphanHoldsBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("money/orphan_holds behavior scenarios failed (see godog output above)")
 	}
 }

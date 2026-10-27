@@ -40,6 +40,7 @@ func (s *cnState) relayCountingOn(bk *broker) error {
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
 	signReq(req, s.acctKey, body)
 	req.Header.Set("X-Roger-Node", s.st("n-1").id)
+	req.Header.Set("X-Roger-Max-Price", paidStationCap["X-Roger-Max-Price"])
 	rec := httptest.NewRecorder()
 	bk.relay(rec, req)
 	s.resp = rec

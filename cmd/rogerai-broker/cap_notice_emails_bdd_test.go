@@ -235,10 +235,14 @@ func (s *cnState) spent(amt string) error {
 // relayPaid sends one paid relay for the account through its CLI key (or the named identity).
 func (s *cnState) relayPaid(key ed25519.PrivateKey, session string) *httptest.ResponseRecorder {
 	start := time.Now()
-	rec := s.relayAs(session, key, "qwen3-32b", "n-1", false, nil)
+	rec := s.relayAs(session, key, "qwen3-32b", "n-1", false, paidStationCap)
 	s.relayDur = time.Since(start)
 	return rec
 }
+
+// paidStationCap lifts the request's input-price cap above the paid station's $40/1M, since
+// the broker's default input cap (routing slices) would otherwise filter that station out.
+var paidStationCap = map[string]string{"X-Roger-Max-Price": "50"}
 
 // --- Background ---------------------------------------------------------------------------
 
@@ -399,7 +403,7 @@ func (s *cnState) one80One100() error {
 	if err := s.exactlyOneMapped("Monthly spend at 80%", s.acctAddr); err != nil {
 		return err
 	}
-	return s.exactlyOneMapped("Monthly spend limit reached", s.acctAddr)
+	return s.exactlyOneMapped("A paid request hit your monthly spend limit", s.acctAddr)
 }
 
 // noticeAt drives the cap-notice entry point for the account at a scenario clock (see header).
@@ -489,6 +493,7 @@ func (s *cnState) eachInstanceAtOnce() error {
 			req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
 			signReq(req, s.acctKey, body)
 			req.Header.Set("X-Roger-Node", s.st("n-1").id)
+			req.Header.Set("X-Roger-Max-Price", paidStationCap["X-Roger-Max-Price"])
 			rec := httptest.NewRecorder()
 			bk.relay(rec, req)
 			done <- rec

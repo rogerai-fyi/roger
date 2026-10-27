@@ -265,10 +265,15 @@ func TestProbeMinVerifiedLapsesOnTheNormalWindow(t *testing.T) {
 		{"declared, past the window", sixHours, 16 * time.Minute, false, false},
 		{"declared, hours later", sixHours, 5 * time.Hour, false, false},
 		{"declared, real traffic refreshes it as today", sixHours, 5 * time.Hour, true, true},
-		{"undeclared node keeps today's behaviour", 0, 5 * time.Hour, false, true},
-		// A minimum at or under the ceiling is probed inside the normal window anyway, so the
-		// result-arrival jitter must not cost it the mark every cycle.
-		{"declared at the ceiling does not flap", 900, 16 * time.Minute, false, true},
+		// Since the routing slices (features/discovery/filters.feature, approved 2026-10-02),
+		// /discover's verified mark means a passed canary within the measurement freshness
+		// window for EVERY node, so an undeclared node lapses on the same window too.
+		{"undeclared node follows the freshness window", 0, 14 * time.Minute, false, true},
+		{"undeclared node past the freshness window", 0, 5 * time.Hour, false, false},
+		// A minimum at or under the ceiling changes nothing against an undeclared node: inside
+		// the window it keeps the mark, past it it lapses exactly as an undeclared node does.
+		{"declared at the ceiling keeps the mark inside the window", 900, 14 * time.Minute, false, true},
+		{"declared at the ceiling lapses like an undeclared node", 900, 16 * time.Minute, false, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			b := probeMinBroker()

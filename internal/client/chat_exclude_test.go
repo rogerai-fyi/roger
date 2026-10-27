@@ -1,7 +1,9 @@
 package client
 
 import (
+	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -9,17 +11,18 @@ import (
 )
 
 // The in-channel chat turn must carry the caller's STANDING exclusions, not only the
-// stations that already failed this turn.
+// stations that already failed this turn - as provider.ignore in the request body, the one
+// carrier policy every in-booth path speaks (X-Roger-Exclude-Nodes is the old-broker
+// header-mode form).
 //
-// Why it matters: the broker groups offers by model id alone, so a tuned row that means
-// "this model at THIS quant" is only honoured if the caller names the stations running a
-// different one. The relay path (client.ProxyOptions.ExcludeNodes) already did this; the
-// TUI's own chat turn did not, so "tuning a row binds routing" quietly failed for the
-// booth's chat while passing for `roger use`.
+// Why it matters: a caller's standing exclusions are how a station it will not accept stays
+// out of the re-pick. The relay path already did this; the TUI's own chat turn did not, so
+// "an exclusion binds routing" quietly failed for the booth's chat while passing for
+// `roger use`.
 func TestChatTurnsCarriesTheCallersExclusions(t *testing.T) {
 	var got string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		got = r.Header.Get("X-Roger-Exclude-Nodes")
+		got = bodyIgnore(r)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"choices": []map[string]any{{"message": map[string]string{"content": "ok"}}},
@@ -35,17 +38,18 @@ func TestChatTurnsCarriesTheCallersExclusions(t *testing.T) {
 
 	for _, want := range []string{"node-b", "node-c"} {
 		if !strings.Contains(got, want) {
-			t.Errorf("X-Roger-Exclude-Nodes = %q, missing %q - the tuned row does not bind routing", got, want)
+			t.Errorf("provider.ignore = %q, missing %q - the standing exclusion does not bind routing", got, want)
 		}
 	}
 }
 
-// No exclusions and no failures means no header at all: an empty exclusion list must not
-// become an empty header the broker has to interpret.
+// No exclusions and no failures means no key at all: an empty exclusion list must not
+// become an empty provider.ignore (or header) the broker has to interpret.
 func TestChatTurnsSendsNoExclusionHeaderWhenThereIsNothingToExclude(t *testing.T) {
 	seen := true
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, seen = r.Header["X-Roger-Exclude-Nodes"]
+		_, hdr := r.Header["X-Roger-Exclude-Nodes"]
+		seen = hdr || bodyIgnore(r) != "" || strings.Contains(readBody(r), `"ignore"`)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"choices": []map[string]any{{"message": map[string]string{"content": "ok"}}},
@@ -66,7 +70,7 @@ func TestChatTurnsSendsNoExclusionHeaderWhenThereIsNothingToExclude(t *testing.T
 func TestChatTurnsIgnoresBlankExclusions(t *testing.T) {
 	var got string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		got = r.Header.Get("X-Roger-Exclude-Nodes")
+		got = bodyIgnore(r)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"choices": []map[string]any{{"message": map[string]string{"content": "ok"}}},
@@ -79,6 +83,24 @@ func TestChatTurnsIgnoresBlankExclusions(t *testing.T) {
 		t.Fatalf("ChatTurns: %v", err)
 	}
 	if got != "node-a" {
-		t.Errorf("X-Roger-Exclude-Nodes = %q, want exactly node-a", got)
+		t.Errorf("provider.ignore = %q, want exactly node-a", got)
 	}
+}
+
+// readBody returns the request body (re-readable by the handler's other helpers).
+func readBody(r *http.Request) string {
+	b, _ := io.ReadAll(r.Body)
+	r.Body = io.NopCloser(bytes.NewReader(b))
+	return string(b)
+}
+
+// bodyIgnore renders provider.ignore from a recorded request body as the comma-joined list.
+func bodyIgnore(r *http.Request) string {
+	var m struct {
+		Provider struct {
+			Ignore []string `json:"ignore"`
+		} `json:"provider"`
+	}
+	_ = json.Unmarshal([]byte(readBody(r)), &m)
+	return strings.Join(m.Provider.Ignore, ",")
 }

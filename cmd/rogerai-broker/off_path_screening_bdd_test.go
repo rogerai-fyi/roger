@@ -22,6 +22,7 @@ import (
 	"log"
 	"net/http"
 	"net/http/httptest"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"sort"
 	"strconv"
 	"strings"
@@ -256,6 +257,7 @@ func classifiedText(body string) string {
 // --- relay results ---------------------------------------------------------------
 
 type relayResult struct {
+	relayID    string // X-RogerAI-Request-Id: what screening, flags and logs name the request by
 	code       int
 	body       string
 	hdrReceipt string
@@ -560,6 +562,7 @@ func (s *opsState) relay(id int, body []byte) relayResult {
 	s.b.relay(w, r)
 	res := relayResult{
 		code: w.Code, body: w.Body.String(), hdrReceipt: w.Header().Get("X-RogerAI-Receipt"),
+		relayID: w.Header().Get("X-RogerAI-Request-Id"),
 		elapsed: time.Since(start),
 		user:    protocol.UserIDFromPubkey(hex.EncodeToString(priv.Public().(ed25519.PublicKey))),
 		wallet:  fmt.Sprintf("u_gh_%d", id),
@@ -1106,11 +1109,11 @@ func (s *opsState) csamRowExists() error {
 }
 func (s *opsState) flagRowExists(cat string) error {
 	for _, f := range s.flags(s.last) {
-		if strings.EqualFold(f.Category, cat) && f.RequestID != "" && f.RequestID == s.last.requestID {
+		if strings.EqualFold(f.Category, cat) && f.RequestID != "" && f.RequestID == s.last.relayID {
 			return nil
 		}
 	}
-	return fmtErr("no moderation_flags row with category %s + request id %s for %s: %+v", cat, s.last.requestID, s.pseudonymOf(s.last), s.flags(s.last))
+	return fmtErr("no moderation_flags row with category %s + request id %s for %s: %+v", cat, s.last.relayID, s.pseudonymOf(s.last), s.flags(s.last))
 }
 func (s *opsState) flagCarriesAll() error {
 	fl := s.flags(s.last)
@@ -1228,11 +1231,19 @@ func (s *opsState) relaysToolsBody(phrase string) error {
 	s.relay(1, body)
 	return nil
 }
+
+// requestContains: a relay can be screened more than once (its prompt, then its reply), and
+// under load the classifier sees those requests in either order, so the step looks for the
+// phrase in any request the stub recorded rather than only the last.
 func (s *opsState) requestContains(phrase string) error {
-	if !strings.Contains(s.stub.lastBody(), phrase) {
-		return fmtErr("classifier request does not contain %q", phrase)
+	s.stub.mu.Lock()
+	defer s.stub.mu.Unlock()
+	for _, b := range s.stub.bodies {
+		if strings.Contains(b, phrase) {
+			return nil
+		}
 	}
-	return nil
+	return fmtErr("no classifier request contains %q (%d recorded)", phrase, len(s.stub.bodies))
 }
 
 // --- §3 bounded work -------------------------------------------------------------------
@@ -1461,8 +1472,8 @@ func (s *opsState) staleLineNames() error {
 	if line == "" {
 		return fmtErr("no MODERATION SKIPPED (stale after 429 backoff) line:\n%s", s.logs.String())
 	}
-	if !strings.Contains(line, s.last.requestID) || !strings.Contains(line, s.pseudonymOf(s.last)) {
-		return fmtErr("SKIPPED line does not name request id %s + pseudonym %s: %s", s.last.requestID, s.pseudonymOf(s.last), line)
+	if !strings.Contains(line, s.last.relayID) || !strings.Contains(line, s.pseudonymOf(s.last)) {
+		return fmtErr("SKIPPED line does not name request id %s + pseudonym %s: %s", s.last.relayID, s.pseudonymOf(s.last), line)
 	}
 	return nil
 }
@@ -2130,7 +2141,7 @@ func TestOffPathScreeningBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("off-path screening scenarios failed (see godog output above)")
 	}
 }

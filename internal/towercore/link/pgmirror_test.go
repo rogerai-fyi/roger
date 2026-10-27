@@ -2,12 +2,12 @@ package link
 
 import (
 	"database/sql"
-	"os"
 	"testing"
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/stretchr/testify/require"
+	"rogerai.fm/roger/v6/internal/pgtest"
 )
 
 // The production Mirror, against real PostgreSQL. A JSON-free single-row upsert is easy
@@ -17,7 +17,7 @@ import (
 
 func pgMirror(t *testing.T) *PGMirror {
 	t.Helper()
-	dsn := os.Getenv("ROGERAI_TEST_DATABASE_URL")
+	dsn := pgtest.DSN(t)
 	if dsn == "" {
 		t.Skip("ROGERAI_TEST_DATABASE_URL not set; skipping the durable link-mirror tests")
 	}

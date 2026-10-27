@@ -325,7 +325,7 @@ func (b *broker) dogfoodRelay(messages []chatMsg) (reply string, served bool) {
 		return "", false
 	}
 
-	job := protocol.Job{ID: protocol.NewRequestID(), User: b.pseudonym("ping-concierge", node), Body: rawBody}
+	job := protocol.Job{ID: b.attemptID(protocol.NewRequestID(), 1), User: b.pseudonym("ping-concierge", node), Body: rawBody}
 	resCh := make(chan protocol.JobResult, 1)
 	t.mu.Lock()
 	t.waiters[job.ID] = resCh
@@ -477,7 +477,7 @@ func (b *broker) dogfoodGrantRelay(messages []chatMsg) (reply string, served boo
 // THIS attempt (a non-2xx / result-timeout is a real miss, NOT retried). The job's
 // waiter is always cleaned up.
 func (b *broker) grantRelayOnce(t *nodeTunnel, model, node string, rawBody []byte) (reply string, served, enqueued bool) {
-	job := protocol.Job{ID: protocol.NewRequestID(), User: b.pseudonym("ping-concierge-grant", node), Body: rawBody}
+	job := protocol.Job{ID: b.attemptID(protocol.NewRequestID(), 1), User: b.pseudonym("ping-concierge-grant", node), Body: rawBody}
 	resCh := make(chan protocol.JobResult, 1)
 	t.mu.Lock()
 	t.waiters[job.ID] = resCh

@@ -23,6 +23,7 @@ import (
 // This is exposure of an already-settled value (the TUI meter's honest ↑↓), NOT a change
 // to any billing math.
 func TestRelayEmitsBilledTokenHeaders(t *testing.T) {
+	t.Setenv("ROGERAI_CONSUMER_DEFAULT_MAX_PRICE_IN", "0") // toy prices above the $5/1M default input cap; pricing is not the subject
 	db := store.NewMem()
 	b := relayBroker(db)
 
@@ -92,6 +93,7 @@ func TestRelayEmitsBilledTokenHeaders(t *testing.T) {
 // billed prompt to the body-byte floor (the fail-closed input defense). The header must
 // show that CLAMPED value, never the inflated claim — i.e. it tracks what was billed.
 func TestRelayTokenHeadersAreBilledNotClaimed(t *testing.T) {
+	t.Setenv("ROGERAI_CONSUMER_DEFAULT_MAX_PRICE_IN", "0") // toy prices above the $5/1M default input cap; pricing is not the subject
 	db := store.NewMem()
 	b := relayBroker(db)
 

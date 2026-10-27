@@ -140,19 +140,23 @@ type pricingPlan struct {
 // streamBill carries the billing context into relayStream (keeps its signature
 // from sprawling).
 type streamBill struct {
-	user string // the wallet to charge / refund (the payer)
+	requested []string // the model list as asked (bare ids), nil for a single-model request
+	user      string   // the wallet to charge / refund (the payer)
 	// consumer is the SIGNED consumer identity used as the price-LOCK key, kept distinct
 	// from `user` (the payer wallet): for a logged-in caller the payer is the unified
 	// "u_gh_<id>" wallet while the lock keys on the pubkey-derived signed id, exactly as
-	// the non-stream relay does (lockedPrice(user,...)). Keying the lock on the payer
+	// the non-stream relay does (quotedPrice(user,...)). Keying the lock on the payer
 	// wallet here instead would mint a SEPARATE lock from the non-stream path, so an
 	// owner's mid-engagement price hike would not be held back on the streaming path.
 	consumer string
 	model    string
 	grantID  string
-	// req is the relay request, carried so a settle that crosses the monthly-cap threshold can
-	// resolve the account's notice address from its authenticated identity.
-	req *http.Request
+	// pubHex is the verified consumer pubkey and req the request, both for a bridged attempt
+	// in the plan (the receipt's pseudonym; the traffic-origin record). req also lets a settle
+	// that crosses the monthly-cap threshold resolve the account's notice address from its
+	// authenticated identity.
+	pubHex string
+	req    *http.Request
 	// cap is the monthly cap the relay's pre-hold check read (capUnknown when it did not run),
 	// so the settle-time notice does not read it again.
 	cap float64
@@ -160,6 +164,24 @@ type streamBill struct {
 	// queued); each streaming attempt names its station on it so an after-the-fact flag
 	// records the station that served, not the first pick.
 	screening *screenJob
+	// keyFields is the key state after settle for the usage chunk (nil for a non-key request).
+	keyFields func() map[string]any
+	// payerKey identifies the payer for the empty-output distinct-payer floor (§14.1).
+	payerKey string
+	// privateBand is a band-code request: its errors never name the station (no oracle).
+	privateBand bool
+	// prompt is the request's prompt text, extracted once by the relay (§14.B #12): every
+	// attempt's body carries the same messages, so the settle recount never re-parses one.
+	prompt string
+}
+
+// promptOf is the prompt text of an attempt body: the relay's extraction, or (for a bill
+// built without one) a parse of the body.
+func (s streamBill) promptOf(body []byte) string {
+	if s.prompt != "" {
+		return s.prompt
+	}
+	return promptText(body)
 }
 
 // resolvePricing decides who pays and at what price for one request:

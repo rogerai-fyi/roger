@@ -35,6 +35,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"rogerai.fm/roger/v6/internal/towercore/dispatch"
@@ -130,12 +132,44 @@ func (u HTTPUpstream) Serve(ctx context.Context, request []byte) ([]byte, error)
 		return nil, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("the model replied %d: %s", resp.StatusCode, truncate(string(body), 200))
+		return nil, &UpstreamStatusError{Status: resp.StatusCode, RetryAfter: retryAfterSeconds(resp.Header.Get("Retry-After")),
+			Detail: truncate(string(body), 200)}
 	}
 	if len(body) == 0 {
 		return nil, errors.New("the model returned an empty body")
 	}
 	return body, nil
+}
+
+// UpstreamStatusError is a non-2xx reply from the model behind a Station. The status and the
+// Retry-After (seconds, 0 when absent) are what a relay needs to answer a consumer honestly
+// (a 429 with its wait, not a generic failure); Detail is the model's own words, for the
+// operator's log only - it never crosses a blind Tower (see EdgeExecutor.ServeSealed).
+type UpstreamStatusError struct {
+	Status     int
+	RetryAfter int
+	Detail     string
+}
+
+func (e *UpstreamStatusError) Error() string {
+	return fmt.Sprintf("the model replied %d: %s", e.Status, e.Detail)
+}
+
+// Class is the failure as it may cross a blind Tower: the class, the status and the wait,
+// never the model's words.
+func (e *UpstreamStatusError) Class() string {
+	if e.RetryAfter > 0 {
+		return fmt.Sprintf("the model did not answer (status %d, retry-after %d)", e.Status, e.RetryAfter)
+	}
+	return fmt.Sprintf("the model did not answer (status %d)", e.Status)
+}
+
+func retryAfterSeconds(v string) int {
+	n, err := strconv.Atoi(strings.TrimSpace(v))
+	if err != nil || n < 0 {
+		return 0
+	}
+	return n
 }
 
 func truncate(s string, n int) string {

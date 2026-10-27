@@ -36,6 +36,10 @@ CREATE TABLE IF NOT EXISTS rogerai.receipts (
     prompt_tokens INT, completion_tokens INT, cost DOUBLE PRECISION,
     ts BIGINT, receipt JSONB, created_at TIMESTAMPTZ DEFAULT now());
 ALTER TABLE rogerai.receipts ADD COLUMN IF NOT EXISTS owner_share DOUBLE PRECISION NOT NULL DEFAULT 0;
+-- The consumer-facing request id an attempt belongs to (contract §14.B7 #13): the receipt's
+-- request_id is the per-attempt id the station signed; this column ties it back for the
+-- consumer's own rows and is never selected for a station owner's.
+ALTER TABLE rogerai.receipts ADD COLUMN IF NOT EXISTS relay_request_id TEXT;
 CREATE INDEX IF NOT EXISTS receipts_usr_ts  ON rogerai.receipts (usr, ts DESC);
 CREATE INDEX IF NOT EXISTS receipts_node_ts ON rogerai.receipts (node, ts DESC);
 CREATE TABLE IF NOT EXISTS rogerai.processed_events (key TEXT PRIMARY KEY, at TIMESTAMPTZ DEFAULT now());
@@ -449,6 +453,45 @@ CREATE TABLE IF NOT EXISTS rogerai.pending_holds (
     amount     DOUBLE PRECISION NOT NULL,
     placed_at  BIGINT NOT NULL);
 CREATE INDEX IF NOT EXISTS pending_holds_placed_at ON rogerai.pending_holds (placed_at);
+-- account keys (ROUTING-EXPRESSION-CONTRACT section 11): a reservation attributed to a key is a
+-- pending hold carrying its key id; key_ts is the request's start, which dates the key spend.
+ALTER TABLE rogerai.pending_holds ADD COLUMN IF NOT EXISTS key_id TEXT;
+ALTER TABLE rogerai.pending_holds ADD COLUMN IF NOT EXISTS key_ts BIGINT;
+CREATE INDEX IF NOT EXISTS pending_holds_key ON rogerai.pending_holds (key_id) WHERE key_id IS NOT NULL;
+-- account keys: guardrailed bearer credentials an account mints for itself. secret_hash is the
+-- auth lookup key; the secret itself is never stored. A deleted key is kept revoked.
+CREATE TABLE IF NOT EXISTS rogerai.account_keys (
+    id             TEXT PRIMARY KEY,            -- key_<rand>
+    secret_hash    TEXT NOT NULL UNIQUE,        -- sha256(secret)
+    account        TEXT NOT NULL,               -- the minting account's wallet (the payer)
+    name           TEXT NOT NULL DEFAULT '',
+    hint           TEXT NOT NULL DEFAULT '',
+    limit_usd      DOUBLE PRECISION NOT NULL DEFAULT 0,
+    reset          TEXT NOT NULL DEFAULT 'none',
+    anchor         BIGINT NOT NULL DEFAULT 0,
+    expires_at     BIGINT NOT NULL DEFAULT 0,
+    allowed_models JSONB DEFAULT '[]',
+    allowed_nodes  JSONB DEFAULT '[]',
+    disabled       BOOLEAN NOT NULL DEFAULT false,
+    revoked        BOOLEAN NOT NULL DEFAULT false,
+    idem_key       TEXT NOT NULL DEFAULT '',
+    created_at     BIGINT NOT NULL,
+    last_used      BIGINT NOT NULL DEFAULT 0,
+    requests       BIGINT NOT NULL DEFAULT 0,
+    owner_pub      TEXT NOT NULL DEFAULT '');   -- the minting owner key (notice mail)
+CREATE INDEX IF NOT EXISTS account_keys_account ON rogerai.account_keys (account);
+-- Idempotency-Key claims (contract 14.B2): one row per (payer, key); the first insert wins, so a
+-- retry never starts a second job, hold or settle. Rows past the window are taken over.
+CREATE TABLE IF NOT EXISTS rogerai.idempotency_claims (
+    payer       TEXT NOT NULL,
+    key         TEXT NOT NULL,
+    fingerprint TEXT NOT NULL,
+    request_id  TEXT NOT NULL,
+    state       TEXT NOT NULL,
+    deadline    BIGINT NOT NULL DEFAULT 0,
+    created     BIGINT NOT NULL,
+    seq         BIGSERIAL,                   -- claim order: breaks a tie on created for eviction
+    PRIMARY KEY (payer, key));
 -- pending_holds_usr: the capped hold (HoldForCapped) sums one wallet's open holds under its row lock.
 CREATE INDEX IF NOT EXISTS pending_holds_usr ON rogerai.pending_holds (usr);
 -- price_quotes: the 24 h price lock (features/money/price_lock_durable.feature). One row per
@@ -463,7 +506,9 @@ CREATE TABLE IF NOT EXISTS rogerai.price_quotes (
     locked_until BIGINT NOT NULL,
     PRIMARY KEY (usr, node, model));
 -- price_quotes_locked_until: the hold sweep prunes expired quotes (PruneExpiredPriceQuotes).
-CREATE INDEX IF NOT EXISTS price_quotes_locked_until ON rogerai.price_quotes (locked_until);`
+CREATE INDEX IF NOT EXISTS price_quotes_locked_until ON rogerai.price_quotes (locked_until);
+-- price_quotes.promo: a lock minted under a price posted too briefly ends with that price (§14.12).
+ALTER TABLE rogerai.price_quotes ADD COLUMN IF NOT EXISTS promo BOOLEAN NOT NULL DEFAULT false;`
 
 // poolLimits reads the connection-pool bounds from the environment. The production
 // cluster is a small shared managed Postgres (~22 usable backends across every app on
@@ -766,6 +811,20 @@ func (p *Postgres) Settle(user, node string, cost, ownerShare float64, rec proto
 		return 0, err
 	}
 	defer tx.Rollback()
+	// A $0 metering settle (signed self-use, a free grant, a voided attempt's lineage receipt)
+	// has no hold in front of it, so nothing has created the payer's wallet row: it reaches
+	// here for a wallet that was never read or seeded. Create the row at balance 0 - the same
+	// upsert BalanceOf performs, WITHOUT the seed grant - so the receipt is recorded instead
+	// of the whole settle failing on a missing row. No money is created, and the wallet's
+	// one-time starter seed is still granted by its first seeding read. In this transaction:
+	// a settle that records nothing leaves no row behind. A PAID settle (cost > 0) is left to
+	// fail on a missing row: debiting a wallet that does not exist is an upstream bug, and
+	// the hold gate (which seeds first) is what makes a paid wallet exist.
+	if cost == 0 {
+		if _, err := tx.Exec(`INSERT INTO rogerai.wallet(usr,balance) VALUES($1,0) ON CONFLICT (usr) DO NOTHING`, user); err != nil {
+			return 0, err
+		}
+	}
 	// Idempotency claim: the receipt row IS the lock. A non-empty request id is
 	// inserted FIRST (owner_share backfilled below once the seed-scaled share is
 	// known); a duplicate finds the row already present, touches NO money, and
@@ -820,9 +879,9 @@ func (p *Postgres) claimReceipt(tx *sql.Tx, user, node string, cost float64, rec
 	rj, _ := json.Marshal(rec)
 	bpt, bct := billedTokens(rec)
 	res, err := tx.Exec(`INSERT INTO rogerai.receipts
-		(request_id,usr,node,model,prompt_tokens,completion_tokens,cost,owner_share,ts,receipt,grant_id)
-		VALUES($1,$2,$3,$4,$5,$6,$7,0,$8,$9,$10) ON CONFLICT (request_id) DO NOTHING`,
-		rec.RequestID, user, node, rec.Model, bpt, bct, cost, rec.TS, rj, nullStr(rec.GrantID))
+		(request_id,usr,node,model,prompt_tokens,completion_tokens,cost,owner_share,ts,receipt,grant_id,relay_request_id)
+		VALUES($1,$2,$3,$4,$5,$6,$7,0,$8,$9,$10,$11) ON CONFLICT (request_id) DO NOTHING`,
+		rec.RequestID, user, node, rec.ServedModel(), bpt, bct, cost, rec.TS, rj, nullStr(rec.GrantID), nullStr(rec.RelayRequestID))
 	if err != nil {
 		return false, 0, err
 	}
@@ -847,9 +906,9 @@ func (p *Postgres) fillEarnShare(tx *sql.Tx, user, node string, cost float64, re
 	rj, _ := json.Marshal(rec)
 	bpt, bct := billedTokens(rec)
 	_, err := tx.Exec(`INSERT INTO rogerai.receipts
-		(request_id,usr,node,model,prompt_tokens,completion_tokens,cost,owner_share,ts,receipt,grant_id)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (request_id) DO NOTHING`,
-		rec.RequestID, user, node, rec.Model, bpt, bct, cost, earnShare, rec.TS, rj, nullStr(rec.GrantID))
+		(request_id,usr,node,model,prompt_tokens,completion_tokens,cost,owner_share,ts,receipt,grant_id,relay_request_id)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) ON CONFLICT (request_id) DO NOTHING`,
+		rec.RequestID, user, node, rec.ServedModel(), bpt, bct, cost, earnShare, rec.TS, rj, nullStr(rec.GrantID), nullStr(rec.RelayRequestID))
 	return err
 }
 
@@ -885,7 +944,12 @@ func (p *Postgres) recent(col, val string, limit int) ([]Entry, error) {
 	if limit <= 0 {
 		limit = 50
 	}
-	rows, err := p.db.Query(`SELECT request_id,usr,node,model,prompt_tokens,completion_tokens,cost,owner_share,ts
+	// Only the consumer's own rows carry the attempt's request id (never an owner's).
+	relay := `''`
+	if col == `usr` {
+		relay = `COALESCE(relay_request_id,'')`
+	}
+	rows, err := p.db.Query(`SELECT request_id,usr,node,model,prompt_tokens,completion_tokens,cost,owner_share,ts,`+relay+`
 		FROM rogerai.receipts WHERE `+col+`=$1 ORDER BY ts DESC LIMIT $2`, val, limit)
 	if err != nil {
 		return nil, err
@@ -894,7 +958,7 @@ func (p *Postgres) recent(col, val string, limit int) ([]Entry, error) {
 	var out []Entry
 	for rows.Next() {
 		var e Entry
-		if err := rows.Scan(&e.RequestID, &e.User, &e.Node, &e.Model, &e.PromptTokens, &e.CompletionTokens, &e.Cost, &e.OwnerShare, &e.TS); err != nil {
+		if err := rows.Scan(&e.RequestID, &e.User, &e.Node, &e.Model, &e.PromptTokens, &e.CompletionTokens, &e.Cost, &e.OwnerShare, &e.TS, &e.RelayRequestID); err != nil {
 			return nil, err
 		}
 		out = append(out, e)
@@ -1085,8 +1149,16 @@ func (p *Postgres) Finalize(user, node string, held, cost, ownerShare float64, r
 		return 0, err
 	}
 	// Capture clears the tracked hold (no-op if untracked) IN THIS TX, so the deploy-orphan
-	// sweep never double-refunds a settled request.
-	if _, err := tx.Exec(`DELETE FROM rogerai.pending_holds WHERE request_id=$1`, rec.RequestID); err != nil {
+	// sweep never double-refunds a settled request. A hold attributed to an account key turns
+	// into that key's spend in the same step.
+	var holdKeyID sql.NullString
+	var holdKeyTS sql.NullInt64
+	switch err := tx.QueryRow(`DELETE FROM rogerai.pending_holds WHERE request_id=$1 RETURNING key_id, key_ts`, rec.RequestID).Scan(&holdKeyID, &holdKeyTS); err {
+	case nil, sql.ErrNoRows:
+	default:
+		return 0, err
+	}
+	if err := keySpendCaptureTx(tx, holdKeyID.String, holdKeyTS.Int64, rec.RequestID, cost); err != nil {
 		return 0, err
 	}
 	// Only the REAL (non-seed) funded portion of this cost earns the operator (P0-1):
@@ -1143,7 +1215,9 @@ func (p *Postgres) SettleEdge(user, stationNode, stationAcct, towerNode, towerAc
 	// wrong refund. (The receipt is claimed above, so this no-op path still records the attempt as
 	// settled - correct, because with no reservation there is nothing to bill for it, ever.)
 	var held float64
-	switch err := tx.QueryRow(`DELETE FROM rogerai.pending_holds WHERE request_id=$1 RETURNING amount`, rec.RequestID).Scan(&held); err {
+	var edgeKeyID sql.NullString
+	var edgeKeyTS sql.NullInt64
+	switch err := tx.QueryRow(`DELETE FROM rogerai.pending_holds WHERE request_id=$1 RETURNING amount, key_id, key_ts`, rec.RequestID).Scan(&held, &edgeKeyID, &edgeKeyTS); err {
 	case sql.ErrNoRows:
 		return 0, tx.Commit() // no hold: no-op
 	case nil:
@@ -1158,6 +1232,9 @@ func (p *Postgres) SettleEdge(user, stationNode, stationAcct, towerNode, towerAc
 		stationShare *= scale
 		towerShare *= scale
 		cost = held
+	}
+	if err := keySpendCaptureTx(tx, edgeKeyID.String, edgeKeyTS.Int64, rec.RequestID, cost); err != nil {
+		return 0, err
 	}
 	var bal float64
 	if err := tx.QueryRow(`UPDATE rogerai.wallet SET balance=balance+$2 WHERE usr=$1 RETURNING balance`, user, held-cost).Scan(&bal); err != nil {
@@ -1262,12 +1339,43 @@ func (p *Postgres) HoldFor(user, requestID string, amount float64) (bool, error)
 // and the open pending holds are then read inside the same transaction and the hold placed
 // only if spend + pending + amount fits the cap. See the Store interface.
 func (p *Postgres) HoldForCapped(user, requestID string, amount, monthlyCap float64, now time.Time) (CappedHold, error) {
+	return p.HoldGuarded(user, requestID, amount, HoldGuard{MonthlyCap: monthlyCap, Now: now})
+}
+
+// HoldGuarded: see Store. ONE transaction decides every limit and the debit: the key row lock
+// first (it serializes every limited hold on the key across instances), then the wallet row
+// lock (it serializes the wallet's holds, so the monthly cap's sum cannot be overtaken), then
+// the checks, then the debit. The lock order is the same on every path, so two holds cannot
+// deadlock on these rows.
+func (p *Postgres) HoldGuarded(user, requestID string, amount float64, g HoldGuard) (CappedHold, error) {
 	var res CappedHold
 	tx, err := p.db.Begin()
 	if err != nil {
 		return res, err
 	}
 	defer tx.Rollback()
+	if g.KeyID != "" && g.Key.USD > 0 {
+		// The reservations and the window spend are read in ONE statement (one snapshot), so a
+		// capture committing in between can neither be counted twice nor missed.
+		if _, err := tx.Exec(`SELECT 1 FROM rogerai.account_keys WHERE id=$1 FOR UPDATE`, g.KeyID); err != nil {
+			return res, err
+		}
+		to := g.Key.To
+		if to <= 0 {
+			to = 1 << 62
+		}
+		var reserved, spend float64
+		if err := tx.QueryRow(`SELECT
+			(SELECT COALESCE(SUM(amount),0) FROM rogerai.pending_holds WHERE key_id=$1 AND request_id<>$2),
+			(SELECT COALESCE(SUM(-amount),0) FROM rogerai.ledger
+				WHERE holder=$1 AND kind IN ($3,$4) AND state<>'reversed' AND ts>=$5 AND ts<$6)`,
+			g.KeyID, requestID, KindKeySpend, KindKeyReversal, g.Key.From, to).Scan(&reserved, &spend); err != nil {
+			return res, err
+		}
+		if !g.Key.fits(spend, reserved, amount) {
+			return res, ErrKeyLimit
+		}
+	}
 	var bal float64
 	switch err := tx.QueryRow(`SELECT balance FROM rogerai.wallet WHERE usr=$1 FOR UPDATE`, user).Scan(&bal); err {
 	case sql.ErrNoRows:
@@ -1276,8 +1384,8 @@ func (p *Postgres) HoldForCapped(user, requestID string, amount, monthlyCap floa
 	default:
 		return res, err
 	}
-	if monthlyCap > 0 {
-		start, end := monthRange(now)
+	if g.MonthlyCap > 0 {
+		start, end := monthRange(g.Now)
 		if err := tx.QueryRow(`SELECT COALESCE(SUM(-amount),0) FROM rogerai.ledger
 			WHERE holder=$1 AND kind=$2 AND state<>'reversed' AND ts>=$3 AND ts<$4`,
 			user, KindSpend, start, end).Scan(&res.Spend); err != nil {
@@ -1286,7 +1394,7 @@ func (p *Postgres) HoldForCapped(user, requestID string, amount, monthlyCap floa
 		if err := tx.QueryRow(`SELECT COALESCE(SUM(amount),0) FROM rogerai.pending_holds WHERE usr=$1`, user).Scan(&res.Pending); err != nil {
 			return res, err
 		}
-		if overCap(res.Spend, res.Pending, amount, monthlyCap) {
+		if overCap(res.Spend, res.Pending, amount, g.MonthlyCap) {
 			res.OverCap = true
 			return res, nil
 		}
@@ -1297,10 +1405,21 @@ func (p *Postgres) HoldForCapped(user, requestID string, amount, monthlyCap floa
 	if _, err := tx.Exec(`UPDATE rogerai.wallet SET balance=balance-$2 WHERE usr=$1`, user, amount); err != nil {
 		return res, err
 	}
-	if err := appendLedger(tx, user, "consumer", KindHold, -amount, "", StatePending, "", 0); err != nil {
+	ref := ""
+	if g.KeyID != "" {
+		ref = requestID // a key's hold names its request in the ledger, as HoldForKey always did
+	}
+	if err := appendLedger(tx, user, "consumer", KindHold, -amount, "", StatePending, ref, 0); err != nil {
 		return res, err
 	}
-	if _, err := tx.Exec(`INSERT INTO rogerai.pending_holds(request_id,usr,amount,placed_at) VALUES($1,$2,$3,$4)
+	if g.KeyID != "" {
+		if _, err := tx.Exec(`INSERT INTO rogerai.pending_holds(request_id,usr,amount,placed_at,key_id,key_ts) VALUES($1,$2,$3,$4,$5,$6)
+			ON CONFLICT (request_id) DO UPDATE SET usr=EXCLUDED.usr, amount=EXCLUDED.amount, placed_at=EXCLUDED.placed_at,
+			key_id=EXCLUDED.key_id, key_ts=EXCLUDED.key_ts`,
+			requestID, user, amount, time.Now().Unix(), g.KeyID, g.KeyTS); err != nil {
+			return res, err
+		}
+	} else if _, err := tx.Exec(`INSERT INTO rogerai.pending_holds(request_id,usr,amount,placed_at) VALUES($1,$2,$3,$4)
 		ON CONFLICT (request_id) DO UPDATE SET usr=EXCLUDED.usr, amount=EXCLUDED.amount, placed_at=EXCLUDED.placed_at`,
 		requestID, user, amount, time.Now().Unix()); err != nil {
 		return res, err
@@ -1319,24 +1438,70 @@ var quoteReadBackGapForTest func()
 // the same row lock, so racing instances all bill under the first quote and no prune can
 // remove the row between deciding and reading it back. See the Store interface.
 func (p *Postgres) QuotePrice(user, node, model string, in, out float64, now time.Time, window time.Duration) (PriceQuote, error) {
+	q, _, err := p.LockPrice(user, node, model, in, out, now, window, LockOpts{Mint: true})
+	return q, err
+}
+
+// PriceQuotes: see Store.
+func (p *Postgres) PriceQuotes(node, model string) ([]StoredQuote, error) {
+	rows, err := p.db.Query(`SELECT usr, node, model, price_in, price_out, locked_until, promo FROM rogerai.price_quotes
+		WHERE ($1 = '' OR node = $1) AND ($2 = '' OR model = $2)`, node, model)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []StoredQuote
+	for rows.Next() {
+		var q StoredQuote
+		var until int64
+		if err := rows.Scan(&q.User, &q.Node, &q.Model, &q.In, &q.Out, &until, &q.Promo); err != nil {
+			return nil, err
+		}
+		q.Until = time.Unix(0, until)
+		out = append(out, q)
+	}
+	return out, rows.Err()
+}
+
+// LockPrice: see Store. A mint is ONE statement - insert-if-absent, with a dead row (expired,
+// or a promo lock whose price has moved) replaced and a live one kept - and the row it returns
+// is the one that decides, so racing instances bill under one quote. A read writes nothing.
+func (p *Postgres) LockPrice(user, node, model string, in, out float64, now time.Time, window time.Duration, o LockOpts) (PriceQuote, bool, error) {
 	var q PriceQuote
+	if !o.Mint {
+		var until int64
+		err := p.db.QueryRow(`SELECT price_in, price_out, locked_until, promo FROM rogerai.price_quotes
+			WHERE usr=$1 AND node=$2 AND model=$3`, user, node, model).Scan(&q.In, &q.Out, &until, &q.Promo)
+		if err == sql.ErrNoRows {
+			return PriceQuote{}, false, nil
+		}
+		if err != nil {
+			return PriceQuote{}, false, err
+		}
+		q.Until = time.Unix(0, until)
+		if !q.live(now, in, out) {
+			return PriceQuote{}, false, nil
+		}
+		return q, true, nil
+	}
 	until := now.Add(window).UnixNano()
-	err := p.db.QueryRow(`INSERT INTO rogerai.price_quotes AS pq (usr,node,model,price_in,price_out,locked_until)
-		VALUES($1,$2,$3,$4,$5,$6)
+	err := p.db.QueryRow(`INSERT INTO rogerai.price_quotes AS pq (usr,node,model,price_in,price_out,locked_until,promo)
+		VALUES($1,$2,$3,$4,$5,$6,$8)
 		ON CONFLICT (usr,node,model) DO UPDATE SET
-			price_in     = CASE WHEN pq.locked_until <= $7 THEN EXCLUDED.price_in ELSE pq.price_in END,
-			price_out    = CASE WHEN pq.locked_until <= $7 THEN EXCLUDED.price_out ELSE pq.price_out END,
-			locked_until = CASE WHEN pq.locked_until <= $7 THEN EXCLUDED.locked_until ELSE pq.locked_until END
-		RETURNING price_in, price_out, locked_until`,
-		user, node, model, in, out, until, now.UnixNano()).Scan(&q.In, &q.Out, &until)
+			price_in     = CASE WHEN pq.locked_until <= $7 OR (pq.promo AND (pq.price_in <> EXCLUDED.price_in OR pq.price_out <> EXCLUDED.price_out)) THEN EXCLUDED.price_in ELSE pq.price_in END,
+			price_out    = CASE WHEN pq.locked_until <= $7 OR (pq.promo AND (pq.price_in <> EXCLUDED.price_in OR pq.price_out <> EXCLUDED.price_out)) THEN EXCLUDED.price_out ELSE pq.price_out END,
+			promo        = CASE WHEN pq.locked_until <= $7 OR (pq.promo AND (pq.price_in <> EXCLUDED.price_in OR pq.price_out <> EXCLUDED.price_out)) THEN EXCLUDED.promo ELSE pq.promo END,
+			locked_until = CASE WHEN pq.locked_until <= $7 OR (pq.promo AND (pq.price_in <> EXCLUDED.price_in OR pq.price_out <> EXCLUDED.price_out)) THEN EXCLUDED.locked_until ELSE pq.locked_until END
+		RETURNING price_in, price_out, locked_until, promo`,
+		user, node, model, in, out, until, now.UnixNano(), o.Promo).Scan(&q.In, &q.Out, &until, &q.Promo)
 	if quoteReadBackGapForTest != nil {
 		quoteReadBackGapForTest()
 	}
 	if err != nil {
-		return q, err
+		return q, false, err
 	}
 	q.Until = time.Unix(0, until)
-	return q, nil
+	return q, true, nil
 }
 
 // PruneExpiredPriceQuotes deletes up to limit quotes whose lock ended at or before now, in one
@@ -2419,6 +2584,9 @@ func (p *Postgres) recoverLineageTx(tx *sql.Tx, id, consumerKind, consumerRefPre
 		return ChargebackResult{}, err
 	}
 	if err := appendLedger(tx, wallet, "consumer", consumerKind, -amount, consumerRefPrefix+id, StatePosted, id, now.Unix()); err != nil {
+		return ChargebackResult{}, err
+	}
+	if err := keyReverseTx(tx, requestID, amount); err != nil {
 		return ChargebackResult{}, err
 	}
 	disputeID := id

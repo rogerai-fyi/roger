@@ -814,48 +814,8 @@ func (m moderation) screenVoiceRegistration(name, slug, handle string) modResult
 // honest nodes. It never bills above the node's claim (a tool-heavy recount can rise toward
 // that claim, but not past it).
 func promptText(body []byte) string {
-	var req struct {
-		Messages []struct {
-			Content json.RawMessage `json:"content"`
-		} `json:"messages"`
-		// Modern OpenAI tools shape: tools[].function.{name,description,parameters}.
-		Tools []struct {
-			Function json.RawMessage `json:"function"`
-		} `json:"tools"`
-		// Legacy top-level functions shape: functions[].{name,description,parameters}.
-		Functions []json.RawMessage `json:"functions"`
-	}
-	if json.Unmarshal(body, &req) != nil {
-		return ""
-	}
-	var b bytes.Buffer
-	for _, msg := range req.Messages {
-		var s string
-		if json.Unmarshal(msg.Content, &s) == nil {
-			b.WriteString(s)
-			b.WriteByte('\n')
-			continue
-		}
-		var parts []struct {
-			Text string `json:"text"`
-		}
-		if json.Unmarshal(msg.Content, &parts) == nil {
-			for _, p := range parts {
-				b.WriteString(p.Text)
-				b.WriteByte('\n')
-			}
-		}
-	}
-	// Fold in the tool / function definition text. collectStrings walks the whole function
-	// object (name, description, and the parameters JSON-schema subtree) and emits every
-	// string scalar, so harmful text hidden anywhere in a tool definition is screened.
-	for _, t := range req.Tools {
-		collectStrings(t.Function, &b)
-	}
-	for _, f := range req.Functions {
-		collectStrings(f, &b)
-	}
-	return b.String()
+	text, _ := decodeReqDoc(body).promptScan()
+	return text
 }
 
 // collectStrings walks an arbitrary JSON value and appends every string SCALAR (one per line)

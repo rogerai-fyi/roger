@@ -51,6 +51,23 @@ const keyPrefix = "rogerai:"
 // returns an error, and EVERY call site is required to fall back to the in-memory
 // path on a non-nil error. A connection failure NEVER propagates as a broker error.
 type sharedStore interface {
+	// Job cancels (jobcancel.go, features/multinode/job_cancel.feature): a node's cancel
+	// capability (until-ms value) and the per-node cancel delivery (pub/sub + short buffer).
+	cancelCapSet(node string, untilMs int64, ttl time.Duration) error
+	cancelCapGet(node string) (untilMs int64, err error)
+	cancelPush(node string, entry []byte, ttl time.Duration) error
+	cancelDrain(node string) ([][]byte, error)
+	cancelSubscribe(ctx context.Context, node string) (<-chan []byte, func(), error)
+
+	// Pair cooldowns (paircool.go, contract §14.2): pairCoolExtend raises one (node|model)
+	// field of a payer's cooldown hash to untilMs - atomically, never lowering it - and keeps
+	// the hash alive at least ttl; pairCooling reads a payer's whole hash; coolPayerNote
+	// records payer in node's 429 window (scores are unix-ms, entries older than window are
+	// dropped) and returns the distinct payers left. All shared across instances.
+	pairCoolExtend(payer, field string, untilMs int64, ttl time.Duration) (int64, error)
+	pairCooling(payer string) (map[string]int64, error)
+	coolPayerNote(node, payer string, nowMs int64, window time.Duration) (int, error)
+
 	// rateAllow is the shared token-bucket: it consumes one token for key under the
 	// given rpm/burst and reports whether the caller may proceed (mirrors
 	// rateLimiter.allowAt semantics). retryAfter is a seconds hint when denied. A
@@ -91,6 +108,11 @@ type sharedStore interface {
 	// keeps the last merged view). Keyed by node+"\x00"+model.
 	toolsVerified(ttl time.Duration) (map[string]bool, error)
 
+	// Total latency per node (totallatency.go): setTotalLatency writes a node's EWMA through,
+	// totalLatencies reads every node's figure for the sync loop's merge.
+	setTotalLatency(node string, ms float64) error
+	totalLatencies() (map[string]float64, error)
+
 	// cacheGet returns the cached bytes for key (found == true) or a miss
 	// (found == false). It is a READ-ONLY accelerator for the hot, expensive read
 	// paths (/discover + /market, /metrics/series + /console): NEVER a money/mutating
@@ -119,6 +141,10 @@ type sharedStore interface {
 	// non-nil err (incl. errNoSharedStore on memStore) means the shared path is unavailable
 	// and the caller uses its per-instance fallback map. ttl<=0 is treated as no-store.
 	putCapsule(lookup string, blob []byte, ttl time.Duration) error
+	// putGen / getGen hold one request's /generation record under its request id, readable
+	// from any instance. getGen's found=false with a nil error is a clean miss.
+	putGen(id string, rec []byte, ttl time.Duration) error
+	getGen(id string) (rec []byte, found bool, err error)
 
 	// takeCapsule ATOMICALLY returns AND deletes the blob under lookup (one-time,
 	// delete-on-read via GETDEL), so exactly one of N concurrent resolves across all
@@ -185,6 +211,9 @@ type sharedStore interface {
 	// non-nil err means the backend was unreachable; the caller must fall back to doing
 	// the underlying (idempotent) work.
 	setIfAbsent(key, val string, ttl time.Duration) (set bool, err error)
+	// delIfEqual removes a setIfAbsent key only while it still holds val (compare-and-delete),
+	// so a holder whose lock lapsed never frees the lock another holder has since taken.
+	delIfEqual(key, val string) error
 
 	// healthy reports whether the backend currently looks reachable (best-effort).
 	healthy() bool
@@ -461,6 +490,10 @@ func (m *memStore) cacheDel(string) error { return errNoSharedStore }
 func (m *memStore) putCapsule(string, []byte, time.Duration) error { return errNoSharedStore }
 func (m *memStore) takeCapsule(string) ([]byte, bool, error)       { return nil, false, errNoSharedStore }
 
+// /generation records are inert on memStore too: the broker keeps them per instance.
+func (m *memStore) putGen(string, []byte, time.Duration) error { return errNoSharedStore }
+func (m *memStore) getGen(string) ([]byte, bool, error)        { return nil, false, errNoSharedStore }
+
 // The counter / setIfAbsent primitives on memStore are all "unavailable" no-ops, so
 // every money/seed fast-path falls back to its Postgres-authoritative computation.
 func (m *memStore) counterGet(string) (float64, bool, error) { return 0, false, errNoSharedStore }
@@ -481,6 +514,8 @@ func (m *memStore) edgeSlotFree(string) error                               { re
 func (m *memStore) setIfAbsent(string, string, time.Duration) (bool, error) {
 	return false, errNoSharedStore
 }
+
+func (m *memStore) delIfEqual(string, string) error { return errNoSharedStore }
 
 func (m *memStore) healthy() bool { return false }
 func (m *memStore) Close() error  { return nil }
@@ -823,12 +858,12 @@ func (v *valkeyStore) noteErr(op string, err error) {
 }
 
 // noteReply is noteErr for an error REPLY (redis.Error). A refusal of one command on one
-// key (keyRefusal) means the store answered and can still serve, so it is counted and
+// key (redisKeyRefusal) means the store answered and can still serve, so it is counted and
 // logged without tripping the outage path. Every other error reply (out of memory,
 // persistence failing, auth, loading, a replica, client limits) can refuse every write,
 // so it goes to noteErr and marks the store down.
 func (v *valkeyStore) noteReply(op string, err error) {
-	if !keyRefusal(err) {
+	if !redisKeyRefusal(err) {
 		v.noteErr(op, err)
 		return
 	}
@@ -845,9 +880,9 @@ func (v *valkeyStore) noteReply(op string, err error) {
 	}
 }
 
-// keyRefusal reports whether the server's error reply (unwrapped) refuses one command on
+// redisKeyRefusal reports whether the server's error reply (unwrapped) refuses one command on
 // one key (the key holds the wrong type) rather than saying the server cannot serve.
-func keyRefusal(err error) bool {
+func redisKeyRefusal(err error) bool {
 	var reply redis.Error
 	return errors.As(err, &reply) && strings.HasPrefix(reply.Error(), "WRONGTYPE ")
 }
@@ -1864,6 +1899,45 @@ func (v *valkeyStore) cacheDel(key string) error {
 // key is rogerai:cap:<lookup>. The value is opaque ciphertext; the broker never reads it.
 const capsuleKeyPrefix = keyPrefix + "cap:"
 
+// genKeyPrefix namespaces the /generation records: rogerai:gen:<request id>.
+const genKeyPrefix = keyPrefix + "gen:"
+
+// putGen SETs a /generation record with its TTL (atomic set+expire).
+func (v *valkeyStore) putGen(id string, rec []byte, ttl time.Duration) error {
+	if v == nil || v.rdb == nil {
+		return errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	if err := v.rdb.Set(ctx, genKeyPrefix+id, rec, ttl).Err(); err != nil {
+		v.noteErr("putGen", err)
+		return err
+	}
+	v.setUp(true)
+	return nil
+}
+
+// getGen reads one /generation record: a miss is found=false with a nil error; a backend
+// error is returned (the lookup fails closed on it).
+func (v *valkeyStore) getGen(id string) ([]byte, bool, error) {
+	if v == nil || v.rdb == nil {
+		return nil, false, errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	val, err := v.rdb.Get(ctx, genKeyPrefix+id).Bytes()
+	if err == redis.Nil {
+		v.setUp(true)
+		return nil, false, nil
+	}
+	if err != nil {
+		v.noteErr("getGen", err)
+		return nil, false, err
+	}
+	v.setUp(true)
+	return val, true, nil
+}
+
 // putCapsule SETs the opaque blob under the lookup with a TTL (atomic set+expire), so an
 // expired blob can never outlive its window. ttl<=0 is a no-op. Content-blind: only the
 // lookup + ciphertext are written.
@@ -2188,6 +2262,27 @@ func (v *valkeyStore) edgeSlotFree(attemptID string) error {
 	}
 	if err != nil {
 		v.noteErr("edgeSlotFree", err)
+		return err
+	}
+	v.setUp(true)
+	return nil
+}
+
+var delIfEqualScript = redis.NewScript(`
+if redis.call("GET", KEYS[1]) == ARGV[1] then
+  return redis.call("DEL", KEYS[1])
+end
+return 0
+`)
+
+func (v *valkeyStore) delIfEqual(key, val string) error {
+	if v == nil || v.rdb == nil {
+		return errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	if err := delIfEqualScript.Run(ctx, v.rdb, []string{counterKeyPrefix + key}, val).Err(); err != nil {
+		v.noteErr("delIfEqual", err)
 		return err
 	}
 	v.setUp(true)
@@ -2597,31 +2692,7 @@ func (b *broker) localCachedJSON(key string, ttl time.Duration, compute func() a
 }
 
 func (b *broker) serveCachedJSON(w http.ResponseWriter, key string, ttl time.Duration, compute func() any) {
-	// No shared (Redis) backend: still amortize via the IN-PROCESS TTL cache so a single
-	// instance doesn't recompute the full market on every hit. Safe - same key scoping as the
-	// shared path. On a marshal error, fall back to the direct encoder so the request still serves.
-	if b.shared == nil {
-		if body := b.localCachedJSON(key, ttl, compute); body != nil {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write(body)
-			return
-		}
-		writeJSON(w, http.StatusOK, compute())
-		return
-	}
-	// Cache HIT: serve the stored JSON verbatim (already serialized, small payload).
-	if val, found, err := b.shared.cacheGet(key); err == nil && found {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write(val)
-		return
-	}
-	// MISS (or a cache error): compute under a per-KEY singleflight so a CONCURRENT
-	// miss/expiry on this one hot key collapses to ONE compute (+ one cache populate)
-	// instead of a thundering herd each re-running the full (b.mu-locked) recompute.
-	// Only one goroutine per key runs compute(); the rest share its serialized bytes.
-	body := b.computeCachedJSON(key, ttl, compute)
+	body := b.cachedJSON(key, ttl, compute)
 	if body == nil {
 		// Marshal failed for this view (should never happen); fall back to the standard
 		// encoder on a fresh compute so the request still serves a body.
@@ -2631,6 +2702,20 @@ func (b *broker) serveCachedJSON(w http.ResponseWriter, key string, ttl time.Dur
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(body)
+}
+
+// cachedJSON is the serialized view behind a public cached read: the shared cache's bytes on
+// a hit, else ONE compute under the per-key singleflight (a concurrent miss/expiry on a hot
+// key collapses to one recompute instead of a thundering herd). Without a shared backend the
+// in-process TTL cache amortizes the same way. nil only on a marshal error.
+func (b *broker) cachedJSON(key string, ttl time.Duration, compute func() any) []byte {
+	if b.shared == nil {
+		return b.localCachedJSON(key, ttl, compute)
+	}
+	if val, found, err := b.shared.cacheGet(key); err == nil && found {
+		return val
+	}
+	return b.computeCachedJSON(key, ttl, compute)
 }
 
 // computeCachedJSON runs compute() under the broker's per-key singleflight, returning
