@@ -18,11 +18,11 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"sync"
 	"time"
 
+	"rogerai.fm/roger/v6/internal/pgtest"
 	"rogerai.fm/roger/v6/internal/protocol"
 	"rogerai.fm/roger/v6/internal/store"
 	"rogerai.fm/roger/v6/internal/towercore/admit"
@@ -222,7 +222,10 @@ func bodyHas(body []byte, s string) bool { return strings.Contains(string(body),
 // marks earlier operators' email unverified (it changes nothing a scenario asserts). A no-op
 // on the in-memory store, which is fresh per scenario.
 func psRetireFabricOperator(s *foState) error {
-	dsn := os.Getenv("ROGERAI_TEST_DATABASE_URL")
+	dsn, err := pgtest.Private() // the package's own database, the one the broker under test uses
+	if err != nil {
+		return err
+	}
 	if s.pg == nil || dsn == "" {
 		return nil
 	}
