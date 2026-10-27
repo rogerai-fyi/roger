@@ -269,6 +269,7 @@ func (e *echoPlane) Recv(b []byte) (int, net.Addr, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if e.pending == nil {
+		time.Sleep(time.Millisecond) // the read deadline a real socket would wait out
 		return 0, nil, timeoutErr{}
 	}
 	n := copy(b, e.pending)
@@ -293,9 +294,20 @@ func TestAPassThatHearsOnlyItselfFoundNoPeers(t *testing.T) {
 		require.NoError(t, err)
 		return pkt
 	}}
-	d, f := newDisc(t, cfg, func() (edge.Transport, error) { return plane, nil }, nil)
+	// The responder gets a plane of its own that hears nothing, so only the browser hears the echo and
+	// nothing else can take it first.
+	opened := 0
+	d, f := newDisc(t, cfg, func() (edge.Transport, error) {
+		opened++
+		if opened == 1 {
+			return &deafPlane{}, nil
+		}
+		return plane, nil
+	}, nil)
 	require.NoError(t, d.Start(context.Background()))
+	require.Equal(t, 2, opened, "an advertising and a browsing plane")
 	rep := d.RunOnce(context.Background())
+	require.Equal(t, 1, rep.Seen, "the browser heard this machine's own advert")
 	require.Contains(t, rep.Notes, "no peers found", "this machine's own advert is not a peer")
 	nodes, err := f.List()
 	require.NoError(t, err)
