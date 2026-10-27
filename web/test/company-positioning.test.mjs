@@ -68,13 +68,15 @@ test("Company and Labs appear before technical detail and monetization", () => {
     "§1 / OPERATING PROCEDURE",
     "§2 / THE BAND",
     "§3 / COMPANY",
-    "§4 / THE TUNE",
-    "§5 / SPECIFICATIONS",
-    "§6 / THE INDUSTRIAL SERIES",
-    "§7 / MONETIZE",
+    // §4 ON SITE added by features/web/sensor_positioning.feature (proposed 2026-10-15)
+    "§4 / ON SITE",
+    "§5 / THE TUNE",
+    "§6 / SPECIFICATIONS",
+    "§7 / THE INDUSTRIAL SERIES",
+    "§8 / MONETIZE",
     // §8-§10 merged into one pictogram section (founder respec, 2026-09-02)
-    "§8 / PRIVACY-FIRST AIRWAVES",
-    "§9 / GO",
+    "§9 / PRIVACY-FIRST AIRWAVES",
+    "§10 / GO",
   ]) assert.match(home, new RegExp(marker.replace("/", "\\/")));
   const main = home.match(/<main\b[\s\S]*?<\/main>/)?.[0] || "";
   for (const id of ["demo", "market", "company", "what", "spec", "monetize"]) {
