@@ -50,7 +50,7 @@
 .hw-stop__watt { fill: var(--ink-500); font-family: var(--font-mono); font-size: 11px; }
 .hw-stop__dot {
   fill: var(--paper); stroke: var(--ink-900); stroke-width: 2;
-  transition: fill .25s var(--ease-out-quint), stroke .25s var(--ease-out-quint);
+  transition: fill var(--d-2) var(--ease-out-quint), stroke var(--d-2) var(--ease-out-quint);
 }
 /* the stop the reader is pointing at, from JS or from the sweep passing it */
 .hw-stop.is-lit .hw-stop__dot { fill: var(--live); stroke: var(--live); }
@@ -85,7 +85,7 @@
 /* where the reader was sent, marked just long enough to find it after the scroll */
 .hw-card.is-found { border-color: var(--live); }
 @media (prefers-reduced-motion: no-preference) {
-  .hw-card.is-found { transition: border-color .25s var(--ease-out-quint); }
+  .hw-card.is-found { transition: border-color var(--d-2) var(--ease-out-quint); }
 }
 
 /* ---- §2 the board grid ------------------------------------------------ */
@@ -100,7 +100,7 @@
   background: var(--paper);
   border: 0; border-radius: var(--panel-r); overflow: hidden;
   overflow: hidden;
-  transition: border-color .2s var(--ease-out-quint), transform .2s var(--ease-out-quint);
+  transition: border-color var(--d-2) var(--ease-out-quint), transform var(--d-2) var(--ease-out-quint);
 }
 .hw-card:hover, .hw-card:focus-within {
   border-color: var(--ink-300); transform: translateY(-2px);

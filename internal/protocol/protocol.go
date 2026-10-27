@@ -417,6 +417,13 @@ type NodeRegistration struct {
 	// human station broadcasting at zero, with the upstream bill still recovered.
 	// Default (false) keeps list x curatedMarkup.
 	CuratedAtCost bool `json:"curated_at_cost,omitempty"`
+	// ProbeMinSeconds is the operator's declared MINIMUM interval between the broker's
+	// verification probes of this node (for an upstream where every canary costs real money).
+	// The broker clamps it to [0, ROGERAI_PROBE_MIN_CAP] and never probes sooner, but the
+	// node pays for it: verification is not extended, so between probes it reads as not
+	// currently verified. Rides regSigningBytes like Curated (only Sig is excluded; omitempty
+	// keeps old nodes' signatures byte-identical).
+	ProbeMinSeconds int `json:"probe_min_s,omitempty"`
 	// TS (unix seconds) + Sig prove possession of PubKey's private key and bound the
 	// registration to a moment (the broker rejects stale ones to stop replay). Sig is
 	// hex(ed25519 sign over regSigningBytes), verified against PubKey on register.

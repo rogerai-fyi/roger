@@ -27,6 +27,11 @@ const PollBackoff = 2 * time.Second
 // well-behaved server long-polls for its whole TTL, so this floor is never reached in practice.
 const emptyPollFloor = 200 * time.Millisecond
 
+// emptyPollPace is the timer behind that floor, a package variable so a test can read the
+// wait the loop asks for instead of timing it from the outside - the same seam shape as the
+// courier clocks in cmd/roger-tower. Production never reassigns it.
+var emptyPollPace = time.After
+
 // Executor serves one authorized job: given the Core-signed grant and the sealed request, it
 // returns the sealed result and the node's signed receipt (or a failure string). It is the seam
 // that keeps towerhub free of any station/serving dependency - internal/agent adapts the real
@@ -70,7 +75,7 @@ func ServeLoop(ctx context.Context, c *Client, station string, exec Executor, on
 			// returns 204 immediately cannot busy-spin this worker.
 			if d := time.Since(start); d < emptyPollFloor {
 				select {
-				case <-time.After(emptyPollFloor - d):
+				case <-emptyPollPace(emptyPollFloor - d):
 				case <-ctx.Done():
 					return ctx.Err()
 				}
