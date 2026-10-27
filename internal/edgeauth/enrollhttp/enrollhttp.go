@@ -260,19 +260,6 @@ func Enroll(ctx context.Context, endpoint string, req edgeauth.Request) (edgeaut
 	return resp, nil
 }
 
-// Revocations refreshes what an authority has revoked.
-func Revocations(ctx context.Context, endpoint string) ([]string, error) {
-	raw, err := get(ctx, endpoint, RevocationsPath)
-	if err != nil {
-		return nil, err
-	}
-	var out []string
-	if err := json.Unmarshal(raw, &out); err != nil {
-		return nil, fmt.Errorf("%w: the revocation list could not be read", edgeauth.ErrMalformed)
-	}
-	return out, nil
-}
-
 // SignedRevocations fetches the authority's revocation list with the root's signature, for the
 // caller to verify before using one serial. ErrNotSigned means the authority signs none.
 func SignedRevocations(ctx context.Context, endpoint string) (edgeauth.SignedRevocationsList, error) {

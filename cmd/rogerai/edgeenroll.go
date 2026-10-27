@@ -590,15 +590,12 @@ func edgeRefreshTrust(st edgeauth.Store, endpoint string, local *edgeauth.Local,
 		return "", st.SaveTrust(revs, now)
 	}
 	if endpoint != "" {
-		if rev, err := enrollhttp.Revocations(context.Background(), endpoint); err == nil {
-			return "", st.SaveTrust(rev, now)
-		}
-		// The fetch FAILED (a 503 when the authority's list is unreadable, or the authority is
-		// unreachable). Do NOT re-stamp the stored list as freshly refreshed - a failed refresh that
-		// read as fresh would suppress the staleness warning and hide a revocation made meanwhile.
-		// Leave what is stored exactly as it is (so edgeTrustNote still warns) and RETURN a warning
-		// for the caller to surface, rather than printing into the core (which the TUI shares).
-		return fmt.Sprintf("could not refresh the revocation list from %s - this machine's list may be stale", endpoint), nil
+		// A failed or refused fetch leaves what is stored exactly as it is (so edgeTrustNote still
+		// warns) and RETURNS a warning for the caller to surface, rather than printing into the core
+		// (which the TUI shares).
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		return edgeTakeSignedRevocations(ctx, st, endpoint, now), nil
 	}
 	// A node with no authority and no endpoint has no source to refresh from, so it likewise must not
 	// claim a fresh list. Leave the stored trust (and its RefreshedAt) untouched.
@@ -1045,10 +1042,9 @@ const edgeTrustEvery = 15 * time.Minute
 
 // edgeRefreshTrustNow brings this machine's revocation list up to date while roger runs
 // (enrollment.feature: "a peer that has the current revocation list"). The authority re-reads its
-// own list, which is the source. A member fetches its authority's list and ADDS it to what it has:
-// the list travels unsigned over the LAN, so an answer missing a serial - forged or broken - never
-// un-revokes it; a re-admitted device is issued a new serial, so nothing legitimate is lost. It
-// returns a warning to log, or "".
+// own list, which is the source. A member fetches its authority's signed list and ADDS it to what it
+// has, so an answer missing a serial never un-revokes it; a re-admitted device is issued a new serial,
+// so nothing legitimate is lost. It returns a warning to log, or "".
 func edgeRefreshTrustNow(now time.Time) string {
 	st := edgeIdentityStore()
 	if _, _, enrolled, err := st.LoadIdentity(); err != nil || !enrolled {
@@ -1068,50 +1064,58 @@ func edgeRefreshTrustNow(now time.Time) string {
 	if err != nil || d.Kind != edgeauth.KindLocal || !strings.Contains(d.Where, ":") {
 		return "" // not a member of a locally-rooted Edge reached by address: nothing to fetch from here
 	}
-	endpoint := "http://" + d.Where
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	// The list signed by the Edge's root first (features/edge/revocation.feature): not one serial of a
-	// list that fails its signature is used. An authority from before signing answers only the plain
-	// list, which is taken add-only, and said.
-	note := ""
-	var fetched []string
+	return edgeTakeSignedRevocations(ctx, st, "http://"+d.Where, now)
+}
+
+// edgeSignedSkew is how far ahead of this machine's clock a signed list may say it was signed.
+const edgeSignedSkew = 5 * time.Minute
+
+// edgeTakeSignedRevocations fetches the list signed by the Edge's root and ADDS its serials to this
+// machine's list (features/edge/revocation.feature). Not one serial is used from a list that is
+// unsigned, fails its signature, was signed before the last one taken (a replay), or was signed in the
+// future; the stored list and its age stay as they were. A list that is taken is as fresh as its
+// signing. It returns a warning to show, or "".
+func edgeTakeSignedRevocations(ctx context.Context, st edgeauth.Store, endpoint string, now time.Time) string {
 	signed, err := enrollhttp.SignedRevocations(ctx, endpoint)
 	switch {
-	case err == nil:
-		rootPEM, rerr := os.ReadFile(filepath.Join(edgeAuthDir(), edgeauth.RootCertFile))
-		root, derr := edgeauth.DecodeCert(string(rootPEM))
-		if rerr != nil || derr != nil {
-			return "could not read this Edge's root to check the revocation list, so it was not used"
-		}
-		if verr := edgeauth.VerifyRevocations(root, signed); verr != nil {
-			return fmt.Sprintf("refused the revocation list from %s: its signature did not verify against this Edge's root - this machine's list is unchanged", endpoint)
-		}
-		fetched = signed.Revoked
 	case errors.Is(err, enrollhttp.ErrNotSigned):
-		if fetched, err = enrollhttp.Revocations(ctx, endpoint); err != nil {
-			return fmt.Sprintf("could not refresh the revocation list from %s - this machine's list may be stale", endpoint)
-		}
-		note = fmt.Sprintf("took an unsigned revocation list from %s (an authority from before signing) - it can only add revocations", endpoint)
-	default:
+		return fmt.Sprintf("the revocation list from %s could not be checked (it was not signed), so it was not used - this machine's list may be stale", endpoint)
+	case err != nil:
 		return fmt.Sprintf("could not refresh the revocation list from %s - this machine's list may be stale", endpoint)
+	}
+	rootPEM, rerr := os.ReadFile(filepath.Join(edgeAuthDir(), edgeauth.RootCertFile))
+	root, derr := edgeauth.DecodeCert(string(rootPEM))
+	if rerr != nil || derr != nil {
+		return "could not read this Edge's root to check the revocation list, so it was not used"
+	}
+	if verr := edgeauth.VerifyRevocations(root, signed); verr != nil {
+		return fmt.Sprintf("refused the revocation list from %s: its signature did not verify against this Edge's root - this machine's list is unchanged", endpoint)
+	}
+	signedAt := time.Unix(signed.At, 0)
+	if signedAt.After(now.Add(edgeSignedSkew)) {
+		return fmt.Sprintf("refused the revocation list from %s: it says it was signed %s from now - the authority's clock or the list is wrong; this machine's list is unchanged", endpoint, signedAt.Sub(now).Round(time.Second))
 	}
 	t, err := st.LoadTrust()
 	if err != nil {
 		return "could not read this machine's revocation list: " + err.Error()
+	}
+	if signed.At < t.SignedAt {
+		return fmt.Sprintf("refused the revocation list from %s: it is older than the one this machine already took - this machine's list is unchanged", endpoint)
 	}
 	have := map[string]bool{}
 	merged := append([]string(nil), t.Revoked...)
 	for _, s := range merged {
 		have[s] = true
 	}
-	for _, s := range fetched {
+	for _, s := range signed.Revoked {
 		if !have[s] {
 			merged, have[s] = append(merged, s), true
 		}
 	}
-	if err := st.SaveTrust(merged, now); err != nil {
+	if err := st.SaveSignedTrust(merged, signedAt); err != nil {
 		return "could not save the refreshed revocation list: " + err.Error()
 	}
-	return note
+	return ""
 }

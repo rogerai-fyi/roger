@@ -329,6 +329,9 @@ func (s Store) forgetIdentityFiles() {
 type Trust struct {
 	Revoked     []string `json:"revoked,omitempty"`
 	RefreshedAt int64    `json:"refreshed_at,omitempty"`
+	// SignedAt is when the last signed list this member took was signed: a list signed earlier is a
+	// replay (features/edge/revocation.feature).
+	SignedAt int64 `json:"signed_at,omitempty"`
 }
 
 // Age is how long since this machine last refreshed the list.
@@ -365,12 +368,26 @@ func (s Store) LoadTrust() (Trust, error) {
 	return t, nil
 }
 
-// SaveTrust records the revocation list and when it was refreshed.
+// SaveTrust records the revocation list and when it was refreshed, keeping when the last signed list
+// was signed.
 func (s Store) SaveTrust(revoked []string, at time.Time) error {
+	t, err := s.LoadTrust()
+	if err != nil {
+		return err
+	}
+	return s.saveTrust(Trust{Revoked: revoked, RefreshedAt: at.Unix(), SignedAt: t.SignedAt})
+}
+
+// SaveSignedTrust records a list taken from a signed one: it is as fresh as its signing.
+func (s Store) SaveSignedTrust(revoked []string, signedAt time.Time) error {
+	return s.saveTrust(Trust{Revoked: revoked, RefreshedAt: signedAt.Unix(), SignedAt: signedAt.Unix()})
+}
+
+func (s Store) saveTrust(t Trust) error {
 	if err := os.MkdirAll(s.Dir, 0o700); err != nil {
 		return err
 	}
-	b, err := json.MarshalIndent(Trust{Revoked: revoked, RefreshedAt: at.Unix()}, "", "  ")
+	b, err := json.MarshalIndent(t, "", "  ")
 	if err != nil {
 		return err
 	}
