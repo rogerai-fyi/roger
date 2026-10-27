@@ -102,11 +102,10 @@ func (h Home) List() ([]Model, error) {
 
 // recorded is the model as its record beside the file says, when there is one, else as found.
 // The path is always where the file IS, never what the record says. A record is roger's own
-// writing (a fetch, or a digest it computed); it is read, not re-checked against the bytes.
-// recorded reads the record beside a file, if there is one, and trusts it only while it still
-// describes the file on disk: the size it remembers and, when it kept one, the modification time.
-// A different file copied in under the same name is a different file, and the old record's
-// digest or check is not said of it.
+// writing (a fetch, or a digest it computed) and is trusted only while it still describes the
+// file on disk: the size it remembers and, when it kept one, the modification time. The bytes
+// are not re-read. A different file copied in under the same name is a different file, and
+// the old record's digest or check is not said of it.
 func recorded(m Model, mtime time.Time) Model {
 	if b, err := os.ReadFile(m.Path + recordExt); err == nil {
 		var rec Model
