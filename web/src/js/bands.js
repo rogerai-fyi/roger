@@ -35,6 +35,8 @@
 
   var REDUCED = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   var BROKER = "https://broker.rogerai.fm";
+  // The category rules (js/taxonomy.js, loaded first): labels, filter, search, escaping.
+  var RT = window.RogerTaxonomy;
   var POLL_MS = 30000;
   var BARGLYPH = "▁▂▃▄▅▆▇█"; // ▁▂▃▄▅▆▇█
   var HISTORY_KEY = "roger-seen-models";
@@ -53,6 +55,8 @@
   var clearEl  = document.getElementById("bandClear");
   var sortEl   = document.getElementById("bandSort");
   var fltFree  = document.getElementById("fltFree");
+  var catEl    = document.getElementById("bandCat");
+  var subEl    = document.getElementById("bandSub");
   var fltVer   = document.getElementById("fltVer");
   var fltConf  = document.getElementById("fltConf");
   var fltOn    = document.getElementById("fltOn");
@@ -290,6 +294,7 @@
         ctx: 0,
         ctxEstimated: true,
         hwClass: "",
+        tax: RT.fromMarketRow(m), // the row's majority category; who declared it comes from /discover
         stations: []
       };
     }).filter(function (b) { return b.model && b.model !== "unknown"; });
@@ -363,7 +368,11 @@
         ctx: +o.ctx || 0,
         ctxEstimated: oEst,
         signal: oSig,
-        hwClass: cls
+        hwClass: cls,
+        // what the station says (or its detector guessed) the model is FOR
+        category: o.category || "", subcategory: o.subcategory || "",
+        taxonomy_source: o.taxonomy_source || "", tags: o.tags || [],
+        content_policy: o.content_policy || ""
       });
     });
     return Object.keys(by).map(function (k) {
@@ -385,6 +394,7 @@
         verified: b.ver, confidential: b.conf, freeNow: b.free,
         ctx: b.ctx, ctxEstimated: b.ctx > 0 ? b.ctxEst : true,
         scheduled: b.sched, hwClass: b.hwClass,
+        tax: RT.fold(b.stations),
         stations: b.stations
       };
     });
@@ -408,6 +418,8 @@
         b.ctxEstimated = d.ctxEstimated;
         b.scheduled = d.scheduled;
         b.hwClass = b.hwClass || d.hwClass;
+        // /discover knows who declared each station's category; /market only the majority.
+        if (d.tax && d.tax.cat) b.tax = d.tax;
         // success: /discover carries the per-station REAL rate + seen flag. Prefer a
         // SEEN value (from either source) so an honest "no data" is only shown when
         // neither source has measured evidence.
@@ -448,7 +460,8 @@
   /* ---- state ---------------------------------------------------- */
   var bands = [];        // full normalized set (live + seen-offline)
   var reachedBroker = false;
-  var filters = { q: "", sort: "signal", free: false, conf: false, ver: false, on: true, seen: false };
+  var filters = { q: "", sort: "signal", free: false, conf: false, ver: false, on: true, seen: false, category: "", sub: "" };
+  var catsResp = null; // GET /categories: the list + live supply behind the Category select
 
   /* ---- signal tower string -------------------------------------- */
   function towerBars(sig100, live) {
@@ -501,6 +514,7 @@
     if (b.confidential) marks += ' <span class="cs" title="TEE-verified confidential (real hardware attestation)">◆</span>';
     if (b.freeNow) marks += ' <span class="band-tag band-tag--free">FREE</span>';
     if (b.seen) marks += ' <span class="band-tag band-tag--seen" title="seen before, offline now">SEEN</span>';
+    marks += RT.tagsHTML(b.tax); // category (a guess marked ~), grade, tags - escaped
     // ctx: detected window solid; the estimated default dim + "~" (a guess, labeled
     // as one). band-ctx--est carries the dim styling.
     var ctx = "";
@@ -572,7 +586,8 @@
     var q = filters.q.trim().toLowerCase();
     var out = arr.filter(function (b) {
       if (filters.on && !b.live) return false;       // on-air only (default)
-      if (q && b.model.toLowerCase().indexOf(q) === -1) return false;
+      if (q && !RT.search(b.model, b.tax, q)) return false;   // name, category, subcategory, tags
+      if (!RT.matches(b.tax, filters)) return false;
       if (filters.free && !b.freeNow) return false;
       if (filters.conf && !b.confidential) return false;
       if (filters.ver && !b.verified) return false;
@@ -985,6 +1000,22 @@
     wrap.appendChild(legend);
   }
 
+  // What the band is FOR, as its stations describe it: never presented as verified, and a
+  // reduced-refusal or uncensored grade always carries the screening note.
+  function taxonomyNote(t) {
+    if (!t || (!t.cat && !(t.tags || []).length && !(t.policies || []).length)) {
+      return "category: none declared or guessed";
+    }
+    var parts = [];
+    var l = RT.label(t);
+    if (l) parts.push("category: " + l + (t.declared > 0 ? " (declared by the station - its own description, not verified)" : " (guessed, not declared)"));
+    if ((t.tags || []).length) parts.push("tags: " + t.tags.join(", "));
+    if ((t.policies || []).length) parts.push("content policy: " + t.policies.join(", "));
+    var note = parts.join(" · ");
+    if (RT.grade(t)) note += " · RogerAI still screens every request";
+    return note;
+  }
+
   // Honest schedule note: drive ONLY from the real `scheduled` flag. We do NOT
   // synthesize a fabricated 24h availability grid (that would be invented data).
   function scheduleNote(b) {
@@ -1082,6 +1113,8 @@
     // "Why this signal": the broker's authoritative term breakdown
     renderTermBar(b);
     document.getElementById("qslSched").textContent = scheduleNote(b);
+    var taxEl = document.getElementById("qslTax");
+    if (taxEl) taxEl.textContent = taxonomyNote(b.tax);
 
     document.getElementById("qslCmdCode").textContent = "roger use " + b.model;
     document.getElementById("qslStamp").textContent = "RogerAI · QSL · " + b.model;
@@ -1269,6 +1302,56 @@
     filters.seen = true; filters.on = false; syncOnSeenButtons(); renderList();
   });
   if (sortEl) sortEl.addEventListener("change", function () { filters.sort = sortEl.value; renderList(); });
+
+  /* ---- category select (GET /categories; ?category=&sub= deep links) ---- */
+  function fillSel(sel, opts, cur) {
+    if (!sel) return;
+    sel.innerHTML = "";
+    opts.forEach(function (o) {
+      var op = document.createElement("option");
+      op.value = o.value; op.textContent = o.text;
+      if (o.value === cur) op.selected = true;
+      sel.appendChild(op);
+    });
+  }
+  function syncCatSelects() {
+    if (!catsResp) return;
+    fillSel(catEl, RT.options(catsResp), filters.category);
+    if (subEl) {
+      subEl.parentNode.hidden = !filters.category;
+      fillSel(subEl, RT.subOptions(catsResp, filters.category), filters.sub);
+    }
+  }
+  function syncCatURL() {
+    if (!window.history || !history.replaceState) return;
+    var q = filters.category ? "?category=" + encodeURIComponent(filters.category) +
+      (filters.sub ? "&sub=" + encodeURIComponent(filters.sub) : "") : "";
+    history.replaceState(null, "", location.pathname + q + location.hash);
+  }
+  function loadCategories() {
+    fetch(BROKER + "/categories", { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        if (!d || !Array.isArray(d.categories)) return;
+        var first = !catsResp;
+        catsResp = d;
+        if (first) {
+          var f = RT.fromQuery(location.search, d);
+          filters.category = f.category; filters.sub = f.sub;
+        }
+        syncCatSelects();
+        renderList();
+      })
+      .catch(function () { /* the select stays at "All"; the directory works without it */ });
+  }
+  if (catEl) catEl.addEventListener("change", function () {
+    filters.category = catEl.value; filters.sub = "";
+    syncCatSelects(); syncCatURL(); renderList();
+  });
+  if (subEl) subEl.addEventListener("change", function () {
+    filters.sub = subEl.value; syncCatURL(); renderList();
+  });
+  loadCategories();
   if (searchEl) {
     searchEl.addEventListener("input", function () {
       filters.q = searchEl.value;

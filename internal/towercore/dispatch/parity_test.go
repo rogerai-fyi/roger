@@ -14,57 +14,25 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"database/sql"
-	"net/url"
-	"os"
-	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/stretchr/testify/require"
+	"rogerai.fm/roger/v6/internal/pgtest"
 )
-
-var privateOnce sync.Once
-
-// privateDSN redirects THIS package's Postgres tests to their own database.
-//
-// `go test ./...` runs packages in parallel against one DSN, and this suite deletes rows.
-// internal/store and towercore/attach both hit that and solved it the same way; the failure
-// shows up in the OTHER package as something inexplicable, which is what made it expensive.
-func privateDSN(t *testing.T, dsn string) string {
-	t.Helper()
-	u, err := url.Parse(dsn)
-	if err != nil || u.Path == "" || u.Path == "/" {
-		return dsn
-	}
-	name := strings.TrimPrefix(u.Path, "/") + "_dispatch"
-	privateOnce.Do(func() {
-		admin, aerr := sql.Open("pgx", dsn)
-		if aerr != nil {
-			t.Fatalf("private db: open admin: %v", aerr)
-		}
-		defer admin.Close()
-		// No CREATE DATABASE IF NOT EXISTS in PostgreSQL: create and tolerate "already exists".
-		if _, cerr := admin.Exec(`CREATE DATABASE "` + name + `"`); cerr != nil &&
-			!strings.Contains(cerr.Error(), "already exists") {
-			t.Fatalf("private db: create %s: %v", name, cerr)
-		}
-	})
-	u.Path = "/" + name
-	return u.String()
-}
 
 // parityStores returns every store implementation under test.
 func parityStores(t *testing.T) map[string]Store {
 	t.Helper()
 	out := map[string]Store{"mem": NewMemStore()}
 
-	dsn := os.Getenv("ROGERAI_TEST_DATABASE_URL")
+	dsn := pgtest.DSN(t)
 	if dsn == "" {
 		return out
 	}
-	db, err := sql.Open("pgx", privateDSN(t, dsn))
+	db, err := sql.Open("pgx", dsn)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 	// The schema is provisioned by an admin in production; a test database has to make it.
@@ -387,11 +355,11 @@ func TestADurableStoreNeedsADatabase(t *testing.T) {
 // an unreachable store as an empty one would hand out work twice: the claim would look
 // unclaimed to every instance that could not read it.
 func TestADeadDatabaseIsReportedRatherThanReadAsEmpty(t *testing.T) {
-	dsn := os.Getenv("ROGERAI_TEST_DATABASE_URL")
+	dsn := pgtest.DSN(t)
 	if dsn == "" {
 		t.Skip("set ROGERAI_TEST_DATABASE_URL to exercise the durable store")
 	}
-	db, err := sql.Open("pgx", privateDSN(t, dsn))
+	db, err := sql.Open("pgx", dsn)
 	require.NoError(t, err)
 	_, _ = db.Exec(`CREATE SCHEMA IF NOT EXISTS rogerai`)
 	s, err := NewPGStore(db)

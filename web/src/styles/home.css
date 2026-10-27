@@ -36,8 +36,20 @@
   position: relative; color: var(--ink-900); white-space: nowrap;
 }
 .hero__op::after {
-  content: ""; position: absolute; left: 0; right: 0; bottom: -0.04em;
+  content: ""; position: absolute; left: 0; right: var(--cycle-slack, 0em); bottom: -0.04em;
   height: 3px; background: var(--live);
+}
+/* The words after the cycling operative word (components.css .cycle-word): its slot is
+   reserved at the widest word, so on a shorter one "Models." and the underline close up
+   on it by --cycle-slack (cycle.js), by transform and paint only: the line never
+   reflows and nothing shifts in layout (CLS 0). */
+.hero__tail {
+  display: inline-block;
+  transform: translateX(calc(-1 * var(--cycle-slack, 0em)));
+}
+@media (prefers-reduced-motion: no-preference) {
+  .hero__tail { transition: transform var(--d-3) var(--ease-out-quint); }
+  .hero__op::after { transition: right var(--d-3) var(--ease-out-quint); }
 }
 /* the speed beat: a smaller, muted line under the main statement (still part of the H1) */
 .hero__fast {
@@ -1581,3 +1593,14 @@ html.js .mkt-quiet--nojs { display: none; }
   :where(.company__primary) { position: relative; }
   :is(.company__primary)::before { content: ""; position: absolute; inset: var(--hit-inset); }
 }
+
+/* ---- §4 ON SITE: your device, now a sensor (features/web/sensor_positioning.feature) --
+   The shared step path, one paragraph, and the shared adapter dial (.spectrum--dial,
+   components.css), with the spectrum's own foot line. Placement only. */
+.sensor__steps { margin-top: var(--s-10); }
+.sensor__get {
+  max-width: 44rem; margin: var(--s-10) 0 0;
+  font-size: var(--t-body); line-height: var(--lh-body); color: var(--ink-700);
+}
+.sensor__dial { margin-top: var(--s-6); }
+#sensor .scrub { margin-top: var(--s-6); }

@@ -245,6 +245,29 @@
     if (m.overridden) head.appendChild(el("span", "md-tag", "custom"));
     card.appendChild(head);
 
+    // what the model is FOR, as the station registered it (read-only here: features/
+    // categories/web_sharing_view.feature). A guess is marked "~", never shown as a claim.
+    var cat = el("div", "md-base md-cat");
+    cat.appendChild(el("span", "md-lbl", "Category"));
+    var catTxt = m.taxonomy_source ? "no category" : "none declared";
+    if (m.category) {
+      catTxt = (m.subcategory ? m.category + "/" + m.subcategory : m.category) +
+        (m.taxonomy_source === "declared" ? "" : "~");
+    }
+    if (m.tags && m.tags.length) catTxt += " · " + m.tags.join(", ");
+    if (m.content_policy) catTxt += " · " + m.content_policy;
+    if (m.meta_overridden) catTxt += " · set on the web";
+    cat.appendChild(el("span", "md-catv", catTxt));
+    var catBtn = el("button", "ghost md-catedit", "Edit category"); catBtn.type = "button";
+    cat.appendChild(catBtn);
+    card.appendChild(cat);
+    var catBox = null;
+    catBtn.addEventListener("click", function () {
+      if (catBox) { catBox.hidden = !catBox.hidden; return; }
+      catBox = catEditor(m);
+      cat.parentNode.insertBefore(catBox, cat.nextSibling);
+    });
+
     // base price line
     var base = el("div", "md-base");
     base.appendChild(el("span", "md-lbl", "Base $/1M"));
@@ -302,6 +325,107 @@
   }
 
   function setState(node, cls, txt) { node.className = "md-state " + (cls || ""); node.textContent = txt; }
+
+  // ---- the category editor (features/categories/web_card_editor.feature) ----
+  // A front-end on POST /provider/meta: the broker validates (the same rules as the node),
+  // so a refusal shows the server's reason here. Fields are built with value/textContent
+  // only - a station's text is never markup.
+  var catList = null; // GET /categories, fetched once
+  function loadCatList() {
+    if (catList) return Promise.resolve(catList);
+    return fetch(BROKER + "/categories", { cache: "no-store" })
+      .then(function (r) { if (!r.ok) return null; return r.json(); })
+      .then(function (d) {
+        if (d && d.categories) catList = d.categories; // only a good list is cached
+        return (d && d.categories) || [];
+      })
+      .catch(function () { return []; });
+  }
+  function options(sel, values, cur) {
+    while (sel.firstChild) sel.removeChild(sel.firstChild);
+    values.forEach(function (v) {
+      var o = el("option", null, v || "(none)"); o.value = v;
+      if (v === cur) o.selected = true;
+      sel.appendChild(o);
+    });
+  }
+  function catEditor(m) {
+    var box = el("div", "md-catbox");
+    var catSel = el("select", "md-catsel"), subSel = el("select", "md-catsel");
+    var tags = el("input", "md-cattext"); tags.type = "text"; tags.placeholder = "tags, comma-separated";
+    tags.value = (m.tags || []).join(", ");
+    var tuning = el("select", "md-catsel"), policy = el("select", "md-catsel");
+    options(tuning, ["", "base", "instruct", "finetune", "merge", "quantized", "adapter"], m.tuning || "");
+    options(policy, ["", "aligned", "reduced-refusal", "uncensored"], m.content_policy || "");
+    var license = el("input", "md-cattext"); license.type = "text"; license.placeholder = "license (e.g. Apache-2.0)";
+    license.value = m.license || "";
+    var baseM = el("input", "md-cattext"); baseM.type = "text"; baseM.placeholder = "base model";
+    baseM.value = m.base_model || "";
+    [["Category", catSel], ["Subcategory", subSel], ["Tags", tags], ["Tuning", tuning],
+     ["Content policy", policy], ["License", license], ["Base model", baseM]].forEach(function (f) {
+      var row = el("label", "md-catrow");
+      row.appendChild(el("span", "md-lbl", f[0]));
+      row.appendChild(f[1]);
+      box.appendChild(row);
+    });
+    box.appendChild(el("p", "fine", "Your own description, shown as declared. A content-policy grade describes the weights; RogerAI still screens every request."));
+    var foot = el("div", "md-foot");
+    var save = el("button", "primary", "Save category"); save.type = "button";
+    var clr = el("button", "ghost", "Clear"); clr.type = "button";
+    var catState = el("span", "md-state");
+    save.disabled = true; // until the category list has loaded: an empty Save would be a clear
+    foot.appendChild(save); foot.appendChild(clr); foot.appendChild(catState);
+    box.appendChild(foot);
+
+    function fillSubs(cur) {
+      var subs = [""];
+      (catList || []).forEach(function (c) {
+        if (c.name === catSel.value) (c.subcategories || []).forEach(function (s) { subs.push(s.name); });
+      });
+      options(subSel, subs, cur);
+    }
+    loadCatList().then(function (list) {
+      options(catSel, [""].concat(list.map(function (c) { return c.name; })), m.category || "");
+      fillSubs(m.subcategory || "");
+      save.disabled = !list.length;
+      if (!list.length) setState(catState, "md-state--err", "Could not load the category list - try again shortly.");
+    });
+    catSel.addEventListener("change", function () { fillSubs(""); });
+
+    function send(payload) {
+      save.disabled = clr.disabled = true; setState(catState, "", "Saving...");
+      api("/provider/meta", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      }).then(function (r) {
+        return r.json().then(function (j) { return { ok: r.ok, j: j }; });
+      }).then(function (res) {
+        save.disabled = !catList; clr.disabled = false;
+        if (!res.ok || !res.j || !res.j.ok) {
+          setState(catState, "md-state--err", (res.j && res.j.error && res.j.error.message) || "Could not save.");
+          return;
+        }
+        setState(catState, "md-state--ok", res.j.note || "Saved.");
+        loadModels();
+      }).catch(function () {
+        save.disabled = !catList; clr.disabled = false;
+        setState(catState, "md-state--err", "Could not reach the broker.");
+      });
+    }
+    save.addEventListener("click", function () {
+      send({
+        node: m.node, model: m.model,
+        category: subSel.value ? catSel.value + "/" + subSel.value : catSel.value,
+        tags: tags.value.split(",").map(function (s) { return s.trim(); }).filter(Boolean),
+        tuning: tuning.value, content_policy: policy.value,
+        license: license.value.trim(), base_model: baseM.value.trim()
+      });
+    });
+    clr.addEventListener("click", function () { send({ node: m.node, model: m.model, clear: true }); });
+    return box;
+  }
+  // end catEditor
 
   function saveModel(payload, btn, state) {
     btn.disabled = true; setState(state, "", "Saving...");
