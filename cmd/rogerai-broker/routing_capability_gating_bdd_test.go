@@ -1695,7 +1695,7 @@ func (s *cg1State) bandNotRevealed() error {
 	if err != nil {
 		return err
 	}
-	if res.code != s.last.code || !bytes.Equal(bytes.TrimSpace(res.body), bytes.TrimSpace(s.last.body)) {
+	if res.code != s.last.code || !sameApartFromRequestID(res.body, s.last.body) {
 		return fmt.Errorf("a real band answered %d %s but an unknown code answered %d %s", s.last.code,
 			bytes.TrimSpace(s.last.body), res.code, bytes.TrimSpace(res.body))
 	}

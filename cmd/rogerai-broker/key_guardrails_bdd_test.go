@@ -818,7 +818,7 @@ func (k *kg5State) settledOK(res kg5Resp, wallet string) error {
 		return err
 	}
 	for _, e := range es {
-		if e.RequestID != "" && strings.HasPrefix(e.RequestID, res.reqID) && res.reqID != "" {
+		if res.reqID != "" && e.RelayRequestID == res.reqID {
 			return nil
 		}
 	}
@@ -832,7 +832,7 @@ func (k *kg5State) settledOn(wallet, reqID string) (bool, error) {
 		return false, err
 	}
 	for _, e := range es {
-		if reqID != "" && strings.HasPrefix(e.RequestID, reqID) {
+		if reqID != "" && e.RelayRequestID == reqID {
 			return true, nil
 		}
 	}
@@ -1761,6 +1761,10 @@ func (k *kg5State) streamUnderLimit(label string, limit float64) error {
 	if err := k.mintWith("acct-a", label, fmt.Sprintf("limit_usd %v", limit)); err != nil {
 		return err
 	}
+	// Price the held station so the NEXT request's hold (contract §14 #23: the default 4096
+	// output tokens, not the whole window) is above the $0.01 the scenario lowers the limit
+	// to: 4096 x $4/1M = $0.016. The in-flight stream itself only spends cents of a cent.
+	k.ensureStation("kg5-slow", k.model, 1, 4)
 	return k.heldRelay(label, true)
 }
 
@@ -2006,8 +2010,27 @@ func (k *kg5State) settledThenChargeback(label string) error {
 	wallet, _ := k.walletOf("acct-a")
 	// The $1.00 spend relay is the disputed request (the spend Given records no scenario
 	// response, so k.resp is not it).
-	_, err := k.db.Chargeback("dp_"+k.nonce, wallet, k.spendReq, 1, time.Now())
+	disputed, err := k.settledAttempt(wallet, k.spendReq)
+	if err != nil {
+		return err
+	}
+	_, err = k.db.Chargeback("dp_"+k.nonce, wallet, disputed, 1, time.Now())
 	return err
+}
+
+// settledAttempt is the attempt id a consumer request settled under on wallet: spend rows,
+// chargebacks and refunds are keyed on the attempt, never on the request id itself.
+func (k *kg5State) settledAttempt(wallet, requestID string) (string, error) {
+	es, err := k.db.RecentByUser(wallet, 2000)
+	if err != nil {
+		return "", err
+	}
+	for _, e := range es {
+		if e.RelayRequestID == requestID {
+			return e.RequestID, nil
+		}
+	}
+	return "", fmt.Errorf("request %q settled no row on %s", requestID, wallet)
 }
 
 func (k *kg5State) usageIs(label string, v float64) error { return k.wantNum(label, "usage", v) }

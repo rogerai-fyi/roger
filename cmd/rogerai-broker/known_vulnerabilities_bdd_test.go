@@ -374,7 +374,7 @@ func (s *kvState) rsnReasoningReply(reasoning, claim string) error {
 func (s *kvState) rsnEvaluateSettle() error {
 	rec := protocol.UsageReceipt{RequestID: "rsn-eval", Model: "m", CompletionTokens: 5, TS: s.nextTS()}
 	if !s.rsnProduced {
-		s.b.flagEmptyOutput("n1", rec, 200)
+		s.b.flagEmptyOutput("n1", rec, 200, "")
 		if _, err := s.mem.Settle("rsn-payer", "n1", 0, 0, rec); err != nil {
 			return err
 		}

@@ -86,6 +86,7 @@ type edgeConstraints struct {
 	exclude      map[string]bool
 	pref         pref
 	promptTokens int
+	outTokens    int // the stated output limit (0 = none), for the estimated request cost
 	// PARITY, slice 1 part C (contract §6): every hard filter pickFor applies, evaluated on
 	// the Tower row - attributes the row does not carry (quant, capabilities, ctx, curated)
 	// are read from the registration of the node behind it, exactly where the broker keeps
@@ -126,8 +127,9 @@ func (c edgeConstraints) note(reason, towerID string) {
 // station by.
 type edgeMetric struct {
 	in, out float64 // $/1M
+	cost    float64 // estimated request cost, USD (§14.7); price ranks on it first
 	tps     float64 // 0 = unmeasured (sorts last)
-	ttft    float64 // ms, 0 = unmeasured (sorts last)
+	latency float64 // ms: total latency, else TTFT; 0 = unmeasured (sorts last)
 }
 
 // edgeRefusal is a consumer-facing refusal a bridge gate produced (not a Tower failure):
@@ -197,7 +199,9 @@ type edgeOutcome struct {
 // the attempt, seal, submit, open, acknowledge. It returns the opened answer and the grant on
 // success; otherwise the outcome. It never writes to the consumer - callers decide what the
 // consumer sees (serve, fall back, or surface the Tower's own status).
-func (b *broker) edgeAttempt(r *http.Request, target dispatch.Target, row fleet.Station, model string, body []byte, consumerWallet string, hold edgeHold, soft bool, deadline time.Time) ([]byte, dispatch.EdgeGrant, edgeOutcome) {
+// requestID is the consumer-facing request the attempt belongs to ("" when no relay made it),
+// recorded with the attempt so its settle ties the consumer's ledger row back to it.
+func (b *broker) edgeAttempt(r *http.Request, target dispatch.Target, row fleet.Station, model string, body []byte, consumerWallet string, hold edgeHold, soft bool, deadline time.Time, requestID string) ([]byte, dispatch.EdgeGrant, edgeOutcome) {
 	ts := b.tower
 	var none dispatch.EdgeGrant
 	// The projection is not a security boundary: the price is re-checked against the
@@ -276,7 +280,7 @@ func (b *broker) edgeAttempt(r *http.Request, target dispatch.Target, row fleet.
 			}
 		}
 	}
-	if err := b.openEdgeAttempt(g, target); err != nil {
+	if err := b.openEdgeAttempt(g, target, requestID); err != nil {
 		log.Printf("edge bridge: could not record attempt %s: %v", g.AttemptID, err)
 		releaseOwn()
 		return nil, none, edgeOutcome{}
@@ -420,7 +424,7 @@ func (b *broker) relayViaEdge(w http.ResponseWriter, r *http.Request, model stri
 		if !ok {
 			break
 		}
-		answer, g, out := b.edgeAttempt(r, target, row, model, body, consumerWallet, edgeHold{}, soft, time.Time{})
+		answer, g, out := b.edgeAttempt(r, target, row, model, body, consumerWallet, edgeHold{}, soft, time.Time{}, "")
 		if len(answer) > 0 {
 			b.writeBridgedAnswer(w, g, row, auth.pubHex, answer, stream)
 			return true
@@ -499,6 +503,7 @@ func (b *broker) writeBridgedAnswer(w http.ResponseWriter, g dispatch.EdgeGrant,
 
 func setBridgedHeaders(h http.Header, g dispatch.EdgeGrant, rec protocol.UsageReceipt, cost float64) {
 	h.Set("X-RogerAI-Receipt", protocol.EncodeReceipt(rec))
+	h.Set("X-RogerAI-Attempt-Id", rec.RequestID)
 	h.Set("X-RogerAI-Provider", g.RelayName)
 	h.Set("X-RogerAI-Model", g.Model)
 	h.Set("X-RogerAI-Relay", g.TowerID)

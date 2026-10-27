@@ -471,10 +471,13 @@ Feature: The bridge honors every consumer constraint the direct path honors
     When a consumer relays with roger.self_hosted_only true
     Then the response is 503 {"error":{"code":"no_match"}}
 
+  # superseded 2026-10-05 by contract §14.6 (founder-approved, fairness_and_abuse.feature #16):
+  # a Tower row behind a curated node is overflow behind a home direct station.
+  # Old Then: some relays ride "t1" and some "s1".
   Scenario: self_hosted_only false is the default and changes nothing
     Given "t1-a" is curated
     When 40 consumers relay with roger.self_hosted_only false
-    Then some relays ride "t1" and some "s1"
+    Then every relay is served by "s1"
 
   # --- region -----------------------------------------------------------------
   Scenario: region binds on the bridge - Tower row elsewhere

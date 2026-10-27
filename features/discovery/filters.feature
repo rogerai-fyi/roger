@@ -322,9 +322,10 @@ Feature: Discovery filters - /discover and /market answer the question that was 
     Then the status is 400
     And the error code is "invalid_query_param"
 
+  # superseded 2026-10-05 by contract §14 (founder-approved): the one envelope adds error.type and error.metadata (§14.B6).
   Scenario: The 400 body is the same error envelope the relay uses, and CORS headers are still present
     When a consumer GETs /discover?foo=1 from the website origin
-    Then the body is {"error":{"code":"unknown_query_param","message":...}}
+    Then the body is {"error":{"code":"unknown_query_param","message":...,"type":"invalid_request_error","metadata":...}}
     And the response carries the same CORS headers an unfiltered /discover carries
 
   # --- /market aggregates over the filtered providers -------------------------------------------

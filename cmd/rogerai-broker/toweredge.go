@@ -429,7 +429,7 @@ func (b *broker) towerEdgeAuthorize(w http.ResponseWriter, r *http.Request) {
 	// afterwards. The dispatch record is what makes the nonce one-use at settlement, and
 	// its deadline extends past the grant's by the settlement grace - the grant bounds
 	// execution, the record bounds evidence.
-	if err := b.openEdgeAttempt(g, target); err != nil {
+	if err := b.openEdgeAttempt(g, target, ""); err != nil {
 		log.Printf("edge authorize: could not record attempt %s: %v", g.AttemptID, err)
 		// If a hold was placed just above, release it: the attempt does not exist, so it will
 		// never settle to capture it, and leaving it would strand the consumer's funds until the
@@ -501,14 +501,14 @@ func (b *broker) towerEdgeAuthorize(w http.ResponseWriter, r *http.Request) {
 // grant's plus the settlement grace: the grant bounds execution, the record bounds evidence,
 // and a receipt for work done in time must not be refused because its courier - Station
 // outbox, Tower collection, one hop to Core - ran on a schedule.
-func (b *broker) openEdgeAttempt(g dispatch.EdgeGrant, target dispatch.Target) error {
+func (b *broker) openEdgeAttempt(g dispatch.EdgeGrant, target dispatch.Target, relayRequestID string) error {
 	ts := b.tower
 	if err := ts.dispatch.Store().Put(dispatch.Record{
 		AttemptID: g.AttemptID, JobID: g.JobID, TowerID: g.TowerID, StationID: g.StationID,
 		StationEpoch: g.StationEpoch, Model: g.Model, Modality: g.Modality,
 		Nonce: g.Nonce, Deadline: g.Deadline.Add(edgeSettleGrace()),
 		Grant: g.Signed, AssertionKey: target.AssertionKey, ConsumerKey: g.ConsumerKey,
-		State: dispatch.StateIssued,
+		RelayRequestID: relayRequestID, State: dispatch.StateIssued,
 	}); err != nil {
 		return err
 	}
@@ -939,7 +939,9 @@ func (b *broker) edgeEligibleM(rows []fleet.Station, bannedNode map[string]bool,
 		// The same min-tps floor pickFor applies: measured and too slow is out; unmeasured
 		// passes (a floor on a measurement cannot judge what was never measured).
 		tps := b.tps[nodeID]
-		metrics[i] = edgeMetric{in: edgeRowPrice(row.PriceIn), out: edgeRowPrice(row.PriceOut), tps: tps, ttft: tq.ttftMs}
+		rin, rout := edgeRowPrice(row.PriceIn), edgeRowPrice(row.PriceOut)
+		metrics[i] = edgeMetric{in: rin, out: rout, tps: tps, latency: b.latencyRankLocked(nodeID, tq.ttftMs),
+			cost: estRequestCost(c.promptTokens, expectedOutput(c.outTokens, c.promptTokens, 0), rin, rout)}
 		if c.minTPS > 0 && tps > 0 && tps < c.minTPS {
 			c.note("min_tps", row.TowerID)
 			continue
@@ -2345,7 +2347,7 @@ func (b *broker) settleEdgeMoney(ts *towerSubsystem, towerID, stationID, station
 		link.PublicNetwork, rec.StationID); perr == nil && (pin > 0 || pout > 0) {
 		if settled.BillableTokens.In > 0 || settled.BillableTokens.Out > 0 {
 			cost := tokenCostCredits(settled.BillableTokens.In, settled.BillableTokens.Out, pin, pout)
-			b.captureEdgeCharge(towerID, stationID, stationOwner, parties, settled.AttemptID,
+			b.captureEdgeCharge(towerID, stationID, stationOwner, parties, settled.AttemptID, rec.RelayRequestID,
 				rec.Model, cost, settled.BillableTokens.In, settled.BillableTokens.Out, now)
 			return
 		}
@@ -2362,7 +2364,7 @@ func (b *broker) settleEdgeMoney(ts *towerSubsystem, towerID, stationID, station
 				byteCost = ceilingCost
 			}
 		}
-		b.captureEdgeCharge(towerID, stationID, stationOwner, parties, settled.AttemptID,
+		b.captureEdgeCharge(towerID, stationID, stationOwner, parties, settled.AttemptID, rec.RelayRequestID,
 			rec.Model, byteCost, settled.Billable.In, settled.Billable.Out, now)
 		return
 	}
@@ -2384,7 +2386,7 @@ func (b *broker) settleEdgeMoney(ts *towerSubsystem, towerID, stationID, station
 	// token-priced branch above prices tokens at the grant's pinned rate. Both share the
 	// split + wallet + SettleEdge logic in captureEdgeCharge.
 	cost := edgePriceCredits(settled.Billable.In, settled.Billable.Out)
-	b.captureEdgeCharge(towerID, stationID, stationOwner, parties, settled.AttemptID, rec.Model,
+	b.captureEdgeCharge(towerID, stationID, stationOwner, parties, settled.AttemptID, rec.RelayRequestID, rec.Model,
 		cost, settled.Billable.In, settled.Billable.Out, now)
 }
 
@@ -2437,7 +2439,7 @@ func (b *broker) edgeShares(cost float64) (stationShare, towerShare float64) {
 // earning lots via the 70/10/20 split. inUnits/outUnits are recorded on the lineage
 // receipt (bytes on the blind path, tokens on the overflow path). Shared by the
 // byte-priced settle and the token-priced overflow path so both bill identically.
-func (b *broker) captureEdgeCharge(towerID, stationID, stationOwner string, parties edgeParties, attemptID, model string, cost float64, inUnits, outUnits int64, now time.Time) {
+func (b *broker) captureEdgeCharge(towerID, stationID, stationOwner string, parties edgeParties, attemptID, relayRequestID, model string, cost float64, inUnits, outUnits int64, now time.Time) {
 	if !parties.billable {
 		// Not a billable account (e.g. an ephemeral canary key). No hold was ever placed
 		// against an account wallet, so there is nothing to capture and nothing to earn.
@@ -2507,7 +2509,7 @@ func (b *broker) captureEdgeCharge(towerID, stationID, stationOwner string, part
 	}
 	selfRelayed := b.recordSelfRelayed(attemptID, stationID, towerID, parties)
 	r := protocol.UsageReceipt{
-		RequestID: attemptID, Model: model,
+		RequestID: attemptID, RelayRequestID: relayRequestID, Model: model,
 		PromptTokens: int(inUnits), CompletionTokens: int(outUnits), TS: now.Unix(),
 		// The SAME verdict the split used, taken once - a second live read could differ
 		// mid-flight and stamp a receipt that contradicts its own settlement.

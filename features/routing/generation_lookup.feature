@@ -29,7 +29,7 @@
 #     served: { node, model, relay } | null,
 #     cost, tokens_in, tokens_out, tps, ttft_ms, latency_ms,
 #     moderation: { mode, verdict, latency_ms },
-#     key_id (the funding key, or null),
+#     key_id (the funding key, or null; consumer view only since §14.B7),
 #     attempts: [ { n, node, model, status, error_code, duration_ms, retry_after_s, void_reason } ],
 #     receipt (the served attempt's encoded receipt) | null }
 #   `attempts` lists REAL dispatches only; a model skipped for having no eligible station is not
@@ -120,7 +120,9 @@ Feature: GET /generation returns one request's full routing and billing history 
     And key_limit is 5.00
     And key_spend_after equals the key's spend in the window after this settle
     When "carol", the owner of "n-1", GETs /generation for it as the payout owner
-    Then key_id is "key_a1"
+    # superseded 2026-10-05 by contract §14 (founder-approved): the owner view drops key_id, models
+    # and moderation (§14.B7); was "Then key_id is \"key_a1\"".
+    Then the record has no key_id
     And the record has no key_limit and no key_spend_after
 
   Scenario: A wallet-funded request records key_id null
@@ -174,6 +176,7 @@ Feature: GET /generation returns one request's full routing and billing history 
     When "alice" GETs /generation for it
     Then status is 402 and attempts is [] and cost is 0
 
+  # §14.10 (2026-10-04): the bill is the forwarded text, recounted; the fixture forwards 200 tokens of it.
   # corrected 2026-10-02 (founder-approved): $0.000100 is not billable at the Background's $0.60/1M; 200 tokens = $0.000120
   Scenario: A cancelled stream shows cancelled true and the settled cost
     Given "alice" disconnects mid-stream and the settle still bills $0.000120

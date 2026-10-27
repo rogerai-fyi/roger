@@ -25,7 +25,7 @@ package main
 //
 // `null` means absent at every level. Limits compose with their header form to the
 // stricter (stricterCap / stricterFloor / freqConflict); only preferences are body-wins.
-// The three carriers never leave the broker: stripRoutingCarriers removes them before the
+// The three carriers never leave the broker: stripCarriers removes them before the
 // body reaches a station or the edge bridge.
 
 import (
@@ -36,7 +36,6 @@ import (
 	"math"
 	"net/http"
 	"regexp"
-	"sort"
 	"strings"
 
 	"rogerai.fm/roger/v6/internal/protocol"
@@ -89,7 +88,7 @@ func parseSortKey(s string) (sortKey, bool) {
 // "not stated" (absent or null).
 type routingBody struct {
 	object  bool // the body decoded as a JSON object at all
-	present bool // a carrier was in the body (what stripRoutingCarriers keys on)
+	present bool // a carrier was in the body (what stripCarriers keys on)
 	used    bool // a carrier stated at least one thing (the routing_body_requests counter)
 
 	// provider{}
@@ -113,6 +112,9 @@ type routingBody struct {
 	Require        []string   // de-duplicated, closed set
 	Net            netFilters // params_b, min_ctx, max_ttft_ms, trust_min verified, region (slice 2)
 	TrustConf      bool       // trust_min "confidential": the same as confidential:true
+	// Session is roger.session or the top-level session_id (§14.B1): the conversation whose
+	// previous turn's station is preferred as the head. Never forwarded, never logged raw.
+	Session string
 
 	// models[] as sent (every entry a non-empty string); the effective list is built by
 	// effectiveModels once the primary model is known.
@@ -143,7 +145,7 @@ func conflictRouting(msg string) *routingError {
 	return &routingError{code: "conflicting_routing_keys", msg: msg}
 }
 
-var routingCarriers = [...]string{"models", "provider", "roger"}
+var routingCarriers = [...]string{"models", "provider", "roger", "session_id"}
 
 func isJSONNull(raw json.RawMessage) bool { return bytes.Equal(bytes.TrimSpace(raw), []byte("null")) }
 
@@ -183,7 +185,7 @@ var (
 	maxPriceKeys = map[string]bool{"prompt": true, "completion": true, "request": true, "image": true}
 	rogerKeys    = map[string]bool{"pref": true, "require": true, "params_b": true, "min_ctx": true, "min_tps": true,
 		"max_ttft_ms": true, "trust_min": true, "self_hosted_only": true, "confidential": true, "region": true,
-		"freq": true, "profile": true}
+		"freq": true, "profile": true, "session": true, "dry_run": true}
 	regionToken = regexp.MustCompile(`^[a-z]{2,8}$`)
 )
 
@@ -305,9 +307,17 @@ const quantLabelMax = 40
 // parseRoutingBody decodes the routing carriers out of an already-read request body. A body
 // without any carrier decodes to the zero routingBody with no error.
 func parseRoutingBody(body []byte) (routingBody, error) {
-	var top map[string]json.RawMessage
-	if err := json.Unmarshal(body, &top); err != nil {
+	return parseRoutingDoc(decodeReqDoc(body))
+}
+
+// parseRoutingDoc is parseRoutingBody over an already-decoded body (the relay's one decode).
+func parseRoutingDoc(d reqDoc) (routingBody, error) {
+	if !d.ok {
 		return routingBody{}, nil // not an object: relay() answers the plain 400
+	}
+	top := make(map[string]json.RawMessage, len(d.kvs))
+	for _, kv := range d.kvs {
+		top[kv.key] = kv.val // later duplicates win, as map decoding does
 	}
 	rb := routingBody{object: true}
 	for _, k := range routingCarriers {
@@ -368,11 +378,47 @@ func parseRoutingBody(body []byte) (routingBody, error) {
 	if err := rb.readRoger(roger); err != nil {
 		return rb, err
 	}
-	rb.used = len(provider) > 0 || len(roger) > 0 || len(rb.Models) > 0
+	if raw, ok := roger["dry_run"]; ok {
+		if _, isBool := routingBool(raw); !isBool {
+			return rb, invalidRouting("roger.dry_run", "want true or false")
+		}
+	}
+	if raw, ok := roger["session"]; ok {
+		s, err := sessionID("roger.session", raw)
+		if err != nil {
+			return rb, err
+		}
+		rb.Session = s
+	}
+	if raw, ok := top["session_id"]; ok && !isJSONNull(raw) {
+		s, err := sessionID("session_id", raw)
+		if err != nil {
+			return rb, err
+		}
+		if rb.Session != "" && rb.Session != s {
+			return rb, conflictRouting("roger.session and session_id name different sessions")
+		}
+		rb.Session = s
+	}
+	rb.used = len(provider) > 0 || len(roger) > 0 || len(rb.Models) > 0 || rb.Session != ""
 	if err := rb.conflicts(); err != nil {
 		return rb, err
 	}
 	return rb, nil
+}
+
+// sessionID reads a session id: a string of 1..256 printable ASCII bytes (§14.B1).
+func sessionID(key string, raw json.RawMessage) (string, *routingError) {
+	s, ok := routingString(raw)
+	if !ok || s == "" || len(s) > 256 {
+		return "", invalidRouting(key, "want a string of 1 to 256 printable ASCII characters")
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < 0x20 || s[i] > 0x7e {
+			return "", invalidRouting(key, "want a string of 1 to 256 printable ASCII characters")
+		}
+	}
+	return s, nil
 }
 
 func (rb *routingBody) notYet(key string) {
@@ -603,9 +649,10 @@ func containsString(l []string, s string) bool {
 // routedModel is one model of the request with its sugar resolved: the BARE id everything
 // downstream sees, whether the entry is free-only, and the sort its suffixes named.
 type routedModel struct {
-	bare string
-	free bool
-	sort sortKey
+	bare  string
+	free  bool
+	sort  sortKey
+	class string // a `@class/<name>` entry before its expansion (§14.B5); "" for a model id
 }
 
 // parseModelSugar splits the variant sugar off a model id. Suffixes are recognised only
@@ -621,6 +668,9 @@ func parseModelSugar(key, id string) (routedModel, []string, *routingError) {
 			return routedModel{}, nil, invalidRouting(key, "a profile reference takes no suffix")
 		}
 		return routedModel{}, nil, &routingError{code: "unknown_profile", msg: "unknown profile " + id + " (profiles are resolved by the client)"}
+	}
+	if strings.HasPrefix(id, classPrefix) && key == "models" {
+		return routedModel{}, nil, invalidRouting(key, "a class is a list of models, not an entry")
 	}
 	e := routedModel{bare: id}
 	var used []string
@@ -653,6 +703,13 @@ func parseModelSugar(key, id string) (routedModel, []string, *routingError) {
 	if strings.Contains(id, ":") && (e.bare == "" || strings.HasPrefix(e.bare, ":") || strings.HasSuffix(e.bare, ":") || strings.Contains(e.bare, "::")) {
 		return routedModel{}, nil, invalidRouting(key, "an empty variant suffix")
 	}
+	if strings.HasPrefix(e.bare, classPrefix) {
+		name, err := className(e.bare)
+		if err != nil {
+			return routedModel{}, nil, err
+		}
+		e.class = name
+	}
 	return e, used, nil
 }
 
@@ -681,6 +738,9 @@ func effectiveModels(model string, models []string) (list []routedModel, sugarSo
 		list = append(list, e)
 		return nil
 	}
+	if strings.HasPrefix(model, classPrefix) && len(models) > 0 {
+		return nil, sortNone, nil, conflictRouting("a model class is already a models list: send @class/... without models")
+	}
 	if model != "" {
 		if err := add("model", model); err != nil {
 			return nil, sortNone, nil, err
@@ -703,6 +763,9 @@ func effectiveModels(model string, models []string) (list []routedModel, sugarSo
 // Ollama-style tag (`llama3:8b`) is not a sugar word.
 func registerModelSuffix(offers []protocol.ModelOffer) string {
 	for _, o := range offers {
+		if strings.HasPrefix(o.Model, classPrefix) {
+			return "model id " + o.Model + " starts with the reserved class prefix " + classPrefix + " (consumer routing alias)"
+		}
 		for _, sfx := range []string{":free", ":floor", ":nitro"} {
 			if strings.HasSuffix(o.Model, sfx) {
 				return "model id " + o.Model + " ends in the reserved variant suffix " + sfx + " (consumer routing sugar) - register the model under its bare id"
@@ -712,21 +775,24 @@ func registerModelSuffix(offers []protocol.ModelOffer) string {
 	return ""
 }
 
-// stripRoutingCarriers removes models / provider / roger from the body the station will
+// stripCarriers removes models / provider / roger from the body the station will
 // see and sets `model` to the bare served id. A body that carried no carrier and whose
 // model needs no rewrite is returned untouched (byte-identical), so nothing about today's
 // forwarding changes for callers that never used the routing expression.
-func stripRoutingCarriers(body []byte, rb routingBody, sentModel, model string) []byte {
+func (d reqDoc) stripCarriers(rb routingBody, sentModel, model string) reqDoc {
 	if !rb.present && sentModel == model {
-		return body
+		return d
 	}
 	var set map[string]json.RawMessage
 	if sentModel != model {
 		v, _ := json.Marshal(model)
 		set = map[string]json.RawMessage{"model": v}
 	}
-	return rewriteBody(body, true, set)
+	return d.rewrite(carrierKeys, set)
 }
+
+// carrierKeys are the routing carriers a station never sees.
+var carrierKeys = map[string]bool{"models": true, "provider": true, "roger": true, "session_id": true}
 
 // capBuys is what a per-request USD cap buys at one station's billed prices: the output
 // tokens left after the prompt's input cost (promptTokens is the request's one measured
@@ -749,23 +815,8 @@ func capBuys(capUSD float64, promptTokens int, in, out float64) (buys int, drop 
 // max_tokens. Generation stops where the money stops, instead of the operator serving
 // tokens the settle clamp will not pay for. buys < 0 (free output) returns the body as given.
 func capBody(body []byte, buys int) []byte {
-	if buys < 0 {
-		return body
-	}
-	var req struct {
-		MaxTokens           *int `json:"max_tokens"`
-		MaxCompletionTokens *int `json:"max_completion_tokens"`
-	}
-	_ = json.Unmarshal(body, &req)
-	v, _ := json.Marshal(buys)
-	set := map[string]json.RawMessage{}
-	if req.MaxCompletionTokens != nil && *req.MaxCompletionTokens > buys {
-		set["max_completion_tokens"] = v
-	}
-	if (req.MaxTokens != nil && *req.MaxTokens > buys) || (req.MaxTokens == nil && req.MaxCompletionTokens == nil) {
-		set["max_tokens"] = v
-	}
-	if len(set) == 0 {
+	set := decodeReqDoc(body).outLimits().capSet(buys)
+	if set == nil {
 		return body
 	}
 	return rewriteBody(body, false, set)
@@ -780,7 +831,7 @@ func capBody(body []byte, buys int) []byte {
 func rewriteBody(body []byte, dropCarriers bool, set map[string]json.RawMessage) []byte {
 	var drop map[string]bool
 	if dropCarriers {
-		drop = map[string]bool{"models": true, "provider": true, "roger": true}
+		drop = carrierKeys
 	}
 	return rewriteBodyDrop(body, drop, set)
 }
@@ -792,44 +843,7 @@ func rewriteBodyDrop(body []byte, drop map[string]bool, set map[string]json.RawM
 	if !ok {
 		return body
 	}
-	var out bytes.Buffer
-	out.Grow(len(body) + 32)
-	out.WriteByte('{')
-	done := map[string]bool{}
-	emit := func(k string, v json.RawMessage) {
-		if out.Len() > 1 {
-			out.WriteByte(',')
-		}
-		kb, _ := json.Marshal(k)
-		out.Write(kb)
-		out.WriteByte(':')
-		out.Write(v)
-	}
-	for _, kv := range kvs {
-		if drop[kv.key] {
-			continue
-		}
-		if v, replace := set[kv.key]; replace {
-			if !done[kv.key] {
-				emit(kv.key, v)
-				done[kv.key] = true
-			}
-			continue
-		}
-		emit(kv.key, kv.val)
-	}
-	keys := make([]string, 0, len(set))
-	for k := range set {
-		if !done[k] {
-			keys = append(keys, k)
-		}
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
-		emit(k, set[k])
-	}
-	out.WriteByte('}')
-	return out.Bytes()
+	return encodeKVs(rebuildKVs(kvs, drop, set))
 }
 
 // quantSet lowercases a provider.quantizations list into the case-insensitive set pickFor
@@ -879,54 +893,17 @@ func intersectAllow(a, b map[string]bool) map[string]bool {
 // bodyNeedsTools / bodyNeedsVision are the IMPLICIT capability requirements (§5): a request
 // carrying a non-empty tools array must land on a (node, model) with the VERIFIED tools bit;
 // one carrying any image_url content part must land on an offer that declared vision.
-func bodyNeedsTools(body []byte) bool {
-	var req struct {
-		Tools []json.RawMessage `json:"tools"`
-	}
-	return json.Unmarshal(body, &req) == nil && len(req.Tools) > 0
-}
+func bodyNeedsTools(body []byte) bool { return decodeReqDoc(body).needsTools() }
 
 func bodyNeedsVision(body []byte) bool {
-	var req struct {
-		Messages []struct {
-			Content json.RawMessage `json:"content"`
-		} `json:"messages"`
-	}
-	if json.Unmarshal(body, &req) != nil {
-		return false
-	}
-	for _, m := range req.Messages {
-		var parts []struct {
-			Type string `json:"type"`
-		}
-		if json.Unmarshal(m.Content, &parts) != nil {
-			continue // a string content has no parts
-		}
-		for _, p := range parts {
-			if p.Type == "image_url" {
-				return true
-			}
-		}
-	}
-	return false
+	_, vision := decodeReqDoc(body).promptScan()
+	return vision
 }
 
 // paramsNeedTools is provider.require_parameters:true (§5): a tool_choice requires tools even
 // without a tools array, and a JSON response_format requires a tools-verified station (the
 // only structured-output signal the network verifies today).
-func paramsNeedTools(body []byte) bool {
-	var req struct {
-		ToolChoice     json.RawMessage `json:"tool_choice"`
-		ResponseFormat struct {
-			Type string `json:"type"`
-		} `json:"response_format"`
-	}
-	if json.Unmarshal(body, &req) != nil {
-		return false
-	}
-	return (len(req.ToolChoice) > 0 && !isJSONNull(req.ToolChoice)) ||
-		req.ResponseFormat.Type == "json_object" || req.ResponseFormat.Type == "json_schema"
-}
+func paramsNeedTools(body []byte) bool { return decodeReqDoc(body).paramsNeedTools() }
 
 // A LIMIT stated in a header and in the body composes to the STRICTER of the two; only
 // preferences are body-wins (contract §1a, founder ruling 2026-10-01). A local proxy's owner

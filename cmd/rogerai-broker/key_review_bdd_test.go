@@ -111,7 +111,11 @@ func (k *kg5State) rvChargeback(amount float64) error {
 	if err != nil {
 		return err
 	}
-	_, err = k.db.Chargeback("dp_rv_"+k.nonce, wallet, k.spendReq, amount, k.now())
+	disputed, err := k.settledAttempt(wallet, k.spendReq)
+	if err != nil {
+		return err
+	}
+	_, err = k.db.Chargeback("dp_rv_"+k.nonce, wallet, disputed, amount, k.now())
 	return err
 }
 
@@ -136,10 +140,14 @@ func (k *kg5State) rvRefundThenChargeback(refund, charge float64) error {
 	if err != nil {
 		return err
 	}
-	if _, _, err := k.db.RefundLineage("re_rv_"+k.nonce, nil, wallet, k.spendReq, refund, k.now()); err != nil {
+	disputed, err := k.settledAttempt(wallet, k.spendReq)
+	if err != nil {
 		return err
 	}
-	_, err = k.db.Chargeback("dp_rv_"+k.nonce, wallet, k.spendReq, charge, k.now())
+	if _, _, err := k.db.RefundLineage("re_rv_"+k.nonce, nil, wallet, disputed, refund, k.now()); err != nil {
+		return err
+	}
+	_, err = k.db.Chargeback("dp_rv_"+k.nonce, wallet, disputed, charge, k.now())
 	return err
 }
 

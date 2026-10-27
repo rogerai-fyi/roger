@@ -1,0 +1,5 @@
+# A tiny network-to-continent table for the routing_integrity scenarios (CIDR, continent code).
+# Documentation ranges only (RFC 5737 / RFC 3849).
+192.0.2.0/24     NA
+198.51.100.0/24  EU
+2001:db8::/32    AS

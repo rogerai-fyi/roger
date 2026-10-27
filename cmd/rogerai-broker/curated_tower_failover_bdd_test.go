@@ -79,7 +79,7 @@ func (s *curFailState) upstreamRefuses() error {
 	// (maybeFlagEmptyOutput), exactly as the serve path raises it when a station returns an
 	// error/empty body - here the curated station's upstream 502s.
 	rec := protocol.UsageReceipt{RequestID: "req-fail-1", NodeID: "c1", Model: "gpt-oss-20b", PromptTokens: 10}
-	s.b.maybeFlagEmptyOutput("c1", "gpt-oss-20b", rec, http.StatusBadGateway, 10, "")
+	s.b.maybeFlagEmptyOutput("c1", "gpt-oss-20b", rec, http.StatusBadGateway, 10, "", "")
 	s.failedNode = "c1"
 	return nil
 }
@@ -93,7 +93,7 @@ func (s *curFailState) upstreamThrottles() error {
 	}
 	s.strikesBefore = len(rows)
 	rec := protocol.UsageReceipt{RequestID: "req-fail-2", NodeID: "c1", Model: "gpt-oss-20b", PromptTokens: 10}
-	s.b.maybeFlagEmptyOutput("c1", "gpt-oss-20b", rec, http.StatusTooManyRequests, 10, "")
+	s.b.maybeFlagEmptyOutput("c1", "gpt-oss-20b", rec, http.StatusTooManyRequests, 10, "", "")
 	return nil
 }
 

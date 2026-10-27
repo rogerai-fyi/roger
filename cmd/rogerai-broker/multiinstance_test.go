@@ -372,6 +372,10 @@ func TestMultiInstanceInflightMerges(t *testing.T) {
 // instance B (the 24h price-lock is shared), so an owner cannot raise a user's price by
 // landing them on a different instance.
 func TestMultiInstancePriceLockHolds(t *testing.T) {
+	// The station's price here is posted the moment the fixture stands it up; this test is
+	// about the lock's hike protection, so the §14.12 promo-lock window is off (pinned in
+	// features/money/routing_money_hardening.feature).
+	t.Setenv("ROGERAI_LOCK_MIN_POSTED", "0s")
 	mr := miniredis.RunT(t)
 	_, brokerPriv, _ := ed25519.GenerateKey(nil)
 	a := newMIBroker(t, brokerPriv, store.NewMem(), mr)

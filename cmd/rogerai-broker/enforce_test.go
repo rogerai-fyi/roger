@@ -131,18 +131,18 @@ func TestEmptyOutputAccruesStrikesThenBans(t *testing.T) {
 		return protocol.UsageReceipt{RequestID: id, NodeID: "node1", PromptTokens: 100, CompletionTokens: 0}
 	}
 	// Strikes 1, 2 (warn at 2): not yet banned.
-	b.flagEmptyOutput("node1", rec("r1"), 200)
-	b.flagEmptyOutput("node1", rec("r2"), 200)
+	b.flagEmptyOutput("node1", rec("r1"), 200, "")
+	b.flagEmptyOutput("node1", rec("r2"), 200, "")
 	if banned, _, _ := db.IsOwnerBanned("owner1"); banned {
 		t.Error("owner must NOT be banned before the ban threshold")
 	}
 	// A retry of r2 must not double-strike (idempotent).
-	b.flagEmptyOutput("node1", rec("r2"), 200)
+	b.flagEmptyOutput("node1", rec("r2"), 200, "")
 	if n := len(mustStrikes(t, db, "owner1")); n != 2 {
 		t.Errorf("retry must not double-strike, strike count = %d, want 2", n)
 	}
 	// Strike 3 crosses the ban threshold.
-	b.flagEmptyOutput("node1", rec("r3"), 200)
+	b.flagEmptyOutput("node1", rec("r3"), 200, "")
 	if banned, _, _ := db.IsOwnerBanned("owner1"); !banned {
 		t.Error("owner must be banned once empty-output strikes cross the ban threshold")
 	}

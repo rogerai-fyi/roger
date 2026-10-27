@@ -364,11 +364,7 @@ func keyLimitMessage(s keyLimitState, now time.Time) string {
 
 // jsonErr402 is the 402 envelope with its source and a remedy (contract §11).
 func jsonErr402(w http.ResponseWriter, code, msg, source, hint string) {
-	w.Header().Set("X-RogerAI-Cost", "0")
-	writeJSON(w, http.StatusPaymentRequired, map[string]any{"error": map[string]any{
-		"code": code, "message": msg,
-		"metadata": map[string]string{"limit_source": source, "remedy_hint": hint},
-	}})
+	jsonErrMeta(w, http.StatusPaymentRequired, code, msg, map[string]any{"limit_source": source, "remedy_hint": hint})
 }
 
 const (

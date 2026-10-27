@@ -24,9 +24,11 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -96,6 +98,7 @@ type utState struct {
 	funded       bool
 	start        float64 // balance before the relays
 	maxTokens    int     // when > 0, the relay body carries max_tokens (hold sizing)
+	restoreEnv   func()  // undoes a scenario-scoped env knob at teardown
 
 	// station bookkeeping
 	stationStop chan struct{}
@@ -226,6 +229,10 @@ func (s *utState) reset() error {
 }
 
 func (s *utState) teardown() {
+	if s.restoreEnv != nil {
+		s.restoreEnv()
+		s.restoreEnv = nil
+	}
 	if s.stationStop != nil {
 		close(s.stationStop)
 		s.stationWG.Wait()
@@ -458,29 +465,7 @@ func (s *utState) entryFor(reqID string) (store.Entry, bool, error) {
 // storedReceipt reads the receipt the broker stored for a request: the JSONB column on
 // Postgres, the retained receipt on the in-memory store.
 func (s *utState) storedReceipt(reqID string) (protocol.UsageReceipt, map[string]any, error) {
-	var raw []byte
-	if s.pg != nil {
-		var txt string
-		if err := s.pg.DB().QueryRow(`SELECT receipt::text FROM rogerai.receipts WHERE request_id=$1`, reqID).Scan(&txt); err != nil {
-			return protocol.UsageReceipt{}, nil, fmt.Errorf("receipt %s: %w", reqID, err)
-		}
-		raw = []byte(txt)
-	} else {
-		rec, ok := s.mem.ReceiptOf(reqID)
-		if !ok {
-			return protocol.UsageReceipt{}, nil, fmt.Errorf("no stored receipt for %s", reqID)
-		}
-		raw, _ = json.Marshal(rec)
-	}
-	var rec protocol.UsageReceipt
-	var keys map[string]any
-	if err := json.Unmarshal(raw, &rec); err != nil {
-		return rec, nil, err
-	}
-	if err := json.Unmarshal(raw, &keys); err != nil {
-		return rec, nil, err
-	}
-	return rec, keys, nil
+	return storedReceiptOf(s.b, s.pg, s.mem, reqID)
 }
 
 func (s *utState) strikes() ([]store.Strike, error) { return s.db.StrikesByOwner(s.acct, 0) }
@@ -614,6 +599,18 @@ func (s *utState) fundedConsumerWithHold(v, hold string) error {
 	h, err := feParseFloat(hold)
 	if err != nil {
 		return err
+	}
+	// This scenario is about refund accounting, not the consumer default INPUT cap: the
+	// derived price_in sits far above $5/1M, so switch that cap off for the run.
+	// Scoped to the scenario (teardown restores it), not the whole runner.
+	prevCap, hadCap := os.LookupEnv("ROGERAI_CONSUMER_DEFAULT_MAX_PRICE_IN")
+	_ = os.Setenv("ROGERAI_CONSUMER_DEFAULT_MAX_PRICE_IN", "0")
+	s.restoreEnv = func() {
+		if hadCap {
+			_ = os.Setenv("ROGERAI_CONSUMER_DEFAULT_MAX_PRICE_IN", prevCap)
+		} else {
+			_ = os.Unsetenv("ROGERAI_CONSUMER_DEFAULT_MAX_PRICE_IN")
+		}
 	}
 	// Size the pre-auth exactly on the prompt side: estimateMaxCost = promptEst * price_in
 	// / 1e6 when price_out is 0 (an out-price large enough to reserve 0.3 on its own would
@@ -1498,4 +1495,46 @@ func TestUpstreamThrottleNotAStrikeBDD(t *testing.T) {
 	if suite.Run() != 0 {
 		t.Fatal("safety/upstream_throttle_not_a_strike scenarios failed (see godog output above)")
 	}
+}
+
+// utCompletionAsBilled checks a non-stream answer is the station's completion byte for byte
+// EXCEPT its usage member, which the broker replaces with the billed one (contract §14.9):
+// the counts X-RogerAI-Tokens-In/Out report, the cost X-RogerAI-Cost reports, and a rogerai
+// block naming the serving node. An answer that settled nothing reports $0 and its void
+// reason instead (settle-failed keeps the billed counts; an unverified receipt reports 0).
+func utCompletionAsBilled(got []byte, station string, hdr http.Header) error {
+	got = bytes.TrimSpace(got)
+	var m struct {
+		Usage json.RawMessage `json:"usage"`
+	}
+	if json.Unmarshal(got, &m) != nil || len(m.Usage) == 0 {
+		return fmt.Errorf("body has no usage member: %.300s", got)
+	}
+	if want := rewriteBody([]byte(station), false, map[string]json.RawMessage{"usage": m.Usage}); !bytes.Equal(got, want) {
+		return fmt.Errorf("body is not the station's completion apart from usage:\n got %.300s\nwant %.300s", got, want)
+	}
+	var u struct {
+		Prompt     int            `json:"prompt_tokens"`
+		Completion int            `json:"completion_tokens"`
+		Total      int            `json:"total_tokens"`
+		Cost       float64        `json:"cost"`
+		RogerAI    map[string]any `json:"rogerai"`
+	}
+	_ = json.Unmarshal(m.Usage, &u)
+	if u.Total != u.Prompt+u.Completion || u.RogerAI["node"] == nil {
+		return fmt.Errorf("usage is not the billed object: %s", m.Usage)
+	}
+	if hdr.Get("X-RogerAI-Tokens-In") == "" {
+		if u.Cost != 0 || u.Prompt+u.Completion > 0 && u.RogerAI["void_reason"] != protocol.VoidSettleFailed || u.RogerAI["void_reason"] == nil {
+			return fmt.Errorf("an unsettled answer's usage must say $0 and why: %s", m.Usage)
+		}
+		return nil
+	}
+	if strconv.Itoa(u.Prompt) != hdr.Get("X-RogerAI-Tokens-In") || strconv.Itoa(u.Completion) != hdr.Get("X-RogerAI-Tokens-Out") {
+		return fmt.Errorf("usage %d/%d, billed headers %s/%s", u.Prompt, u.Completion, hdr.Get("X-RogerAI-Tokens-In"), hdr.Get("X-RogerAI-Tokens-Out"))
+	}
+	if hc, _ := strconv.ParseFloat(hdr.Get("X-RogerAI-Cost"), 64); math.Abs(hc-u.Cost) > 1e-9 {
+		return fmt.Errorf("usage.cost %v, X-RogerAI-Cost %s", u.Cost, hdr.Get("X-RogerAI-Cost"))
+	}
+	return nil
 }

@@ -131,9 +131,11 @@ Feature: Key limits on the relay - the per-key spend ceiling, window, and allow-
     Then it is 402 with limit_source "monthly_cap" and the existing monthly message
 
   # --- the 402 body ---------------------------------------------------------------
+  # superseded 2026-10-05 by contract §14 (founder-approved): the one envelope adds error.type and the
+  # request id to metadata (§14.B6); code, message, limit_source and remedy_hint are unchanged.
   Scenario Outline: Every 402 names its source and a remedy
     When a priced relay is refused because of <source>
-    Then the body is {"error":{"code":"<code>","message":"<message>","metadata":{"limit_source":"<source>","remedy_hint":"<hint>"}}}
+    Then the body is {"error":{"code":"<code>","message":"<message>","type":"insufficient_quota","metadata":{"limit_source":"<source>","remedy_hint":"<hint>","request_id":...}}}
 
     Examples:
       | source      | code                 | message                                                                 | hint                                                                                          |
@@ -407,7 +409,9 @@ Feature: Key limits on the relay - the per-key spend ceiling, window, and allow-
     Given "k1" has $1.00 spent this window
     When a relay bearing "k1" is served
     Then the consumer view of GET /generation?id= carries key_id "k1", key_limit 5, key_spend_after 1.002 (fields absent for non-key requests)
-    And the owner view (the station's payout owner) carries key_id only, never key_limit or key_spend_after
+    # superseded 2026-10-05 by contract §14 (founder-approved): the owner view drops key_id too
+    # (§14.B7); was "carries key_id only, never key_limit or key_spend_after".
+    And the owner view (the station's payout owner) carries no key_id, key_limit or key_spend_after
 
   Scenario: /usage can group by key
     When "acct-a" GETs /usage?by=key
