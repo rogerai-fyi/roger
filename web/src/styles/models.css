@@ -23,7 +23,7 @@
   outline: none; cursor: ew-resize; touch-action: pan-y;
   position: relative;
 }
-.dial:focus-visible { box-shadow: 0 0 0 2px var(--paper), 0 0 0 4px var(--live-glow); border-top-color: var(--live); }
+.dial:focus-visible { border-top-color: var(--live); outline: var(--focus-ring); outline-offset: var(--focus-offset); }
 .dial.is-tuning { cursor: grabbing; }
 
 .dial__top {
@@ -47,10 +47,10 @@
 @media (max-width: 760px) { .dial__svgwrap svg { height: 134px; } }
 
 .dial__grad { opacity: .8; }
-.dial__tick { transition: stroke .25s ease; }
-.dial__lbl { opacity: .5; transition: opacity .25s ease, fill .2s ease; }
+.dial__tick { transition: stroke var(--d-2) var(--ease-standard); }
+.dial__lbl { opacity: .5; transition: opacity var(--d-2) var(--ease-standard), fill var(--d-2) var(--ease-standard); }
 .dial__lbl--on { opacity: 1; fill: var(--live-text); font-weight: var(--weight-semi); }
-.dial__pip { transition: fill .25s ease; }
+.dial__pip { transition: fill var(--d-2) var(--ease-standard); }
 
 /* fixed red needle, dead center; its end diamonds brighten at a detent
    (--lock -> 1). transform/opacity only. */
@@ -145,13 +145,15 @@
   border: 1px solid var(--hairline-2); background: var(--paper); padding: 0 var(--s-4);
   height: 48px; transition: border-color var(--d-2);
 }
-.tuner__search:focus-within { border-color: var(--live); box-shadow: 0 0 0 3px var(--live-glow); }
+.tuner__search:focus-within { border-color: var(--live); box-shadow: 0 0 0 1px var(--live) inset; }
 .tuner__prompt { color: var(--live-text); font-weight: var(--weight-semi); }
 .tuner__input {
   flex: 1; min-width: 0; border: 0; background: none; color: var(--ink-900);
   font-size: var(--t-body); outline: none;
 }
 .tuner__input::placeholder { color: var(--ink-400); }
+/* the field stays 16px (no iOS focus zoom); its placeholder steps down so it is not clipped */
+@media (max-width: 480px) { .tuner__input::placeholder { font-size: var(--t-sm); } }
 .tuner__clear { font-family: var(--font-mono); font-size: var(--t-xs); color: var(--ink-500);
   text-transform: uppercase; letter-spacing: 0.1em; }
 .tuner__clear:hover { color: var(--live-text); }
@@ -166,7 +168,7 @@
   background-image: linear-gradient(45deg, transparent 50%, var(--ink-400) 50%), linear-gradient(135deg, var(--ink-400) 50%, transparent 50%);
   background-position: right 12px center, right 7px center; background-size: 5px 5px, 5px 5px; background-repeat: no-repeat;
 }
-.tuner__sel select:focus-visible { outline: none; border-color: var(--live); box-shadow: 0 0 0 3px var(--live-glow); }
+.tuner__sel select:focus-visible { outline: none; border-color: var(--live); box-shadow: 0 0 0 1px var(--live) inset; }
 .tuner__chip {
   font-family: var(--font-mono); font-size: var(--t-xs); color: var(--ink-500);
   border: 1px solid var(--hairline-2); background: var(--paper); padding: 6px 12px;

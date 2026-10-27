@@ -116,6 +116,9 @@
      control keeps its drawn size (it resolves against the control's own box). */
   --hit: 44px;
   --hit-inset: min(0px, calc((100% - var(--hit)) / 2));
+  /* the target-size floor at every pointer (WCAG 2.5.8): a control in a row of nothing
+     but controls, outside running text, is at least --hit-min tall. */
+  --hit-min: 24px;
 
   --gutter: clamp(20px, 5vw, 56px);
   --maxw:   1080px;          /* document feel (down from 1200) */
@@ -158,6 +161,10 @@
   --d-3: 320ms;
   --d-4: 560ms;
   --d-5: 820ms;
+
+  /* ---- FOCUS: the one keyboard ring (base.css applies it to every control) ---- */
+  --focus-ring:   2px solid var(--live);
+  --focus-offset: 2px;
 
   /* ---- CARRIER: one shared transmit rhythm the whole page breathes on. */
   --carrier:    2.2s;

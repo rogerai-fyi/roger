@@ -199,10 +199,10 @@ func (b *broker) metricsSeries(w http.ResponseWriter, r *http.Request) {
 	wallet, walletOK := b.dashIdentity(r)
 	consumer := walletOK && walletLoggedIn(wallet)
 	_, owner, ownerOK := b.payoutOwner(r, nil)
-	provider := ownerOK && owner.Pubkey != "" && owner.GitHubID != 0
+	provider := ownerOK && owner.Pubkey != "" && hasVerifiedIdentity(owner)
 
 	if !consumer && !provider {
-		jsonErr(w, http.StatusUnauthorized, "not logged in - run `roger login` to view your metrics")
+		b.refuseSession(w, r, "not logged in - run `roger login` to view your metrics")
 		return
 	}
 
@@ -434,10 +434,10 @@ func (b *broker) console(w http.ResponseWriter, r *http.Request) {
 	wallet, walletOK := b.dashIdentity(r)
 	consumer := walletOK && walletLoggedIn(wallet)
 	_, owner, ownerOK := b.payoutOwner(r, nil)
-	provider := ownerOK && owner.Pubkey != "" && owner.GitHubID != 0
+	provider := ownerOK && owner.Pubkey != "" && hasVerifiedIdentity(owner)
 
 	if !consumer && !provider {
-		jsonErr(w, http.StatusUnauthorized, "not logged in - run `roger login` to view your console")
+		b.refuseSession(w, r, "not logged in - run `roger login` to view your console")
 		return
 	}
 
