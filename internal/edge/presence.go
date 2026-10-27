@@ -78,12 +78,12 @@ type PowerVitals struct {
 	MinutesLeft *int   `json:"minutes_left,omitempty"` // OS estimate of time remaining, minutes
 }
 
-// powerSources is the closed vocabulary of a power source. "solar" and "ups" are not in it: no
-// operating system this reads reports them as a source, and a word nobody can report is a guess.
 // MaxMinutesLeft is the most a time-remaining reading may say: a year. Past it an estimate is no
 // estimate (a discharge rate near zero), and a duration that large would overflow when printed.
 const MaxMinutesLeft = 365 * 24 * 60
 
+// powerSources is the closed vocabulary of a power source. "solar" and "ups" are not in it: no
+// operating system this reads reports them as a source, and a word nobody can report is a guess.
 var powerSources = map[string]bool{"": true, "ac": true, "battery": true, "unknown": true}
 
 // presenceVersionRefusal is the exact words an authority uses for a version it does not read; a

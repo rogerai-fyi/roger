@@ -120,5 +120,5 @@ its members, so v3 presence and the phone paths have somewhere to go.
 
 The site must serve `/roger/v7/` (its go-import page) and the Cloudflare vanity-import rule must
 cover `/roger/v7` BEFORE the v7.0.0 tag is pushed, or the first `go install .../v7/...` resolves
-nothing. Ship the page from main first (branch wt/vanity-v7), re-apply the rule with
+nothing. Ship the page from main first, re-apply the rule with
 `node web/scripts/cf-edge.mjs --apply`, confirm `--check` reports no drift for `/roger/v7`, then tag.

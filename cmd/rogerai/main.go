@@ -1838,6 +1838,14 @@ needs no login. When you earn, payouts are a 30-day hold (10% reserved to day 90
 		withStationRoutes(&cfgRun, stationRoutes(*cfg.StationOffer, up))
 	}
 
+	// The declared taxonomy (flags, else the saved share_meta) or, failing both, the guess.
+	// Validated BEFORE anything goes on air: a typo must stop the share, not vanish.
+	tax, metaErr := resolveShareMeta(fs, meta, mdl, foundModality, foundCapabilities)
+	if metaErr != nil {
+		return metaErr
+	}
+	cfgRun.Taxonomy = tax
+
 	// This machine's LAN relay (another roger process, in LAN mode) routes a chat band this
 	// share serves to the share's own upstream, and `roger --lan say` speaks through a voice it
 	// serves: a local, owner-only record, gone when we stop.
@@ -1850,13 +1858,6 @@ needs no login. When you earn, payouts are a 30-day hold (10% reserved to day 90
 			defer stop()
 		}
 	}
-	// The declared taxonomy (flags, else the saved share_meta) or, failing both, the guess.
-	// Validated BEFORE anything goes on air: a typo must stop the share, not vanish.
-	tax, metaErr := resolveShareMeta(fs, meta, mdl, foundModality, foundCapabilities)
-	if metaErr != nil {
-		return metaErr
-	}
-	cfgRun.Taxonomy = tax
 
 	// A STANDALONE Tower as the broker: serve its own local network directly. A probe of
 	// /local/poll tells a standalone Tower (which answers) apart from the public broker (which

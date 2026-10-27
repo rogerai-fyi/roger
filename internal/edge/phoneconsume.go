@@ -298,11 +298,11 @@ type phoneConsume struct {
 }
 
 // admit settles who is asking from the headers alone - fresh, signed by the key the certificate names
-// over the body hash the headers declare, under this root and not revoked, in this fleet, a nonce not
-// seen - BEFORE it takes a slot or reads a byte of the body (audit 2026-10-13: a sniffed certificate
-// alone, which travels in the clear, held every slot with trickled bodies). Only then does it take a
-// slot (eight in all, two per member), read the body bounded in size and time, and hold it to the
-// declared hash. Every identity failure, and a body that does not match, is the same 403. It writes
+// over the body hash the headers declare, under this root and not revoked, in this fleet - BEFORE it
+// takes a slot or reads a byte of the body (audit 2026-10-13: a sniffed certificate alone, which
+// travels in the clear, held every slot with trickled bodies). Only then does it take a slot (eight in
+// all, two per member), spend the nonce (after the slot, so a busy answer can be retried as it was),
+// read the body bounded in size and time, and hold it to the declared hash. Every identity failure, and a body that does not match, is the same 403. It writes
 // every refusal itself; the caller must call release when ok.
 func (h *phoneConsume) admit(w http.ResponseWriter, r *http.Request, action string, limit int64, tooBig string) (memberProof, []byte, func(), bool) {
 	refuse := func(status int, msg string) (memberProof, []byte, func(), bool) {
