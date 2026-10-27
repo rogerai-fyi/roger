@@ -46,9 +46,12 @@ Feature: GET /categories lists every category with its live supply
     When a consumer GETs /categories
     Then subcategory "audio/tts" has 1 providers and 1 models
 
+  # Updated 2026-10-27 with founder OK: a human station that sends nothing is now guessed
+  # (broker_inference.feature), so the uncategorized station here is a curated proxy.
   Scenario: Stations with no category are counted as uncategorized, not dropped
+    Given curated station "c9" is on air for "proxy-x" with no taxonomy
     When a consumer GETs /categories
-    Then the uncategorized count is 1 providers and 1 models
+    Then the uncategorized count is 0 providers and 1 models
 
   Scenario: Offline stations are not counted
     Given station "n2" has not heartbeat within nodeTTL
