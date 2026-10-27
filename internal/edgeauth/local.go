@@ -436,8 +436,10 @@ func (l *Local) ReAdmit(nodeID, name string) ([]string, error) {
 var ErrRevokedNeedsReadmit = errors.New("device was revoked; needs an explicit re-admit")
 
 // ReAdmitRoutine re-admits a device ONLY if its certificate is not currently revoked - the routine
-// rejoin of a device that merely LEFT. The revoked-check and the re-admit run under ONE lock, so a
+// rejoin of a device that merely LEFT. The revoked-check and the grant run under ONE lock, so a
 // revoke/forget landing between them cannot be silently lifted (it returns ErrRevokedNeedsReadmit).
+// It revokes nothing itself: the grant is marked Readmit, and Claim revokes the old certificates once
+// the device proves its key. The returned list is always empty; it keeps ReAdmit's shape.
 func (l *Local) ReAdmitRoutine(nodeID, name string) ([]string, error) {
 	if strings.TrimSpace(nodeID) == "" {
 		return nil, nil

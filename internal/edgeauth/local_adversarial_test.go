@@ -660,3 +660,17 @@ func TestTheAuthorityRemembersTheNameAMachineEnrolledUnder(t *testing.T) {
 	require.Empty(t, local.EnrolledName(refused.NodeID), "a refused enrollment names nothing")
 	require.Empty(t, local.EnrolledName("n_nobody"))
 }
+
+// Pre-push audit (2026-10-26): SaveTrust reads the file first to keep the last signing time; an
+// unreadable file must still be overwritten, as it always was, not fail every refresh after it.
+func TestSaveTrustOverwritesAnUnreadableTrustFile(t *testing.T) {
+	dir := t.TempDir()
+	st := edgeauth.Store{Dir: dir}
+	require.NoError(t, os.WriteFile(filepath.Join(dir, edgeauth.TrustFile), []byte("{not json"), 0o600))
+	now := time.Now()
+	require.NoError(t, st.SaveTrust([]string{"0a0a"}, now))
+	tr, err := st.LoadTrust()
+	require.NoError(t, err)
+	require.Equal(t, []string{"0a0a"}, tr.Revoked)
+	require.Equal(t, now.Unix(), tr.RefreshedAt)
+}

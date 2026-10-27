@@ -371,10 +371,8 @@ func (s Store) LoadTrust() (Trust, error) {
 // SaveTrust records the revocation list and when it was refreshed, keeping when the last signed list
 // was signed.
 func (s Store) SaveTrust(revoked []string, at time.Time) error {
-	t, err := s.LoadTrust()
-	if err != nil {
-		return err
-	}
+	// An unreadable file has no signing time worth keeping: it is overwritten, as it always was.
+	t, _ := s.LoadTrust()
 	return s.saveTrust(Trust{Revoked: revoked, RefreshedAt: at.Unix(), SignedAt: t.SignedAt})
 }
 

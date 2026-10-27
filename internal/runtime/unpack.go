@@ -55,7 +55,9 @@ func Unpack(archive, dest string) error {
 	return fmt.Errorf("%s is not an archive this knows how to unpack", filepath.Base(archive))
 }
 
-// confined names an os.Root refusal for what it is: the archive tried to leave its folder.
+// confined names an os.Root refusal for what it is: the archive tried to leave its folder. Go (1.25,
+// 1.26) exports no sentinel for it, so the message is matched; TestAChainOfLinksCannotWriteOutsideTheFolder
+// fails if a Go upgrade changes it.
 func confined(err error) error {
 	var pe *os.PathError
 	if errors.As(err, &pe) && pe.Err != nil && pe.Err.Error() == "path escapes from parent" {
