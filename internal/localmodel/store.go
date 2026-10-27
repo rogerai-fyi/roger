@@ -42,6 +42,7 @@ type Model struct {
 	Band    string    `json:"band"`              // the name it is served under
 	Fetched time.Time `json:"fetched,omitempty"` //
 	Served  time.Time `json:"served,omitempty"`  // last went on the air: what a budget's "least recently used" counts
+	ModTime time.Time `json:"modtime,omitempty"` // the file's modification time when this record was written
 }
 
 // Verified reports whether roger checked this file's digest itself. A file dropped into the
@@ -92,7 +93,7 @@ func (h Home) List() ([]Model, error) {
 		if err != nil {
 			return nil
 		}
-		out = append(out, recorded(found(p, fi.Size())))
+		out = append(out, recorded(found(p, fi.Size()), fi.ModTime()))
 		return nil
 	})
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
@@ -102,10 +103,17 @@ func (h Home) List() ([]Model, error) {
 // recorded is the model as its record beside the file says, when there is one, else as found.
 // The path is always where the file IS, never what the record says. A record is roger's own
 // writing (a fetch, or a digest it computed); it is read, not re-checked against the bytes.
-func recorded(m Model) Model {
+// recorded reads the record beside a file, if there is one, and trusts it only while it still
+// describes the file on disk: the size it remembers and, when it kept one, the modification time.
+// A different file copied in under the same name is a different file, and the old record's
+// digest or check is not said of it.
+func recorded(m Model, mtime time.Time) Model {
 	if b, err := os.ReadFile(m.Path + recordExt); err == nil {
 		var rec Model
 		if json.Unmarshal(b, &rec) == nil && rec.ID != "" {
+			if (rec.Bytes > 0 && rec.Bytes != m.Bytes) || (!rec.ModTime.IsZero() && !rec.ModTime.Equal(mtime)) {
+				return m
+			}
 			rec.Path = m.Path
 			return rec
 		}
@@ -207,6 +215,9 @@ func (h Home) Remove(m Model) error {
 }
 
 func (h Home) record(m Model) error {
+	if fi, err := os.Stat(m.Path); err == nil {
+		m.ModTime = fi.ModTime()
+	}
 	b, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {
 		return err
@@ -302,5 +313,5 @@ func FromPath(p string) (Model, error) {
 	if why := UnservableAt(abs); why != "" {
 		return Model{}, fmt.Errorf("%s is %s", filepath.Base(abs), why)
 	}
-	return recorded(found(abs, fi.Size())), nil
+	return recorded(found(abs, fi.Size()), fi.ModTime()), nil
 }

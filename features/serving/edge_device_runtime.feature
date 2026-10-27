@@ -63,6 +63,21 @@ Feature: A Wave model on an edge device, from the RogerAI channel, on a runtime 
     Then roger computes the file's sha256 in the background and records it beside the file
     And a later "roger model status" shows the digest instead of "-"
 
+  # BUILT 2026-10-27 (pre-push audit note): TestAFileReplacedUnderTheSameNameForgetsTheOldDigest
+  Scenario: a different file copied in under the same name does not inherit the old digest
+    Given a hand-placed file whose digest roger recorded beside it
+    When the owner copies a different file over it under the same name
+    Then the record is trusted only while the file's size and modification time are the ones it remembers
+    And "roger model status" and the list show no digest until the new file is digested in its turn
+    And a record written before modification times were kept is trusted while the size matches
+
+  # BUILT 2026-10-27 (pre-push audit note): TestADigestNeverBringsBackTheRecordOfAServeThatStopped
+  Scenario: a digest that finishes after the serve stopped brings no record back
+    Given a hand-placed file on the air whose digest is still computing
+    When the owner stops the serve before the digest is known
+    Then the serve's record stays cleared, because the digest's write and the stop are serialised by one lock
+    And the file's own record is still written, since the digest is true of the file
+
   # NOT BUILT: needs the catalog to mark RogerAI-channel entries
   Scenario: a Wave name that is not on this machine is not looked up on the hub
     Given no file for "wave-nano-1.45b" is on this machine

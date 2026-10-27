@@ -19,6 +19,7 @@ import (
 	"strconv"
 	"time"
 
+	"rogerai.fm/roger/v6/internal/filelock"
 	"rogerai.fm/roger/v6/internal/netbind"
 	"rogerai.fm/roger/v6/internal/onair"
 	"rogerai.fm/roger/v6/internal/provision"
@@ -119,6 +120,10 @@ func (h Home) writeServing(s Serving) error {
 // writes the new record BEFORE the old supervisor is stopped, and the old one must not erase its
 // successor.
 func (h Home) Release(s Serving) {
+	unlock, err := h.lockServing()
+	if err == nil {
+		defer unlock()
+	}
 	_ = os.Remove(h.recordPath(s.Port))
 	if b, err := os.ReadFile(h.servingPath()); err == nil {
 		var old Serving
@@ -272,10 +277,34 @@ func (h Home) digestLater(m Model, s Serving) {
 		m.Digest = sum
 		_ = h.record(m)
 	}
+	unlock, err := h.lockServing() // a Release in flight runs before or after, never between
+	if err != nil {
+		return
+	}
+	defer unlock()
 	if cur, ok := h.readServing(s.Port); ok && cur.Supervisor == s.Supervisor && cur.Started.Equal(s.Started) {
+		digestHold()
 		cur.SHA256 = sum
 		_ = h.writeServing(cur)
 	}
+}
+
+// lockServing serialises the two writers that read a serve record before changing it: the
+// background digest and Release. It is one advisory OS lock on a dedicated file, released on
+// exit, crashed or not.
+func (h Home) lockServing() (func(), error) {
+	if err := os.MkdirAll(h.Dir, 0o700); err != nil {
+		return nil, err
+	}
+	f, err := os.OpenFile(filepath.Join(h.Dir, "serving.lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	if err := filelock.Lock(f); err != nil {
+		_ = f.Close()
+		return nil, err
+	}
+	return func() { _ = filelock.Unlock(f); _ = f.Close() }, nil
 }
 
 // readServing is one port's record as it is on disk now, whoever wrote it.
@@ -293,6 +322,9 @@ func (h Home) readServing(port int) (Serving, bool) {
 
 // digestDone is signalled after each background digest; tests wait on it.
 var digestDone = func() {}
+
+// digestHold runs between the digest's read of the serve record and its write; tests use it.
+var digestHold = func() {}
 
 // portHeld reports whether a live serve, or one still loading, holds port.
 func (h Home) portHeld(port int) bool {
