@@ -424,9 +424,12 @@ func TestModelsAreReachedFromShareAndFromTheNothingFoundWizard(t *testing.T) {
 	f := &modelsFake{view: baseView()}
 	m := NewWithHooks("http://b", "t", nil, Hooks{Models: f.hooks()})
 	m.mode = modeShare
-	tm, cmd := m.onShareKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("g")})
+	// On SHARE, g is the category editor (features/categories/tui_share_editor.feature); MODELS is
+	// the last row, "+ Get a model that fits this machine", opened with Enter.
+	m.shareCursor = m.shareRowCount() - 1
+	tm, cmd := m.onShareKey(tea.KeyMsg{Type: tea.KeyEnter})
 	if tm.(model).mode != modeModels || cmd == nil {
-		t.Errorf("g on SHARE did not open MODELS")
+		t.Errorf("Enter on the get-a-model row did not open MODELS")
 	}
 	m2 := m.enterShareSetup()
 	tm, _ = m2.onShareSetupKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("g")})

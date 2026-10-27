@@ -306,11 +306,15 @@ type broker struct {
 	// localCache is the IN-PROCESS fallback for the hot read-path cache (serveCachedJSON) when
 	// no shared (Redis) backend is configured: a tiny TTL map so a single-instance / no-Redis
 	// deploy still collapses repeated full-market recomputes within the short TTL window. Safe
-	// because it reuses serveCachedJSON's existing cache KEY (public market keyed by query;
-	// authed feeds keyed per-identity, anon refused), so it inherits that scoping. Guarded by
-	// localCacheMu; bounded (cleared past localCacheCap entries) so query variety can't grow it.
+	// because it reuses serveCachedJSON's existing cache KEY (one key per public view; authed
+	// feeds keyed per-identity, anon refused), so it inherits that scoping. Guarded by
+	// localCacheMu; bounded (cleared past localCacheCap entries) so key variety can't grow it.
 	localCacheMu sync.Mutex
 	localCache   map[string]localCacheEntry
+	// decoded memoizes the decode of the cached public views for the taxonomy filters
+	// (decodedView), keyed by the cached bytes. Guarded by decodedMu.
+	decodedMu sync.Mutex
+	decoded   map[string]decodedPublicView
 
 	// multiInstance turns on the PRE-SCALE Stage 2 cross-instance job/result/stream
 	// RENDEZVOUS bus (sharedstore.go): a job picked on THIS instance can be served by a
@@ -1138,6 +1142,7 @@ func (b *broker) routes() *http.ServeMux {
 	mux.HandleFunc("/earnings", b.earnings)                            // owner dashboard: accrued earnings, recent
 	mux.HandleFunc("/stations", b.stations)                            // owner dashboard: every station they run + status/usage/evidence
 	mux.HandleFunc("/market", b.market)                                // per-model market metrics + signal
+	mux.HandleFunc("/categories", b.categories)                        // category list + live supply per category
 	mux.HandleFunc("/promo", b.promo)                                  // public: free-credit seed promo state (seeds_remaining; auto-hide at 0)
 	mux.HandleFunc("/auth/github", b.authGitHub)                       // bind a GitHub owner to the signing pubkey (CLI device flow)
 	mux.HandleFunc("/auth/apple", b.authApple)                         // bind an Apple owner to the signing pubkey (Sign in with Apple, native)
@@ -1181,6 +1186,7 @@ func (b *broker) routes() *http.ServeMux {
 	mux.HandleFunc("/console", b.console)                        // recent lineage feed + live counters (Console page)
 	mux.HandleFunc("/activity", b.console)                       // alias for /console
 	mux.HandleFunc("/provider/models", b.providerModels)         // owner: per-model price + time-of-use schedule (Console pricing manager)
+	mux.HandleFunc("/provider/meta", b.providerMeta)             // owner: what a model is for (Console category editor)
 	mux.HandleFunc("/grants", b.grants)                          // owner grant keys: create + list
 	mux.HandleFunc("/grants/", b.grants)                         // owner grant keys: show/edit/revoke by id
 	mux.HandleFunc("/bands", b.bands)                            // owner private bands: list + revoke by id

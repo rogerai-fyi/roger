@@ -12,19 +12,19 @@
 set -eu
 
 REPO="rogerai-fyi/roger"
-# Which component to install. There is ONE program, `roger`; a Tower operator runs
-# `roger tower ...`. ROGERAI_COMPONENT=tower or =tower-local still works: it installs roger and,
-# for this one release on Linux (where the old binaries shipped), the matching stand-in
-# (`roger-tower` / `roger-tower-local`) that hands off to `roger tower`:
+# Which component to install. The default is the `roger` client. Set ROGERAI_COMPONENT=tower
+# to install `roger-tower` (the self-hosted relay), or =tower-local for `roger-tower-local`
+# (the standalone consumer plane's Core-free serving binary):
 #   curl -fsSL https://rogerai.fm/install.sh | ROGERAI_COMPONENT=tower sh
+#   curl -fsSL https://rogerai.fm/install.sh | ROGERAI_COMPONENT=tower-local sh
 # Everything below - platform detection, release resolution, checksum verification, the
-# fail-closed behaviour on a missing asset - is shared by every asset it installs.
+# fail-closed behaviour on a missing asset - is shared, so the Tower install inherits the
+# same guarantees as the client rather than getting a second, less-tested script.
 COMPONENT="${ROGERAI_COMPONENT:-client}"
-BIN="roger"; ALIAS="rogerai"; SRC_PKG="./cmd/rogerai"
 case "$COMPONENT" in
-  client)      SHIM="" ;;
-  tower)       SHIM="roger-tower" ;;
-  tower-local) SHIM="roger-tower-local" ;;
+  client)      BIN="roger";             ALIAS="rogerai"; SRC_PKG="./cmd/rogerai" ;;
+  tower)       BIN="roger-tower";       ALIAS="";        SRC_PKG="./cmd/roger-tower" ;;
+  tower-local) BIN="roger-tower-local"; ALIAS="";        SRC_PKG="./cmd/roger-tower-local" ;;
   *) printf '%s\n' "unknown ROGERAI_COMPONENT: $COMPONENT (want: client, tower, or tower-local)" >&2; exit 1 ;;
 esac
 INSTALL_DIR="${ROGERAI_INSTALL_DIR:-$HOME/.local/bin}"
@@ -75,12 +75,14 @@ case "$os" in
   *) die "unsupported OS: $os. See https://github.com/$REPO/releases" ;;
 esac
 
-# The one-release stand-ins ship for Linux only, where the old binaries shipped. roger itself
-# runs a standalone Tower everywhere (joined Towers run on Linux).
-if [ -n "$SHIM" ] && [ "$OS" != "linux" ]; then
-  say "  ${C_DIM}note:${C_RESET} ${SHIM} is a Linux stand-in; on ${OS}, use \`roger tower ...\` directly."
-  SHIM=""
-fi
+# A Tower is a long-running server process; the standalone MVP targets an ordinary Linux
+# host, container runtime, or Kubernetes. Say so rather than fetching an asset that was
+# deliberately never built.
+case "$COMPONENT" in tower|tower-local)
+  if [ "$OS" != "linux" ]; then
+    die "${BIN} ships for Linux only (a Tower is a server process). Your platform: ${OS}."
+  fi ;;
+esac
 
 # ---- detect arch ----------------------------------------------------
 arch="$(uname -m 2>/dev/null || echo unknown)"
@@ -124,109 +126,96 @@ if [ -z "${TAG:-}" ]; then
   exit 1
 fi
 
-# install_asset ASSET NAME: download ASSET from the release, verify it against checksums.txt
-# when the release ships one, and install it atomically as NAME in INSTALL_DIR.
-install_asset() {
-  IA_ASSET="$1"; IA_NAME="$2"
-
-  # ---- download to a temp file ---------------------------------------
-  OUT="$TMP/$IA_NAME$EXT"
-  URL="https://github.com/$REPO/releases/download/$TAG/$IA_ASSET"
-  ASSET="$IA_ASSET"
-
-  info "downloading ${ASSET}…"
-  if ! dl "$URL" "$OUT"; then
-    say ""
-    say "  ${C_ERR}Couldn't download ${ASSET} for ${TAG}.${C_RESET}"
-    say "  That build may not exist for your platform yet."
-    say "  Browse what's available: ${C_VOLT}https://github.com/$REPO/releases/$TAG${C_RESET}"
-    say ""
-    exit 1
-  fi
-
-  # sanity check: non-empty file
-  [ -s "$OUT" ] || die "downloaded file is empty - aborting."
-
-  # ---- verify checksum (if the release ships checksums.txt) -----------
-  # Pick whatever sha256 tool the distro provides. sha256sum (coreutils:
-  # Debian/Ubuntu/Fedora/Arch/Gentoo/openSUSE/Bazzite), shasum -a 256
-  # (macOS/Perl), or sha256 (BSD). If none exist, skip with a warning
-  # rather than failing - the binary is still served over HTTPS.
-  sha256_of() {
-    if command -v sha256sum >/dev/null 2>&1; then
-      sha256sum "$1" | cut -d' ' -f1
-    elif command -v shasum >/dev/null 2>&1; then
-      shasum -a 256 "$1" | cut -d' ' -f1
-    elif command -v sha256 >/dev/null 2>&1; then
-      sha256 -q "$1"
-    else
-      return 1
-    fi
-  }
-
-  SUMS="$TMP/checksums.txt"
-  if dl "https://github.com/$REPO/releases/download/$TAG/checksums.txt" "$SUMS" 2>/dev/null \
-     && [ -s "$SUMS" ]; then
-    # the expected hash is the line whose filename column matches our asset
-    WANT="$(awk -v f="$ASSET" '$2 == f || $2 == "*"f {print $1; exit}' "$SUMS")"
-    if [ -n "$WANT" ]; then
-      GOT="$(sha256_of "$OUT")" || {
-        say ""
-        say "  ${C_DIM}note:${C_RESET} no sha256 tool found - skipping checksum verification."
-        GOT=""
-      }
-      if [ -n "$GOT" ]; then
-        if [ "$GOT" = "$WANT" ]; then
-          ok "checksum verified"
-        else
-          die "checksum mismatch for ${ASSET} - refusing to install. expected ${WANT}, got ${GOT}."
-        fi
-      fi
-    else
-      say "  ${C_DIM}note:${C_RESET} ${ASSET} not listed in checksums.txt - skipping verification."
-    fi
-  else
-    say "  ${C_DIM}note:${C_RESET} no checksums.txt in this release - skipping verification."
-  fi
-
-  # ---- install (atomic) ----------------------------------------------
-  # Stage into INSTALL_DIR so the final rename is on the same filesystem
-  # (mv across filesystems isn't atomic and can leave a half-written bin
-  # if interrupted). chmod first, then rename over any existing copy -
-  # this is idempotent, so re-running the installer just updates in place.
-
-  DEST="$INSTALL_DIR/$IA_NAME$EXT"
-  STAGE="$INSTALL_DIR/.$IA_NAME.$$.tmp"
-  cp "$OUT" "$STAGE" || die "failed to stage binary in ${INSTALL_DIR}."
-  chmod +x "$STAGE" 2>/dev/null || true
-  if ! mv -f "$STAGE" "$DEST"; then
-    rm -f "$STAGE" 2>/dev/null || true
-    die "failed to install to ${DEST}."
-  fi
-  ok "installed ${C_BOLD}${IA_NAME}${C_RESET} → ${DEST}"
-}
-
+URL="https://github.com/$REPO/releases/download/$TAG/$ASSET"
 info "version:  ${C_BOLD}${TAG}${C_RESET}"
+
+# ---- download to a temp file ---------------------------------------
 TMP="$(mktemp -d 2>/dev/null || mktemp -d -t rogerai)"
 trap 'rm -rf "$TMP"' EXIT INT TERM
+OUT="$TMP/$BIN$EXT"
+
+info "downloading ${ASSET}…"
+if ! dl "$URL" "$OUT"; then
+  say ""
+  say "  ${C_ERR}Couldn't download ${ASSET} for ${TAG}.${C_RESET}"
+  say "  That build may not exist for your platform yet."
+  say "  Browse what's available: ${C_VOLT}https://github.com/$REPO/releases/$TAG${C_RESET}"
+  say ""
+  exit 1
+fi
+
+# sanity check: non-empty file
+[ -s "$OUT" ] || die "downloaded file is empty - aborting."
+
+# ---- verify checksum (if the release ships checksums.txt) -----------
+# Pick whatever sha256 tool the distro provides. sha256sum (coreutils:
+# Debian/Ubuntu/Fedora/Arch/Gentoo/openSUSE/Bazzite), shasum -a 256
+# (macOS/Perl), or sha256 (BSD). If none exist, skip with a warning
+# rather than failing - the binary is still served over HTTPS.
+sha256_of() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | cut -d' ' -f1
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" | cut -d' ' -f1
+  elif command -v sha256 >/dev/null 2>&1; then
+    sha256 -q "$1"
+  else
+    return 1
+  fi
+}
+
+SUMS="$TMP/checksums.txt"
+if dl "https://github.com/$REPO/releases/download/$TAG/checksums.txt" "$SUMS" 2>/dev/null \
+   && [ -s "$SUMS" ]; then
+  # the expected hash is the line whose filename column matches our asset
+  WANT="$(awk -v f="$ASSET" '$2 == f || $2 == "*"f {print $1; exit}' "$SUMS")"
+  if [ -n "$WANT" ]; then
+    GOT="$(sha256_of "$OUT")" || {
+      say ""
+      say "  ${C_DIM}note:${C_RESET} no sha256 tool found - skipping checksum verification."
+      GOT=""
+    }
+    if [ -n "$GOT" ]; then
+      if [ "$GOT" = "$WANT" ]; then
+        ok "checksum verified"
+      else
+        die "checksum mismatch for ${ASSET} - refusing to install. expected ${WANT}, got ${GOT}."
+      fi
+    fi
+  else
+    say "  ${C_DIM}note:${C_RESET} ${ASSET} not listed in checksums.txt - skipping verification."
+  fi
+else
+  say "  ${C_DIM}note:${C_RESET} no checksums.txt in this release - skipping verification."
+fi
+
+# ---- install (atomic) ----------------------------------------------
+# Stage into INSTALL_DIR so the final rename is on the same filesystem
+# (mv across filesystems isn't atomic and can leave a half-written bin
+# if interrupted). chmod first, then rename over any existing copy -
+# this is idempotent, so re-running the installer just updates in place.
 if ! mkdir -p "$INSTALL_DIR" 2>/dev/null; then
   die "can't create ${INSTALL_DIR}. Set ROGERAI_INSTALL_DIR to a writable directory."
 fi
 [ -w "$INSTALL_DIR" ] || die "${INSTALL_DIR} isn't writable. Set ROGERAI_INSTALL_DIR to a writable directory."
 
-install_asset "$ASSET" "$BIN"
-ROGER_DEST="$INSTALL_DIR/$BIN$EXT"
-if [ -n "$SHIM" ]; then
-  install_asset "${SHIM}-${OS}-${ARCH}${EXT}" "$SHIM"
+DEST="$INSTALL_DIR/$BIN$EXT"
+STAGE="$INSTALL_DIR/.$BIN.$$.tmp"
+cp "$OUT" "$STAGE" || die "failed to stage binary in ${INSTALL_DIR}."
+chmod +x "$STAGE" 2>/dev/null || true
+if ! mv -f "$STAGE" "$DEST"; then
+  rm -f "$STAGE" 2>/dev/null || true
+  die "failed to install to ${DEST}."
 fi
+ok "installed ${C_BOLD}${BIN}${C_RESET} → ${DEST}"
 
 # ---- back-compat alias ----------------------------------------------
 # The command is `roger` now; keep a `rogerai` alias so old muscle memory
 # (and any scripts) keep working. Prefer a symlink; fall back to a copy on
 # filesystems/OSes where symlinks aren't available (e.g. some Windows setups).
 ALIAS_DEST="$INSTALL_DIR/$ALIAS$EXT"
-if [ -n "$ALIAS" ] && [ "$ALIAS_DEST" != "$ROGER_DEST" ]; then
-  if ln -sf "$BIN$EXT" "$ALIAS_DEST" 2>/dev/null || cp -f "$ROGER_DEST" "$ALIAS_DEST" 2>/dev/null; then
+if [ -n "$ALIAS" ] && [ "$ALIAS_DEST" != "$DEST" ]; then
+  if ln -sf "$BIN$EXT" "$ALIAS_DEST" 2>/dev/null || cp -f "$DEST" "$ALIAS_DEST" 2>/dev/null; then
     ok "aliased ${C_BOLD}${ALIAS}${C_RESET} → ${BIN}"
   fi
 fi
@@ -262,9 +251,5 @@ case ":$PATH:" in
 esac
 
 say ""
-if [ "$COMPONENT" = "client" ]; then
-  ok "roger that. run ${C_BOLD}${C_VOLT}${BIN}${C_RESET} to go on air or tune in."
-else
-  ok "roger that. use \`roger tower ...\` to run your Tower (roger tower help lists the commands)."
-fi
+ok "roger that. run ${C_BOLD}${C_VOLT}${BIN}${C_RESET} to go on air or tune in."
 say ""

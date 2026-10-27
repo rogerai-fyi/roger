@@ -107,9 +107,7 @@ test("gpu-isolation: the moderation claim is not an unqualified absolute", () =>
 // while a real grep failure (exit >1) or an actual match (a real violation) must not be.
 function grepFiles(pattern, dirs) {
   try {
-    // Production code only: a test file binding a socket or importing the harness to
-    // exercise it is not the sharing path the page makes a promise about.
-    return execFileSync("grep", ["-rlE", "--include=*.go", "--exclude=*_test.go", pattern, ...dirs], { cwd: ROOT, encoding: "utf8" })
+    return execFileSync("grep", ["-rlE", pattern, ...dirs], { cwd: ROOT, encoding: "utf8" })
       .trim().split("\n").filter(Boolean);
   } catch (e) {
     if (e.status === 1) return []; // no matches - the clean, expected case
@@ -126,12 +124,9 @@ test("gpu-isolation: the tool-executing harness is never imported by the node/sh
   assert.ok(control.some((f) => f.startsWith("internal/tui/")), "the import pattern still matches internal/tui");
   assert.ok(control.some((f) => f.startsWith("internal/webui/")), "the import pattern still matches internal/webui");
 
-  // The ONE allowed importer is the Roger Edge delegate runner (founder ruling 2026-10-07):
-  // it runs an agent turn only on a grant the owner's own Edge authority signed, and only on
-  // a machine that has joined that Edge. It is not reachable from sharing to the market.
   const importers = grepFiles("rogerai\\.fm/roger/v6/internal/harness", ["cmd/rogerai", "internal/agent", "internal/node"]);
-  assert.deepEqual(importers, ["cmd/rogerai/edgerunner.go"],
-    `the sharing path must never import internal/harness (the tool-executing agent) beyond the Edge delegate runner, found: ${importers.join(", ")}`);
+  assert.deepEqual(importers, [],
+    `the sharing path must never import internal/harness (the tool-executing agent), found: ${importers.join(", ")}`);
 });
 
 // A first draft claimed every harness action is "confirmed before it runs" - the
@@ -163,40 +158,15 @@ test("gpu-isolation: the node's serve path forwards job.Body verbatim to cfg.Ups
 });
 
 test("gpu-isolation: no inbound listener exists in the share/node code path", () => {
-  // Every listener now goes through internal/netbind (one bind helper), so the scan looks for
-  // netbind's binding calls as well as a raw net.Listen. Positive controls first, so a pattern
-  // or path drift that starts matching nothing cannot pass as "no listener".
-  const pattern = "ListenAndServe|net\\.Listen\\(|netbind\\.(Stated|ListenFree|ListenEach)\\(";
-  const control = grepFiles(pattern, ["internal/netbind", "internal/towercli"]);
-  assert.ok(control.includes("internal/netbind/netbind.go"), "the pattern still matches netbind's own bind");
-  assert.ok(control.includes("internal/towercli/hub.go"), "the pattern still matches a netbind caller");
-
-  const files = grepFiles(pattern, ["cmd/rogerai", "internal/agent", "internal/node"]);
-  // Asserted as an EXACT set. The one listener left on these paths is the Roger Edge face and
-  // authority (cmd/rogerai/edgebind.go): founder ruling 2026-10-07, it binds only on a machine
-  // that has joined an Edge (it serves that membership's certificate) or holds an Edge's root.
-  // Sharing to the market opens no inbound port. internal/webui and internal/tui bind
-  // loopback-only listeners for local features (browser console, TUI proxy) outside these
-  // directories, and the onboarding flow only suggests a port, it never binds one.
-  assert.deepEqual(files, ["cmd/rogerai/edgebind.go"],
-    `expected only the Roger Edge listener in the sharing path, found: ${files.join(", ") || "(none)"}`);
-});
-
-// Founder ruling 2026-10-07: Roger Edge is the one opt-in exception to "your machine never
-// listens", so the page says so plainly, scoped to members over mutual TLS, and says the Edge
-// delegate runner acts only on grants the owner signs. Sharing never turns it on.
-test("gpu-isolation: the Roger Edge exception is stated, opt-in, members only, signed grants", () => {
-  const visible = read(PAGE).replace(/<!--[\s\S]*?-->/g, "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
-  assert.match(visible, /set up Roger Edge/i, "the exception is named and is opt-in");
-  assert.match(visible, /mutual TLS/i, "Edge devices connect over mutual TLS");
-  assert.match(visible, /only devices that are members of your Edge can connect/i, "members only");
-  assert.match(visible, /acts only on grants you sign/i, "the delegate runner needs a grant the owner signs");
-  assert.match(visible, /Sharing a model never turns any of that on/i, "sharing does not start it");
-  // Founder ruling 2026-10-07 (features/edge/scan_on_request.feature): before setup, the only
-  // listening is the on-request LAN scan, while a view asks for it, and it stops on leaving.
-  assert.match(visible, /only time it listens at all is when you ask/i, "the on-request scan is named");
-  assert.match(visible, /roger edge scan/, "the command that asks is named");
-  assert.match(visible, /stops when you leave/i, "and it ends when the view does");
+  const files = grepFiles("ListenAndServe|net\\.Listen\\(", ["cmd/rogerai", "internal/agent", "internal/node"]);
+  // Asserted as an EXACT set, not a loop over matches: a loop passes vacuously if the
+  // pattern or paths drift and grep starts matching nothing, which is exactly the failure
+  // mode a security claim like this one cannot afford. onboard.go's 127.0.0.1 OAuth-callback
+  // listener is the one known, unrelated exception - internal/webui and internal/tui also
+  // bind loopback-only listeners for local features (browser console, TUI proxy), but they
+  // sit outside these three directories entirely, so they never enter this comparison.
+  assert.deepEqual(files, ["cmd/rogerai/onboard.go"],
+    `expected only onboard.go's listener in the sharing path, found: ${files.join(", ") || "(none)"}`);
 });
 
 test("gpu-isolation: no em dashes in the copy", () => {

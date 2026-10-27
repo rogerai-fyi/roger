@@ -8,11 +8,11 @@ package store
 // Postgres when ROGERAI_TEST_DATABASE_URL is set - no mocks.
 
 import (
-	"rogerai.fm/roger/v6/internal/pgtest"
 	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"rogerai.fm/roger/v6/internal/pgtest"
 	"rogerai.fm/roger/v6/internal/protocol"
 )
 

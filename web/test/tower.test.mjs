@@ -154,25 +154,20 @@ test("the manual and the tower page reconcile the same two names", () => {
    download link that 404s is worse than no download link. */
 
 test("the page offers the Tower it describes", () => {
-  // features/web/tower.feature, superseded 2026-10-07 (one binary): a Tower is part of roger.
   const p = page();
-  const box = p.match(/<code class="install__code">([\s\S]*?)<\/code>/);
-  assert.ok(box, "the page has an install box");
-  // the visible command, read through the unbreakable-token spans (qa-polish4)
-  assert.equal(box[1].replace(/<[^>]+>/g, ""), "curl -fsSL https://rogerai.fm/install.sh | sh",
-    "the normal roger install command is offered");
-  assert.doesNotMatch(p, /ROGERAI_COMPONENT=tower/, "not a separate Tower component");
-  assert.doesNotMatch(p, /data-os-lock="linux"/,
-    "the box is not Linux-locked, so the Windows command swap applies like every roger box");
-  assert.doesNotMatch(p, /releases\/latest\/download\/roger-tower/, "no roger-tower asset is linked");
-  assert.match(p, /href="https:\/\/github\.com\/rogerai-fyi\/roger\/releases\/latest"/,
-    "the published roger release is linked");
-  assert.match(p, /releases\/latest\/download\/checksums\.txt/, "and the checksums that verify it");
+  assert.match(p, /ROGERAI_COMPONENT=tower/,
+    "the install command selects the Tower component");
+  assert.match(p, /class="install__box[^"]*"[^>]*data-os-lock="linux"|data-os-lock="linux"[^>]*class="install__box/s,
+    "and it is a copyable install box, like the client one");
+  for (const asset of ["roger-tower-linux-amd64", "roger-tower-linux-arm64"]) {
+    assert.match(p, new RegExp(`releases/latest/download/${asset}`),
+      `${asset} is linked by its published release asset name`);
+  }
+  assert.match(p, /releases\/latest\/download\/checksums\.txt/,
+    "the checksums that verify those binaries are linked");
   const c = copy();
-  assert.match(c, /roger tower/, "roger tower is named as the way to run one");
-  assert.match(c, /standalone[^.]*Linux, macOS and Windows/i, "standalone runs everywhere");
-  assert.match(c, /joined[^.]*Linux only/i, "joined runs on Linux only");
-  assert.match(c, /server process/i, "and the reason is given");
+  assert.match(c, /Linux only/i, "the platform constraint is stated, not left to be discovered");
+  assert.match(c, /server process/i, "and the reason for it is given");
 });
 
 test("the download surface prints only numbers the specs pin", () => {

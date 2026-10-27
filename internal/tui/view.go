@@ -144,6 +144,8 @@ func (m model) View() string {
 		b.WriteString(m.bandCardView(w))
 	case modeShareEditor:
 		b.WriteString(m.shareEditorView(w))
+	case modeShareMeta:
+		b.WriteString(m.shareMetaView(w))
 	case modeShareSetup:
 		b.WriteString(m.shareSetupView(w))
 	case modeModels:
@@ -863,6 +865,9 @@ func (m model) filterLine(matched, total int) string {
 		// the number it would act on.
 		toggles = append(toggles, stDim.Render(fmt.Sprintf("%s%d curated · U hides", glyphCurated, n)))
 	}
+	if m.fCat != "" {
+		toggles = append(toggles, stKey.Render("cat:"+m.fCat))
+	}
 	if m.fQuant != "" {
 		// Named, not a bare "quant" lamp: WHICH one is the whole content of this filter,
 		// and an operator who cannot see it cannot tell a narrowed dial from an empty one.
@@ -973,6 +978,7 @@ func (m model) helpView() string {
 		{"b", "BAND CARD: every setting for the band under the cursor in one place - on air, public/private, its dial, its price, what was detected about it, your spend caps"},
 		{"s", "SORT cycle (strongest / cheapest / fastest / most-stations)"},
 		{"F/C/O", "filters: free-now / confidential / on-air"},
+		{"G", "CATEGORY filter: show only one category (vision, retrieval…). A category is the station's own description, or a guess marked ~ - not verified"},
 		{"Q", "QUANT filter: show only one compression label (Q4_K_M, IQ4_XS, 4bit…). Two stations serving the same model name are not serving the same weights - only labels actually on air are offered"},
 		{"m  ·  alt+m", "MINIMIZE to the dense compact windowshade · alt+m (or /compact) works from anywhere, even mid-chat"},
 		{"z", "SCREENSAVER: zone out to Ping's world (fullscreen, any key wakes) · also /ping"},

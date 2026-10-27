@@ -67,7 +67,7 @@ test("every page is assembled from the head, nav and footer partials", () => {
 });
 
 test("every page runs the shared page runtime from the site-js partial, never a hand-copied tail", () => {
-  const shared = ["lets-talk", "site", "session", "promo", "tuner", "scrub", "anchor-hold", "range-twin"];
+  const shared = ["lets-talk", "site", "session", "promo", "tuner", "scrub", "anchor-hold", "range-twin", "cycle"];
   for (const page of PAGES) {
     const src = stripHtml(read(page));
     for (const js of shared) {
@@ -77,7 +77,7 @@ test("every page runs the shared page runtime from the site-js partial, never a 
     assert.match(read(page), /<!--\s*include:\s*site-js\.html/, `${page} includes site-js.html`);
     // ...so every component module ships with it, and a page gets a behaviour by markup alone
     const built = dist(page);
-    for (const js of ["site", "tuner", "scrub", "anchor-hold", "range-twin"]) {
+    for (const js of ["site", "tuner", "scrub", "anchor-hold", "range-twin", "cycle"]) {
       assert.match(built, new RegExp(`<script src="js/${js}\\.js\\?v=`), `${page} ships js/${js}.js`);
     }
   }
@@ -157,7 +157,7 @@ test("each shared component is defined in components.css and nowhere else", () =
 test("components.css styles only components: no page class rides on the shared layer", () => {
   // components.css must not carry page-specific selectors: every class in it is a component's
   // (or a state/hook it documents), so no page's markup is styled from the shared layer by accident
-  const STATES = new Set(["is-copied", "is-current", "is-tuned", "is-dragging", "is-tuning", "is-selected", "is-live", "is-off", "is-quiet", "inline", "fig", "tok", "beacon"]);
+  const STATES = new Set(["is-copied", "is-current", "is-tuned", "is-dragging", "is-tuning", "is-selected", "is-live", "is-off", "is-quiet", "is-out", "is-in", "inline", "fig", "tok", "beacon"]);
   const blocks = new Set(selectors(read("styles/components.css")).map(leadClass).filter(Boolean).map(blockOf));
   for (const sel of selectors(read("styles/components.css"))) {
     for (const [, cls] of sel.matchAll(/\.([\w-]+)/g)) {
@@ -328,6 +328,8 @@ const TWIN_EXCEPTIONS = {
   "base.css .fig = components.css .page-index__head": LABEL_TYPE,
   "broadcasts.css .bc-answer__tag = components.css .page-index__head": LABEL_TYPE,
   "broadcasts.css .bc-answer__tag = components.css .tint-panel__tag": LABEL_TYPE,
+  // the adapter dial's stage words are grouped into the tag's one rule (sensor_positioning.feature)
+  "broadcasts.css .bc-answer__tag = components.css .cap-stage": LABEL_TYPE,
   "broadcasts.css .bc-post__meta = manual.css .man-cover__meta": "the document meta line of an article and of the manual's cover: two documents, one typesetting",
   "broadcast-agent-governance.css .gov-flow = broadcast-gpu-isolation.css .gpu-flow": FLOW,
   "broadcast-agent-governance.css .gov-flow__no = broadcast-gpu-isolation.css .gpu-flow__no": FLOW,
@@ -462,7 +464,7 @@ const OWN_CLIPBOARD = {
 
 test("no page script re-implements a shared behaviour", () => {
   const js = readdirSync(path.join(SRC, "js")).filter((f) => f.endsWith(".js"));
-  const HOOKS = { "[data-fold-narrow]": "site.js", "[data-tuner]": "tuner.js", "[data-scrub]": "scrub.js", "[data-anchor-hold]": "anchor-hold.js", "[data-copy-target]": "site.js", "[data-range-twin]": "range-twin.js" };
+  const HOOKS = { "[data-fold-narrow]": "site.js", "[data-tuner]": "tuner.js", "[data-scrub]": "scrub.js", "[data-anchor-hold]": "anchor-hold.js", "[data-copy-target]": "site.js", "[data-range-twin]": "range-twin.js", "[data-cycle]": "cycle.js" };
   for (const f of js) {
     const src = read(`js/${f}`);
     if (/navigator\.clipboard|execCommand\(["']copy/.test(src)) {
@@ -479,6 +481,7 @@ test("the component modules initialize from their data- hook, so markup alone op
   assert.match(read("js/scrub.js"), /querySelectorAll\("\[data-scrub\]"\)/);
   assert.match(read("js/anchor-hold.js"), /querySelector\("\[data-anchor-hold\]"\)/);
   assert.match(read("js/range-twin.js"), /querySelectorAll\("\[data-range-twin\]"\)/);
+  assert.match(read("js/cycle.js"), /querySelectorAll\("\[data-cycle\]"\)/);
   assert.match(read("js/site.js"), /closest\("\[data-copy-target\]"\)/);
   assert.match(read("js/site.js"), /querySelectorAll\("details\[data-fold-narrow\]"\)/);
 });

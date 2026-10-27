@@ -504,6 +504,9 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 	// set) can carry overrides; ActivePrice then reads the overridden price at serve
 	// time. (Past receipts/ledger are immutable - this changes only future pricing.)
 	overriddenModels := b.applyOfferOverrides(regOwner.Pubkey, reg.NodeID, reg.Offers)
+	// The owner's web-set CATEGORY rides the same way (owner_override.feature): it is the
+	// declaration on air, over the node's own, and survives every re-register.
+	b.applyMetaOverrides(regOwner.Pubkey, reg.NodeID, reg.Offers)
 	// PUBLIC-VOICE REGISTER GUARD (off-lock: the content screen does network IO, which must
 	// never run under b.mu). A voice is only PUBLICLY listable when it is owner-bound (Q2:
 	// signed-in operators only), so the guard applies to an owner-bound (regOwner set) TTS
@@ -670,17 +673,7 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 	// stream DISPATCH bus stays behind the flag. Pinned by
 	// features/multinode/liveness_churn.feature.
 	if b.shared != nil {
-		if raw, mErr := json.Marshal(reg); mErr == nil {
-			// Clear any stale entry in the OTHER namespace first, so a private<->public flip
-			// never leaves a mirror markSeen would keep alive (each node lives in EXACTLY one
-			// namespace). Then publish to the correct one.
-			_ = b.shared.dropSharedNode(reg.NodeID)
-			if reg.Private {
-				_ = b.shared.putPrivateNode(reg.NodeID, raw, livenessTTL)
-			} else {
-				_ = b.shared.putNode(reg.NodeID, raw, livenessTTL)
-			}
-		}
+		b.mirrorRegistration(reg)
 		// NOTE: the verified "tools" bit is NOT carried in the registration JSON - it is
 		// first-class shared state (shared.markToolsVerified / toolsVerified, merged into
 		// b.toolsMerged on the sync loop), so a re-register never clobbers or resurrects it.
@@ -1435,6 +1428,29 @@ func (b *broker) applyOfferOverrides(owner, node string, offers []protocol.Model
 		overridden = append(overridden, offers[i].Model)
 	}
 	return overridden
+}
+
+// mirrorRegistration publishes reg to the shared registry so every instance serves it (the
+// gate and the reasons are register()'s, above). Also used by an owner's LIVE override
+// (mutateLiveOffer): without it the edit reached only the instance that took it, and that
+// instance's own reconcile reverted it to the last register within a sync period.
+func (b *broker) mirrorRegistration(reg protocol.NodeRegistration) {
+	if b.shared == nil {
+		return
+	}
+	raw, err := json.Marshal(reg)
+	if err != nil {
+		return
+	}
+	// Clear any stale entry in the OTHER namespace first, so a private<->public flip never
+	// leaves a mirror markSeen would keep alive (each node lives in EXACTLY one namespace).
+	// Then publish to the correct one.
+	_ = b.shared.dropSharedNode(reg.NodeID)
+	if reg.Private {
+		_ = b.shared.putPrivateNode(reg.NodeID, raw, livenessTTL)
+	} else {
+		_ = b.shared.putNode(reg.NodeID, raw, livenessTTL)
+	}
 }
 
 // heartbeat handles POST /nodes/heartbeat: keeps a node marked online (~35s TTL).

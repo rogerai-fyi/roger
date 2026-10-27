@@ -15,6 +15,7 @@ import (
 	"errors"
 	"io"
 	"rogerai.fm/roger/v6/internal/servedfile"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -106,6 +107,10 @@ type ShareRow struct {
 	Quant   string
 	Weights string
 	Variant string
+	// Capabilities are the detected chat sub-capabilities (["vision"]); nil = undetermined.
+	Capabilities []string
+	// Inferred is detection's best-effort taxonomy guess (source "inferred").
+	Inferred protocol.Taxonomy
 }
 
 // VoiceConfig is the SHARE VOICE BOOTH's result for one tts model: the on-air DJ identity the
@@ -176,7 +181,9 @@ type Hooks struct {
 	SavePrice    func(model string, p Pricing)
 	// SaveAutoStart persists the per-model auto-start decision. Nil-safe like the rest.
 	SaveAutoStart func(model string, on bool)
-	SaveStation   func(station string)
+	// SaveMeta persists a model's declared taxonomy; an empty one means remove it.
+	SaveMeta    func(model string, t protocol.Taxonomy)
+	SaveStation func(station string)
 }
 
 // Config seeds a Controller with the immutable-ish node identity + defaults the host
@@ -196,6 +203,8 @@ type Config struct {
 	// AutoStart seeds the per-model "put this back on air at launch" decision. Present =
 	// the operator has decided; absent = they have not, and the opt-out default applies.
 	AutoStart map[string]bool
+	// Meta seeds the per-model declared taxonomy (config.json share_meta).
+	Meta map[string]protocol.Taxonomy
 	// ProbeMin is the saved per-model minimum probe interval (config.json share_prices
 	// probe_min) every share of that model registers with; absent = undeclared.
 	ProbeMin map[string]time.Duration
@@ -228,6 +237,9 @@ type Controller struct {
 	private     map[string]bool
 	prices      map[string]Pricing
 	voices      map[string]VoiceConfig // per-model voice identity (config-seeded and/or BOOTH-set)
+	// meta is the per-model DECLARED taxonomy (config-seeded and/or set by a front-end). When a
+	// model has one it is the whole taxonomy on air; otherwise the row's inference goes on air.
+	meta map[string]protocol.Taxonomy
 	// autostart is TRI-STATE by presence: absent = the operator has never said, true/false
 	// = they have. Absence matters because the default is opt-OUT - putting a model on air
 	// marks it for next launch - and that default must not silently re-arm a model the
@@ -265,6 +277,7 @@ func New(cfg Config) *Controller {
 		private:      map[string]bool{},
 		prices:       map[string]Pricing{},
 		voices:       map[string]VoiceConfig{},
+		meta:         map[string]protocol.Taxonomy{},
 		autostart:    map[string]bool{},
 		probeMin:     cfg.ProbeMin,
 		stationFiles: cfg.StationFiles,
@@ -279,6 +292,12 @@ func New(cfg Config) *Controller {
 	}
 	for k, v := range cfg.Prices {
 		c.prices[k] = v
+	}
+	// Saved declarations are kept as stored and judged when a model goes on air (OnAir): the
+	// claim source is the controller's to stamp, and an entry that canonicalizes to nothing
+	// never hides the inference. Copied, so a later SetMeta never writes into the host's map.
+	for k, v := range cfg.Meta {
+		c.meta[k] = v
 	}
 	// Copy (not alias) the saved voice identities, exactly like Prices: a later
 	// SetVoiceConfig must never write back into the host's map.
@@ -427,6 +446,9 @@ func (c *Controller) loadRows(found []detect.Found, persist bool) {
 				Model: mdl, Modality: srv.Modality[mdl], Ctx: ctxLen, CtxEstimated: ctxEst,
 				Upstream: up, UpstreamKey: srv.Key,
 				Quant: srv.Quant[mdl], Weights: srv.Weights[mdl], Variant: srv.Variant[mdl],
+				// A copy: the row must not alias the detector's slice.
+				Capabilities: slices.Clone(srv.Capabilities[mdl]),
+				Inferred:     srv.InferredTaxonomy(mdl),
 			})
 		}
 	}
@@ -675,8 +697,9 @@ func (c *Controller) startLocked(row ShareRow, p Pricing, private bool, lanTower
 		Broker: c.broker, Upstream: up, UpstreamKey: upKey, NodeID: node, Station: c.station,
 		Region: "home", HW: c.hw, Model: row.Model, Modality: row.Modality,
 		PriceIn: p.In, PriceOut: p.Out, Ctx: row.Ctx, CtxEstimated: row.CtxEstimated, Parallel: 4,
-		Quant: row.Quant, Weights: row.Weights, Variant: row.Variant,
-		Private: private, Schedule: SchedToProtocol(p.Windows),
+		Quant: row.Quant, Weights: row.Weights, Variant: row.Variant, Capabilities: row.Capabilities,
+		Taxonomy: c.taxonomyLocked(row),
+		Private:  private, Schedule: SchedToProtocol(p.Windows),
 		Name: vc.Name, Voice: vc.Voice, Speed: vc.Speed, Language: vc.Language, SampleURL: vc.SampleURL,
 		ProbeMin: c.probeMin[row.Model],
 	})
@@ -1120,4 +1143,72 @@ func (c *Controller) AutoStartAll() AutoStartReport {
 		}
 	}
 	return rep
+}
+
+// ErrNotServed is returned for a model this station does not serve.
+var ErrNotServed = errors.New("model is not served by this station")
+
+// taxonomyLocked is what goes on air for row (caller holds c.mu): the operator's declaration
+// as a WHOLE when there is one, labelled declared; otherwise the row's inference. Declared and
+// inferred never mix - one label, one author (founder ruling 2026-10-05).
+func (c *Controller) taxonomyLocked(row ShareRow) protocol.Taxonomy {
+	return c.meta[row.Model].OnAir(row.Modality, row.Inferred)
+}
+
+func (c *Controller) rowLocked(model string) (ShareRow, bool) {
+	for _, r := range c.rows {
+		if r.Model == model {
+			return r, true
+		}
+	}
+	return ShareRow{}, false
+}
+
+// SetMeta validates and records a model's declared taxonomy (stored canonical, without a
+// source), and persists it through the host. A declaration with no claim in it clears.
+// Like a price, it applies the next time the model goes on air; a live session is untouched.
+func (c *Controller) SetMeta(model string, t protocol.Taxonomy) error {
+	c.mu.Lock()
+	row, ok := c.rowLocked(model)
+	if !ok {
+		c.mu.Unlock()
+		return ErrNotServed
+	}
+	t, err := t.Declare(row.Modality)
+	c.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	c.storeMeta(model, t)
+	return nil
+}
+
+// ClearMeta removes a model's declaration, so its inference goes on air again. It needs no
+// detected row: a stale declaration for a model whose server is down can still be cleared.
+func (c *Controller) ClearMeta(model string) error {
+	c.storeMeta(model, protocol.Taxonomy{})
+	return nil
+}
+
+// storeMeta records t (an empty one removes) and persists it through the host.
+func (c *Controller) storeMeta(model string, t protocol.Taxonomy) {
+	c.mu.Lock()
+	if t.Declared() {
+		c.meta[model] = t
+	} else {
+		delete(c.meta, model)
+	}
+	c.mu.Unlock()
+	if c.hooks.SaveMeta != nil {
+		c.hooks.SaveMeta(model, t)
+	}
+}
+
+// MetaFor returns a model's declared taxonomy (zero when none) and its inference; ok is false
+// when the station does not serve the model.
+func (c *Controller) MetaFor(model string) (declared, inferred protocol.Taxonomy, ok bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	row, ok := c.rowLocked(model)
+	return c.meta[model], row.Inferred, ok
 }

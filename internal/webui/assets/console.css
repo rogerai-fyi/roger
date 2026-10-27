@@ -1641,3 +1641,6 @@ body.is-chat .content { padding-bottom: var(--s-6); }
 .edgenearby__line, .edgenearby__run { display: block; overflow-wrap: anywhere; white-space: pre-wrap; }
 .edgenearby__qr { margin: 6px 0; }
 .edgenearby__phrase { display: block; font-size: 18px; margin: 6px 0; }
+/* category modal (features/categories/console_editor.feature): the server's refusal reason */
+#cat-err { color: var(--live); margin: 8px 0 0; }
+.cat-cell { white-space: nowrap; }

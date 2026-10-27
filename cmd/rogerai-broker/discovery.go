@@ -8,7 +8,6 @@ package main
 // cached offers takes no broker lock.
 
 import (
-	"encoding/json"
 	"math"
 	"net/http"
 	"net/url"
@@ -19,9 +18,6 @@ import (
 	"rogerai.fm/roger/v6/internal/protocol"
 	"rogerai.fm/roger/v6/internal/routingrules"
 )
-
-// discoverCacheKey is the ONE shared cache entry for the public offer feed.
-const discoverCacheKey = "discover:"
 
 // offerFilter is a parsed filter query. The zero value keeps every offer.
 type offerFilter struct {
@@ -64,6 +60,10 @@ func parseOfferFilter(q url.Values) (offerFilter, *queryError) {
 		return false, invalid(name, "want 1 or true")
 	}
 	for name, vals := range q {
+		switch name {
+		case "category", "subcategory", "tag", "policy", "source":
+			continue // the taxonomy filters: parsed and applied by parseTaxonomyFilter
+		}
 		for _, v := range vals {
 			if v == "" {
 				return f, invalid(name, "empty value")
@@ -177,16 +177,6 @@ func (f offerFilter) keeps(o offerView) bool {
 		}
 	}
 	return true
-}
-
-// cachedOffers is the unfiltered public offer feed out of the shared cache (one compute per
-// publicMarketTTL across every caller and filter), decoded without taking a broker lock.
-func (b *broker) cachedOffers() []offerView {
-	var feed struct {
-		Offers []offerView `json:"offers"`
-	}
-	_ = json.Unmarshal(b.cachedJSON(discoverCacheKey, publicMarketTTL, b.computeDiscover), &feed)
-	return feed.Offers
 }
 
 // filterOffers applies the filter, preserving the feed's order.
