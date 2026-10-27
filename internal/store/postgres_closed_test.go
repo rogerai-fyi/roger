@@ -1,10 +1,10 @@
 package store
 
 import (
-	"os"
 	"testing"
 	"time"
 
+	"rogerai.fm/roger/v6/internal/pgtest"
 	"rogerai.fm/roger/v6/internal/protocol"
 )
 
@@ -16,7 +16,7 @@ import (
 // spots, so a method that drops a real DB error is a regression this guards).
 func closedPostgres(t *testing.T) *Postgres {
 	t.Helper()
-	dsn := os.Getenv("ROGERAI_TEST_DATABASE_URL")
+	dsn := pgtest.DSN(t)
 	if dsn == "" {
 		t.Skip("ROGERAI_TEST_DATABASE_URL not set; skipping real-Postgres closed-pool test")
 	}

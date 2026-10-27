@@ -94,8 +94,13 @@ if [ -z "${ROGERAI_TEST_DATABASE_URL:-}" ]; then
     echo "[cover] starting throwaway Postgres ($RUNTIME) for the store money path…" >&2
     # The host port is chosen by the runtime and read back, rather than pinned: a fixed
     # one either fails the second run or, worse, points it at the first run's data.
+    # No durability flushes: the database is deleted after the run, and on a copy-on-write
+    # filesystem every commit's fsync dominated the money-path suites (a 10,000-request
+    # scenario took over two minutes waiting on WALSync). Transactions, isolation and
+    # locking are unchanged; only the flush to disk is skipped.
     if "$RUNTIME" run -d --name "$PG_CT" -e POSTGRES_PASSWORD=test -e POSTGRES_DB=roger_test \
-        -p 127.0.0.1::5432 docker.io/library/postgres:16 >/dev/null 2>&1; then
+        -p 127.0.0.1::5432 docker.io/library/postgres:16 \
+        -c fsync=off -c synchronous_commit=off -c full_page_writes=off >/dev/null 2>&1; then
       PG_PORT="$("$RUNTIME" port "$PG_CT" 5432/tcp 2>/dev/null | head -1 | sed 's/.*://')"
       if [ -z "$PG_PORT" ]; then
         echo "[cover] ERROR: could not read the test Postgres host port" >&2
