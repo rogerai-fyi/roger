@@ -351,12 +351,13 @@ func (h *edgeHost) adopt(id, name string) error {
 	if err != nil {
 		return fmt.Errorf("could not check whether this device is already a member: %w", err)
 	}
-	if known && (c.Pin != "" || edge.Presence(n.Presence) == edge.PresenceVerified) {
-		// Refuse re-adopting a known member on the SERVING path (Pin != "") on ANY presence: re-pinning
-		// a member from an unauthenticated LAN advert could point it at an attacker's certificate and
-		// take over that node's identity in the fleet. Refuse a LIVE member on any path too. Only a
-		// NON-live member rejoining by CLAIM (Pin == "", where the device's node KEY proves its
-		// identity and an advert cannot forge it) is re-admitted below.
+	if known && (c.Pin != "" || n.Pin != "" || edge.Presence(n.Presence) == edge.PresenceVerified) {
+		// Refuse re-adopting a known member on the SERVING path on ANY presence: re-pinning a member
+		// from an unauthenticated LAN advert could point it at an attacker's certificate and take over
+		// that node's identity in the fleet. Whether it serves is read from the member's OWN record
+		// (n.Pin), never only from the advert, which can claim to serve nothing (claim.feature,
+		// 2026-10-26). Refuse a LIVE member on any path too. Only a NON-live member that joins by CLAIM
+		// is re-admitted below, and its old certificate goes only when it claims with its node key.
 		return fmt.Errorf("%s is already a member of this Edge - forget it first to re-adopt", h.unitName(n))
 	}
 	// A candidate that advertises NO certificate (Pin empty) - a phone - cannot be dialed and
@@ -805,6 +806,9 @@ func (h *edgeHost) startAuthority() {
 		}
 		return fresh.Authority()
 	}, nil))
+	// A claim that redeems a routine re-admit revokes the old certificate; this machine's own list
+	// takes it at once, not at the next refresh.
+	local.OnRevoked = func(serials []string) { _ = edgeRecordRevoked(serials, nil) }
 	authMux.Handle("/", enrollhttp.Handler(local))
 	// Request-and-approve: POST /local/pair/start, /local/pair/reveal and /local/pair/wait on THIS
 	// listener, the wire documented at internal/localplane/pair.go (the iOS handoff cites it).
@@ -1011,8 +1015,10 @@ func (h *edgeHost) runPass(ctx context.Context) edge.Report {
 	}
 	// Anything the owner left standing and that is due now (features/edge/schedule.feature). It runs
 	// through the ordinary maintenance path, so the target's switch and the grant still decide; a
-	// machine with no schedules does nothing at all here.
-	edgeRunSchedule(cfg, time.Now(), h.recordOnNode)
+	// machine with no schedules does nothing at all here. It runs beside the pass, never inside it: a
+	// target that does not answer must not stop this roger beating its own registration. Its own lock
+	// keeps two runs from overlapping.
+	go edgeRunScheduleFn(cfg, time.Now(), h.recordOnNode)
 	if !h.syncBrowse(ctx) {
 		// Outside an Edge with nobody asking: no browse, no socket (scan_on_request.feature).
 		return edge.Report{}
