@@ -69,14 +69,15 @@ func TestWhatTheRuntimeServesIsAskedWithItsKey(t *testing.T) {
 
 func TestAFileThatCannotBeWrittenSaysSo(t *testing.T) {
 	dir := t.TempDir()
-	block := filepath.Join(dir, "afile")
-	require.NoError(t, os.WriteFile(block, []byte("x"), 0o644))
-	require.Error(t, writeFile(filepath.Join(block, "under", "f"), strings.NewReader("w"), 0o644),
+	root, err := os.OpenRoot(dir)
+	require.NoError(t, err)
+	defer root.Close()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "afile"), []byte("x"), 0o644))
+	require.Error(t, writeFile(root, filepath.Join("afile", "under", "f"), strings.NewReader("w"), 0o644),
 		"a parent that is a file cannot hold a directory")
-	require.Error(t, writeFile(dir, strings.NewReader("w"), 0o644), "a directory is not overwritten as a file")
-	p := filepath.Join(dir, "sub", "ok")
-	require.NoError(t, writeFile(p, strings.NewReader("weights"), 0o600))
-	b, _ := os.ReadFile(p)
+	require.Error(t, writeFile(root, ".", strings.NewReader("w"), 0o644), "a directory is not overwritten as a file")
+	require.NoError(t, writeFile(root, filepath.Join("sub", "ok"), strings.NewReader("weights"), 0o600))
+	b, _ := os.ReadFile(filepath.Join(dir, "sub", "ok"))
 	require.Equal(t, "weights", string(b))
 }
 
