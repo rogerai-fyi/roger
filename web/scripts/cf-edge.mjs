@@ -177,13 +177,15 @@ export function vanityImportRule(opts = {}) {
     // /roger-ios and every future page whose name begins with "roger". The bare path and
     // EVERY live major-version path are listed because Go fetches the FULL module path.
     //
+    // The NEXT major (/roger/v7) is listed before its first tag: its go-import page must answer
+    // before a v7 tag exists, or the first `go install .../v7/...` resolves nothing.
     // The superseded major stays listed on purpose. Its tags still carry a go.mod naming
     // that path, so `go install rogerai.fm/roger/v5/...` must keep resolving for everyone
     // who has not moved yet; dropping it here would break their builds at the edge while
     // the repository still serves them perfectly well.
     // The well-known exclusion is redundant against an exact-path test and carried anyway:
     // "every redirect carries this" is a guarantee only if it holds without a case-by-case argument.
-    expression: `(http.host eq "${zone}" and http.request.uri.path in {"/roger" "/roger/v5" "/roger/v6"} and ${WELL_KNOWN_EXCLUSION})`,
+    expression: `(http.host eq "${zone}" and http.request.uri.path in {"/roger" "/roger/v5" "/roger/v6" "/roger/v7"} and ${WELL_KNOWN_EXCLUSION})`,
     description: DESC_VANITY,
     enabled: true,
   };
@@ -365,7 +367,7 @@ if (check) {
   // `go install` was broken. Each path must land on ITS OWN path plus a slash; asserting a
   // substring like "/roger/" would accept /roger/v6 collapsing onto /roger/, which is
   // precisely the regression the request-derived target expression exists to prevent.
-  for (const path of ["/roger", "/roger/v5", "/roger/v6"]) {
+  for (const path of ["/roger", "/roger/v5", "/roger/v6", "/roger/v7"]) {
     const vanity = await probe(`https://${APEX}${path}?go-get=1`);
     if (vanity.err) {
       drift.push(vanity.err);
