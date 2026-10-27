@@ -16,6 +16,7 @@ import (
 	"net/http/httptest"
 	"net/http/httputil"
 	"net/url"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -786,7 +787,7 @@ func TestNodeAckBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("multinode/node_ack scenarios failed (see godog output above)")
 	}
 }

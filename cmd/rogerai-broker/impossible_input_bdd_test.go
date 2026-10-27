@@ -10,6 +10,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"strconv"
 	"testing"
 
@@ -201,7 +202,7 @@ func TestImpossibleInputBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("money/impossible_input behavior scenarios failed (see godog output above)")
 	}
 }

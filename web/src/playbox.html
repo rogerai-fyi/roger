@@ -383,6 +383,35 @@
                        declared by the station - a value the network has not measured
                        is omitted rather than shown as zero. -->
                   <dl class="dk__jcard" id="dkJCard" aria-label="Tape specification"></dl>
+
+                  <!-- The routing drawer: how a live turn on this tape is routed, sent as the
+                       same body object every RogerAI client sends (never a header). Closed by
+                       default; absent with no live tape. -->
+                  <button type="button" class="dk-route__toggle mono" id="dkRouteBtn" aria-controls="dkRoute" aria-expanded="false" hidden>routing</button>
+                  <section class="dk-route tint-panel" id="dkRoute" role="group" aria-label="routing" hidden>
+                    <p class="dk-route__note mono" id="dkRouteAnon" hidden>signed-out turns run on free stations only - price caps do nothing here</p>
+                    <label class="dk-route__row" for="dkRtModels"><span>also try</span><input id="dkRtModels" type="text" placeholder="model, model" aria-describedby="dkRtModelsHint"></label>
+                    <span class="dk-route__hint mono" id="dkRtModelsHint">up to 4 fallbacks after the tape</span>
+                    <label class="dk-route__row" for="dkRtOut"><span>max $/1M out</span><input id="dkRtOut" type="text" inputmode="decimal" data-money></label>
+                    <label class="dk-route__row" for="dkRtIn"><span>max $/1M in</span><input id="dkRtIn" type="text" inputmode="decimal" data-money></label>
+                    <label class="dk-route__row" for="dkRtTurn"><span>max $/turn</span><input id="dkRtTurn" type="text" inputmode="decimal" data-money></label>
+                    <label class="dk-route__row" for="dkRtTps"><span>min t/s</span><input id="dkRtTps" type="text" inputmode="decimal"></label>
+                    <label class="dk-route__row" for="dkRtSelf"><span>self-hosted</span><input id="dkRtSelf" type="checkbox"></label>
+                    <label class="dk-route__row" for="dkRtConf"><span>confidential</span><input id="dkRtConf" type="checkbox"></label>
+                    <label class="dk-route__row" for="dkRtTools"><span>needs tools</span><input id="dkRtTools" type="checkbox"></label>
+                    <label class="dk-route__row" for="dkRtVision"><span>needs vision</span><input id="dkRtVision" type="checkbox"></label>
+                    <label class="dk-route__row" for="dkRtQuant"><span>quant</span><select id="dkRtQuant"><option value="">any</option></select></label>
+                    <label class="dk-route__row" for="dkRtSize"><span>size (station-declared, billions)</span><input id="dkRtSize" type="text" list="dkRtSizes" placeholder="any"></label>
+                    <datalist id="dkRtSizes"><option value="1-8B"></option><option value="8-35B"></option><option value="35-100B"></option><option value="100-1000B"></option></datalist>
+                    <label class="dk-route__row" for="dkRtRegion"><span>region</span><select id="dkRtRegion"><option value="">any</option></select></label>
+                    <label class="dk-route__row" for="dkRtPref"><span>prefer</span><select id="dkRtPref"><option value="">balanced</option><option>cheap</option><option>fast</option><option>reliable</option></select></label>
+                    <label class="dk-route__row" for="dkRtSort"><span>sort by</span><select id="dkRtSort"><option value="">-</option><option value="price" data-money>price</option><option>throughput</option><option>latency</option></select></label>
+                    <label class="dk-route__row" for="dkRtTrust"><span>trust</span><select id="dkRtTrust"><option value="">any</option><option>verified</option><option>confidential</option></select></label>
+                    <label class="dk-route__row" for="dkRtCtx"><span>min ctx</span><input id="dkRtCtx" type="text" placeholder="32k"></label>
+                    <label class="dk-route__row" for="dkRtTtft"><span>max first token</span><input id="dkRtTtft" type="text" placeholder="1.5s"></label>
+                    <p class="dk-route__note mono" id="dkRouteMsg"></p>
+                    <button type="button" class="dk-route__toggle mono" id="dkRouteReset">reset</button>
+                  </section>
                 </div>
               </div>
 
@@ -704,6 +733,7 @@
   <!-- include: footer.html anchors=/ -->
 
   <!-- include: site-js.html -->
+  <script src="js/playbox-route.js" defer></script>
   <script src="js/playbox.js" defer></script>
   <script src="js/wave-patch.js" defer></script>
   <script src="js/wave-factory.js" defer></script>

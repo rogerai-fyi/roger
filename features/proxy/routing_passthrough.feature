@@ -146,8 +146,10 @@ Feature: The local proxy relays the routing body object and folds the owner's li
     When a chat request arrives with no model field and "models": ["qwen3-32b-fp8:floor"]
     Then the broker receives model "qwen3-32b-fp8" and models ["qwen3-32b-fp8:floor"]
 
+  # superseded 2026-10-07 by founder ruling: guests may name only the tuned profile, so the session is tuned under it
   Scenario: A @profile/ whose profile names no model gets the band model as the primary (no local 400)
     Given profile "quiet" sets only "roger": {"pref": "reliable"}
+    And the proxy owner tuned under profile "quiet"
     When a chat request arrives with model "@profile/quiet"
     Then the broker receives model "qwen3-32b-fp8" and roger.pref "reliable"
     And the guest's response carries no error
@@ -156,28 +158,77 @@ Feature: The local proxy relays the routing body object and folds the owner's li
     When a chat request arrives with model "" and "roger": {"pref": "fast"}
     Then the broker receives model "qwen3-32b-fp8"
 
+  # superseded 2026-10-07 by founder ruling: guests may name only the tuned profile, so the session is tuned under it
   Scenario: A body with a @profile/ model is resolved, not rewritten
     Given profile "coding" sets models = ["qwen3-32b-fp8", "llama-3.3-70b"]
+    And the proxy owner tuned under profile "coding"
     When a chat request arrives with model "@profile/coding"
     Then the broker receives model "qwen3-32b-fp8" and models ["llama-3.3-70b"]
+
+  # regression 2026-10-05: audit finding, contract §3 + §9 (a profile's first model survives the band rewrite)
+  # superseded 2026-10-07 by founder ruling: guests may name only the tuned profile, so the session is tuned under it
+  Scenario: A profile whose first model is not the band keeps it as the first fallback
+    Given profile "coding" sets models = ["llama-3.3-70b", "qwen3-32b-fp8"]
+    And the proxy owner tuned under profile "coding"
+    When a chat request arrives with model "@profile/coding"
+    Then the broker receives model "qwen3-32b-fp8" and models ["llama-3.3-70b", "qwen3-32b-fp8"]
+
+  # regression 2026-10-05: audit finding, contract §2 (a :free tune is free-only for every model it can reach)
+  Scenario: A session tuned on the band's free variant asks for free on every model it forwards
+    Given a tuned band whose model is "qwen3-32b-fp8:free"
+    And the proxy owner tuned with --models qwen3-32b-fp8,llama-3.3-70b
+    When a chat request arrives with "models": ["llama-3.3-70b"]
+    Then the broker receives model "qwen3-32b-fp8:free" and models ["llama-3.3-70b:free"]
+
+  # regression 2026-10-06: audit finding, contract §3 (variant sugar is per entry: a guest's own :free binds only its model)
+  Scenario: A guest's own :free on the band does not turn its other models free
+    When a chat request arrives with model "qwen3-32b-fp8:free" and "models": ["qwen3-32b-fp8"]
+    Then the broker receives model "qwen3-32b-fp8:free" and models ["qwen3-32b-fp8"]
+
+  # regression 2026-10-06: audit finding, contract §2 + §9 (a profile's :free binds its fallbacks too)
+  # superseded 2026-10-07 by founder ruling: guests may name only the tuned profile, so the session is tuned under it
+  Scenario: A profile naming the band's free variant asks for free on its fallbacks too
+    Given profile "freebie" sets model = "qwen3-32b-fp8:free" and models = ["llama-3.3-70b"]
+    And the proxy owner tuned under profile "freebie"
+    When a chat request arrives with model "@profile/freebie"
+    Then the broker receives model "qwen3-32b-fp8:free" and models ["llama-3.3-70b:free"]
+
+  # regression 2026-10-05: audit finding, contract §9 (a profile's :free on the band survives the rewrite)
+  # superseded 2026-10-07 by founder ruling: guests may name only the tuned profile, so the session is tuned under it
+  Scenario: A profile naming the band's free variant keeps asking for free
+    Given profile "freebie" sets model = "qwen3-32b-fp8:free"
+    And the proxy owner tuned under profile "freebie"
+    When a chat request arrives with model "@profile/freebie"
+    Then the broker receives model "qwen3-32b-fp8:free"
 
   Scenario: A body with no carrier is rewritten to the band model exactly as approved
     When a chat request arrives with model "gpt-4o" and no routing carrier
     Then the broker receives model "qwen3-32b-fp8"
 
-  Scenario: An empty carrier object still counts as explicit
+  # corrected 2026-10-04 (founder-approved): a guest may only tighten - a carrier never lets it switch model
+  Scenario: An empty carrier object still counts as explicit, so a foreign model is refused locally
     When a chat request arrives with model "gpt-4o" and "roger": {}
-    Then the broker receives model "gpt-4o"
+    Then the guest receives a local 400 with error.code "routing_outside_session"
+    And nothing reaches the broker
 
-  Scenario: A carrier of the wrong type is forwarded for the broker's 400, not rewritten around
+  # corrected 2026-10-04 (founder-approved): a guest may only tighten - the tuned model with a malformed carrier goes to the broker for its 400
+  # superseded 2026-10-07 by founder ruling: an undecodable carrier is refused locally
+  Scenario: A carrier of the wrong type is refused locally, never forwarded
+    When a chat request arrives with model "qwen3-32b-fp8" and "provider": "openai"
+    Then the guest receives an OpenAI-shaped 400 "provider: an undecodable routing object is refused locally"
+    And nothing reaches the broker
+
+  # added 2026-10-04 (founder-approved): the same malformed carrier on a foreign model is refused locally first
+  Scenario: A carrier of the wrong type on a foreign model is refused locally
     When a chat request arrives with model "gpt-4o" and "provider": "openai"
-    Then the broker receives model "gpt-4o" and provider "openai"
-    And the broker's 400 is returned to the guest
+    Then the guest receives a local 400 with error.code "routing_outside_session"
+    And nothing reaches the broker
 
+  # corrected 2026-10-04 (founder-approved): a guest may only tighten - the model the broker sees is the tuned model
   Scenario: Failover re-discovery uses the model the broker will see
-    When a chat request arrives with model "llama-3.3-70b" and "roger": {"pref": "fast"}
+    When a chat request arrives with model "roger/qwen3-32b-fp8" and "roger": {"pref": "fast"}
     And the first relay attempt fails with a transport error
-    Then the /discover re-pick matches "llama-3.3-70b", not the band model
+    Then the /discover re-pick matches "qwen3-32b-fp8"
 
   Scenario: Failover re-discovery with models[] matches the primary
     # corrected 2026-10-02 (founder ruling): guest may only tighten - the list names the band model
@@ -220,9 +271,10 @@ Feature: The local proxy relays the routing body object and folds the owner's li
     When a chat request arrives with "provider": {"max_price": {"request": 1}}
     Then the broker receives provider.max_price.request = 0.02
 
-  Scenario: The guest may loosen a non-money knob the owner set as a default
+  # corrected 2026-10-04 (founder-approved): min_tps = max(owner, guest); a guest may only tighten
+  Scenario: The guest cannot loosen the owner's min_tps floor
     When a chat request arrives with "roger": {"min_tps": 0}
-    Then the broker receives roger.min_tps = 0
+    Then the broker receives roger.min_tps = 10
 
   Scenario: The guest cannot loosen the owner's confidential requirement
     Given the proxy owner tuned with --confidential
@@ -230,10 +282,13 @@ Feature: The local proxy relays the routing body object and folds the owner's li
     Then the broker receives roger.confidential = true
     And one proxy log line says "guest confidential=false ignored: owner requires confidential"
 
-  Scenario: The guest cannot loosen the owner's self-hosted-only, trust or region
+  # corrected 2026-10-04 (founder-approved): a guest region outside the owner's is refused with the local 400 (the scenario below), never clamped; this one covers the knobs that clamp
+  Scenario: The guest cannot loosen the owner's self-hosted-only or trust, and a guest region outside the owner's is refused
     Given the proxy owner tuned with --self-hosted --trust verified --region eu
-    When a chat request arrives with "roger": {"self_hosted_only": false, "trust_min": "any", "region": ["us"]}
+    When a chat request arrives with "roger": {"self_hosted_only": false, "trust_min": "any"}
     Then the broker receives roger.self_hosted_only = true, roger.trust_min = "verified", roger.region = ["eu"]
+    When a chat request arrives with "roger": {"region": ["us"]}
+    Then the guest receives an OpenAI-shaped 400 "region us is outside this session's allowed regions"
 
   Scenario: The guest may narrow the owner's region
     Given the proxy owner tuned with --region eu,us
@@ -252,6 +307,25 @@ Feature: The local proxy relays the routing body object and folds the owner's li
     Then the broker receives provider.only = ["n2"]
     When a chat request arrives with "provider": {"order": ["n3"]}
     Then the guest receives an OpenAI-shaped 400 "order names n3, outside this session's allowed stations"
+
+  # regression 2026-10-05: audit finding, contract §9
+  Scenario: An owner's no-fallback pin is the ceiling for the guest's order and only
+    Given the proxy owner tuned with --node n1
+    When a chat request arrives with "provider": {"order": ["n9"]}
+    Then the guest receives an OpenAI-shaped 400 "order names n9, outside this session's pinned stations"
+    And nothing reaches the broker
+    When a chat request arrives with "provider": {"only": ["n1","n9"]}
+    Then the broker receives provider.only = ["n1"]
+    When a chat request arrives with "provider": {"only": ["n9"]}
+    Then the guest receives an OpenAI-shaped 400 "only names no station inside this session's pinned stations"
+
+  # regression 2026-10-05: audit finding, contract §9
+  Scenario: An owner's --order with --no-fallbacks lets the guest narrow the order, never leave it
+    Given the proxy owner tuned with --order n1,n2 --no-fallbacks
+    When a chat request arrives with "provider": {"order": ["n2"]}
+    Then the broker receives provider.order = ["n2"]
+    When a chat request arrives with "provider": {"order": ["n2","n3"]}
+    Then the guest receives an OpenAI-shaped 400 "order names n3, outside this session's pinned stations"
 
   Scenario: The owner's --exclude is unioned with the guest's ignore
     Given the proxy owner tuned with --exclude n9
@@ -280,10 +354,13 @@ Feature: The local proxy relays the routing body object and folds the owner's li
     And the proxy never sends provider.quantizations = []
 
   Scenario: The guest's models[] is bounded by the owner's models when the owner set one
+    # corrected 2026-10-05 (founder ruling): guest may only tighten - was "the broker receives
+    # models = []", which the broker reads as no list and routes the owner's whole set
     Given the proxy owner tuned with --models qwen3-32b-fp8,llama-3.3-70b
     When a chat request arrives with "models": ["mistral-large"]
-    Then the broker receives models = []
-    And the primary stays the band model
+    Then the guest receives an OpenAI-shaped 400 "models names no model inside this session's allowed models"
+    And the guest receives a local 400 with error.code "routing_outside_session"
+    And nothing reaches the broker
 
   @slice0
   Scenario: A guest models[] naming a model outside the tuned band is refused locally
@@ -314,8 +391,10 @@ Feature: The local proxy relays the routing body object and folds the owner's li
     When a chat request arrives with no routing carrier
     Then the broker receives provider.max_price.completion = 10
 
+  # superseded 2026-10-07 by founder ruling: guests may name only the tuned profile, so the session is tuned under it
   Scenario: A guest request that only names a profile still gets the owner's ceiling applied
     Given profile "loose" sets provider.max_price.completion = 50
+    And the proxy owner tuned under profile "loose"
     When a chat request arrives with model "@profile/loose"
     Then the broker receives provider.max_price.completion = 2
 
@@ -497,9 +576,11 @@ Feature: The local proxy relays the routing body object and folds the owner's li
     When opencode sends {"model": "qwen3-32b-fp8", "provider": {"sort": "throughput"}, "messages": [...]}
     Then the broker receives provider.sort = "throughput" and model "qwen3-32b-fp8"
 
+  # superseded 2026-10-07 by founder ruling: guests may name only the tuned profile, so the session is tuned under it
   Scenario: hermes - a @profile/ default model resolves through the proxy
     Given the hermes launch materialized per features/operator/config_hermes.feature with default model "@profile/coding"
     And profile "coding" sets models = ["qwen3-32b-fp8"] and roger.require = ["tools"]
+    And the proxy owner tuned under profile "coding"
     When hermes sends {"model": "@profile/coding", "messages": [...]}
     Then the broker receives model "qwen3-32b-fp8" and roger.require = ["tools"]
     And hermes's argv still pins "roger/@profile/coding" (the -m pin is the guest's, the proxy resolves it)
@@ -513,3 +594,23 @@ Feature: The local proxy relays the routing body object and folds the owner's li
   Scenario: claude (context-only guest) never relays, so no routing object is built
     Given the claude guest per features/operator (context-only, no proxy relay)
     Then no chat request is relayed and no routing object is built
+
+  # regression 2026-10-07: audit finding, contract §9 (model ids compare exactly, as on the broker)
+  Scenario: The owner's models filter compares model ids exactly, never ignoring case
+    Given the proxy owner tuned with --models qwen3-32b-fp8,llama-3.3-70b
+    When a chat request arrives with "models": ["LLAMA-3.3-70B"]
+    Then the guest receives an OpenAI-shaped 400 "models names no model inside this session's allowed models"
+    And nothing reaches the broker
+
+  # regression 2026-10-07: founder ruling - an undecodable routing object is refused locally
+  Scenario: A routing object the proxy cannot decode is refused locally and never forwarded
+    Given the proxy owner tuned with --max-cost 0.01
+    When a chat request arrives with "provider": {"max_price": {"request": 1e400, "request": 50}}
+    Then the guest receives an OpenAI-shaped 400 "provider: an undecodable routing object is refused locally"
+    And nothing reaches the broker
+
+  # founder ruling 2026-10-07: a duplicate key inside a routing object is refused, as on the broker
+  Scenario: A duplicate key inside a routing object is refused locally
+    When a chat request arrives with "provider": {"max_price": {"request": 1, "request": 50}}
+    Then the guest receives an OpenAI-shaped 400 "invalid routing value for provider.max_price.request: duplicate key"
+    And nothing reaches the broker

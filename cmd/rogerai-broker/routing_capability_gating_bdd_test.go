@@ -46,6 +46,7 @@ import (
 	"net/http/httptest"
 	"reflect"
 	"regexp"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"sort"
 	"strconv"
 	"strings"
@@ -1931,7 +1932,7 @@ func TestRoutingCapabilityGatingBDD(t *testing.T) {
 			Tags:  "~@cli && ~@tui && ~@proxy && ~@harness && ~@docs && ~@later && ~@part-b && ~@part-c && ~@slice2 && ~@slice3 && ~@slice4",
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("capability_gating.feature failed")
 	}
 }

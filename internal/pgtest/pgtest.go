@@ -20,6 +20,8 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"fmt"
+	"github.com/jackc/pgx/v5/pgconn"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -33,6 +35,42 @@ import (
 // Env names the shared test server. Unset means "no Postgres": callers skip their durable
 // half or fall back to the in-memory store, exactly as before.
 const Env = "ROGERAI_TEST_DATABASE_URL"
+
+// AllowRemoteEnv opts a run into a test server that is not on this machine. The helper creates
+// (and on failure drops) databases, so by default it refuses anything but a local server.
+const AllowRemoteEnv = "ROGERAI_TEST_DATABASE_ALLOW_REMOTE"
+
+// refuseRemote returns an error for a server that is not local (loopback, localhost or a unix
+// socket), unless AllowRemoteEnv is set. It reads the hosts pgx would dial, the URL's and any
+// ?host= or fallback ones, and never connects.
+func refuseRemote(shared string) error {
+	if os.Getenv(AllowRemoteEnv) != "" {
+		return nil
+	}
+	cfg, err := pgconn.ParseConfig(shared)
+	if err != nil {
+		return fmt.Errorf("%s is not a postgres URL: %w", Env, err)
+	}
+	hosts := []string{cfg.Host}
+	for _, f := range cfg.Fallbacks {
+		hosts = append(hosts, f.Host)
+	}
+	for _, h := range hosts {
+		if !localHost(h) {
+			return fmt.Errorf("%s names %s, not this machine: the test helper creates databases there; set %s=1 to allow it", Env, h, AllowRemoteEnv)
+		}
+	}
+	return nil
+}
+
+// localHost reports a unix socket directory, localhost, or a loopback address.
+func localHost(h string) bool {
+	if strings.HasPrefix(h, "/") || h == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(h)
+	return ip != nil && ip.IsLoopback()
+}
 
 // maxIdent is Postgres's identifier limit (NAMEDATALEN-1). A longer name is not an error to
 // Postgres - it is silently TRUNCATED, and what it would cut is the random suffix, so two
@@ -98,6 +136,9 @@ func privateFor(shared, key string) (string, error) {
 	if err != nil || (u.Scheme != "postgres" && u.Scheme != "postgresql") || strings.Trim(u.Path, "/") == "" {
 		return "", fmt.Errorf("%s must be a postgres:// URL that names a database", Env)
 	}
+	if err := refuseRemote(shared); err != nil {
+		return "", err
+	}
 	name := fmt.Sprintf("%s_%s_%s", strings.Trim(u.Path, "/"), label(filepath.Base(key)), strings.ToLower(rand.Text()[:8]))
 	if len(name) > maxIdent {
 		return "", fmt.Errorf("private database name %q exceeds %d bytes; use a shorter database name in %s", name, maxIdent, Env)
@@ -111,6 +152,10 @@ func privateFor(shared, key string) (string, error) {
 	// Production provisions the schema out of band; the test server's shared database gets
 	// it from the gate script, so the private one has to be given it here.
 	if err := run(private, `CREATE SCHEMA rogerai`); err != nil {
+		// Never leave a half-made database behind; if even the drop fails, say so.
+		if derr := run(shared, `DROP DATABASE IF EXISTS `+quoted+` WITH (FORCE)`); derr != nil {
+			return "", fmt.Errorf("provision the rogerai schema in %s: %w (and dropping it failed: %v)", name, err, derr)
+		}
 		return "", fmt.Errorf("provision the rogerai schema in %s: %w", name, err)
 	}
 	created[cacheKey] = private

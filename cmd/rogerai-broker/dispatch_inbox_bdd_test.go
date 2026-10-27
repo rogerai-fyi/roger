@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -891,7 +892,7 @@ func TestDispatchInboxBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("multinode/dispatch_inbox scenarios failed (see godog output above)")
 	}
 }

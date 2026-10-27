@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"strings"
 	"sync"
 	"testing"
@@ -327,7 +328,7 @@ func TestMonthlyBudgetFeature(t *testing.T) {
 			Paths: []string{"../../features/money/monthly_budget_tui.feature"},
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("monthly budget scenarios failed")
 	}
 }

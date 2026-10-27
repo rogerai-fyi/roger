@@ -133,3 +133,21 @@ func TestAbandonRemovesANeverTakenJobFromPending(t *testing.T) {
 	_, ok := q.poll(ctx, "st", []string{"m"})
 	require.False(t, ok, "an abandoned job is never handed to a station")
 }
+
+// TestAGoneStationNeverClaimsAJob: a poll whose station already went away (its request context
+// is done) must not take a job. Otherwise the job sits in flight with a station that will
+// never complete it, and the consumer waits out the whole timeout instead of being served by
+// a station that is still polling.
+func TestAGoneStationNeverClaimsAJob(t *testing.T) {
+	q := newQueue()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	q.submit("req-1", "llama-8b", []byte(`{}`))
+
+	_, ok := q.poll(ctx, "st-gone", []string{"llama-8b"})
+	require.False(t, ok, "a cancelled poll took a job")
+
+	got, ok := q.poll(context.Background(), "st-live", []string{"llama-8b"})
+	require.True(t, ok, "the job was lost to the gone station")
+	require.Equal(t, "req-1", got.id)
+}

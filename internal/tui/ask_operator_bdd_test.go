@@ -5,6 +5,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"strings"
 	"testing"
 	"time"
@@ -615,7 +616,7 @@ func TestAskOperatorFeature(t *testing.T) {
 			Paths: []string{"../../features/agent/ask_operator.feature"},
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("ask_operator scenarios failed")
 	}
 }

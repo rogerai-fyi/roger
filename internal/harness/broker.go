@@ -94,6 +94,9 @@ type BrokerRoute struct {
 	Routing         client.Routing
 	OnCost          CostFunc
 	FallbackTimeout time.Duration
+	// OnServed receives the final usage chunk's account of a streamed turn: the model and
+	// station that served it and the receipt's price lock (nil = not reported).
+	OnServed func(Served)
 }
 
 func BrokerCompleterWithTimeout(broker, user, model string, confidential bool, maxOut float64, onCost CostFunc, fallbackTimeout time.Duration) Completer {
@@ -127,6 +130,10 @@ func BrokerCompleterRoute(rt BrokerRoute) Completer {
 			// model just ignores this field.
 			"tool_choice": "auto",
 			"max_tokens":  agentMaxTokens,
+			// Streamed with the final usage chunk: the chunk is the turn's meter and names
+			// the station and model that served it. A JSON reply is still read as before.
+			"stream":         true,
+			"stream_options": map[string]any{"include_usage": true},
 		})
 		routing := rt.Routing
 		routing.Confidential = routing.Confidential || confidential
@@ -173,6 +180,25 @@ func BrokerCompleterRoute(rt BrokerRoute) Completer {
 			return Message{}, fmt.Errorf("could not reach the broker: %v", err)
 		}
 		defer resp.Body.Close()
+		if resp.StatusCode == http.StatusOK && strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream") {
+			st := readStream(io.LimitReader(resp.Body, 4<<20))
+			if err := st.streamError(); err != nil {
+				return Message{}, err
+			}
+			if onCost != nil {
+				tps := st.tps
+				if tps == 0 { // an older broker set the header on a stream
+					tps, _ = strconv.ParseFloat(resp.Header.Get("X-RogerAI-TPS"), 64)
+				}
+				if st.cost > 0 || st.in > 0 || st.out > 0 || tps > 0 {
+					onCost(st.cost, st.in, st.out, tps)
+				}
+			}
+			if rt.OnServed != nil && (st.served.Model != "" || st.served.Node != "" || st.served.LockedUntil != "") {
+				rt.OnServed(st.served)
+			}
+			return st.msg, nil
+		}
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 
 		if onCost != nil {

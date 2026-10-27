@@ -7,6 +7,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"strings"
 	"testing"
 
@@ -303,7 +304,7 @@ func TestShareReentryFeature(t *testing.T) {
 			Paths: []string{"../../features/sharing/share_reentry.feature"},
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("share re-entry scenarios failed")
 	}
 }

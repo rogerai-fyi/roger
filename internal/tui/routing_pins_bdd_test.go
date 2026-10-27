@@ -29,6 +29,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"strings"
 	"sync"
 	"testing"
@@ -842,7 +843,7 @@ func TestRoutingPinsTUI(t *testing.T) {
 			Paths: []string{"../../features/routing/regression_pins.feature"},
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("routing regression pin (TUI) scenarios failed")
 	}
 }

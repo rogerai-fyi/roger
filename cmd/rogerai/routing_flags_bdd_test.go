@@ -46,6 +46,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"strconv"
 	"strings"
 	"sync"
@@ -188,13 +189,19 @@ type rfState struct {
 	t *testing.T
 
 	// broker subprocess
-	brokerCmd  *exec.Cmd
-	brokerURL  string
-	adminKey   string
-	feeRate    string
-	defaultCap string
-	ceiling    string
-	brokerLog  bytes.Buffer
+	brokerCmd *exec.Cmd
+	// brokerEnv are extra env entries for the broker subprocess (e.g. a fast probe interval
+	// for a scenario that needs the broker to verify a station's tool calling).
+	brokerEnv []string
+	// toolStations makes every station's upstream answer the broker's liveness and
+	// tool-call canaries the way a tool-capable model would.
+	toolStations bool
+	brokerURL    string
+	adminKey     string
+	feeRate      string
+	defaultCap   string
+	ceiling      string
+	brokerLog    bytes.Buffer
 
 	rec      *rfRecorder
 	stations []*rfStation
@@ -291,22 +298,9 @@ func (s *rfState) ensureBroker() error {
 	s.adminKey = hex.EncodeToString(seed)
 	port := rfFreePort(s.t)
 	s.brokerURL = fmt.Sprintf("http://127.0.0.1:%d", port)
-	cmd := exec.Command(rfBrokerBin, "-addr", fmt.Sprintf("127.0.0.1:%d", port), "-fee", s.feeRate)
-	cmd.Env = append(rfCleanEnv(),
-		"BROKER_PRIVATE_KEY="+s.adminKey,
-		"ROGERAI_CONSUMER_DEFAULT_MAX_PRICE_OUT="+s.defaultCap,
-		"ROGERAI_MAX_PRICE_OUT="+s.ceiling,
-		"ROGERAI_MODERATION_MODE=off",
-		// A denied station's 429 cools it for 1 s (the stub's Retry-After), so one candidate
-		// observation does not bleed into the next step.
-		"ROGERAI_STATION_COOLDOWN_DEFAULT=1s",
-	)
-	cmd.Stdout = &s.brokerLog
-	cmd.Stderr = &s.brokerLog
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("start broker: %w", err)
+	if err := s.startBrokerProc(port); err != nil {
+		return err
 	}
-	s.brokerCmd = cmd
 	deadline := time.Now().Add(15 * time.Second)
 	for time.Now().Before(deadline) {
 		if resp, err := http.Get(s.brokerURL + "/health"); err == nil {
@@ -320,6 +314,61 @@ func (s *rfState) ensureBroker() error {
 		time.Sleep(50 * time.Millisecond)
 	}
 	return fmt.Errorf("broker did not come up: %s", s.brokerLog.String())
+}
+
+// startBrokerProc starts the real broker binary on port with the harness env plus brokerEnv.
+func (s *rfState) startBrokerProc(port int) error {
+	cmd := exec.Command(rfBrokerBin, "-addr", fmt.Sprintf("127.0.0.1:%d", port), "-fee", s.feeRate)
+	cmd.Env = append(rfCleanEnv(),
+		"BROKER_PRIVATE_KEY="+s.adminKey,
+		"ROGERAI_CONSUMER_DEFAULT_MAX_PRICE_OUT="+s.defaultCap,
+		"ROGERAI_MAX_PRICE_OUT="+s.ceiling,
+		"ROGERAI_MODERATION_MODE=off",
+		// A denied station's 429 cools it for 1 s (the stub's Retry-After), so one candidate
+		// observation does not bleed into the next step.
+		"ROGERAI_STATION_COOLDOWN_DEFAULT=1s",
+	)
+	cmd.Env = append(cmd.Env, s.brokerEnv...)
+	cmd.Stdout = &s.brokerLog
+	cmd.Stderr = &s.brokerLog
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("start broker: %w", err)
+	}
+	s.brokerCmd = cmd
+	return nil
+}
+
+// restartBroker restarts the broker process on the SAME port with brokerEnv, so the recorder
+// and every proxy already pointed at it keep working. Only valid before any station registers
+// (the in-memory registry starts empty again).
+func (s *rfState) restartBroker() error {
+	if s.brokerCmd == nil {
+		return s.ensureBroker()
+	}
+	if len(s.stations) > 0 {
+		return fmt.Errorf("restartBroker: %d station(s) already registered", len(s.stations))
+	}
+	_ = s.brokerCmd.Process.Kill()
+	_ = s.brokerCmd.Wait()
+	u, err := url.Parse(s.brokerURL)
+	if err != nil {
+		return err
+	}
+	port, _ := strconv.Atoi(u.Port())
+	if err := s.startBrokerProc(port); err != nil {
+		return err
+	}
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		if resp, err := http.Get(s.brokerURL + "/health"); err == nil {
+			resp.Body.Close()
+			if resp.StatusCode == 200 {
+				return nil
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	return fmt.Errorf("broker did not come back: %s", s.brokerLog.String())
 }
 
 func rfCleanEnv() []string {
@@ -430,8 +479,20 @@ func (s *rfState) startStation(id, model, quant string, priceOut float64) (*rfSt
 			Messages []struct {
 				Content any `json:"content"`
 			} `json:"messages"`
+			Tools []struct {
+				Function struct {
+					Name string `json:"name"`
+				} `json:"function"`
+			} `json:"tools"`
 		}
 		_ = json.Unmarshal(b, &req)
+		if s.toolStations && !req.Stream {
+			if reply, ok := rfModelAnswer(req.Tools, req.Messages); ok {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write(reply(model))
+				return
+			}
+		}
 		if st.deny.Load() {
 			w.Header().Set("Retry-After", "1")
 			w.WriteHeader(http.StatusTooManyRequests)
@@ -602,12 +663,13 @@ func (s *rfState) startUse(args []string) error {
 		return err
 	}
 	s.stopUse()
-	s.proxyPort = rfFreePort(s.t)
+	s.proxyPort = 0
 	full := append([]string{}, args...)
 	if !rfHasFlag(args, "-yes") && !rfHasFlag(args, "--yes") {
 		full = append(full, "--yes")
 	}
-	full = append(full, "--port", strconv.Itoa(s.proxyPort))
+	// No --port: `roger use` binds a free port itself and names it on the plate, so there is
+	// no window between picking a port here and the child binding it.
 	cmd := exec.Command(rfRogerBin, full...)
 	cmd.Env = s.rogerEnv()
 	s.useOut, s.useErr = &rfBuf{}, &rfBuf{}
@@ -630,6 +692,13 @@ func (s *rfState) startUse(args []string) error {
 			s.snapshotUse()
 			return nil
 		default:
+		}
+		if pm := regexp.MustCompile(`BASE URL\s+http://127\.0\.0\.1:(\d+)/v1`).FindStringSubmatch(s.useOut.String()); pm != nil {
+			s.proxyPort, _ = strconv.Atoi(pm[1])
+		}
+		if s.proxyPort == 0 {
+			time.Sleep(50 * time.Millisecond)
+			continue
 		}
 		if c, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", s.proxyPort), 100*time.Millisecond); err == nil {
 			c.Close()
@@ -1231,7 +1300,66 @@ func TestRoutingFlagsPins(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("features/routing/regression_pins.feature (@cli): failing scenarios")
 	}
+}
+
+// rfModelAnswer answers the broker's canaries the way a capable model would: a tool-call
+// request is answered with a call to the offered function carrying the token the prompt names
+// (the nonce is the function name's suffix), and a liveness prompt ("Reply with only the single
+// word: X", a small sum) with its answer. Anything else is not handled (ok=false).
+func rfModelAnswer(tools []struct {
+	Function struct {
+		Name string `json:"name"`
+	} `json:"function"`
+}, msgs []struct {
+	Content any `json:"content"`
+}) (func(model string) []byte, bool) {
+	last := ""
+	if n := len(msgs); n > 0 {
+		last, _ = msgs[n-1].Content.(string)
+	}
+	if len(tools) > 0 && tools[0].Function.Name != "" {
+		name := tools[0].Function.Name
+		token := name
+		if i := strings.LastIndex(name, "_"); i >= 0 {
+			token = name[i+1:]
+		}
+		args, _ := json.Marshal(map[string]string{"token": token})
+		return func(model string) []byte {
+			b, _ := json.Marshal(map[string]any{
+				"id": "c1", "object": "chat.completion", "model": model,
+				"choices": []map[string]any{{"index": 0, "finish_reason": "tool_calls",
+					"message": map[string]any{"role": "assistant", "content": nil,
+						"tool_calls": []map[string]any{{"id": "call_1", "type": "function",
+							"function": map[string]string{"name": name, "arguments": string(args)}}}}}},
+				"usage": map[string]int{"prompt_tokens": 20, "completion_tokens": 5, "total_tokens": 25},
+			})
+			return b
+		}, true
+	}
+	answer := ""
+	switch {
+	case strings.Contains(last, "two plus three"):
+		answer = "5"
+	case strings.Contains(last, "seven minus four"):
+		answer = "3"
+	default:
+		if m := regexp.MustCompile(`:\s*([A-Z]+)\s*$`).FindStringSubmatch(last); m != nil {
+			answer = strings.ToLower(m[1])
+		}
+	}
+	if answer == "" {
+		return nil, false
+	}
+	return func(model string) []byte {
+		b, _ := json.Marshal(map[string]any{
+			"id": "c1", "object": "chat.completion", "model": model,
+			"choices": []map[string]any{{"index": 0, "finish_reason": "stop",
+				"message": map[string]any{"role": "assistant", "content": answer}}},
+			"usage": map[string]int{"prompt_tokens": 12, "completion_tokens": 1, "total_tokens": 13},
+		})
+		return b
+	}, true
 }

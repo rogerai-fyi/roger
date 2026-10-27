@@ -33,6 +33,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	"rogerai.fm/roger/v6/internal/client"
 	"rogerai.fm/roger/v6/internal/glyphs"
 	"rogerai.fm/roger/v6/internal/harness"
 )
@@ -45,6 +46,14 @@ import (
 // agentRuntime owns the live harness loop + the channels that bridge the blocking
 // loop goroutine to the Bubble Tea event loop. It is stored by pointer on the model
 // so it survives Bubble Tea's by-value model copies.
+// agentTurnRoute is one turn's routing: what the live booth asks for the runtime's model.
+type agentTurnRoute struct {
+	model        string
+	route        client.Routing
+	freq         string
+	confidential bool
+}
+
 type agentRuntime struct {
 	loop  *harness.Loop
 	model string // the TUNED-IN channel model the agent runs on ("" = nothing tuned in)
@@ -56,6 +65,11 @@ type agentRuntime struct {
 	// to a local server under a broker model's name.
 	localChat string
 	localKey  string
+	// turnRoute is the routing a turn runs on, taken from the LIVE booth state on the UI
+	// goroutine when the turn starts (startAgentTurn). The completer is built once per
+	// runtime, so reading the model value it closed over would freeze the F/C/U toggles and
+	// the tuned profile at the moment the runtime was created.
+	turnRoute atomic.Pointer[agentTurnRoute]
 	// events carries streamed steps of the in-flight turn (assistant text, tool calls,
 	// results, the final answer, errors). Buffered so the loop goroutine never blocks
 	// on a slow UI frame.
@@ -697,7 +711,11 @@ func (m model) newAgentRuntime() *agentRuntime {
 		}
 		// Carry the user's explicit out-price cap for the live model (0 -> the default
 		// consumer cap applies broker-side); the agent relay is bounded like `use`/chat.
-		maxOut := m.limits.resolve(rt.model).MaxOut
+		// The band's cap composed with the tuned profile's, the stricter way (routing).
+		route, freq, conf := m.routing(rt.model, m.tunedQuant(rt.model)), m.agentFreqFor(rt.model), m.confidentialOnly
+		if tr := rt.turnRoute.Load(); tr != nil && tr.model == rt.model {
+			route, freq, conf = tr.route, tr.freq, tr.confidential
+		}
 		// Calls are unlimited by default. A configured duration restores the soft-cap
 		// choice: tab extends it, esc stops it, and the grace window bounds unattended
 		// calls. Either way the parent context keeps esc cancellation immediate.
@@ -729,17 +747,29 @@ func (m model) newAgentRuntime() *agentRuntime {
 		}
 		return harness.BrokerCompleterRoute(harness.BrokerRoute{
 			Broker: m.broker, User: m.user, Model: rt.model,
-			Confidential: m.confidentialOnly, MaxOut: maxOut, OnCost: costFn,
+			Confidential: conf, MaxOut: route.MaxOut, OnCost: costFn,
 			// The tuned PRIVATE band's code, when this turn's model is the one that band
 			// serves. Without it the broker refuses to route to a hidden node and the turn
 			// dies with "no station is serving <model>" on a band the operator is
 			// demonstrably tuned to.
-			Freq: m.agentFreqFor(rt.model),
+			Freq: freq,
 			// The operator's STANDING rules (pref, quant set, hidden curated supply) ride
 			// the request body. An agent turn is exactly the case the [3] CONFIG rules
 			// exist for - nobody is watching a dial, so the filter cannot help and only a
 			// rule can.
-			Routing: m.routing(rt.model, m.tunedQuant(rt.model)),
+			Routing: route,
+			OnServed: func(sv harness.Served) {
+				b, _ := json.Marshal(sv)
+				select {
+				case <-turnAbort():
+					return
+				default:
+				}
+				select {
+				case rt.events <- harness.Event{Kind: eventServed, Text: string(b)}:
+				case <-turnAbort():
+				}
+			},
 		})(cctx, messages, tools)
 	}
 	confirmer := func(tool string, args map[string]any) bool {
@@ -838,6 +868,33 @@ func (m model) newAgentRuntime() *agentRuntime {
 // distinct from the harness.EventKind values (which start at 0) by being far out of
 // their range, so a real harness event is never mistaken for a cost tick.
 const eventCost = harness.EventKind(1000)
+
+// eventServed carries a streamed turn's usage-chunk account (agentServedMsg).
+const eventServed = harness.EventKind(1001)
+
+// agentServedMsg is what the final usage chunk said about a turn: the model and station that
+// served it (shown when a fallback model served) and the receipt's price lock.
+type agentServedMsg harness.Served
+
+// servedLine is the dim turn footer for a served account ("" = nothing to say): the served
+// model and node when they differ from the model asked for, and the price lock.
+func servedLine(s harness.Served, asked string) string {
+	var parts []string
+	if s.Model != "" && s.Model != asked {
+		parts = append(parts, s.Model+" · "+s.Node)
+	}
+	if s.LockedUntil != "" {
+		lock := s.LockedUntil
+		if t, err := time.Parse(time.RFC3339, s.LockedUntil); err == nil {
+			lock = t.Local().Format("Jan 2 15:04")
+		}
+		parts = append(parts, "locked until "+lock)
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return stDim.Render("  " + strings.Join(parts, " · "))
+}
 
 // bandForModel finds the discover band for a model id (false when it is not on the
 // current dial - e.g. a session-recent model whose station has aged out).
@@ -1542,13 +1599,13 @@ func (m model) submitAgentPrompt(q queuedPrompt) (model, tea.Cmd) {
 	// here rather than silently route to what they hid - and the refusal names the choice
 	// so it is theirs to reverse, not a mystery outage.
 	if m.fNoCurated && m.agent != nil && m.agent.model != "" {
-		if bd, ok := m.bandForModel(m.agent.model); ok && bd.curated > 0 && bd.stations-bd.curated == 0 {
+		if provider, only := m.curatedOnly(m.agent.model); only {
 			// NOT failureHint: its canonical copy is "no station is serving X", which is
 			// the wrong sentence here - stations ARE serving, the operator hid them, and
 			// telling them there is an outage sends them to the wrong fix.
 			m.agentLines = append(m.agentLines,
 				stRed.Render("✕ ")+stEmber.Render("no station on air for "+m.agent.model),
-				stDim.Render("  the only stations serving it are curated ")+stDim.Render(glyphCurated+bd.curatedProvider)+
+				stDim.Render("  the only stations serving it are curated ")+stDim.Render(glyphCurated+provider)+
 					stDim.Render(", and curated supply is hidden - press U to show it, or tune another band"))
 			m.status = stEmber.Render("curated hidden - U shows it, or tune another band")
 			return m, nil
@@ -2023,6 +2080,8 @@ func (m model) startAgentTurn(prompt string) tea.Cmd {
 	rt.turnDone = done
 	rt.turnCtx.Store(ctx)
 	rt.turnGen.Add(1)
+	rt.turnRoute.Store(&agentTurnRoute{model: rt.model, route: m.routing(rt.model, m.tunedQuant(rt.model)),
+		freq: m.agentFreqFor(rt.model), confidential: m.confidentialOnly})
 	return func() tea.Msg {
 		go func() {
 			_, _ = rt.loop.Send(ctx, prompt, func(e harness.Event) {
@@ -2119,6 +2178,11 @@ func agentEventFor(e harness.Event) tea.Msg {
 		var in, out int
 		fmt.Sscanf(e.Text, "%g %d %d %g", &c, &in, &out, &tps)
 		return agentCostMsg{cost: c, tokensIn: in, tokensOut: out, tps: tps}
+	}
+	if e.Kind == eventServed {
+		var s harness.Served
+		_ = json.Unmarshal([]byte(e.Text), &s)
+		return agentServedMsg(s)
 	}
 	return agentEventMsg(e)
 }
@@ -3673,4 +3737,22 @@ func argStr(v any) string {
 	default:
 		return fmt.Sprintf("%v", t)
 	}
+}
+
+// curatedOnly reports whether every station serving mdl is curated, and names the provider.
+// It reads EVERY row of the model: bands are grouped by (model, quant), and one row being
+// all-curated says nothing about the self-hosted rows beside it.
+func (m model) curatedOnly(mdl string) (provider string, only bool) {
+	curated, human := 0, 0
+	for _, b := range m.bands {
+		if b.model != mdl {
+			continue
+		}
+		curated += b.curated
+		human += b.stations - b.curated
+		if b.curatedProvider != "" && provider == "" {
+			provider = b.curatedProvider
+		}
+	}
+	return provider, curated > 0 && human == 0
 }

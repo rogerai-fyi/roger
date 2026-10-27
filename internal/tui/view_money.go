@@ -13,6 +13,7 @@ import (
 	"sync"
 
 	"github.com/charmbracelet/lipgloss"
+	"rogerai.fm/roger/v6/internal/client"
 )
 
 // GrantRow is a compact grant summary for the in-TUI /grant list.
@@ -38,6 +39,16 @@ type Limit struct {
 	// Pref is the routing preference knob (roger.pref): cheap, balanced, fast or reliable.
 	// Empty = balanced. A scoring knob, never a filter.
 	Pref string
+	// The rest of the routing body object a band's rule may hold ([3] CONFIG's plate,
+	// `roger config set-limit`; contract §10). Zero = unset.
+	MaxCost    float64   // provider.max_price.request, USD per request
+	Require    []string  // roger.require: tools / vision
+	ParamsB    []float64 // roger.params_b [min, max] billions
+	MinCtx     int       // roger.min_ctx tokens
+	MaxTTFTMs  int       // roger.max_ttft_ms
+	TrustMin   string    // roger.trust_min: verified / confidential
+	SelfHosted bool      // roger.self_hosted_only
+	Region     []string  // roger.region
 }
 
 // LimitStore is the TUI's view of the persisted spend limits: a per-model map, a
@@ -58,6 +69,39 @@ type LimitStore struct {
 	Default    Limit
 	TypicalOut int
 	Save       func(models map[string]Limit, def Limit) // persist (nil = no-op)
+	// Profiles are the named routing profiles of config.json (`roger profile`), re-read on
+	// change; nil = none. The booth lists them in [3] CONFIG and tunes under one.
+	Profiles *client.ProfileStore
+	// gen counts writes, so a booth sharing the store with the browser console can tell an
+	// edit it did not make has landed (and re-point its live proxy).
+	gen uint64
+	// saveErr is the last failed Save the host reported (ReportSaveErr), until the booth
+	// shows it. Its own lock: Save runs while mu is held.
+	saveMu  sync.Mutex
+	saveErr error
+}
+
+// ReportSaveErr records that persisting the limits failed (the host's Save calls it), so the
+// booth can say the edit was not saved instead of dropping the error.
+func (s *LimitStore) ReportSaveErr(err error) {
+	if s == nil || err == nil {
+		return
+	}
+	s.saveMu.Lock()
+	s.saveErr = err
+	s.saveMu.Unlock()
+}
+
+// TakeSaveErr returns and clears the last reported save failure.
+func (s *LimitStore) TakeSaveErr() error {
+	if s == nil {
+		return nil
+	}
+	s.saveMu.Lock()
+	defer s.saveMu.Unlock()
+	err := s.saveErr
+	s.saveErr = nil
+	return err
 }
 
 // payoutSnapshot is the TUI's compact view of `roger payout status` (enough for the
@@ -205,7 +249,7 @@ func (m model) limitsBody(w int) string {
 			limRows = 3
 		}
 	}
-	limTop, limEnd := windowFor(0, m.limCursor, limRows, len(m.limModels))
+	limTop, limEnd := windowFor(0, min(m.limCursor, max(0, len(m.limModels)-1)), limRows, len(m.limModels))
 	if limTop > 0 {
 		b.WriteString("    " + stDim.Render(fmt.Sprintf("↑ %d more above", limTop)) + "\n")
 	}
@@ -255,11 +299,22 @@ func (m model) limitsBody(w int) string {
 	if n := len(m.limModels) - limEnd; n > 0 {
 		b.WriteString("    " + stDim.Render(fmt.Sprintf("↓ %d more below", n)) + "\n")
 	}
-	if m.editField >= 0 && m.limCursor < len(m.limModels) {
-		field := "max $/1M out"
-		if m.editField == 1 {
-			field = "min t/s"
+	// THE DETAIL PLATE: the selected row's remaining routing fields. It is the first thing to
+	// go when height is short - never a table row - so it is drawn only when no row is clipped.
+	if !m.limOnBudget && m.limCursor < len(m.limModels) && limTop == 0 && limEnd == len(m.limModels) {
+		b.WriteString("\n")
+		for _, ln := range m.limPlate(m.limModels[m.limCursor], w) {
+			b.WriteString(ln + "\n")
 		}
+	}
+	for _, ln := range m.profilesSection(w) {
+		b.WriteString(ln + "\n")
+	}
+	if m.limAdding {
+		b.WriteString("\n    " + stDim.Render("add row  ") + stSelText.Render("["+m.editBuf+"]") + stDim.Render("   ⏎ add   esc cancel") + "\n")
+	}
+	if m.editField >= 0 && m.limCursor < len(m.limModels) {
+		field := limFieldDefs[m.editField].label
 		// THE EDIT PLATE. Bounded to the terminal: lipgloss draws a border at the
 		// content's natural width, so a plate wider than the screen had its right edge
 		// pushed off and the box read as broken open on one side (founder screenshot).
@@ -314,9 +369,9 @@ func (m model) limitsBody(w int) string {
 		box := stPanel.Width(inner).Render(plate)
 		b.WriteString("\n  " + strings.ReplaceAll(box, "\n", "\n  ") + "\n")
 	}
-	keys := "↑↓ move   ⏎ edit   tab next field   p pref   d clear   esc done"
-	if w < 60 {
-		keys = "↑↓ · ⏎ edit · d clear · esc"
+	keys := "tab field · enter edit · space cycle · p pref · a add · esc back"
+	if w < 66 {
+		keys = "tab · ⏎ edit · space · p · a · esc"
 	}
 	b.WriteString("\n    " + stDim.Render(keys) + "\n")
 	// Cross-link the two split "config" surfaces: this screen is what you PAY as a

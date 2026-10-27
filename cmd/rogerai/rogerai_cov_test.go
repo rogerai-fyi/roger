@@ -89,8 +89,8 @@ func TestPureHelpers(t *testing.T) {
 	if minOr25(client.PayoutStatus{}) != 25 || minOr25(client.PayoutStatus{MinPayout: 50}) != 50 {
 		t.Error("minOr25 wrong")
 	}
-	if limitStr(Limit{}) != "no caps" || limitStr(Limit{MaxOut: 2, MinTPS: 5}) == "no caps" {
-		t.Error("limitStr wrong")
+	if limitSummary(Limit{}) != "no caps" || limitSummary(Limit{MaxOut: 2, MinTPS: 5}) == "no caps" {
+		t.Error("limitSummary wrong")
 	}
 	if trimAmt(25) != "25" || trimAmt(25.5) != "25.50" {
 		t.Errorf("trimAmt wrong: %q %q", trimAmt(25), trimAmt(25.5))

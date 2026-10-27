@@ -153,10 +153,11 @@ Feature: The booth exposes routing knobs, and every filter that hides supply als
     Then the "more above / more below" hints appear and nothing scrolls the alt buffer
     And the detail plate is dropped before any table row when height is short
 
+  # corrected 2026-10-04 (founder-approved): the value being typed is never clipped (TestEditBoxKeepsTheValueAtEveryWidth); the key hints drop first
   Scenario: The plate fits a 60-column terminal without breaking its border
     Given a 60-column terminal
     When the operator focuses "region" with value "eu,us,apac,latam"
-    Then the plate's right border is on screen and the value is truncated with "…" before the keys are dropped
+    Then the plate's right border is on screen, the value is shown whole, and the key hints are dropped before the value is clipped
 
   Scenario: The editor stays mono + red: no new colors, no grids, no glows
     When the operator opens [3] CONFIG with every field set
@@ -266,9 +267,11 @@ Feature: The booth exposes routing knobs, and every filter that hides supply als
     Given the operator toggled O on and tuned "qwen3-32b"
     Then the tune-time body carries no key derived from O
 
-  Scenario: ~ private freq tunes with roger.freq and the code is never on screen after entry
+  # corrected 2026-10-04 (founder-approved): the band code travels only as the X-Roger-Freq header, never in the body
+  Scenario: ~ private freq tunes with the X-Roger-Freq header and the code is never on screen after entry
     When the operator enters a valid code at ~ and tunes
-    Then the tune-time body carries roger.freq = the code
+    Then the tune-time request carries the X-Roger-Freq header = the code
+    And the tune-time body carries no roger.freq
     And the header reads PRIVATE FREQ without the code
 
   Scenario: Filters bound pickAutoBand exactly as approved (auto_tune.feature), unchanged

@@ -59,6 +59,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"regexp"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"strconv"
 	"strings"
 	"sync"
@@ -3506,7 +3507,7 @@ func TestRoutingModelFallbackBDD(t *testing.T) {
 			Tags: "~@cli && ~@tui && ~@proxy && ~@harness && ~@docs && ~@later && ~@unit && ~@part-c && ~@slice3", TestingT: t, Strict: true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("model_fallback_list.feature has failing scenarios")
 	}
 }

@@ -12,6 +12,7 @@ package tui
 
 import (
 	"path/filepath"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"testing"
 	"time"
 
@@ -53,7 +54,7 @@ func TestGuestOperatorBDD(t *testing.T) {
 		},
 		Options: &godog.Options{Format: "pretty", Paths: operatorFeaturePaths(t), TestingT: t, Strict: true},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("guest-operator scenarios failed (see godog output above)")
 	}
 }

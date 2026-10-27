@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"testing"
 	"time"
 
@@ -188,7 +189,7 @@ func TestCuratedTowerFailoverFeature(t *testing.T) {
 			Paths: []string{"../../features/curated/curated_tower.feature"},
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("the @failover curated tower scenarios failed")
 	}
 }
