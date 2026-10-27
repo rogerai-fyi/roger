@@ -23,7 +23,7 @@
   font-weight: var(--weight-bold); line-height: var(--lh-snug); }
 .section__head p { margin-top: var(--s-4); color: var(--ink-500); font-size: var(--t-lead); text-wrap: pretty; }
 
-/* a heading's spaced dash never starts a line: build.mjs (glueDashes) wraps the word
+/* a heading's spaced dash never starts a line: scripts/glue-dashes.mjs (run by build.mjs) wraps the word
    before " - " in this span, so the line breaks after the dash. Markup only, no words. */
 .nobr { white-space: nowrap; }
 
@@ -86,7 +86,7 @@
   max-width: 100%;
 }
 .install__box:hover { border-color: var(--live); }
-.install__box:focus-visible { outline: none; border-color: var(--live); box-shadow: 0 0 0 3px var(--live-glow); }
+.install__box:focus-visible { border-color: var(--live); outline: var(--focus-ring); outline-offset: var(--focus-offset); }
 .install__prompt { color: var(--live-text); font-family: var(--font-mono); font-weight: var(--weight-semi); user-select: none; }
 .install__code {
   flex: 1 1 auto;
@@ -109,9 +109,13 @@
 /* the PowerShell one-liner moves to its own line whole, never split mid-URL */
 [data-alt-note] .inline { display: inline-block; white-space: nowrap; }
 @media (max-width: 560px) {
-  /* .75rem: the unbreakable URL and " | sh" share one line under "curl -fsSL" */
+  /* .75rem, wrapping at its spaces; the pipe segment is one token (<span class="tok">| sh</span>
+     in the markup), so a line that runs out breaks BEFORE the pipe, never after it */
   .install__code { font-size: .75rem; white-space: normal; }
-  .install__box { gap: 8px; padding: 12px 12px 12px 14px; }
+  /* the $ sits on the command's first line, not beside the middle of a wrapped one; the copy
+     icon stays centred, and its negative margin keeps a one-line pill as tall as its text */
+  .install__box { gap: 8px; padding: 12px 12px 12px 14px; align-items: baseline; }
+  .install__copy { align-self: center; margin-block: -6px; }
 }
 
 /* size step for a closing call to action (homepage §9, the Tower page) */
@@ -702,7 +706,7 @@ li:nth-child(7) > .wave-bar { --gap: 2.4px; }
 
 
 /* ---- component: figure (added by research rollout) --------------------------------
-   <figure class="figure [figure--plate|figure--phone|figure--chart]">
+   <figure class="figure [figure--plate|figure--phone|figure--chart] [figure--mono]">
      <img|video|svg ...> <figcaption class="fig">FIG. n - ...</figcaption></figure>
    Promoted from the articles (broadcasts.css). The figure and its media never outgrow
    the column, whatever the asset's natural size. --plate sets it on a calm tinted
@@ -717,6 +721,8 @@ li:nth-child(7) > .wave-bar { --gap: 2.4px; }
 .figure > figcaption { margin: var(--s-3) 2px 0; }
 .figure--plate { padding: var(--s-4); }   /* on the tinted ground (the .tint-panel rule) */
 .figure--phone > img { max-width: 440px; margin-inline: auto; }
+/* a still drawn in colour, shown in the article heroes' greys (the master stays as drawn) */
+.figure--mono > :is(img, video) { filter: grayscale(1); }
 /* a chart's drawing sits in .scroll-box--diagram (the caption outside it): on a phone it
    keeps 820px, where every article chart's smallest label reads at 11px or more (11 x 820 /
    11), and scrolls; a desktop article column (640px) holds it whole, its labels at

@@ -111,6 +111,9 @@ type Hooks struct {
 	// EXPLICITLY decided about appear: an absent model is undecided, not disarmed, and
 	// the two lead to opposite behaviour the first time it is shared.
 	SavedAutoStart map[string]bool
+	// SavedProbeMin seeds each model's declared minimum probe interval (config.json
+	// share_prices probe_min), so TUI and auto-started shares register it (nil = none).
+	SavedProbeMin map[string]time.Duration
 	// SavedVoices seeds each model's on-air voice identity (dj name / default voice /
 	// speed / language / sample clip URL) from the host's config.json share_voices block,
 	// so a saved identity - including the BOOTH-less sample_url - arms the offer without
@@ -1300,6 +1303,7 @@ func NewController(broker string, hooks Hooks) *node.Controller {
 		Voices:      hooks.SavedVoices,
 		AutoStart:   hooks.SavedAutoStart,
 		Meta:        hooks.SavedMeta,
+		ProbeMin:    hooks.SavedProbeMin,
 		Hooks: node.Hooks{
 			SaveMeta:      hooks.SaveMeta,
 			SaveUpstream:  hooks.SaveUpstream,
