@@ -8,10 +8,14 @@
 (function () {
   var BROKER = "https://broker.rogerai.fm";
 
+  // Resolves { status, data }: the page must tell a 403 ("no operator account", the normal
+  // state for a consumer) from a real fault, so it needs the status, not just null.
   function get(path) {
     return fetch(BROKER + path, { credentials: "include" }).then(function (r) {
-      return r.ok ? r.json() : null;
-    }).catch(function () { return null; });
+      return (r.ok ? r.json() : Promise.resolve(null)).then(function (data) {
+        return { status: r.status, data: data };
+      });
+    }).catch(function () { return { status: 0, data: null }; });
   }
   function el(id) { return document.getElementById(id); }
   function text(id, v) { var e = el(id); if (e) e.textContent = v; }
@@ -107,11 +111,12 @@
   function render(data) {
     hide("stLoading");
     show("card");
-    text("who", data.github_login || "your account");
+    text("who", data.github_login ? RogerFmt.handle(data.github_login) : "your account");
 
     var list = data.stations || [];
     if (!list.length) {
       show("stEmpty");
+      renderStrikes(data); // an account with marks and no live station is who most needs the appeal
       return;
     }
 
@@ -131,20 +136,86 @@
     show("stList");
     show("stChainHelp");
 
-    var strikes = data.strikes || [];
-    if (strikes.length) {
-      el("stStrikes").innerHTML = strikes.map(renderStrike).join("");
-      show("stEvidence");
-    }
+    renderStrikes(data);
   }
 
-  get("/stations").then(function (data) {
-    if (!data) {
+  function renderStrikes(data) {
+    var strikes = data.strikes || [];
+    if (!strikes.length) return;
+    el("stStrikes").innerHTML = strikes.map(renderStrike).join("");
+    show("stEvidence");
+    show("stAppeal");
+    wireAppeal();
+    loadAppeals();
+  }
+
+  // Appeals already filed, so a reload does not look like nothing was sent. One read, only
+  // when the account has marks (the only time this section shows).
+  function loadAppeals() {
+    get("/owner/appeal").then(function (res) {
+      var list = (res.data && res.data.appeals) || [];
+      if (!list.length) return;
+      el("appealHistory").innerHTML =
+        "<h3>Your appeals</h3>" + list.map(function (a) {
+          return '<p class="fine">#' + esc(a.id) + " &middot; " + esc(a.state) + (a.reason ? " &middot; " + esc(String(a.reason).slice(0, 120)) : "") + "</p>";
+        }).join("");
+      show("appealHistory");
+    });
+  }
+
+  // Appeal: posts the reason to the existing owner-scoped route. The account is never sent -
+  // the broker takes it from the session, so an appeal can only be filed for the caller.
+  function wireAppeal() {
+    var btn = el("appealSend");
+    if (!btn || btn.__wired) return; // wired once, however often the evidence re-renders
+    btn.__wired = true;
+    btn.addEventListener("click", function () {
+      if (btn.disabled) return; // one appeal per click, not one per double-click
+      var reason = ((el("appealReason") || {}).value || "").trim();
+      if (!reason) { text("appealMsg", "Write a short reason first."); return; }
+      btn.disabled = true;
+      text("appealMsg", "Sending...");
+      fetch(BROKER + "/owner/appeal", {
+        method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: reason }),
+      }).then(function (r) {
+        return r.json().catch(function () { return {}; }).then(function (j) {
+          if (r.ok) {
+            // stays disabled: the appeal is filed, and a repeat would file another
+            text("appealMsg", "Appeal " + (j.appeal_id ? "#" + j.appeal_id + " " : "") + "sent. A person will review it with the evidence above.");
+            loadAppeals(); // show it in the list now, not after a reload
+          } else {
+            btn.disabled = false; // a refusal can be retried
+            text("appealMsg", r.status === 401
+              ? "Your session expired - sign in again, then send the appeal."
+              : (j && j.error && j.error.message) || "That did not go through - try again.");
+          }
+        });
+      }).catch(function () { btn.disabled = false; text("appealMsg", "Could not reach RogerAI. Check your connection and try again."); });
+    });
+  }
+
+  get("/stations").then(function (res) {
+    if (res.status === 401) { // not signed in: sign in, then come straight back
+      location.replace("/login.html?next=" + encodeURIComponent("/stations.html"));
+      return;
+    }
+    if (res.status === 403) { // signed in, but no operator account behind this sign-in
+      hide("stLoading");
+      show("card");
+      show("stNoOperator");
+      get("/account").then(function (a) {
+        text("who", a.data && a.data.github_login ? RogerFmt.handle(a.data.github_login) : "your account");
+      });
+      return;
+    }
+    if (!res.data) { // a real fault (5xx / network)
       hide("stLoading");
       show("card");
       show("stError");
       return;
     }
-    render(data);
+    render(res.data);
   });
 })();

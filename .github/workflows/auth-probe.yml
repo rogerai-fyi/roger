@@ -1,0 +1,18 @@
+name: auth-probe
+# Outside-in check of the sign-in plumbing every 20 minutes. (GitHub pauses scheduled workflows
+# after 60 days without repository activity - re-enable from the Actions tab if that happens.) A failed run emails the
+# person who last edited this workflow (GitHub's default for scheduled runs), so a broken
+# login is noticed without anyone having to try it. Read-only; see scripts/auth-probe.sh.
+on:
+  schedule:
+    - cron: "*/20 * * * *"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - run: scripts/auth-probe.sh

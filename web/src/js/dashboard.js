@@ -279,6 +279,8 @@
     });
   }
 
+  var account = null; // the /account body, kept for the balance / payable tiles
+
   function render(d) {
     var daily = (d && d.daily) || [];
     var sv = (d && d.savings) || {};
@@ -296,7 +298,11 @@
     var totalTokens = tot.tokens_in + tot.tokens_out;
     var hasData = daily.length > 0 && (totalTokens > 0 || tot.requests > 0);
 
-    if (!hasData) { show("dashEmpty"); return; }
+    if (!hasData) {
+      show("dashEmpty");
+      if (!isProvider) show("earnCta"); // a new person is told how to earn too
+      return;
+    }
 
     // ---- HEADLINE: savings vs frontier (consumer); else earned banner. ----
     if (isConsumer && n0(sv.savings_est) > 0) {
@@ -320,6 +326,12 @@
     bindNum("statTok", totalTokens);
     if (isConsumer) { bindNum("statSpend", tot.spend, { usd: true }); show("tileSpend"); }
     if (isProvider) { bindNum("statEarn", tot.earned, { usd: true }); show("tileEarn"); }
+    // Already in the /account response this page fetched: no extra request.
+    if (account && typeof account.balance === "number") { bindNum("statBalance", account.balance, { usd: true }); show("tileBalance"); }
+    if (account && account.operator && account.earnings && typeof account.earnings.payable === "number") {
+      bindNum("statPayable", account.earnings.payable, { usd: true });
+      show("tilePayable");
+    }
     show("stats");
 
     // ---- TIME-SERIES CHARTS ----
@@ -376,19 +388,25 @@
   }
 
   // ---- boot: confirm session via /account, then load the series feed. ----
+  var signedIn = false;
   fetch(BROKER + "/account", { credentials: "include" })
     .then(function (r) { return r.ok ? r.json() : null; })
     .then(function (acct) {
-      if (!acct || !(acct.github_login || acct.github_id)) {
+      if (!acct) {
         location.replace("/login.html");
         return;
       }
-      text("who", "@" + (acct.github_login || "you"));
+      signedIn = true;
+      account = acct;
       show("card");
-      wireLogout();
+      wireLogout(); // before anything that can throw: a visible card always has a working logout
+      text("who", RogerFmt.who(acct));
+      text("emptyBalance", cr(acct.balance)); // already in hand; shown only on the empty state
       return fetch(BROKER + "/metrics/series?days=" + DAYS, { credentials: "include" })
         .then(function (r) {
-          if (r.status === 401 || r.status === 403) { location.replace("/login.html"); return null; }
+          // NEVER bounce to /login.html from here: /account just said we are signed in, and
+          // login.html sends a signed-in person straight back - an endless refresh loop. A
+          // feed that refuses a valid session is an error to show, not a reason to sign out.
           if (!r.ok) { hide("dashLoading"); show("dashError"); return null; }
           return r.json();
         })
@@ -399,5 +417,10 @@
         })
         .catch(function () { hide("dashLoading"); show("dashError"); });
     })
-    .catch(function () { location.replace("/login.html"); });
+    .catch(function () {
+      // Only a failed /account says "logged out". Any later script error with a confirmed
+      // session is an error to show - redirecting here is the login <-> dashboard loop again.
+      if (signedIn) { show("card"); hide("dashLoading"); show("dashError"); return; }
+      location.replace("/login.html");
+    });
 })();
