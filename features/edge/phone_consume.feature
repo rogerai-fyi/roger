@@ -133,6 +133,14 @@ Feature: a phone uses the Edge's models through its authority
     Then it is told to try again shortly, and every other member is still served
 
   @ios @security
+  Scenario: a turn refused for being busy can be sent again as it was
+    Given "pocket" has two turns streaming
+    And it asks for a third and is told to try again shortly
+    When both turns finish and it sends that third request again, byte for byte
+    Then it is served, because a busy refusal does not spend the request's nonce
+    And sending it once more is refused as already seen
+
+  @ios @security
   Scenario: a request without its body hash, or with a body that does not match it, is refused
     When the phone leaves Roger-Body-SHA256 off, or sends a body other than the one it declared
     Then it is refused as any request that cannot be verified is

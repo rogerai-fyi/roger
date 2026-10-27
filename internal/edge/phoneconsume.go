@@ -278,16 +278,19 @@ func PhoneConsumeHandler(pc PhoneConsume) http.Handler {
 	if pc.Now == nil {
 		pc.Now = time.Now
 	}
-	h := &phoneConsume{PhoneConsume: pc, seen: newNonceCache(), perNode: map[string]int{}}
-	mux := http.NewServeMux()
-	mux.HandleFunc(PhoneBandsPath, h.bands)
-	mux.HandleFunc(PhoneInferPath, func(w http.ResponseWriter, r *http.Request) { h.relay(w, r, ActionInfer) })
-	mux.HandleFunc(PhoneSpeechPath, func(w http.ResponseWriter, r *http.Request) { h.relay(w, r, ActionSpeech) })
-	return mux
+	h := &phoneConsume{PhoneConsume: pc, seen: newNonceCache(), perNode: map[string]int{}, mux: http.NewServeMux()}
+	h.mux.HandleFunc(PhoneBandsPath, h.bands)
+	h.mux.HandleFunc(PhoneInferPath, func(w http.ResponseWriter, r *http.Request) { h.relay(w, r, ActionInfer) })
+	h.mux.HandleFunc(PhoneSpeechPath, func(w http.ResponseWriter, r *http.Request) { h.relay(w, r, ActionSpeech) })
+	return h
 }
+
+// ServeHTTP routes to the three phone paths.
+func (h *phoneConsume) ServeHTTP(w http.ResponseWriter, r *http.Request) { h.mux.ServeHTTP(w, r) }
 
 type phoneConsume struct {
 	PhoneConsume
+	mux      *http.ServeMux
 	seen     *nonceCache
 	mu       sync.Mutex
 	inFlight int
@@ -333,12 +336,9 @@ func (h *phoneConsume) admit(w http.ResponseWriter, r *http.Request, action stri
 	if id, err := trust.Authenticate(leaf); err != nil || id != p.NodeID || h.Member == nil || !h.Member(id) {
 		return refuse(http.StatusForbidden, errNotVerified)
 	}
-	// 4. Not a replay. Only the holder of the key gets this far.
-	if !h.seen.admit(p.NodeID, p.Nonce, time.Unix(p.TS, 0).Add(presenceFreshness).Unix(), now.Unix()) {
-		return refuse(http.StatusForbidden, "that request was already seen")
-	}
-	// 5. A slot: two per member, eight in all. Released on every path out, a panic included, unless
-	//    it is handed to the caller.
+	// 4. A slot: two per member, eight in all. Released on every path out, a panic included, unless
+	//    it is handed to the caller. Taken BEFORE the nonce is spent, so the busy answer's "try again
+	//    shortly" is true for the very same signed request.
 	if !h.take(p.NodeID) {
 		w.Header().Set("Retry-After", "2")
 		return refuse(http.StatusServiceUnavailable, "this Edge is answering as many phone requests as it can; try again shortly")
@@ -350,6 +350,11 @@ func (h *phoneConsume) admit(w http.ResponseWriter, r *http.Request, action stri
 			release()
 		}
 	}()
+	// 5. Not a replay. Only the holder of the key gets this far, and a replay only ever holds one of
+	//    its own member's slots for this check.
+	if !h.seen.admit(p.NodeID, p.Nonce, time.Unix(p.TS, 0).Add(presenceFreshness).Unix(), now.Unix()) {
+		return refuse(http.StatusForbidden, "that request was already seen")
+	}
 	// 6. The body, bounded in size and in time, and held to the hash that was signed.
 	rc := http.NewResponseController(w)
 	_ = rc.SetReadDeadline(now.Add(phoneBodyDeadline))
