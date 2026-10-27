@@ -158,10 +158,11 @@ test("how-llms: every Wave claim says what wave-status.json says, and no more", 
   const html = read(PAGE);
   const body = text(mainOf(html));
   const pico = tier("pico"), nano = tier("nano");
-  assert.equal(pico.stage, "on-air"); assert.equal(nano.stage, "training");
+  assert.equal(pico.stage, "on-air"); assert.equal(nano.stage, "gated");   // founder ruling 2026-10-21
   assert.match(body, /Wave Pico is on air, which means/, "the page states Pico's stage");
   assert.ok(body.includes(ledger.stages["on-air"]), "and quotes the ledger's definition of that stage, verbatim");
-  assert.match(body, /Wave Nano is in training/);
+  assert.match(body, /Wave Nano is gated, which means/, "the page states Nano's stage");
+  assert.ok(body.includes(ledger.stages.gated), "and quotes the ledger's definition of that stage, verbatim");
   assert.ok(html.includes(`<span>${pico.onAirBand}</span>`), "the sign-off names the ledger's band");
   assert.ok(ledger.tiers.every((t) => !t.publicCheckpoint), "nothing is released, so the page claims no download");
   assert.doesNotMatch(body, /open weights|download (the )?weights|weights are (out|available|published)/i);
