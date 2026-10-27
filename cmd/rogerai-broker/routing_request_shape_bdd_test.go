@@ -123,6 +123,10 @@ type rs1State struct {
 	grantSecret string
 	grantPayer  string // the wallet a priced grant bills ("" = free grant / none)
 
+	// consumerSession, when set, is the caller's web-session cookie: the scenario's caller is a
+	// browser account that relays and reads /console with its session (rs1ConsumerView).
+	consumerSession *http.Cookie
+
 	last     rs1Req
 	tpsAt    map[string]float64 // station measurements as the last scenario relay saw them
 	ttftAt   map[string]float64
@@ -158,6 +162,7 @@ func (s *rs1State) resetRS1() error {
 	s.codes, s.idAlias, s.offAir = map[string]string{}, map[string]string{}, map[string]bool{}
 	s.tou, s.rsTowers = map[string][2]int{}, map[string]*rs1Tower{}
 	s.grantSecret, s.grantPayer = "", ""
+	s.consumerSession = nil
 	s.last, s.shot, s.shots = rs1Req{}, rs1Shot{}, nil
 	s.holdBase, s.admin0 = nil, nil
 	s.scrSeenBeforeRouting = nil
@@ -348,6 +353,12 @@ func (s *rs1State) httpRequest(q rs1Req, body []byte) *http.Request {
 		s.b.seedFunds = 0.5
 		signReq(r, s.anonPriv, body)
 	default:
+		if s.consumerSession != nil {
+			// A browser session relays from the site's origin with its cookie (no device key).
+			r.AddCookie(s.consumerSession)
+			r.Header.Set("Origin", "https://rogerai.fm")
+			break
+		}
 		signReq(r, s.consumerPriv, body)
 	}
 	if q.caller == "origin" {
@@ -809,17 +820,15 @@ func (s *rs1State) loggedIn(name, bal string) error {
 }
 
 // rs1ConsumerView makes the scenario's caller an account that gets the CONSUMER view of
-// /console: a Sign-in-with-Apple account. /console gives the OWNER view to any GitHub-linked
-// account (its stations' traffic), so the harness's default GitHub-bound buyer never sees its
-// own requests there. An Apple-linked wallet is a logged-in account wallet that can spend.
+// /console: a signed-in web session whose account has no bound owner row (no stations). Any
+// account whose signing key is bound to a verified owner (GitHub, Apple or email) gets the
+// OWNER view (its stations' traffic), so a CLI buyer never sees its own requests there; the
+// browser session spends from its account wallet and reads its own consumer feed.
 func (s *rs1State) rs1ConsumerView(string) error {
-	_, priv, _ := ed25519.GenerateKey(nil)
-	pub := hex.EncodeToString(priv.Public().(ed25519.PublicKey))
-	sub := "apple-sub-" + s.nonce
-	if err := s.db.BindOwner(store.Owner{AppleSub: sub, Pubkey: pub}); err != nil {
-		return err
-	}
-	s.consumerPriv, s.wallet = priv, walletForAppleSub(sub)
+	gid, _ := rand.Int(rand.Reader, big.NewInt(1<<31))
+	id := gid.Int64() + 10
+	s.consumerSession = &http.Cookie{Name: sessionCookie, Value: s.b.signSession("u-1-"+s.nonce, id, time.Now().Add(time.Hour).Unix())}
+	s.wallet = "u_gh_" + strconv.FormatInt(id, 10)
 	s.funded = false
 	return s.fund(10)
 }
@@ -2363,7 +2372,11 @@ func (s *rs1State) consoleListsModel(_, model string) error {
 		rid = rec.RequestID
 	}
 	r := httptest.NewRequest(http.MethodGet, "/console", nil)
-	signReq(r, s.consumerPriv, nil)
+	if s.consumerSession != nil {
+		r.AddCookie(s.consumerSession)
+	} else {
+		signReq(r, s.consumerPriv, nil)
+	}
 	w := httptest.NewRecorder()
 	s.b.console(w, r)
 	if w.Code != 200 {
