@@ -193,6 +193,19 @@ func (l *Local) Issue(r Request) (Response, error) {
 		// revocation oracle for a stranger and every refusal below is the SAME ErrUnknownMachine. Log
 		// each REFUSED attempt so the owner's request log answers "did that machine even ask" (a
 		// successful enrol is logged by iss.Issue itself) (audit 2026-09-24).
+		// Bind the node id to the key it presents FIRST: before any invite is consulted, so a bound
+		// invite is only ever compared with a node id the request has proved, and before the
+		// revocation list, so an allowed-key holder cannot probe an arbitrary node id's revocation
+		// status (a mismatch is refused here, the same as iss.Issue would) (audit 2026-09-24).
+		pub, err := r.NodePublicKey()
+		if err != nil {
+			l.iss.record(r)
+			return err
+		}
+		if NodeID(pub) != r.NodeID {
+			l.iss.record(r)
+			return ErrKeyMismatch
+		}
 		bearerJoin := ""
 		if _, ok := l.registry()(r.UserKey); !ok {
 			// A key the owner never allowed may still hold a key-less invite's code (bearer.go).
@@ -219,18 +232,6 @@ func (l *Local) Issue(r Request) (Response, error) {
 					_ = l.disallow(r.UserKey)
 				}
 			}()
-		}
-		// Bind the node id to the key it presents BEFORE reading the revocation list, so an
-		// allowed-key holder cannot probe an arbitrary node id's revocation status (a mismatch is
-		// refused here, the same as iss.Issue would, before the tombstone is consulted) (audit 2026-09-24).
-		pub, err := r.NodePublicKey()
-		if err != nil {
-			l.iss.record(r)
-			return err
-		}
-		if NodeID(pub) != r.NodeID {
-			l.iss.record(r)
-			return ErrKeyMismatch
 		}
 		// A node whose earlier certificate stands REVOKED must not enroll a fresh one - the enrol
 		// path is the account-key-authorised sibling of Claim and needs the same tombstone, or a
