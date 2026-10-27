@@ -324,3 +324,50 @@ func TestConcurrentSubmissionsSpendACodeOnce(t *testing.T) {
 	wg.Wait()
 	require.Equal(t, 1, accepted, "exactly one submission may spend the code")
 }
+
+// A flow built with a Namespace shares nothing with one built without it: a code mailed for
+// one purpose (signing in) can never satisfy the other (adding an address to an account),
+// even over the SAME store, because their records live under different keys.
+func TestNamespacedFlowsOverOneStoreNeverSatisfyEachOther(t *testing.T) {
+	st := NewMemStore()
+	login := NewWithStore(Config{}, st)
+	link := NewWithStore(Config{Namespace: "link"}, st)
+
+	loginCode, err := login.Request("me@rogerai.fm", "1.2.3.4")
+	require.NoError(t, err)
+	linkCode, err := link.Request("me@rogerai.fm", "1.2.3.4")
+	require.NoError(t, err)
+
+	// the sign-in code does not work for linking, and the link code does not sign in
+	_, err = link.Submit("me@rogerai.fm", loginCode, "1.2.3.4")
+	require.ErrorIs(t, err, ErrRejected)
+	_, err = login.Submit("me@rogerai.fm", linkCode, "1.2.3.4")
+	require.ErrorIs(t, err, ErrRejected)
+
+	// ...and neither wrong attempt spent the other's real code
+	_, err = login.Submit("me@rogerai.fm", loginCode, "1.2.3.4")
+	require.NoError(t, err)
+	_, err = link.Submit("me@rogerai.fm", linkCode, "1.2.3.4")
+	require.NoError(t, err)
+}
+
+// '|' is legal in an address, so a namespace joined with it can collide: the default flow's
+// record for "link|me@rogerai.fm" must NOT be the link flow's record for "me@rogerai.fm".
+func TestANamespaceCannotCollideWithAnAddressContainingThePipe(t *testing.T) {
+	st := NewMemStore()
+	login := NewWithStore(Config{}, st)
+	link := NewWithStore(Config{Namespace: "link"}, st)
+
+	// a sign-in code for the pipe-address...
+	code, err := login.Request("link|me@rogerai.fm", "1.2.3.4")
+	require.NoError(t, err)
+	// ...must not redeem as a link code for the plain address
+	_, err = link.Submit("me@rogerai.fm", code, "5.6.7.8")
+	require.ErrorIs(t, err, ErrRejected)
+
+	// and the reverse
+	lcode, err := link.Request("me@rogerai.fm", "1.2.3.4")
+	require.NoError(t, err)
+	_, err = login.Submit("link|me@rogerai.fm", lcode, "5.6.7.8")
+	require.ErrorIs(t, err, ErrRejected)
+}

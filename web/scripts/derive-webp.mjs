@@ -21,7 +21,8 @@
 // screenshot, 640w for a desktop one), for its srcset (test/qa-polish3.test.mjs).
 
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { stripFiles, walkPngs } from "./strip-png-text.mjs";
+import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -35,7 +36,7 @@ const QUALITY = "82";
 // every PNG master a page shows in an <img> (the social cards, *-og.png, stay PNG only)
 export const MASTERS = [
   "agent-governance-hero", "alt-hero", "alt-tunein", "connect-hero", "gpu-wall-hero",
-  "jev-wave-hero", "mtp-hero", "mtp-knowledge-vs-tools", "mtp-nextn-layer", "mtp-nmax-sweep",
+  "jev-wave-hero", "llm-works-advisory", "llm-works-dials", "llm-works-hero", "llm-works-ladder", "llm-works-library", "llm-works-plant", "llm-works-stack", "mtp-hero", "mtp-knowledge-vs-tools", "mtp-nextn-layer", "mtp-nmax-sweep",
   "mtp-quality-vs-speed", "mtp-spill-vs-speedup", "quantization", "router-airwaves-hero",
   "router-exact-failover", "router-three-stage", "share-hero", "share-reach", "tower-hero",
   "vram-hero",
@@ -69,6 +70,10 @@ export function pngSize(file) {
 
 function main() {
   const only = process.argv[2];
+  // a master must never ship its recipe: drop the text chunks (the ComfyUI "prompt" and
+  // "workflow", a tool's "parameters", timestamps) from every PNG under src/assets first
+  const stripped = stripFiles([...walkPngs(path.join(WEB, "src", "assets")), ...readdirSync(path.join(WEB, "src")).filter((n) => /\.png$/i.test(n)).map((n) => path.join(WEB, "src", n))], (m) => console.log(m));
+  if (stripped) console.log(`${stripped} png(s) stripped of text chunks`);
   for (const name of MASTERS.filter((n) => !only || n.includes(only))) {
     const src = path.join(WEBP_DIR, `${name}.png`);
     const { w } = pngSize(src);
