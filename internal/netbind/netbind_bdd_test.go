@@ -12,16 +12,16 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"rogerai.fm/roger/v6/internal/bddrun"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strings"
 	"testing"
 
 	"github.com/cucumber/godog"
 
-	"rogerai.fm/roger/v6/internal/netbind"
+	"rogerai.fm/roger/v7/internal/netbind"
 )
 
-const netbindImport = `"rogerai.fm/roger/v6/internal/netbind"`
+const netbindImport = `"rogerai.fm/roger/v7/internal/netbind"`
 
 // listenerFiles is where each listener binds.
 var listenerFiles = map[string]string{

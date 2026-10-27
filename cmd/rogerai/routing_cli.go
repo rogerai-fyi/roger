@@ -20,7 +20,7 @@ import (
 	"strconv"
 	"strings"
 
-	"rogerai.fm/roger/v6/internal/client"
+	"rogerai.fm/roger/v7/internal/client"
 )
 
 // maxListIDs is the contract's cap on a station-id list (provider.only / order / ignore).

@@ -16,9 +16,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"rogerai.fm/roger/v6/internal/localmodel"
-	"rogerai.fm/roger/v6/internal/provision"
-	"rogerai.fm/roger/v6/internal/runtime"
+	"rogerai.fm/roger/v7/internal/localmodel"
+	"rogerai.fm/roger/v7/internal/provision"
+	"rogerai.fm/roger/v7/internal/runtime"
 )
 
 // quietDo is nearbyRig.do with the default output, not the full account.

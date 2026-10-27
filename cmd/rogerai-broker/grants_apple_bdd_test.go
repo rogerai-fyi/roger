@@ -16,12 +16,12 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"rogerai.fm/roger/v6/internal/bddrun"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strings"
 	"testing"
 
 	"github.com/cucumber/godog"
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 // gaOwner is one test identity: its signing key + how it is bound.

@@ -18,13 +18,13 @@ import (
 	"testing"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/edge"
-	"rogerai.fm/roger/v6/internal/edgeauth"
-	"rogerai.fm/roger/v6/internal/joininvite"
-	"rogerai.fm/roger/v6/internal/look"
-	"rogerai.fm/roger/v6/internal/ownerjoin"
-	"rogerai.fm/roger/v6/internal/store"
-	"rogerai.fm/roger/v6/internal/tower"
+	"rogerai.fm/roger/v7/internal/edge"
+	"rogerai.fm/roger/v7/internal/edgeauth"
+	"rogerai.fm/roger/v7/internal/joininvite"
+	"rogerai.fm/roger/v7/internal/look"
+	"rogerai.fm/roger/v7/internal/ownerjoin"
+	"rogerai.fm/roger/v7/internal/store"
+	"rogerai.fm/roger/v7/internal/tower"
 )
 
 type nearbyConsoleBDD struct {

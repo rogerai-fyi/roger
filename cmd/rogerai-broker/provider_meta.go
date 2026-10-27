@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/protocol"
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 // providerMeta handles POST /provider/meta: the owner declares (or clears) what one of their

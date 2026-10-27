@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"rogerai.fm/roger/v6/internal/client"
+	"rogerai.fm/roger/v7/internal/client"
 )
 
 // The account + browse surfaces reuse internal/client (the same broker calls the CLI/TUI

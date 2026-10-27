@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 // Addressed-inference refusals (features/edge/addressed_inference.feature). Each names exactly why a

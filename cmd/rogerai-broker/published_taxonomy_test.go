@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // An offer can reach the node map without passing registration (shared-registry mirror,

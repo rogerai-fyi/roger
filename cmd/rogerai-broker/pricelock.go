@@ -18,7 +18,7 @@ import (
 	"sync"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 func lockMinPosted() time.Duration { return envDuration("ROGERAI_LOCK_MIN_POSTED", time.Hour) }

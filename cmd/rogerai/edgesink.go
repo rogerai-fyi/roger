@@ -21,7 +21,7 @@ import (
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/edge"
+	"rogerai.fm/roger/v7/internal/edge"
 )
 
 func cmdEdgeSink(cfg config, args []string) error {

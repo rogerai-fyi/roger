@@ -13,7 +13,7 @@ import (
 	"sync"
 
 	"github.com/charmbracelet/lipgloss"
-	"rogerai.fm/roger/v6/internal/client"
+	"rogerai.fm/roger/v7/internal/client"
 )
 
 // GrantRow is a compact grant summary for the in-TUI /grant list.

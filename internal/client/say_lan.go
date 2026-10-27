@@ -16,7 +16,7 @@ import (
 	"net/http"
 	"strings"
 
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // LANVoice is one local source of a voice: this machine's own voice server (URL, Key), or an Edge

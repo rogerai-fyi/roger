@@ -9,7 +9,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"rogerai.fm/roger/v6/internal/fleetview"
+	"rogerai.fm/roger/v7/internal/fleetview"
 )
 
 func TestEdgeHealthLiveOpensTheScreenOverTheRealFleetRead(t *testing.T) {

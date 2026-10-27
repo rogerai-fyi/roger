@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 // Software is the store record, named here for the surfaces.

@@ -36,7 +36,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
-	"rogerai.fm/roger/v6/internal/bddrun"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strconv"
 	"strings"
 	"testing"
@@ -46,7 +46,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/cucumber/godog"
 	"github.com/muesli/termenv"
-	"rogerai.fm/roger/v6/internal/client"
+	"rogerai.fm/roger/v7/internal/client"
 )
 
 type tp4TUI struct {

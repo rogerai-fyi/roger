@@ -13,8 +13,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"rogerai.fm/roger/v6/internal/protocol"
-	"rogerai.fm/roger/v6/internal/tower"
+	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/tower"
 )
 
 // features/join/tower_identity.feature: a Tower serving TLS and plain http logs, once per client,

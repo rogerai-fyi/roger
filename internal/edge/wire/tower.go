@@ -3,7 +3,7 @@ package wire
 import (
 	"net"
 
-	"rogerai.fm/roger/v6/internal/netpriv"
+	"rogerai.fm/roger/v7/internal/netpriv"
 )
 
 // TowerService is the mDNS service a standalone Tower advertises on when started with

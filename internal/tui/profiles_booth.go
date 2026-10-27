@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"strings"
 
-	"rogerai.fm/roger/v6/internal/client"
+	"rogerai.fm/roger/v7/internal/client"
 )
 
 // profiles is the current named-profile set (never nil).

@@ -12,7 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"regexp"
-	"rogerai.fm/roger/v6/internal/bddrun"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -21,8 +21,8 @@ import (
 
 	"github.com/cucumber/godog"
 
-	"rogerai.fm/roger/v6/internal/agent"
-	"rogerai.fm/roger/v6/internal/lanmode"
+	"rogerai.fm/roger/v7/internal/agent"
+	"rogerai.fm/roger/v7/internal/lanmode"
 )
 
 type oneBinaryBDD struct {

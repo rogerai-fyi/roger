@@ -17,8 +17,8 @@ import (
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/client"
-	"rogerai.fm/roger/v6/internal/edge"
+	"rogerai.fm/roger/v7/internal/client"
+	"rogerai.fm/roger/v7/internal/edge"
 )
 
 // edgeCallerCertFn is this machine's certificate (a seam for the test).

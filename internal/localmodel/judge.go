@@ -7,11 +7,11 @@ import (
 	"path"
 	"strings"
 
-	"rogerai.fm/roger/v6/internal/catalog"
-	"rogerai.fm/roger/v6/internal/detect"
-	"rogerai.fm/roger/v6/internal/hfhub"
-	"rogerai.fm/roger/v6/internal/provision"
-	"rogerai.fm/roger/v6/internal/runtime"
+	"rogerai.fm/roger/v7/internal/catalog"
+	"rogerai.fm/roger/v7/internal/detect"
+	"rogerai.fm/roger/v7/internal/hfhub"
+	"rogerai.fm/roger/v7/internal/provision"
+	"rogerai.fm/roger/v7/internal/runtime"
 )
 
 // DefaultCtx is the context proposed when the owner names none: long enough for a real

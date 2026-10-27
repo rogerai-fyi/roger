@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 // Fleet is one account's Edge: the set of machines that owner owns.

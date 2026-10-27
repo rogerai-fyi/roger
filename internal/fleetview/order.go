@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/edge"
+	"rogerai.fm/roger/v7/internal/edge"
 )
 
 type rackOrder int

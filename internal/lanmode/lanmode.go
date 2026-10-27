@@ -17,7 +17,7 @@ import (
 	"sync"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/netpriv"
+	"rogerai.fm/roger/v7/internal/netpriv"
 )
 
 // DefaultTowerPort is the standalone Tower's default consumer port (cmd/roger-tower-local).

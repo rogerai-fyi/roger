@@ -24,8 +24,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"rogerai.fm/roger/v6/internal/edgeauth"
-	"rogerai.fm/roger/v6/internal/edgeauth/enrollhttp"
+	"rogerai.fm/roger/v7/internal/edgeauth"
+	"rogerai.fm/roger/v7/internal/edgeauth/enrollhttp"
 )
 
 // status sends one raw request and returns the status code and the body text.

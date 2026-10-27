@@ -14,8 +14,8 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
-	"rogerai.fm/roger/v6/internal/edge"
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/edge"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 // edgeNetItem is one selectable node on the map: the machine, or a roger/agent running on it.

@@ -14,7 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"rogerai.fm/roger/v6/internal/bddrun"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strings"
 	"sync"
 	"testing"
@@ -22,14 +22,14 @@ import (
 
 	"github.com/cucumber/godog"
 
-	"rogerai.fm/roger/v6/internal/agent"
-	"rogerai.fm/roger/v6/internal/detect"
-	"rogerai.fm/roger/v6/internal/lanmode"
-	"rogerai.fm/roger/v6/internal/localplane"
-	"rogerai.fm/roger/v6/internal/node"
-	"rogerai.fm/roger/v6/internal/onair"
-	"rogerai.fm/roger/v6/internal/tui"
-	"rogerai.fm/roger/v6/internal/webui"
+	"rogerai.fm/roger/v7/internal/agent"
+	"rogerai.fm/roger/v7/internal/detect"
+	"rogerai.fm/roger/v7/internal/lanmode"
+	"rogerai.fm/roger/v7/internal/localplane"
+	"rogerai.fm/roger/v7/internal/node"
+	"rogerai.fm/roger/v7/internal/onair"
+	"rogerai.fm/roger/v7/internal/tui"
+	"rogerai.fm/roger/v7/internal/webui"
 )
 
 // pollTower is a real standalone Tower that records when it was polled.

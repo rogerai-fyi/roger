@@ -11,7 +11,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"rogerai.fm/roger/v6/internal/edge/wire"
+	"rogerai.fm/roger/v7/internal/edge/wire"
 )
 
 // TestAdvertiserRefusesBindsALANCannotUse: a loopback, public, link-local or non-address bind

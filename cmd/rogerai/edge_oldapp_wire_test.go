@@ -28,7 +28,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"rogerai.fm/roger/v6/internal/edgeauth"
+	"rogerai.fm/roger/v7/internal/edgeauth"
 )
 
 // oldAppKey is the app's fixed golden seed (RogerAITests/EdgeTests.swift), so a run here and the

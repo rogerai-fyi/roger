@@ -15,7 +15,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"rogerai.fm/roger/v6/internal/provision"
+	"rogerai.fm/roger/v7/internal/provision"
 )
 
 // A source that closes cleanly after the WRONG number of bytes is a corrupt file, and the words say

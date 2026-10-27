@@ -15,7 +15,7 @@ import (
 	"strconv"
 	"strings"
 
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // probeIdentity prefixes the identity a canary is pseudonymised from. Founder ruling 2026-10-06:

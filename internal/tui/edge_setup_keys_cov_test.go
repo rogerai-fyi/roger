@@ -12,7 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/stretchr/testify/require"
 
-	"rogerai.fm/roger/v6/internal/edge"
+	"rogerai.fm/roger/v7/internal/edge"
 )
 
 type setupCalls struct {

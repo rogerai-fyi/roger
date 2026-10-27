@@ -15,9 +15,9 @@ import (
 
 	"github.com/mattn/go-isatty"
 
-	"rogerai.fm/roger/v6/internal/client"
-	"rogerai.fm/roger/v6/internal/edge"
-	"rogerai.fm/roger/v6/internal/edgeauth"
+	"rogerai.fm/roger/v7/internal/client"
+	"rogerai.fm/roger/v7/internal/edge"
+	"rogerai.fm/roger/v7/internal/edgeauth"
 )
 
 // edgeIsInteractive reports whether this process can run a prompt. A seam so the spec can

@@ -11,13 +11,13 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"rogerai.fm/roger/v6/internal/buildinfo"
+	"rogerai.fm/roger/v7/internal/buildinfo"
 	"runtime"
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/edge"
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/edge"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 // envEdgeMachine names this machine's hardware model where it has no device tree to read - a

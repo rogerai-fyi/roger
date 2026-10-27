@@ -12,10 +12,10 @@ import (
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/edge"
-	"rogerai.fm/roger/v6/internal/edgeauth"
-	"rogerai.fm/roger/v6/internal/fleetview"
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/edge"
+	"rogerai.fm/roger/v7/internal/edgeauth"
+	"rogerai.fm/roger/v7/internal/fleetview"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 // edgeRunFleetScreen opens the screen (a seam: the test records the source and actions).

@@ -10,9 +10,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"rogerai.fm/roger/v6/internal/edge"
-	"rogerai.fm/roger/v6/internal/store"
-	"rogerai.fm/roger/v6/internal/towercore/cert"
+	"rogerai.fm/roger/v7/internal/edge"
+	"rogerai.fm/roger/v7/internal/store"
+	"rogerai.fm/roger/v7/internal/towercore/cert"
 )
 
 // features/edge/fleet_window.feature §3: ask a unit to report now, over its face, bounded - and

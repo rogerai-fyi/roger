@@ -10,7 +10,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"rogerai.fm/roger/v6/internal/agent"
+	"rogerai.fm/roger/v7/internal/agent"
 )
 
 // In LAN mode SHARE serves the LAN Towers as a standalone station and registers with nothing

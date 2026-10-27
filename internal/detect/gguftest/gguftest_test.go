@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"rogerai.fm/roger/v6/internal/detect"
-	"rogerai.fm/roger/v6/internal/detect/gguftest"
+	"rogerai.fm/roger/v7/internal/detect"
+	"rogerai.fm/roger/v7/internal/detect/gguftest"
 )
 
 // The helper writes a header the real parser reads back: what it says is what detect reports.

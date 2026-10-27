@@ -22,7 +22,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"regexp"
-	"rogerai.fm/roger/v6/internal/bddrun"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strings"
 	"testing"
 	"time"
@@ -32,8 +32,8 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/cucumber/godog"
 
-	"rogerai.fm/roger/v6/internal/edge"
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/edge"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 // The glyph vocabulary the screen is specified in, written out LITERALLY here rather than

@@ -13,9 +13,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/thebanri/limoni/uitest"
 
-	"rogerai.fm/roger/v6/internal/edge"
-	"rogerai.fm/roger/v6/internal/fleetview"
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/edge"
+	"rogerai.fm/roger/v7/internal/fleetview"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 const unnamedID = "n_ebab8e241f058e18234af760ad2a1ca976647af7583e0029"

@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/pgtest"
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/pgtest"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // closedPostgres opens the real Postgres store, then CLOSES its connection pool. Every

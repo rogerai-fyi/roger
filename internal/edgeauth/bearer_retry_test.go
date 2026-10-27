@@ -12,7 +12,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"rogerai.fm/roger/v6/internal/edgeauth"
+	"rogerai.fm/roger/v7/internal/edgeauth"
 )
 
 func proven(t *testing.T, local *edgeauth.Local, user ed25519.PrivateKey, node ed25519.PublicKey, code string) edgeauth.Request {

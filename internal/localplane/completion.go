@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/servedfile"
-	"rogerai.fm/roger/v6/internal/tower"
+	"rogerai.fm/roger/v7/internal/servedfile"
+	"rogerai.fm/roger/v7/internal/tower"
 )
 
 // maxPromptBody bounds an authenticated consumer prompt. It is larger than the auth cap (a

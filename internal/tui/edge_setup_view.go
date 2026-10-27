@@ -14,7 +14,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
-	"rogerai.fm/roger/v6/internal/look"
+	"rogerai.fm/roger/v7/internal/look"
 )
 
 // edgeSetupContentWidth is the cabinet's inner width for the current terminal: wide enough to

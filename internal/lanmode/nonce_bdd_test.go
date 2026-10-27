@@ -14,15 +14,15 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"rogerai.fm/roger/v6/internal/bddrun"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strings"
 	"testing"
 
 	"github.com/cucumber/godog"
 
-	"rogerai.fm/roger/v6/internal/client"
-	"rogerai.fm/roger/v6/internal/lanmode"
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/client"
+	"rogerai.fm/roger/v7/internal/lanmode"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // towerURL is the request a signer sends to a Tower at addr: plain http to a LAN address, https

@@ -20,7 +20,7 @@ import (
 	"sync"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/edge"
+	"rogerai.fm/roger/v7/internal/edge"
 )
 
 func cmdEdgeSchedule(cfg config, args []string) error {

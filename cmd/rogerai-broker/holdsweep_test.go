@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 // TestStaleHoldsSweepPrunesExpiredPriceQuotes (audit fix 2026-10-04): the periodic money

@@ -17,8 +17,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/cucumber/godog"
 
-	"rogerai.fm/roger/v6/internal/bddrun"
-	"rogerai.fm/roger/v6/internal/client"
+	"rogerai.fm/roger/v7/internal/bddrun"
+	"rogerai.fm/roger/v7/internal/client"
 )
 
 type lanVoiceTUI struct {

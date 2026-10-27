@@ -14,8 +14,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"rogerai.fm/roger/v6/internal/localmodel"
-	"rogerai.fm/roger/v6/internal/runtime"
+	"rogerai.fm/roger/v7/internal/localmodel"
+	"rogerai.fm/roger/v7/internal/runtime"
 )
 
 // features/serving/local_models.feature §8: the console's hooks are `roger model` reshaped, so a

@@ -12,7 +12,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"rogerai.fm/roger/v6/internal/servedfile"
+	"rogerai.fm/roger/v7/internal/servedfile"
 )
 
 // features/models/short_names_nearby.feature "a station on a pinned Tower reports what it serves,

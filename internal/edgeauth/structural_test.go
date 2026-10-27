@@ -21,7 +21,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"rogerai.fm/roger/v6/internal/structural"
+	"rogerai.fm/roger/v7/internal/structural"
 )
 
 // deps returns the whole transitive dependency set of a package.
@@ -46,12 +46,12 @@ func TestTheEdgeAuthorityLinksNothingThatCouldReachCore(t *testing.T) {
 	// nothing to reach Core with. Reusing it is what makes a local certificate and a Core
 	// certificate the same certificate.
 	structural.ForbidDeps(t, ".", []string{
-		"rogerai.fm/roger/v6/internal/client",    // the Core/broker client
-		"rogerai.fm/roger/v6/internal/towerjoin", // dials Core to join
-		"rogerai.fm/roger/v6/internal/towerhub",
-		"rogerai.fm/roger/v6/internal/towercore",
+		"rogerai.fm/roger/v7/internal/client",    // the Core/broker client
+		"rogerai.fm/roger/v7/internal/towerjoin", // dials Core to join
+		"rogerai.fm/roger/v7/internal/towerhub",
+		"rogerai.fm/roger/v7/internal/towercore",
 		"net/http", // no client, no server: this package cannot speak to anything
-	}, "rogerai.fm/roger/v6/internal/towercore/cert")
+	}, "rogerai.fm/roger/v7/internal/towercore/cert")
 	structural.Deps(t, ".") // the scan really enumerated the graph
 }
 
@@ -60,11 +60,11 @@ func TestTheEdgeAuthorityLinksNothingThatCouldReachCore(t *testing.T) {
 // because it links no other RogerAI package, so there is no path from it to anything
 // that dials.
 func TestTheCertificateLibraryIsALeaf(t *testing.T) {
-	for _, dep := range deps(t, "rogerai.fm/roger/v6/internal/towercore/cert") {
-		if !strings.HasPrefix(dep, "rogerai.fm/roger/v6/") {
+	for _, dep := range deps(t, "rogerai.fm/roger/v7/internal/towercore/cert") {
+		if !strings.HasPrefix(dep, "rogerai.fm/roger/v7/") {
 			continue
 		}
-		require.Equal(t, "rogerai.fm/roger/v6/internal/towercore/cert", dep,
+		require.Equal(t, "rogerai.fm/roger/v7/internal/towercore/cert", dep,
 			"towercore/cert links %s: it is only admissible inside a Core-free authority "+
 				"while it links nothing of ours.", dep)
 	}
@@ -75,9 +75,9 @@ func TestTheCertificateLibraryIsALeaf(t *testing.T) {
 func TestTheWireLinksNoCoreEither(t *testing.T) {
 	for _, dep := range deps(t, "./enrollhttp") {
 		for _, bad := range []string{
-			"rogerai.fm/roger/v6/internal/client",
-			"rogerai.fm/roger/v6/internal/towerjoin",
-			"rogerai.fm/roger/v6/internal/towerhub",
+			"rogerai.fm/roger/v7/internal/client",
+			"rogerai.fm/roger/v7/internal/towerjoin",
+			"rogerai.fm/roger/v7/internal/towerhub",
 		} {
 			require.NotEqual(t, bad, dep, "the enrollment wire links %s", dep)
 		}

@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"rogerai.fm/roger/v6/internal/buildinfo"
+	"rogerai.fm/roger/v7/internal/buildinfo"
 	"runtime"
 	"strings"
 	"testing"
@@ -14,8 +14,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"rogerai.fm/roger/v6/internal/edge"
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/edge"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 func writeUnder(t *testing.T, root, rel, body string) {

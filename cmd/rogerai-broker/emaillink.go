@@ -27,8 +27,8 @@ import (
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/emailauth"
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/emailauth"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 // emailLinkFlow is the link flow: the sign-in state machine under its own Namespace, so a code

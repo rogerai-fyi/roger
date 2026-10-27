@@ -9,7 +9,7 @@ import (
 	"crypto/ed25519"
 	"fmt"
 	"os"
-	"rogerai.fm/roger/v6/internal/bddrun"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strconv"
 	"testing"
 

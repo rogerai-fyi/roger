@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"rogerai.fm/roger/v6/internal/localmodel"
+	"rogerai.fm/roger/v7/internal/localmodel"
 )
 
 // features/lan/discovery_and_dial.feature, THE THREE SOURCES: 1. THIS MACHINE is `roger model

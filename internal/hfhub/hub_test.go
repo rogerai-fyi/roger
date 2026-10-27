@@ -18,7 +18,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"rogerai.fm/roger/v6/internal/hfhub"
+	"rogerai.fm/roger/v7/internal/hfhub"
 )
 
 func hub(t *testing.T, h http.HandlerFunc) *hfhub.Client {

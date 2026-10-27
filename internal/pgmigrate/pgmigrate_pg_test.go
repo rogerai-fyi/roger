@@ -6,7 +6,7 @@ package pgmigrate
 import (
 	"database/sql"
 	"fmt"
-	"rogerai.fm/roger/v6/internal/pgtest"
+	"rogerai.fm/roger/v7/internal/pgtest"
 	"strings"
 	"sync"
 	"testing"

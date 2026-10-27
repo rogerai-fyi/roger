@@ -15,7 +15,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
-	"rogerai.fm/roger/v6/internal/glyphs"
+	"rogerai.fm/roger/v7/internal/glyphs"
 )
 
 // quitConfirmView is the on-air quit-guard: a clear "you are ON AIR - quit and go

@@ -13,8 +13,8 @@ import (
 	"strings"
 	"testing"
 
-	"rogerai.fm/roger/v6/internal/edge"
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/edge"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 func actuateRig(t *testing.T, wire bool) (*Server, *httptest.Server, *edge.Fleet, *[]string) {

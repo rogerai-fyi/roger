@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/tower"
-	"rogerai.fm/roger/v6/internal/toweradmin"
+	"rogerai.fm/roger/v7/internal/tower"
+	"rogerai.fm/roger/v7/internal/toweradmin"
 )
 
 func pairingClient(dir string) (toweradmin.Client, error) {

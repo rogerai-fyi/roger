@@ -25,8 +25,8 @@ import (
 	"sync"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/filelock"
-	"rogerai.fm/roger/v6/internal/towercore/cert"
+	"rogerai.fm/roger/v7/internal/filelock"
+	"rogerai.fm/roger/v7/internal/towercore/cert"
 )
 
 // EdgeCertTTL is how long an Edge certificate lives. Long enough that a plant network

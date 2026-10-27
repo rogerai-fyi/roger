@@ -16,10 +16,10 @@ import (
 	"strconv"
 	"strings"
 
-	"rogerai.fm/roger/v6/internal/agent"
-	"rogerai.fm/roger/v6/internal/detect"
+	"rogerai.fm/roger/v7/internal/agent"
+	"rogerai.fm/roger/v7/internal/detect"
 
-	"rogerai.fm/roger/v6/internal/servedfile"
+	"rogerai.fm/roger/v7/internal/servedfile"
 )
 
 // StationOffer is what this machine chose to offer Towers as a station: the explicit --models

@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/protocol"
 	"time"
 )
 

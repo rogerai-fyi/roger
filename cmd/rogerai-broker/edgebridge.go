@@ -28,14 +28,14 @@ import (
 	"strconv"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/protocol"
-	"rogerai.fm/roger/v6/internal/store"
-	"rogerai.fm/roger/v6/internal/towercore/dispatch"
-	"rogerai.fm/roger/v6/internal/towercore/envelope"
-	"rogerai.fm/roger/v6/internal/towercore/fleet"
-	"rogerai.fm/roger/v6/internal/towercore/link"
-	"rogerai.fm/roger/v6/internal/towercore/reputation"
-	"rogerai.fm/roger/v6/internal/towerhub"
+	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/store"
+	"rogerai.fm/roger/v7/internal/towercore/dispatch"
+	"rogerai.fm/roger/v7/internal/towercore/envelope"
+	"rogerai.fm/roger/v7/internal/towercore/fleet"
+	"rogerai.fm/roger/v7/internal/towercore/link"
+	"rogerai.fm/roger/v7/internal/towercore/reputation"
+	"rogerai.fm/roger/v7/internal/towerhub"
 )
 
 // edgeBridgeTimeout bounds one bridged drive. Longer than the canary's, because a real

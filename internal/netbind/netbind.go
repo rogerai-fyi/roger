@@ -16,7 +16,7 @@ import (
 	"sync"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/netpriv"
+	"rogerai.fm/roger/v7/internal/netpriv"
 )
 
 // FreeWindow is how far above the asked port ListenFree and SuggestPort look.

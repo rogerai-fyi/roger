@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/hfhub"
-	"rogerai.fm/roger/v6/internal/provision"
+	"rogerai.fm/roger/v7/internal/hfhub"
+	"rogerai.fm/roger/v7/internal/provision"
 )
 
 // Pick finds the file an owner named in a repository's list: a quantisation ("Q4_K_M") or a file

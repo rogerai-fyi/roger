@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"rogerai.fm/roger/v6/internal/detect"
+	"rogerai.fm/roger/v7/internal/detect"
 )
 
 // stubHWProbes points the three Linux gatherer seams at canned answers, so the

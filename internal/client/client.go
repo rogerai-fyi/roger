@@ -25,8 +25,8 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"rogerai.fm/roger/v6/internal/coreclient"
-	"rogerai.fm/roger/v6/internal/lanmode"
+	"rogerai.fm/roger/v7/internal/coreclient"
+	"rogerai.fm/roger/v7/internal/lanmode"
 	"sort"
 	"strconv"
 	"strings"
@@ -34,10 +34,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/glyphs"
-	"rogerai.fm/roger/v6/internal/netbind"
-	"rogerai.fm/roger/v6/internal/pricetier"
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/glyphs"
+	"rogerai.fm/roger/v7/internal/netbind"
+	"rogerai.fm/roger/v7/internal/pricetier"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // AlertFunc receives a human-readable line when the proxy can't recover (no

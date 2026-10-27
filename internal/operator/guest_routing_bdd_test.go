@@ -28,15 +28,15 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"rogerai.fm/roger/v6/internal/bddrun"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strconv"
 	"strings"
 	"sync"
 	"testing"
 
 	"github.com/cucumber/godog"
-	"rogerai.fm/roger/v6/internal/client"
-	"rogerai.fm/roger/v6/internal/operator"
+	"rogerai.fm/roger/v7/internal/client"
+	"rogerai.fm/roger/v7/internal/operator"
 )
 
 type cf4oAttempt struct {

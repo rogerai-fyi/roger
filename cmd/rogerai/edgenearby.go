@@ -9,8 +9,8 @@ import (
 	"fmt"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/edge"
-	"rogerai.fm/roger/v6/internal/look"
+	"rogerai.fm/roger/v7/internal/edge"
+	"rogerai.fm/roger/v7/internal/look"
 )
 
 func cmdEdgeNearby(cfg config, args []string) error {

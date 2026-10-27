@@ -24,7 +24,7 @@ import (
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/edgeauth"
+	"rogerai.fm/roger/v7/internal/edgeauth"
 )
 
 // writeAuthError answers an enroll/claim failure. A SHAPED domain refusal (bad signature, not

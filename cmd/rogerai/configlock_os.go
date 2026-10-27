@@ -7,7 +7,7 @@ import (
 	"os"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/filelock"
+	"rogerai.fm/roger/v7/internal/filelock"
 )
 
 // lockConfig takes an exclusive OS lock (internal/filelock: flock on Unix, LockFileEx on

@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/pgtest"
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/pgtest"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // TestTrackedHoldSweepParity drives the deploy-orphan backstop on BOTH backends through the

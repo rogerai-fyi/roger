@@ -16,10 +16,10 @@ import (
 
 	"github.com/cucumber/godog"
 
-	"rogerai.fm/roger/v6/internal/bddrun"
-	"rogerai.fm/roger/v6/internal/detect"
-	"rogerai.fm/roger/v6/internal/lanmode"
-	"rogerai.fm/roger/v6/internal/towerpin"
+	"rogerai.fm/roger/v7/internal/bddrun"
+	"rogerai.fm/roger/v7/internal/detect"
+	"rogerai.fm/roger/v7/internal/lanmode"
+	"rogerai.fm/roger/v7/internal/towerpin"
 )
 
 const (

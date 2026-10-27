@@ -16,7 +16,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
-	"rogerai.fm/roger/v6/internal/bddrun"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strconv"
 	"strings"
 	"sync"

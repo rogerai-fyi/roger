@@ -29,7 +29,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"rogerai.fm/roger/v6/internal/bddrun"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strings"
 	"sync"
 	"testing"
@@ -37,7 +37,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/cucumber/godog"
-	"rogerai.fm/roger/v6/internal/client"
+	"rogerai.fm/roger/v7/internal/client"
 )
 
 // pinReq is one request the recording broker saw.

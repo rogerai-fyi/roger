@@ -6,7 +6,7 @@ package main
 import (
 	"os"
 
-	"rogerai.fm/roger/v6/internal/towershim"
+	"rogerai.fm/roger/v7/internal/towershim"
 )
 
 // osExit is a seam so main is testable without ending the test process.

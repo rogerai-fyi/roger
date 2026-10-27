@@ -13,7 +13,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"rogerai.fm/roger/v6/internal/joincode"
+	"rogerai.fm/roger/v7/internal/joincode"
 )
 
 type joinVector struct {

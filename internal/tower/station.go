@@ -11,9 +11,9 @@ import (
 	"time"
 	"unicode"
 
-	"rogerai.fm/roger/v6/internal/servedfile"
+	"rogerai.fm/roger/v7/internal/servedfile"
 
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // The local Station registry. In standalone v1 a Tower routes ONLY to Stations it

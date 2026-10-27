@@ -4,9 +4,9 @@ import (
 	"strings"
 	"testing"
 
-	"rogerai.fm/roger/v6/internal/edge"
-	"rogerai.fm/roger/v6/internal/node"
-	"rogerai.fm/roger/v6/internal/tui"
+	"rogerai.fm/roger/v7/internal/edge"
+	"rogerai.fm/roger/v7/internal/node"
+	"rogerai.fm/roger/v7/internal/tui"
 )
 
 // `roger webui` - the console on its own. The command BLOCKS on a signal by design (it is

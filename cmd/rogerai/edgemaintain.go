@@ -19,9 +19,9 @@ import (
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/edge"
-	"rogerai.fm/roger/v6/internal/store"
-	"rogerai.fm/roger/v6/internal/tui"
+	"rogerai.fm/roger/v7/internal/edge"
+	"rogerai.fm/roger/v7/internal/store"
+	"rogerai.fm/roger/v7/internal/tui"
 )
 
 // edgeMaintenanceOn reports whether the owner turned maintenance on THIS machine.

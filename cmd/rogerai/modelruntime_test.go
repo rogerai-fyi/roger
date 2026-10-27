@@ -15,10 +15,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"rogerai.fm/roger/v6/internal/detect"
-	"rogerai.fm/roger/v6/internal/localmodel"
-	"rogerai.fm/roger/v6/internal/provision"
-	"rogerai.fm/roger/v6/internal/runtime"
+	"rogerai.fm/roger/v7/internal/detect"
+	"rogerai.fm/roger/v7/internal/localmodel"
+	"rogerai.fm/roger/v7/internal/provision"
+	"rogerai.fm/roger/v7/internal/runtime"
 )
 
 var hostNVIDIA = runtime.Host{OS: "linux", Arch: "amd64", GlibcMajor: 2, GlibcMinor: 42, GlibcKnown: true, GPU: true, NVIDIA: true, CUDAMajor: 13, CUDAMinor: 2}

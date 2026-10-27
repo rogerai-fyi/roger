@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"rogerai.fm/roger/v6/internal/tui"
+	"rogerai.fm/roger/v7/internal/tui"
 )
 
 // TestResolveUseValidatesStoredLimits: a hand-edited limits value that is not a contract

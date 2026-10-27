@@ -4,11 +4,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/protocol"
 	"sort"
 	"strings"
 
-	"rogerai.fm/roger/v6/internal/routingrules"
+	"rogerai.fm/roger/v7/internal/routingrules"
 )
 
 // The routing body object on the Core-free plane (ROUTING-EXPRESSION-CONTRACT §5a). The plane

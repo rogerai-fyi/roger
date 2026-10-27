@@ -22,7 +22,7 @@ import (
 	"fmt"
 	"strings"
 
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 // InvokeTask is the delegated work a caller sends: a prompt the receiver's agent runs in its own

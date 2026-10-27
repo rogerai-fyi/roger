@@ -13,9 +13,9 @@ import (
 	"strconv"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/lanmode"
-	"rogerai.fm/roger/v6/internal/protocol"
-	"rogerai.fm/roger/v6/internal/servedfile"
+	"rogerai.fm/roger/v7/internal/lanmode"
+	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/servedfile"
 )
 
 // idFromPriv is the one canonical rule mapping a signing key to its tower client id, so the id a

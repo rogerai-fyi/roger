@@ -7,7 +7,7 @@ import (
 	"net"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/netpriv"
+	"rogerai.fm/roger/v7/internal/netpriv"
 )
 
 // errNotPublic marks an endpoint that is UNREACHABLE BY DESIGN - loopback, LAN, or

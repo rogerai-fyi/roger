@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
-	"rogerai.fm/roger/v6/internal/bddrun"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strings"
 	"testing"
 
@@ -18,9 +18,9 @@ import (
 	"github.com/cucumber/godog"
 	"github.com/muesli/termenv"
 
-	"rogerai.fm/roger/v6/internal/agent"
-	"rogerai.fm/roger/v6/internal/client"
-	"rogerai.fm/roger/v6/internal/edge"
+	"rogerai.fm/roger/v7/internal/agent"
+	"rogerai.fm/roger/v7/internal/client"
+	"rogerai.fm/roger/v7/internal/edge"
 )
 
 type lanUIBDD struct {

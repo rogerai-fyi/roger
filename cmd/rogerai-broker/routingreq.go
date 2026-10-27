@@ -38,7 +38,7 @@ import (
 	"regexp"
 	"strings"
 
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // routingListMax bounds every node/label list in the object (§1a: more than 32 entries is a

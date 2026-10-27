@@ -5,7 +5,7 @@ package edgeauth
 // independently of this package (Python hashlib) and are shared with the phone.
 
 import (
-	"rogerai.fm/roger/v6/internal/joincode"
+	"rogerai.fm/roger/v7/internal/joincode"
 
 	"encoding/json"
 	"errors"

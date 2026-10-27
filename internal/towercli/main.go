@@ -20,18 +20,18 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"rogerai.fm/roger/v6/internal/buildinfo"
+	"rogerai.fm/roger/v7/internal/buildinfo"
 	"runtime"
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/client"
-	"rogerai.fm/roger/v6/internal/clockprobe"
-	"rogerai.fm/roger/v6/internal/tower"
-	"rogerai.fm/roger/v6/internal/toweradmin"
-	"rogerai.fm/roger/v6/internal/towerjoin"
-	"rogerai.fm/roger/v6/internal/towerpin"
-	"rogerai.fm/roger/v6/internal/towerstore"
+	"rogerai.fm/roger/v7/internal/client"
+	"rogerai.fm/roger/v7/internal/clockprobe"
+	"rogerai.fm/roger/v7/internal/tower"
+	"rogerai.fm/roger/v7/internal/toweradmin"
+	"rogerai.fm/roger/v7/internal/towerjoin"
+	"rogerai.fm/roger/v7/internal/towerpin"
+	"rogerai.fm/roger/v7/internal/towerstore"
 )
 
 const usage = `roger tower - run a self-hosted RogerAI relay (a Tower)

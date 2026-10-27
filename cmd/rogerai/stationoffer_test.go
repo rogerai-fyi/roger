@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"rogerai.fm/roger/v6/internal/detect"
+	"rogerai.fm/roger/v7/internal/detect"
 )
 
 // A station's output names a few refused models but counts many, and never lists what it skipped.

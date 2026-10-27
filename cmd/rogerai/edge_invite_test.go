@@ -16,10 +16,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"rogerai.fm/roger/v6/internal/edgeauth"
-	"rogerai.fm/roger/v6/internal/edgeauth/enrollhttp"
-	"rogerai.fm/roger/v6/internal/joininvite"
-	"rogerai.fm/roger/v6/internal/qr"
+	"rogerai.fm/roger/v7/internal/edgeauth"
+	"rogerai.fm/roger/v7/internal/edgeauth/enrollhttp"
+	"rogerai.fm/roger/v7/internal/joininvite"
+	"rogerai.fm/roger/v7/internal/qr"
 )
 
 // ownerEdgeInvite designates a local authority in a fresh config, serves it, and mints an invite

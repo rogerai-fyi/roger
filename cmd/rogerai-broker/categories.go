@@ -14,8 +14,8 @@ import (
 	"sort"
 	"strings"
 
-	"rogerai.fm/roger/v6/internal/detect"
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/detect"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // taxonomyFilter is a parsed ?category=&subcategory=&tag=&policy=&source= query. Each value is

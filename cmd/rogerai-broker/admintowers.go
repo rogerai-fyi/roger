@@ -5,11 +5,11 @@ import (
 	"sort"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/towercore/admit"
-	"rogerai.fm/roger/v6/internal/towercore/earnings"
-	"rogerai.fm/roger/v6/internal/towercore/fleet"
-	"rogerai.fm/roger/v6/internal/towercore/origin"
-	"rogerai.fm/roger/v6/internal/towercore/reputation"
+	"rogerai.fm/roger/v7/internal/towercore/admit"
+	"rogerai.fm/roger/v7/internal/towercore/earnings"
+	"rogerai.fm/roger/v7/internal/towercore/fleet"
+	"rogerai.fm/roger/v7/internal/towercore/origin"
+	"rogerai.fm/roger/v7/internal/towercore/reputation"
 )
 
 // Short aliases for the read types the detail view assembles, so the view builders read

@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 // Metric is what a rule watches. The unit is fixed per metric so a rule reads plainly.

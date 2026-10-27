@@ -11,13 +11,13 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"rogerai.fm/roger/v6/internal/bddrun"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/cucumber/godog"
-	"rogerai.fm/roger/v6/internal/capsule"
+	"rogerai.fm/roger/v7/internal/capsule"
 )
 
 type contextCLIBDD struct {

@@ -8,7 +8,7 @@ package protocol
 import (
 	"context"
 	"encoding/json"
-	"rogerai.fm/roger/v6/internal/bddrun"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"testing"
 
 	"github.com/cucumber/godog"

@@ -20,18 +20,18 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"rogerai.fm/roger/v6/internal/bddrun"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/cucumber/godog"
 
-	"rogerai.fm/roger/v6/internal/coreclient"
-	"rogerai.fm/roger/v6/internal/egressguard"
-	"rogerai.fm/roger/v6/internal/localplane/serve"
-	"rogerai.fm/roger/v6/internal/structural"
-	"rogerai.fm/roger/v6/internal/tower"
+	"rogerai.fm/roger/v7/internal/coreclient"
+	"rogerai.fm/roger/v7/internal/egressguard"
+	"rogerai.fm/roger/v7/internal/localplane/serve"
+	"rogerai.fm/roger/v7/internal/structural"
+	"rogerai.fm/roger/v7/internal/tower"
 )
 
 // recordT is a structural.T that records failures instead of failing the scenario.
@@ -84,28 +84,28 @@ func (s *guaranteeBDD) cleanup() {
 }
 
 var serveForbidden = []string{
-	"rogerai.fm/roger/v6/internal/towerjoin",
-	"rogerai.fm/roger/v6/internal/towercore",
-	"rogerai.fm/roger/v6/internal/towerhub",
-	"rogerai.fm/roger/v6/internal/client",
-	"rogerai.fm/roger/v6/internal/agent",
+	"rogerai.fm/roger/v7/internal/towerjoin",
+	"rogerai.fm/roger/v7/internal/towercore",
+	"rogerai.fm/roger/v7/internal/towerhub",
+	"rogerai.fm/roger/v7/internal/client",
+	"rogerai.fm/roger/v7/internal/agent",
 }
 
 func (s *guaranteeBDD) importsNoCore() error {
-	s.deps = structural.Deps(s.t, "rogerai.fm/roger/v6/internal/localplane/serve")
-	structural.ForbidDeps(s.t, "rogerai.fm/roger/v6/internal/localplane/serve", serveForbidden[:3])
+	s.deps = structural.Deps(s.t, "rogerai.fm/roger/v7/internal/localplane/serve")
+	structural.ForbidDeps(s.t, "rogerai.fm/roger/v7/internal/localplane/serve", serveForbidden[:3])
 	return nil
 }
 
 func (s *guaranteeBDD) importsNeitherClientNorAgent() error {
-	structural.ForbidDeps(s.t, "rogerai.fm/roger/v6/internal/localplane/serve", serveForbidden[3:])
+	structural.ForbidDeps(s.t, "rogerai.fm/roger/v7/internal/localplane/serve", serveForbidden[3:])
 	return nil
 }
 
 func (s *guaranteeBDD) failsIfAdded() error {
 	// The same helper refuses a package that does import a forbidden one.
 	r := &recordT{}
-	if catch(r, func() { structural.ForbidDeps(r, "rogerai.fm/roger/v6/internal/client", serveForbidden[3:4]) }) == "" {
+	if catch(r, func() { structural.ForbidDeps(r, "rogerai.fm/roger/v7/internal/client", serveForbidden[3:4]) }) == "" {
 		return fmt.Errorf("the dependency check did not fail on a forbidden import")
 	}
 	return nil
@@ -139,18 +139,18 @@ func (s *guaranteeBDD) sharedHelper() error {
 func (s *guaranteeBDD) helperFailsCorrectly() error {
 	r := &recordT{}
 	if catch(r, func() {
-		structural.ForbidDeps(r, "rogerai.fm/roger/v6/internal/client", []string{"rogerai.fm/roger/v6/internal/protocol"})
+		structural.ForbidDeps(r, "rogerai.fm/roger/v7/internal/client", []string{"rogerai.fm/roger/v7/internal/protocol"})
 	}) == "" {
 		return fmt.Errorf("no failure on a forbidden prefix")
 	}
 	old := structural.GoTool
 	structural.GoTool = "go-that-does-not-exist"
-	msg := catch(r, func() { structural.Deps(r, "rogerai.fm/roger/v6/internal/netpriv") })
+	msg := catch(r, func() { structural.Deps(r, "rogerai.fm/roger/v7/internal/netpriv") })
 	structural.GoTool = old
 	if msg == "" {
 		return fmt.Errorf("no failure on a missing go toolchain")
 	}
-	if catch(r, func() { structural.DepsAtLeast(r, "rogerai.fm/roger/v6/internal/netpriv", 1000) }) == "" {
+	if catch(r, func() { structural.DepsAtLeast(r, "rogerai.fm/roger/v7/internal/netpriv", 1000) }) == "" {
 		return fmt.Errorf("no failure on a suspiciously tiny dependency list")
 	}
 	return nil

@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"strings"
 
-	"rogerai.fm/roger/v6/internal/glyphs"
+	"rogerai.fm/roger/v7/internal/glyphs"
 )
 
 // RGB is one palette color.

@@ -13,7 +13,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"rogerai.fm/roger/v6/internal/edgeauth"
+	"rogerai.fm/roger/v7/internal/edgeauth"
 )
 
 // boundReq is a signed request from a key the authority never allowed, presenting the given node

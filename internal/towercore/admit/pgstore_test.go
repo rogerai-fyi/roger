@@ -15,7 +15,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"rogerai.fm/roger/v6/internal/pgtest"
+	"rogerai.fm/roger/v7/internal/pgtest"
 
 	// The registry itself never opens a connection - the broker hands it a pool - so the
 	// driver is registered here, where the tests do the opening.

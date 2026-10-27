@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"rogerai.fm/roger/v6/internal/netpriv"
+	"rogerai.fm/roger/v7/internal/netpriv"
 )
 
 // Advert is what a node broadcasts about itself on the LAN, and it is A HINT AND ONLY A

@@ -7,11 +7,11 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"rogerai.fm/roger/v6/internal/joininvite"
-	"rogerai.fm/roger/v6/internal/lanmode"
-	"rogerai.fm/roger/v6/internal/localplane"
-	"rogerai.fm/roger/v6/internal/tower"
-	"rogerai.fm/roger/v6/internal/towerpin"
+	"rogerai.fm/roger/v7/internal/joininvite"
+	"rogerai.fm/roger/v7/internal/lanmode"
+	"rogerai.fm/roger/v7/internal/localplane"
+	"rogerai.fm/roger/v7/internal/tower"
+	"rogerai.fm/roger/v7/internal/towerpin"
 )
 
 // features/join/invite.feature: `roger share --tower <invite>` is the same join for a station,

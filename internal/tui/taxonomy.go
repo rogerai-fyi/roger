@@ -13,7 +13,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // guessMark marks a taxonomy no station declared - the dial's honesty mark for a guess, as

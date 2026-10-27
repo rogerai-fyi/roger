@@ -32,11 +32,11 @@ import (
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/client"
-	"rogerai.fm/roger/v6/internal/edge"
-	"rogerai.fm/roger/v6/internal/edgeauth"
-	"rogerai.fm/roger/v6/internal/edgeauth/enrollhttp"
-	"rogerai.fm/roger/v6/internal/joininvite"
+	"rogerai.fm/roger/v7/internal/client"
+	"rogerai.fm/roger/v7/internal/edge"
+	"rogerai.fm/roger/v7/internal/edgeauth"
+	"rogerai.fm/roger/v7/internal/edgeauth/enrollhttp"
+	"rogerai.fm/roger/v7/internal/joininvite"
 )
 
 // edgeAuthDir is where this machine keeps its Edge identity - and, on the one machine

@@ -12,13 +12,13 @@ import (
 	"net/http"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/edge"
-	"rogerai.fm/roger/v6/internal/joininvite"
-	"rogerai.fm/roger/v6/internal/look"
-	"rogerai.fm/roger/v6/internal/ownerjoin"
-	"rogerai.fm/roger/v6/internal/qr"
-	"rogerai.fm/roger/v6/internal/store"
-	"rogerai.fm/roger/v6/internal/tower"
+	"rogerai.fm/roger/v7/internal/edge"
+	"rogerai.fm/roger/v7/internal/joininvite"
+	"rogerai.fm/roger/v7/internal/look"
+	"rogerai.fm/roger/v7/internal/ownerjoin"
+	"rogerai.fm/roger/v7/internal/qr"
+	"rogerai.fm/roger/v7/internal/store"
+	"rogerai.fm/roger/v7/internal/tower"
 )
 
 // edgeNearbyJSON is one NEARBY row in the TUI's words: the browser paints it and composes nothing.

@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 // MaxDeparted bounds the record: the oldest is dropped once there are more.

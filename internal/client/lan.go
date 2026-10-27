@@ -16,15 +16,15 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"rogerai.fm/roger/v6/internal/towerpin"
+	"rogerai.fm/roger/v7/internal/towerpin"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 	"unicode"
 
-	"rogerai.fm/roger/v6/internal/lanmode"
-	"rogerai.fm/roger/v6/internal/servedfile"
+	"rogerai.fm/roger/v7/internal/lanmode"
+	"rogerai.fm/roger/v7/internal/servedfile"
 )
 
 // LANSourceKind is where a band is served on the LAN.

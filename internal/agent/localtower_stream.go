@@ -19,7 +19,7 @@ import (
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // Batching (RULED 2026-10-07): one signed POST per token would cost a signature and a nonce

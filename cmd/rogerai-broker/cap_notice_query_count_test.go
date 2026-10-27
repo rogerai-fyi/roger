@@ -10,7 +10,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 // capNoticeCountingStore counts the store reads the cap-notice path can make.

@@ -14,7 +14,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"rogerai.fm/roger/v6/internal/modelview"
+	"rogerai.fm/roger/v7/internal/modelview"
 )
 
 type modelsFake struct {

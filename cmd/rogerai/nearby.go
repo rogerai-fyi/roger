@@ -19,13 +19,13 @@ import (
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/catalog"
-	"rogerai.fm/roger/v6/internal/client"
-	"rogerai.fm/roger/v6/internal/hfhub"
-	"rogerai.fm/roger/v6/internal/localmodel"
-	"rogerai.fm/roger/v6/internal/modelview"
-	"rogerai.fm/roger/v6/internal/provision"
-	"rogerai.fm/roger/v6/internal/servedfile"
+	"rogerai.fm/roger/v7/internal/catalog"
+	"rogerai.fm/roger/v7/internal/client"
+	"rogerai.fm/roger/v7/internal/hfhub"
+	"rogerai.fm/roger/v7/internal/localmodel"
+	"rogerai.fm/roger/v7/internal/modelview"
+	"rogerai.fm/roger/v7/internal/provision"
+	"rogerai.fm/roger/v7/internal/servedfile"
 )
 
 // nearbyMap is one file a name is served as, and every nearby source that says so.

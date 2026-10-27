@@ -1,8 +1,8 @@
 package node
 
 import (
-	"rogerai.fm/roger/v6/internal/agent"
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/agent"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // Snapshot is a consistent, JSON-able read of the node's live state, taken under the

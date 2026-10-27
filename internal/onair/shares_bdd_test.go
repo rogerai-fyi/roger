@@ -12,13 +12,13 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"rogerai.fm/roger/v6/internal/bddrun"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strings"
 	"testing"
 
 	"github.com/cucumber/godog"
 
-	"rogerai.fm/roger/v6/internal/onair"
+	"rogerai.fm/roger/v7/internal/onair"
 )
 
 func repoRoot() (string, error) {

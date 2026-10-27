@@ -20,7 +20,7 @@ import (
 	"fmt"
 	"sort"
 
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 // Contract is what a classifying device IS, as opposed to what model it runs. It is the

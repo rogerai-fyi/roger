@@ -11,8 +11,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"rogerai.fm/roger/v6/internal/protocol"
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 // A BAND MUTATION MUST PROVE POSSESSION OF THE KEY, NOT MERELY NAME IT.

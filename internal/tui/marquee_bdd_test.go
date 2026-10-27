@@ -9,7 +9,7 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"rogerai.fm/roger/v6/internal/bddrun"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"slices"
 	"strconv"
 	"strings"

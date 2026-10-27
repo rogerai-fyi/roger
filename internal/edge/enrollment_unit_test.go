@@ -17,9 +17,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"rogerai.fm/roger/v6/internal/edge"
-	"rogerai.fm/roger/v6/internal/store"
-	"rogerai.fm/roger/v6/internal/towercore/cert"
+	"rogerai.fm/roger/v7/internal/edge"
+	"rogerai.fm/roger/v7/internal/store"
+	"rogerai.fm/roger/v7/internal/towercore/cert"
 )
 
 func enrollFixture(t *testing.T) (*edge.Fleet, *cert.Authority, ed25519.PublicKey, ed25519.PrivateKey) {

@@ -16,9 +16,9 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"rogerai.fm/roger/v6/internal/ownerjoin"
-	"rogerai.fm/roger/v6/internal/qr"
-	towerpkg "rogerai.fm/roger/v6/internal/tower"
+	"rogerai.fm/roger/v7/internal/ownerjoin"
+	"rogerai.fm/roger/v7/internal/qr"
+	towerpkg "rogerai.fm/roger/v7/internal/tower"
 )
 
 // ownerPollEvery is how often the owner's view is refreshed while roger runs.

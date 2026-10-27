@@ -11,8 +11,8 @@ import (
 	"os"
 	"testing"
 
-	"rogerai.fm/roger/v6/internal/catalog"
-	"rogerai.fm/roger/v6/internal/hfhub"
+	"rogerai.fm/roger/v7/internal/catalog"
+	"rogerai.fm/roger/v7/internal/hfhub"
 )
 
 func TestLiveBrowseAndJudgeWithoutDownloading(t *testing.T) {

@@ -48,14 +48,14 @@ import (
 
 	"github.com/cucumber/godog"
 
-	"rogerai.fm/roger/v6/internal/bddrun"
-	"rogerai.fm/roger/v6/internal/edge"
-	"rogerai.fm/roger/v6/internal/edgeauth"
-	"rogerai.fm/roger/v6/internal/edgeauth/enrollhttp"
-	"rogerai.fm/roger/v6/internal/protocol"
-	"rogerai.fm/roger/v6/internal/store"
-	"rogerai.fm/roger/v6/internal/towercore/cert"
-	"rogerai.fm/roger/v6/internal/tui"
+	"rogerai.fm/roger/v7/internal/bddrun"
+	"rogerai.fm/roger/v7/internal/edge"
+	"rogerai.fm/roger/v7/internal/edgeauth"
+	"rogerai.fm/roger/v7/internal/edgeauth/enrollhttp"
+	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/store"
+	"rogerai.fm/roger/v7/internal/towercore/cert"
+	"rogerai.fm/roger/v7/internal/tui"
 )
 
 // --- a machine ------------------------------------------------------------
@@ -1337,7 +1337,7 @@ func (s *enrollBDD) neitherCanDistinguishTheOrigin() error {
 }
 
 func (s *enrollBDD) depGraphLinksNoCore() error {
-	out, err := exec.Command("go", "list", "-deps", "rogerai.fm/roger/v6/internal/edgeauth").Output()
+	out, err := exec.Command("go", "list", "-deps", "rogerai.fm/roger/v7/internal/edgeauth").Output()
 	if err != nil {
 		return err
 	}
@@ -1349,12 +1349,12 @@ func (s *enrollBDD) depGraphLinksNoCore() error {
 		dep = strings.TrimSpace(dep)
 		switch {
 		case dep == "net/http",
-			dep == "rogerai.fm/roger/v6/internal/client",
-			dep == "rogerai.fm/roger/v6/internal/towerjoin",
-			dep == "rogerai.fm/roger/v6/internal/towerhub":
+			dep == "rogerai.fm/roger/v7/internal/client",
+			dep == "rogerai.fm/roger/v7/internal/towerjoin",
+			dep == "rogerai.fm/roger/v7/internal/towerhub":
 			return fmt.Errorf("the Edge authority links %s, so it COULD reach Core", dep)
-		case strings.HasPrefix(dep, "rogerai.fm/roger/v6/internal/towercore") &&
-			dep != "rogerai.fm/roger/v6/internal/towercore/cert":
+		case strings.HasPrefix(dep, "rogerai.fm/roger/v7/internal/towercore") &&
+			dep != "rogerai.fm/roger/v7/internal/towercore/cert":
 			return fmt.Errorf("the Edge authority links %s", dep)
 		}
 	}

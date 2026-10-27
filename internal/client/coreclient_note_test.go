@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"rogerai.fm/roger/v6/internal/coreclient"
+	"rogerai.fm/roger/v7/internal/coreclient"
 )
 
 // TestBrokerClientsMarkThemselves pins features/packaging/one_binary.feature section 4: every

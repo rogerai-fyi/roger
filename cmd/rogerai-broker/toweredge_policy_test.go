@@ -16,9 +16,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"rogerai.fm/roger/v6/internal/towercore/attach"
-	"rogerai.fm/roger/v6/internal/towercore/attempt"
-	"rogerai.fm/roger/v6/internal/towercore/fleet"
+	"rogerai.fm/roger/v7/internal/towercore/attach"
+	"rogerai.fm/roger/v7/internal/towercore/attempt"
+	"rogerai.fm/roger/v7/internal/towercore/fleet"
 )
 
 // The FOUR checks, each refusing alone. The comment on targetFromAttachment says every rule

@@ -10,7 +10,7 @@ export GOTOOLCHAIN
 # The linker SILENTLY IGNORES -X for a symbol that does not exist, so this is the only -X any
 # build passes, and a test (one_binary.feature, "one version") pins that.
 VERSION ?=
-VERSION_LDFLAGS := $(if $(VERSION),-X rogerai.fm/roger/v6/internal/buildinfo.Version=$(VERSION),)
+VERSION_LDFLAGS := $(if $(VERSION),-X rogerai.fm/roger/v7/internal/buildinfo.Version=$(VERSION),)
 
 build:
 	go build -ldflags "$(VERSION_LDFLAGS)" -o bin/rogerai-broker ./cmd/rogerai-broker

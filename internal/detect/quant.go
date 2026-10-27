@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"strings"
 
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // THE QUANT LABEL: what an operator and a consumer both call these weights.

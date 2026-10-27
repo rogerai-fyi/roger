@@ -14,9 +14,9 @@ import (
 
 	"github.com/cucumber/godog"
 
-	"rogerai.fm/roger/v6/internal/agent"
-	"rogerai.fm/roger/v6/internal/bddrun"
-	"rogerai.fm/roger/v6/internal/detect"
+	"rogerai.fm/roger/v7/internal/agent"
+	"rogerai.fm/roger/v7/internal/bddrun"
+	"rogerai.fm/roger/v7/internal/detect"
 )
 
 const marketConsentFeature = "../../features/sharing/market_offer_consent.feature"

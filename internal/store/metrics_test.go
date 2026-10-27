@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/pgtest"
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/pgtest"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // serveSeq makes every serveAt request id unique (production ids always are), so the

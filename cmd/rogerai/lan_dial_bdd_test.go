@@ -7,10 +7,10 @@ package main
 
 import (
 	"io"
-	"rogerai.fm/roger/v6/internal/bddrun"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strconv"
 
-	"rogerai.fm/roger/v6/internal/edge/wire"
+	"rogerai.fm/roger/v7/internal/edge/wire"
 
 	"context"
 	"crypto/ed25519"
@@ -27,10 +27,10 @@ import (
 
 	"github.com/cucumber/godog"
 
-	"rogerai.fm/roger/v6/internal/client"
-	"rogerai.fm/roger/v6/internal/edge"
-	"rogerai.fm/roger/v6/internal/lanmode"
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/client"
+	"rogerai.fm/roger/v7/internal/edge"
+	"rogerai.fm/roger/v7/internal/lanmode"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 // recordingBroker records every path asked of it, so a scenario can prove NO call was made.

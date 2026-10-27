@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/edge"
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/edge"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 // mapReadableModel is a set-up authority with one of each kind on it: a PC, a board, a phone whose

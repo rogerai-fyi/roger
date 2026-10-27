@@ -35,8 +35,8 @@ import (
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/catalog"
-	"rogerai.fm/roger/v6/internal/detect"
+	"rogerai.fm/roger/v7/internal/catalog"
+	"rogerai.fm/roger/v7/internal/detect"
 )
 
 // The reasons a read failed, as values, because the next step differs for each.

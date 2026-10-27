@@ -11,9 +11,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"rogerai.fm/roger/v6/internal/lanmode"
-	"rogerai.fm/roger/v6/internal/servedfile"
-	"rogerai.fm/roger/v6/internal/towerpin"
+	"rogerai.fm/roger/v7/internal/lanmode"
+	"rogerai.fm/roger/v7/internal/servedfile"
+	"rogerai.fm/roger/v7/internal/towerpin"
 )
 
 // features/models/short_names_nearby.feature: a station on a PINNED Tower may say which file a band

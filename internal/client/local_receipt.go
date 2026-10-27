@@ -3,8 +3,8 @@ package client
 import (
 	"time"
 
-	"rogerai.fm/roger/v6/internal/lanmode"
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/lanmode"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // localTowerReceipt is the one record of a free answer from a standalone Tower (features/

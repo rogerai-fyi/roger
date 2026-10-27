@@ -7,8 +7,8 @@ package node
 import (
 	"testing"
 
-	"rogerai.fm/roger/v6/internal/agent"
-	"rogerai.fm/roger/v6/internal/servedfile"
+	"rogerai.fm/roger/v7/internal/agent"
+	"rogerai.fm/roger/v7/internal/servedfile"
 )
 
 func TestALANStationFromAFrontEndReportsItsFiles(t *testing.T) {

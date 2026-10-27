@@ -17,10 +17,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"rogerai.fm/roger/v6/internal/catalog"
-	"rogerai.fm/roger/v6/internal/detect"
-	"rogerai.fm/roger/v6/internal/hfhub"
-	"rogerai.fm/roger/v6/internal/provision"
+	"rogerai.fm/roger/v7/internal/catalog"
+	"rogerai.fm/roger/v7/internal/detect"
+	"rogerai.fm/roger/v7/internal/hfhub"
+	"rogerai.fm/roger/v7/internal/provision"
 )
 
 // TestMain lets this binary stand in for the runtime, reading the SAME command line the real one

@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"rogerai.fm/roger/v6/internal/detect"
+	"rogerai.fm/roger/v7/internal/detect"
 )
 
 // Adapter is a LoRA the runtime serves beside a base model (`llama-server --lora`). It is never

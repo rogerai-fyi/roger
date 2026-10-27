@@ -12,15 +12,15 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"rogerai.fm/roger/v6/internal/bddrun"
-	"rogerai.fm/roger/v6/internal/look"
+	"rogerai.fm/roger/v7/internal/bddrun"
+	"rogerai.fm/roger/v7/internal/look"
 	"strings"
 	"testing"
 
 	"github.com/cucumber/godog"
 
-	"rogerai.fm/roger/v6/internal/client"
-	"rogerai.fm/roger/v6/internal/edgeauth"
+	"rogerai.fm/roger/v7/internal/client"
+	"rogerai.fm/roger/v7/internal/edgeauth"
 )
 
 type onboardCLIBDD struct {

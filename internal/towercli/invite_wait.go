@@ -12,7 +12,7 @@ import (
 
 	"github.com/mattn/go-isatty"
 
-	"rogerai.fm/roger/v6/internal/tower"
+	"rogerai.fm/roger/v7/internal/tower"
 )
 
 // isTerminal reports whether out is a terminal someone is watching.

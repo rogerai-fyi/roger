@@ -15,10 +15,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"rogerai.fm/roger/v6/internal/edgeauth"
-	"rogerai.fm/roger/v6/internal/joincode"
-	"rogerai.fm/roger/v6/internal/joininvite"
-	"rogerai.fm/roger/v6/internal/look"
+	"rogerai.fm/roger/v7/internal/edgeauth"
+	"rogerai.fm/roger/v7/internal/joincode"
+	"rogerai.fm/roger/v7/internal/joininvite"
+	"rogerai.fm/roger/v7/internal/look"
 )
 
 func TestEdgeJoinPromptSays(t *testing.T) {

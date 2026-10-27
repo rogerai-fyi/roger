@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"rogerai.fm/roger/v6/internal/agent"
+	"rogerai.fm/roger/v7/internal/agent"
 )
 
 func TestControllerCarriesSavedProbeMin(t *testing.T) {

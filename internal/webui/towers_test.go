@@ -11,8 +11,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"rogerai.fm/roger/v6/internal/ownerjoin"
-	"rogerai.fm/roger/v6/internal/tower"
+	"rogerai.fm/roger/v7/internal/ownerjoin"
+	"rogerai.fm/roger/v7/internal/tower"
 )
 
 // ownerConsole is a console over the owner's hooks, recording what each action reached.

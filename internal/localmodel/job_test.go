@@ -12,8 +12,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"rogerai.fm/roger/v6/internal/hfhub"
-	"rogerai.fm/roger/v6/internal/provision"
+	"rogerai.fm/roger/v7/internal/hfhub"
+	"rogerai.fm/roger/v7/internal/provision"
 )
 
 func slowHub(t *testing.T, body []byte, gate chan struct{}) *hfhub.Client {

@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"rogerai.fm/roger/v6/internal/edgeauth"
+	"rogerai.fm/roger/v7/internal/edgeauth"
 )
 
 // ReAdmit is the OWNER's deliberate re-admission of a device that was forgotten or that left the

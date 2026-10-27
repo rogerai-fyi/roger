@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"rogerai.fm/roger/v6/internal/detect/gguftest"
+	"rogerai.fm/roger/v7/internal/detect/gguftest"
 )
 
 // edge_device_runtime.feature §2 "an adapter file is not offered as a model" / "a projector file is

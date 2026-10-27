@@ -33,11 +33,11 @@ import (
 	"syscall"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/localplane/serve"
-	"rogerai.fm/roger/v6/internal/netpriv"
-	"rogerai.fm/roger/v6/internal/tower"
-	"rogerai.fm/roger/v6/internal/towercore/link"
-	"rogerai.fm/roger/v6/internal/towerjoin"
+	"rogerai.fm/roger/v7/internal/localplane/serve"
+	"rogerai.fm/roger/v7/internal/netpriv"
+	"rogerai.fm/roger/v7/internal/tower"
+	"rogerai.fm/roger/v7/internal/towercore/link"
+	"rogerai.fm/roger/v7/internal/towerjoin"
 )
 
 // serveJoined runs the link until the process is interrupted. It supplies the two things the

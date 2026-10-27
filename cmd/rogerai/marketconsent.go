@@ -13,7 +13,7 @@ import (
 	"os"
 	"strings"
 
-	"rogerai.fm/roger/v6/internal/detect"
+	"rogerai.fm/roger/v7/internal/detect"
 )
 
 // shareInteractive reports whether `roger share` can ask its operator; a test replaces it.

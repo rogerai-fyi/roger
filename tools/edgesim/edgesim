@@ -51,7 +51,7 @@ build() {
 	else
 		say "building roger and the simulated-Pi image"
 		(cd "$REPO" && CGO_ENABLED=0 GOTMPDIR="${GOTMPDIR:-$HOME/.cache/gotmp}" TMPDIR="${TMPDIR:-$HOME/.cache/gotmp}" \
-			go build -ldflags "-X rogerai.fm/roger/v6/internal/buildinfo.Version=$(cd "$REPO" && git describe --always --dirty)-edgesim" -o "$HERE/roger" ./cmd/rogerai)
+			go build -ldflags "-X rogerai.fm/roger/v7/internal/buildinfo.Version=$(cd "$REPO" && git describe --always --dirty)-edgesim" -o "$HERE/roger" ./cmd/rogerai)
 	fi
 	podman build -q -t "$IMAGE" "$HERE" >/dev/null
 	rm -f "$HERE/roger"
@@ -163,7 +163,7 @@ hbuild() {
 	else
 		say "building roger for the simulated Pis"
 		(cd "$REPO" && GOTMPDIR="${GOTMPDIR:-$HOME/.cache/gotmp}" TMPDIR="${TMPDIR:-$HOME/.cache/gotmp}" \
-			go build -ldflags "-X rogerai.fm/roger/v6/internal/buildinfo.Version=$(cd "$REPO" && git describe --always --dirty)-edgesim" -o "$HSTATE/roger.new" ./cmd/rogerai)
+			go build -ldflags "-X rogerai.fm/roger/v7/internal/buildinfo.Version=$(cd "$REPO" && git describe --always --dirty)-edgesim" -o "$HSTATE/roger.new" ./cmd/rogerai)
 	fi
 	mv -f "$HSTATE/roger.new" "$HSTATE/roger"
 }

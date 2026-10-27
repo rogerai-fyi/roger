@@ -20,7 +20,7 @@ import (
 	"syscall"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/edge"
+	"rogerai.fm/roger/v7/internal/edge"
 )
 
 // edgeStopWait is how long a stop waits for the registration to go before it answers. A stop that

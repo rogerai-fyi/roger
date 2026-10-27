@@ -63,7 +63,7 @@ copy the worktree over (Syncthing carries `~/ai`; the worktree is outside it, so
 ```sh
 cd <copy of <this checkout>>
 CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build \
-  -ldflags "-s -w -X rogerai.fm/roger/v6/internal/buildinfo.Version=6.10.0-test.e41c3b6b" \
+  -ldflags "-s -w -X rogerai.fm/roger/v7/internal/buildinfo.Version=6.10.0-test.e41c3b6b" \
   -o roger ./cmd/rogerai
 ./roger --version      # roger 6.10.0-test.e41c3b6b
 ```

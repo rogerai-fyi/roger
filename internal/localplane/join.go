@@ -14,8 +14,8 @@ import (
 	"net/http"
 	"slices"
 
-	"rogerai.fm/roger/v6/internal/protocol"
-	"rogerai.fm/roger/v6/internal/tower"
+	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/tower"
 )
 
 // JoinRequestBody is what a joiner posts.

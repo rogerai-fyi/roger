@@ -18,9 +18,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/cucumber/godog"
 
-	"rogerai.fm/roger/v6/internal/bddrun"
-	"rogerai.fm/roger/v6/internal/look"
-	"rogerai.fm/roger/v6/internal/tui"
+	"rogerai.fm/roger/v7/internal/bddrun"
+	"rogerai.fm/roger/v7/internal/look"
+	"rogerai.fm/roger/v7/internal/tui"
 )
 
 type welcomeHostBDD struct {

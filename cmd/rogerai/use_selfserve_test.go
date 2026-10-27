@@ -14,8 +14,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"rogerai.fm/roger/v6/internal/client"
-	"rogerai.fm/roger/v6/internal/localmodel"
+	"rogerai.fm/roger/v7/internal/client"
+	"rogerai.fm/roger/v7/internal/localmodel"
 )
 
 // edge_device_runtime.feature §3: `roger use <model>` prefers the model this machine serves, in

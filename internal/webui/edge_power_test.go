@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/edge"
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/edge"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 // The console's rule form offers every metric the fleet can judge: a rule the CLI can set and the

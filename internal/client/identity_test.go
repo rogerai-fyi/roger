@@ -4,7 +4,7 @@ import (
 	"net/url"
 	"testing"
 
-	"rogerai.fm/roger/v6/internal/lanmode"
+	"rogerai.fm/roger/v7/internal/lanmode"
 )
 
 func TestTargetsLANTowerScoping(t *testing.T) {

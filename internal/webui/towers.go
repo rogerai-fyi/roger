@@ -12,9 +12,9 @@ import (
 	"strconv"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/ownerjoin"
-	"rogerai.fm/roger/v6/internal/qr"
-	"rogerai.fm/roger/v6/internal/tower"
+	"rogerai.fm/roger/v7/internal/ownerjoin"
+	"rogerai.fm/roger/v7/internal/qr"
+	"rogerai.fm/roger/v7/internal/tower"
 )
 
 // towersView is GET /api/towers. Every line is the sentence the TUI shows (internal/ownerjoin).

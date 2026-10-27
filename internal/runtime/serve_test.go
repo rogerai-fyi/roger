@@ -29,7 +29,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"rogerai.fm/roger/v6/internal/runtime"
+	"rogerai.fm/roger/v7/internal/runtime"
 )
 
 // TestMain lets this binary act as the fake runtime when asked.

@@ -5,7 +5,7 @@ import (
 	"net"
 	"strings"
 
-	"rogerai.fm/roger/v6/internal/netpriv"
+	"rogerai.fm/roger/v7/internal/netpriv"
 )
 
 // Report is doctor's answer: what this Tower is, whether it can reach the public

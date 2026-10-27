@@ -19,8 +19,8 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/cucumber/godog"
 	"github.com/redis/go-redis/v9"
-	"rogerai.fm/roger/v6/internal/bddrun"
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/bddrun"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 type clState struct {

@@ -22,7 +22,7 @@ import (
 	"log"
 	"net/http"
 	"net/http/httptest"
-	"rogerai.fm/roger/v6/internal/bddrun"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"sort"
 	"strconv"
 	"strings"
@@ -34,8 +34,8 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/cucumber/godog"
-	"rogerai.fm/roger/v6/internal/protocol"
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 // --- virtual clock -----------------------------------------------------------

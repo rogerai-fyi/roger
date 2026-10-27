@@ -11,8 +11,8 @@ import (
 	"fmt"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/detect"
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/detect"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // ---- messages ----

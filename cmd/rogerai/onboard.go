@@ -9,10 +9,10 @@ import (
 
 	"github.com/charmbracelet/huh"
 	"github.com/mattn/go-isatty"
-	"rogerai.fm/roger/v6/internal/buildinfo"
-	"rogerai.fm/roger/v6/internal/detect"
-	"rogerai.fm/roger/v6/internal/netbind"
-	"rogerai.fm/roger/v6/internal/tui"
+	"rogerai.fm/roger/v7/internal/buildinfo"
+	"rogerai.fm/roger/v7/internal/detect"
+	"rogerai.fm/roger/v7/internal/netbind"
+	"rogerai.fm/roger/v7/internal/tui"
 )
 
 // The share setup (charmbracelet/huh), run by `roger onboard`: free (no login) or earn (set a

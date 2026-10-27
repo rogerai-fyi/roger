@@ -8,10 +8,10 @@ import (
 	"errors"
 	"log"
 
-	"rogerai.fm/roger/v6/internal/edgeauth"
-	"rogerai.fm/roger/v6/internal/localplane"
-	"rogerai.fm/roger/v6/internal/ownerjoin"
-	"rogerai.fm/roger/v6/internal/tower"
+	"rogerai.fm/roger/v7/internal/edgeauth"
+	"rogerai.fm/roger/v7/internal/localplane"
+	"rogerai.fm/roger/v7/internal/ownerjoin"
+	"rogerai.fm/roger/v7/internal/tower"
 )
 
 // edgeOwnerDir names the Edge authority among the places a join request waits; a Tower's is its

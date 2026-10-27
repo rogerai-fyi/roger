@@ -17,7 +17,7 @@ import (
 	"net/url"
 	"strings"
 
-	"rogerai.fm/roger/v6/internal/joincode"
+	"rogerai.fm/roger/v7/internal/joincode"
 )
 
 // Kind is what an invite lets its holder do.

@@ -8,13 +8,13 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"rogerai.fm/roger/v6/internal/bddrun"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strings"
 	"testing"
 
 	"github.com/cucumber/godog"
 
-	"rogerai.fm/roger/v6/internal/lanmode"
+	"rogerai.fm/roger/v7/internal/lanmode"
 )
 
 func TestOneBinaryJoinedServeBDD(t *testing.T) {

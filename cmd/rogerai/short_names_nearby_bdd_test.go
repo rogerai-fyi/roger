@@ -23,17 +23,17 @@ import (
 
 	"github.com/cucumber/godog"
 
-	"rogerai.fm/roger/v6/internal/bddrun"
-	"rogerai.fm/roger/v6/internal/client"
-	"rogerai.fm/roger/v6/internal/detect"
-	"rogerai.fm/roger/v6/internal/edge"
-	"rogerai.fm/roger/v6/internal/lanmode"
-	"rogerai.fm/roger/v6/internal/localmodel"
-	"rogerai.fm/roger/v6/internal/modelview"
-	"rogerai.fm/roger/v6/internal/provision"
-	"rogerai.fm/roger/v6/internal/servedfile"
-	"rogerai.fm/roger/v6/internal/tower"
-	"rogerai.fm/roger/v6/internal/webui"
+	"rogerai.fm/roger/v7/internal/bddrun"
+	"rogerai.fm/roger/v7/internal/client"
+	"rogerai.fm/roger/v7/internal/detect"
+	"rogerai.fm/roger/v7/internal/edge"
+	"rogerai.fm/roger/v7/internal/lanmode"
+	"rogerai.fm/roger/v7/internal/localmodel"
+	"rogerai.fm/roger/v7/internal/modelview"
+	"rogerai.fm/roger/v7/internal/provision"
+	"rogerai.fm/roger/v7/internal/servedfile"
+	"rogerai.fm/roger/v7/internal/tower"
+	"rogerai.fm/roger/v7/internal/webui"
 )
 
 const shortNamesFeature = "../../features/models/short_names_nearby.feature"

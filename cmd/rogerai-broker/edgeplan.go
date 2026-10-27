@@ -20,9 +20,9 @@ import (
 	"sort"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/protocol"
-	"rogerai.fm/roger/v6/internal/towercore/dispatch"
-	"rogerai.fm/roger/v6/internal/towercore/fleet"
+	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/towercore/dispatch"
+	"rogerai.fm/roger/v7/internal/towercore/fleet"
 )
 
 // edgeCand is a Tower routable row as the plan sees it.

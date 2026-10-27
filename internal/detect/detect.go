@@ -32,7 +32,7 @@ import (
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // Endpoint is a server roger itself started, with the key it was started behind.

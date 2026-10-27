@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"rogerai.fm/roger/v6/internal/tui"
+	"rogerai.fm/roger/v7/internal/tui"
 )
 
 func TestStripWebuiFlags(t *testing.T) {

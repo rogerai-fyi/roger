@@ -25,7 +25,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"rogerai.fm/roger/v6/internal/bddrun"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strings"
 	"sync"
 	"testing"
@@ -35,9 +35,9 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/cucumber/godog"
 
-	"rogerai.fm/roger/v6/internal/edge"
-	"rogerai.fm/roger/v6/internal/protocol"
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/edge"
+	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 // The session vocabulary the screen is specified in, written out LITERALLY here rather

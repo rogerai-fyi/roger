@@ -16,8 +16,8 @@ import (
 	"sync"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/edge"
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/edge"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 func edgeAlertLog() edge.AlertLog { return edge.AlertLog{Dir: filepath.Join(edgeAuthDir(), "alerts")} }

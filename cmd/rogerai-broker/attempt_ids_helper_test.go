@@ -10,8 +10,8 @@ import (
 	"fmt"
 	"strings"
 
-	"rogerai.fm/roger/v6/internal/protocol"
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 // maxTestAttempts bounds the attempts a scenario's plan can make (the relay attempt cap and any

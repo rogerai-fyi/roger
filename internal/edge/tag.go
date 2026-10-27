@@ -11,7 +11,7 @@ import (
 	"sort"
 	"strings"
 
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 // MaxTags bounds an owner's words on one node: enough to group a fleet, few enough to read on a row.

@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/edgeauth"
+	"rogerai.fm/roger/v7/internal/edgeauth"
 )
 
 // scanKind names what a request is for: the Edge's own discovery, or LAN mode's advertised

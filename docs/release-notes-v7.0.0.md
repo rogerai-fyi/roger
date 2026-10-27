@@ -6,7 +6,16 @@ release.
 
 Why a major version: `roger-tower` and `roger-tower-local` stop being programs of their own, and
 the Edge authority gains a TLS listener and a new presence version. Old names and old wire forms
-keep working for one release (details below). The Go module path is unchanged.
+keep working for one release (details below). And the Go module path moves to
+`rogerai.fm/roger/v7`, which is a breaking change for anyone importing the module.
+
+## The module path is `rogerai.fm/roger/v7`
+
+Go only considers tags whose major version matches the module path's suffix, so a v7 tag needs
+a /v7 path. Installing from source becomes `go install rogerai.fm/roger/v7/cmd/rogerai@latest`.
+`rogerai.fm/roger/v6` and `rogerai.fm/roger/v5` keep resolving from their own tags: their
+go-import pages stay served and the edge rule still covers them. Most people install with
+`install.sh` or a package manager and see no change.
 
 ## One program: `roger tower`
 
@@ -106,3 +115,10 @@ Upgrade the broker before relying on the new routing fields from a client. Run `
 each machine. An Edge authority on v7 still accepts the enrollment, claim and presence (v1 and v2)
 forms that earlier builds send, over the same plain listener. Upgrade the Edge authority before
 its members, so v3 presence and the phone paths have somewhere to go.
+
+## Deployment note
+
+The site must serve `/roger/v7/` (its go-import page) and the Cloudflare vanity-import rule must
+cover `/roger/v7` BEFORE the v7.0.0 tag is pushed, or the first `go install .../v7/...` resolves
+nothing. Ship the page from main first (branch wt/vanity-v7), re-apply the rule with
+`node web/scripts/cf-edge.mjs --apply`, confirm `--check` reports no drift for `/roger/v7`, then tag.

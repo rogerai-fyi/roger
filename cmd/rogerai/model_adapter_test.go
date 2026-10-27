@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"rogerai.fm/roger/v6/internal/detect/gguftest"
-	"rogerai.fm/roger/v6/internal/localmodel"
+	"rogerai.fm/roger/v7/internal/detect/gguftest"
+	"rogerai.fm/roger/v7/internal/localmodel"
 )
 
 // edge_device_runtime.feature §2: `roger model serve <base> --adapter <name|path>`. The adapter is

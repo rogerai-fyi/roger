@@ -22,7 +22,7 @@ import (
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/joincode"
+	"rogerai.fm/roger/v7/internal/joincode"
 )
 
 const (

@@ -6,8 +6,8 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
-	"rogerai.fm/roger/v6/internal/node"
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/node"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // Regression (slice-4 review): the CATEGORY column pushed SHARE rows past the terminal at

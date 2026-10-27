@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"rogerai.fm/roger/v6/internal/onair"
+	"rogerai.fm/roger/v7/internal/onair"
 )
 
 // TestAServingTowerIsListedForItsOwnersScreens: while serve runs, this user's TUI and console can

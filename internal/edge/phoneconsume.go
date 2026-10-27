@@ -51,7 +51,7 @@ import (
 	"sync"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/towercore/cert"
+	"rogerai.fm/roger/v7/internal/towercore/cert"
 )
 
 // The phone's paths on the authority listener.

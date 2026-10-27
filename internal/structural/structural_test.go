@@ -20,28 +20,28 @@ func (f *fakeT) Fatalf(format string, args ...any) {
 
 func TestForbidDeps(t *testing.T) {
 	f := &fakeT{}
-	ForbidDeps(f, "rogerai.fm/roger/v6/internal/netbind", []string{"rogerai.fm/roger/v6/internal/netpriv"})
-	require.Contains(t, f.msg, "links rogerai.fm/roger/v6/internal/netpriv")
+	ForbidDeps(f, "rogerai.fm/roger/v7/internal/netbind", []string{"rogerai.fm/roger/v7/internal/netpriv"})
+	require.Contains(t, f.msg, "links rogerai.fm/roger/v7/internal/netpriv")
 
 	f = &fakeT{}
-	ForbidDeps(f, "rogerai.fm/roger/v6/internal/netbind", []string{"rogerai.fm/roger/v6/internal/netpriv"}, "rogerai.fm/roger/v6/internal/netpriv")
+	ForbidDeps(f, "rogerai.fm/roger/v7/internal/netbind", []string{"rogerai.fm/roger/v7/internal/netpriv"}, "rogerai.fm/roger/v7/internal/netpriv")
 	require.Empty(t, f.msg, "an allowed package passes")
 
 	f = &fakeT{}
-	ForbidDeps(f, "rogerai.fm/roger/v6/internal/netpriv", []string{"rogerai.fm/roger/v6/internal/client"})
+	ForbidDeps(f, "rogerai.fm/roger/v7/internal/netpriv", []string{"rogerai.fm/roger/v7/internal/client"})
 	require.Empty(t, f.msg)
 }
 
 func TestDepsFailures(t *testing.T) {
 	f := &fakeT{}
-	DepsAtLeast(f, "rogerai.fm/roger/v6/internal/netpriv", 1000)
+	DepsAtLeast(f, "rogerai.fm/roger/v7/internal/netpriv", 1000)
 	require.Contains(t, f.msg, "did not enumerate the graph")
 
 	old := GoTool
 	GoTool = "go-that-does-not-exist"
 	defer func() { GoTool = old }()
 	f = &fakeT{}
-	require.Nil(t, Deps(f, "rogerai.fm/roger/v6/internal/netpriv"))
+	require.Nil(t, Deps(f, "rogerai.fm/roger/v7/internal/netpriv"))
 	require.Contains(t, f.msg, "proves nothing")
 }
 

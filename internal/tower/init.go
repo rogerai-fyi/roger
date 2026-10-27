@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"rogerai.fm/roger/v6/internal/filelock"
+	"rogerai.fm/roger/v7/internal/filelock"
 )
 
 // PublicNetworkID names the RogerAI public network. A standalone Tower mints its own

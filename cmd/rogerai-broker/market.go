@@ -6,8 +6,8 @@ import (
 	"sort"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/detect"
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/detect"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // discoverCacheKey / marketCacheKey are the ONE cache entry per public view. Nothing in either

@@ -15,12 +15,12 @@ import (
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/joininvite"
-	"rogerai.fm/roger/v6/internal/localplane"
-	"rogerai.fm/roger/v6/internal/onair"
-	"rogerai.fm/roger/v6/internal/qr"
-	"rogerai.fm/roger/v6/internal/tower"
-	"rogerai.fm/roger/v6/internal/toweradmin"
+	"rogerai.fm/roger/v7/internal/joininvite"
+	"rogerai.fm/roger/v7/internal/localplane"
+	"rogerai.fm/roger/v7/internal/onair"
+	"rogerai.fm/roger/v7/internal/qr"
+	"rogerai.fm/roger/v7/internal/tower"
+	"rogerai.fm/roger/v7/internal/toweradmin"
 )
 
 // addrList is a repeatable --at.

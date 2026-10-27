@@ -20,7 +20,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"rogerai.fm/roger/v6/internal/provision"
+	"rogerai.fm/roger/v7/internal/provision"
 )
 
 const verifiedMarker = ".verified-sha256"

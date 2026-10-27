@@ -18,7 +18,7 @@ import (
 	"time"
 
 	"github.com/cucumber/godog"
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // cancelBroker is the scripted broker: it hands out queued jobs on /agent/poll, answers the

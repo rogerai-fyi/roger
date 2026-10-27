@@ -9,7 +9,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"rogerai.fm/roger/v6/internal/tower"
+	"rogerai.fm/roger/v7/internal/tower"
 )
 
 // An Edge authority approves a device the same way (approve.feature:49): the same pairing, over

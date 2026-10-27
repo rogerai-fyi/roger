@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"rogerai.fm/roger/v6/internal/tower"
+	"rogerai.fm/roger/v7/internal/tower"
 )
 
 var lab = Tower{Dir: "/srv/lab", Label: "lab", Addr: "192.168.1.20:8787", FP: "9f3c-0000-1111-2222"}

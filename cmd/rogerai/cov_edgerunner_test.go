@@ -17,7 +17,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"rogerai.fm/roger/v6/internal/edge"
+	"rogerai.fm/roger/v7/internal/edge"
 )
 
 func TestEdgeLiveTurnDepsResolveWhatThisProcessHasOnAir(t *testing.T) {

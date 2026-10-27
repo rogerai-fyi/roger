@@ -3,9 +3,9 @@ package fleetview
 import (
 	lm "github.com/thebanri/limoni"
 
-	"rogerai.fm/roger/v6/internal/look"
+	"rogerai.fm/roger/v7/internal/look"
 
-	"rogerai.fm/roger/v6/internal/edge"
+	"rogerai.fm/roger/v7/internal/edge"
 )
 
 // The Edge palette is the radio TUI's instrument set on the warm ink ground: a 1950s receiver's

@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"rogerai.fm/roger/v6/internal/provision"
+	"rogerai.fm/roger/v7/internal/provision"
 )
 
 // A REAL fetch from the real source. It is gated behind LIVE=1 and never runs in CI, for the same

@@ -36,7 +36,7 @@ import (
 	"log"
 	"math"
 	"net/http"
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/protocol"
 	"sort"
 	"strconv"
 	"strings"
@@ -44,7 +44,7 @@ import (
 	"time"
 	"unicode"
 
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 const (

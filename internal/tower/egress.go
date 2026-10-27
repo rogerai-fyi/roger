@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"net"
 
-	"rogerai.fm/roger/v6/internal/netpriv"
+	"rogerai.fm/roger/v7/internal/netpriv"
 )
 
 // Egress control is what makes standalone isolation a PROOF rather than an omission.

@@ -21,12 +21,12 @@ import (
 	"sync"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/ctxsig"
-	"rogerai.fm/roger/v6/internal/protocol"
-	"rogerai.fm/roger/v6/internal/routingrules"
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/ctxsig"
+	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/routingrules"
+	"rogerai.fm/roger/v7/internal/store"
 
-	"rogerai.fm/roger/v6/internal/netpriv"
+	"rogerai.fm/roger/v7/internal/netpriv"
 )
 
 // nodeTTL is how long after a node's last heartbeat/poll it is still considered

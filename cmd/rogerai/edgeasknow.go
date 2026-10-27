@@ -13,8 +13,8 @@ import (
 	"sync"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/edge"
-	"rogerai.fm/roger/v6/internal/towercore/cert"
+	"rogerai.fm/roger/v7/internal/edge"
+	"rogerai.fm/roger/v7/internal/towercore/cert"
 )
 
 // edgeAskFloor is the closest two asks of one unit may be.

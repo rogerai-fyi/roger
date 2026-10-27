@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"rogerai.fm/roger/v6/internal/joincode"
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/joincode"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // joinClient is a client's key, the hash admission records, and the hex public key the proof binds.

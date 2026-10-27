@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/protocol"
 
-	"rogerai.fm/roger/v6/internal/keyfile"
+	"rogerai.fm/roger/v7/internal/keyfile"
 )
 
 // jsonServer is a tiny per-test broker stub that answers every request with the given

@@ -10,7 +10,7 @@ package ownerjoin
 import (
 	"fmt"
 
-	"rogerai.fm/roger/v6/internal/tower"
+	"rogerai.fm/roger/v7/internal/tower"
 )
 
 // Tower is a Tower this user serves right now: its data directory (where its admin socket is),

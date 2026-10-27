@@ -12,7 +12,7 @@ import (
 	"net/http/httptest"
 	"net/http/httputil"
 	"net/url"
-	"rogerai.fm/roger/v6/internal/bddrun"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -20,8 +20,8 @@ import (
 
 	"github.com/cucumber/godog"
 
-	"rogerai.fm/roger/v6/internal/client"
-	"rogerai.fm/roger/v6/internal/edge"
+	"rogerai.fm/roger/v7/internal/client"
+	"rogerai.fm/roger/v7/internal/edge"
 )
 
 type lanMoneyBDD struct {

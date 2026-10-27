@@ -5,7 +5,7 @@ import (
 	"errors"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/pgmigrate"
+	"rogerai.fm/roger/v7/internal/pgmigrate"
 )
 
 // The privacy promise is STRUCTURAL: no stored row ever carries an attempt id BESIDE a

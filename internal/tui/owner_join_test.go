@@ -9,8 +9,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/stretchr/testify/require"
 
-	"rogerai.fm/roger/v6/internal/ownerjoin"
-	towerpkg "rogerai.fm/roger/v6/internal/tower"
+	"rogerai.fm/roger/v7/internal/ownerjoin"
+	towerpkg "rogerai.fm/roger/v7/internal/tower"
 )
 
 // ownerFake is the owner's side as the host would fill it, held in memory: the end-to-end

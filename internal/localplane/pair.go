@@ -23,9 +23,9 @@ import (
 	"sync"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/joinsas"
-	"rogerai.fm/roger/v6/internal/protocol"
-	"rogerai.fm/roger/v6/internal/tower"
+	"rogerai.fm/roger/v7/internal/joinsas"
+	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/tower"
 )
 
 const (

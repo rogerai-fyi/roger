@@ -11,7 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"rogerai.fm/roger/v6/internal/towerpin"
+	"rogerai.fm/roger/v7/internal/towerpin"
 	"strings"
 	"testing"
 	"time"
@@ -19,7 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"net"
-	"rogerai.fm/roger/v6/internal/tower"
+	"rogerai.fm/roger/v7/internal/tower"
 )
 
 func standaloneDir(t *testing.T) string {

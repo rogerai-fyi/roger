@@ -5,7 +5,7 @@ import (
 	"os"
 	"strings"
 
-	"rogerai.fm/roger/v6/internal/tower"
+	"rogerai.fm/roger/v7/internal/tower"
 )
 
 // ForConfig returns the store a Tower command must use: the data directory st, or, when the

@@ -19,13 +19,13 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/cucumber/godog"
 
-	"rogerai.fm/roger/v6/internal/edge"
-	"rogerai.fm/roger/v6/internal/edgeauth"
-	"rogerai.fm/roger/v6/internal/joininvite"
-	"rogerai.fm/roger/v6/internal/look"
-	"rogerai.fm/roger/v6/internal/ownerjoin"
-	"rogerai.fm/roger/v6/internal/store"
-	towerpkg "rogerai.fm/roger/v6/internal/tower"
+	"rogerai.fm/roger/v7/internal/edge"
+	"rogerai.fm/roger/v7/internal/edgeauth"
+	"rogerai.fm/roger/v7/internal/joininvite"
+	"rogerai.fm/roger/v7/internal/look"
+	"rogerai.fm/roger/v7/internal/ownerjoin"
+	"rogerai.fm/roger/v7/internal/store"
+	towerpkg "rogerai.fm/roger/v7/internal/tower"
 )
 
 // nearbyFixture is §7's world: the devices pinging, their node keys (a node id is derived from a

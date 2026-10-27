@@ -12,7 +12,7 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/stretchr/testify/require"
-	"rogerai.fm/roger/v6/internal/pgtest"
+	"rogerai.fm/roger/v7/internal/pgtest"
 )
 
 func stores(t *testing.T) map[string]Store {

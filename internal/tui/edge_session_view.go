@@ -23,8 +23,8 @@ import (
 	"strconv"
 	"strings"
 
-	"rogerai.fm/roger/v6/internal/edge"
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/edge"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // The session vocabulary. Three DIFFERENT glyphs, not three colours: the TUI's palette is

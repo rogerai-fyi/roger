@@ -20,7 +20,7 @@ import (
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/towercore/cert"
+	"rogerai.fm/roger/v7/internal/towercore/cert"
 )
 
 // The files a machine's Edge directory holds. They are named rather than assembled at

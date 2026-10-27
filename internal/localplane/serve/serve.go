@@ -21,19 +21,19 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"rogerai.fm/roger/v6/internal/towerpin"
+	"rogerai.fm/roger/v7/internal/towerpin"
 	"strconv"
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/coreclient"
-	"rogerai.fm/roger/v6/internal/egressguard"
-	"rogerai.fm/roger/v6/internal/localplane"
-	"rogerai.fm/roger/v6/internal/netbind"
-	"rogerai.fm/roger/v6/internal/onair"
-	"rogerai.fm/roger/v6/internal/tower"
-	"rogerai.fm/roger/v6/internal/toweradmin"
-	"rogerai.fm/roger/v6/internal/towerstore"
+	"rogerai.fm/roger/v7/internal/coreclient"
+	"rogerai.fm/roger/v7/internal/egressguard"
+	"rogerai.fm/roger/v7/internal/localplane"
+	"rogerai.fm/roger/v7/internal/netbind"
+	"rogerai.fm/roger/v7/internal/onair"
+	"rogerai.fm/roger/v7/internal/tower"
+	"rogerai.fm/roger/v7/internal/toweradmin"
+	"rogerai.fm/roger/v7/internal/towerstore"
 )
 
 // Prepared is a consumer plane wired and bound, ready to serve. Splitting preparation from

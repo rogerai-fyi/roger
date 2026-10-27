@@ -24,12 +24,12 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/cucumber/godog"
 
-	"rogerai.fm/roger/v6/internal/bddrun"
-	"rogerai.fm/roger/v6/internal/edgeauth"
-	"rogerai.fm/roger/v6/internal/joininvite"
-	"rogerai.fm/roger/v6/internal/towercli"
-	"rogerai.fm/roger/v6/internal/towerpin"
-	"rogerai.fm/roger/v6/internal/tui"
+	"rogerai.fm/roger/v7/internal/bddrun"
+	"rogerai.fm/roger/v7/internal/edgeauth"
+	"rogerai.fm/roger/v7/internal/joininvite"
+	"rogerai.fm/roger/v7/internal/towercli"
+	"rogerai.fm/roger/v7/internal/towerpin"
+	"rogerai.fm/roger/v7/internal/tui"
 )
 
 const surfacesFeature = "../../features/join/surfaces.feature"

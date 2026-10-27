@@ -25,8 +25,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/edge"
-	"rogerai.fm/roger/v6/internal/harness"
+	"rogerai.fm/roger/v7/internal/edge"
+	"rogerai.fm/roger/v7/internal/harness"
 )
 
 // edgeDelegateTimeout bounds a delegated turn (control.feature: an invoke is bounded in time).

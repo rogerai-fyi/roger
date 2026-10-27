@@ -12,8 +12,8 @@ import (
 	"sort"
 	"strings"
 
-	"rogerai.fm/roger/v6/internal/detect"
-	"rogerai.fm/roger/v6/internal/routingrules"
+	"rogerai.fm/roger/v7/internal/detect"
+	"rogerai.fm/roger/v7/internal/routingrules"
 )
 
 // lanUnknownClass is the one refusal for a @class/ alias the class table does not know, the same

@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/edge"
+	"rogerai.fm/roger/v7/internal/edge"
 )
 
 type edgeJoinPromptRun struct {

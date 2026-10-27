@@ -9,7 +9,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"encoding/hex"
-	"rogerai.fm/roger/v6/internal/bddrun"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"testing"
 	"time"
 

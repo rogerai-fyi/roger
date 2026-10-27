@@ -1,7 +1,7 @@
 package store
 
 import (
-	"rogerai.fm/roger/v6/internal/pgtest"
+	"rogerai.fm/roger/v7/internal/pgtest"
 	"testing"
 	"time"
 )

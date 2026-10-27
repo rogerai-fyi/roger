@@ -13,7 +13,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"rogerai.fm/roger/v6/internal/modelview"
+	"rogerai.fm/roger/v7/internal/modelview"
 )
 
 type nearbyFake struct {

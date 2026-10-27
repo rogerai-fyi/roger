@@ -16,13 +16,13 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
-	"rogerai.fm/roger/v6/internal/ownerjoin"
+	"rogerai.fm/roger/v7/internal/ownerjoin"
 	"strings"
 	"sync"
 
-	"rogerai.fm/roger/v6/internal/client"
-	"rogerai.fm/roger/v6/internal/netbind"
-	"rogerai.fm/roger/v6/internal/node"
+	"rogerai.fm/roger/v7/internal/client"
+	"rogerai.fm/roger/v7/internal/netbind"
+	"rogerai.fm/roger/v7/internal/node"
 )
 
 //go:embed assets/*

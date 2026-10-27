@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"rogerai.fm/roger/v6/internal/joincode"
+	"rogerai.fm/roger/v7/internal/joincode"
 )
 
 const fp = "9f3c0000000000000000000000000000000000000000000000000000000000e1"

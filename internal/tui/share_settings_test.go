@@ -12,7 +12,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/stretchr/testify/require"
 
-	"rogerai.fm/roger/v6/internal/modelview"
+	"rogerai.fm/roger/v7/internal/modelview"
 )
 
 func settingsView() modelview.View {

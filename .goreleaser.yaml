@@ -37,7 +37,7 @@ builds:
       - goos: darwin
         goarch: arm
     flags: [-trimpath]
-    ldflags: ["-s -w -X rogerai.fm/roger/v6/internal/buildinfo.Version={{.Version}}"]
+    ldflags: ["-s -w -X rogerai.fm/roger/v7/internal/buildinfo.Version={{.Version}}"]
   - id: roger-win
     main: ./cmd/rogerai
     binary: roger
@@ -45,7 +45,7 @@ builds:
     goos: [windows]
     goarch: [amd64, arm64]
     flags: [-trimpath]
-    ldflags: ["-s -w -X rogerai.fm/roger/v6/internal/buildinfo.Version={{.Version}}"]
+    ldflags: ["-s -w -X rogerai.fm/roger/v7/internal/buildinfo.Version={{.Version}}"]
   # The one-release stand-ins: `roger-tower` and `roger-tower-local` print one deprecation line
   # and hand off to `roger tower` (internal/towershim). Linux only, where the old binaries
   # shipped; the next release removes them. A Tower itself is `roger tower`, in roger above.

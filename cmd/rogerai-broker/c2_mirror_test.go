@@ -13,8 +13,8 @@ import (
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
-	"rogerai.fm/roger/v6/internal/protocol"
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 // TestMultiInstanceRegistryMirrorEnablesCrossInstance is the C2 regression guard. Unlike

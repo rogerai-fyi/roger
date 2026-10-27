@@ -18,7 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"rogerai.fm/roger/v6/internal/routingrules"
+	"rogerai.fm/roger/v7/internal/routingrules"
 	"sort"
 	"strings"
 	"sync"

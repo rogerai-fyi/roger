@@ -23,7 +23,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 // mirrorSession is what crosses processes: the drawn fields only.

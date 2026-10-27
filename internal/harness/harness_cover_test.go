@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/client"
+	"rogerai.fm/roger/v7/internal/client"
 )
 
 // TestBrokerCompleterConfidentialHeader: a confidential agent turn tells the relay it is

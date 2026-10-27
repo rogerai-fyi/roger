@@ -14,12 +14,12 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"rogerai.fm/roger/v6/internal/bddrun"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"testing"
 	"time"
 
 	"github.com/cucumber/godog"
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // suState wraps the namespacing harness with the last-registered offer + station so the

@@ -15,7 +15,7 @@ import (
 	"time"
 
 	"github.com/cucumber/godog"
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 func (k *kg5State) registerReview(sc *godog.ScenarioContext) {

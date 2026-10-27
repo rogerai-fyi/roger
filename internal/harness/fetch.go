@@ -24,7 +24,7 @@ import (
 
 	"golang.org/x/text/encoding/charmap"
 
-	"rogerai.fm/roger/v6/internal/netpriv"
+	"rogerai.fm/roger/v7/internal/netpriv"
 )
 
 // maxFetchBytes caps a web_fetch body read.

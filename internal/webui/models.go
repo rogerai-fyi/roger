@@ -14,7 +14,7 @@ import (
 	"strconv"
 	"strings"
 
-	"rogerai.fm/roger/v6/internal/modelview"
+	"rogerai.fm/roger/v7/internal/modelview"
 )
 
 // The shapes live in internal/modelview so the TUI draws from the same hooks as this page.

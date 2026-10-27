@@ -30,8 +30,8 @@ import (
 	"github.com/cucumber/godog"
 	"gopkg.in/yaml.v3"
 
-	"rogerai.fm/roger/v6/internal/bddrun"
-	"rogerai.fm/roger/v6/internal/tower"
+	"rogerai.fm/roger/v7/internal/bddrun"
+	"rogerai.fm/roger/v7/internal/tower"
 )
 
 type pkgBDD struct {

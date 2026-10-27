@@ -14,9 +14,9 @@ import (
 
 	"github.com/thebanri/limoni/uitest"
 
-	"rogerai.fm/roger/v6/internal/edge"
-	"rogerai.fm/roger/v6/internal/fleetview"
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/edge"
+	"rogerai.fm/roger/v7/internal/fleetview"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 func fleet(now time.Time) []edge.NodeHealth {

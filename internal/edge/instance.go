@@ -32,8 +32,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/onair"
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/onair"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 // Instance is what a running roger says about itself. It is the store's record, kept as one

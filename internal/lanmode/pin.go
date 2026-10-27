@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/towerpin"
+	"rogerai.fm/roger/v7/internal/towerpin"
 )
 
 var (

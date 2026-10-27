@@ -5,7 +5,7 @@ import (
 	"slices"
 	"strings"
 
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // inferRules are the ordered, conservative id hints behind InferTaxonomy

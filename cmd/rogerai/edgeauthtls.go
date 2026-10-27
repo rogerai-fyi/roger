@@ -23,8 +23,8 @@ import (
 	"sync"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/edgeauth"
-	"rogerai.fm/roger/v6/internal/towercore/cert"
+	"rogerai.fm/roger/v7/internal/edgeauth"
+	"rogerai.fm/roger/v7/internal/towercore/cert"
 )
 
 // The headers every plain-listener answer carries once the TLS listener is up, so a phone that

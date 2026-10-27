@@ -34,7 +34,7 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // dispatchMode is the rollout switch (ROGERAI_DISPATCH). Every mode's pollers serve BOTH the

@@ -13,8 +13,8 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/stretchr/testify/require"
-	"rogerai.fm/roger/v6/internal/pgtest"
-	"rogerai.fm/roger/v6/internal/towercore/admit"
+	"rogerai.fm/roger/v7/internal/pgtest"
+	"rogerai.fm/roger/v7/internal/towercore/admit"
 )
 
 func durableStore(t *testing.T) Store {

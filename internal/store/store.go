@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // Entry is one settled request, as surfaced to dashboards. It carries the real

@@ -16,10 +16,10 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"rogerai.fm/roger/v6/internal/station"
-	"rogerai.fm/roger/v6/internal/towercore/dispatch"
-	"rogerai.fm/roger/v6/internal/towercore/link"
-	"rogerai.fm/roger/v6/internal/towerhub"
+	"rogerai.fm/roger/v7/internal/station"
+	"rogerai.fm/roger/v7/internal/towercore/dispatch"
+	"rogerai.fm/roger/v7/internal/towercore/link"
+	"rogerai.fm/roger/v7/internal/towerhub"
 	"time"
 )
 

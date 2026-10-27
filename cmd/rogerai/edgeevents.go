@@ -10,7 +10,7 @@ import (
 	"os"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/edge"
+	"rogerai.fm/roger/v7/internal/edge"
 )
 
 // edgeEventsRead is the timeline as the surfaces want it, plus a note when the alert history could

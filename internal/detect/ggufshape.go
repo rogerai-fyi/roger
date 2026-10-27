@@ -27,7 +27,7 @@ import (
 	"os"
 	"strings"
 
-	"rogerai.fm/roger/v6/internal/catalog"
+	"rogerai.fm/roger/v7/internal/catalog"
 )
 
 // WHY A SHAPE COULD NOT BE READ. These are values rather than a bare false because the four

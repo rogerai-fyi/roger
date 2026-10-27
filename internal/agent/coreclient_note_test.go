@@ -3,8 +3,8 @@ package agent
 import (
 	"testing"
 
-	"rogerai.fm/roger/v6/internal/coreclient"
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/coreclient"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // TestMarketRegistrationMarksItself pins features/packaging/one_binary.feature section 4: a

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/edge"
+	"rogerai.fm/roger/v7/internal/edge"
 )
 
 // edgeJobsDir is where the durable agent-assignment records live (jobs.feature), beside the

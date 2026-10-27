@@ -20,11 +20,11 @@ import (
 	"fmt"
 	"net"
 	"net/url"
-	"rogerai.fm/roger/v6/internal/joininvite"
+	"rogerai.fm/roger/v7/internal/joininvite"
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/edgeauth"
+	"rogerai.fm/roger/v7/internal/edgeauth"
 )
 
 // edgeNow is the joiner's clock. A seam so the spec can say "the owner typed it sixteen minutes

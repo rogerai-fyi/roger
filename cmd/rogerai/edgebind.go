@@ -3,8 +3,8 @@ package main
 import (
 	"net"
 
-	"rogerai.fm/roger/v6/internal/netbind"
-	"rogerai.fm/roger/v6/internal/netpriv"
+	"rogerai.fm/roger/v7/internal/netbind"
+	"rogerai.fm/roger/v7/internal/netpriv"
 )
 
 // edgeInterfaceAddrs, edgeIsLoopback and edgeIsPrivate are this machine's interface addresses and

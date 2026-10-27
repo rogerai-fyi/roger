@@ -13,7 +13,7 @@ import (
 	"github.com/cucumber/godog"
 	"github.com/muesli/termenv"
 
-	"rogerai.fm/roger/v6/internal/bddrun"
+	"rogerai.fm/roger/v7/internal/bddrun"
 )
 
 func TestLANEdgeOnlyTUIBDD(t *testing.T) {

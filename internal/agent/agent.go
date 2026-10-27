@@ -22,17 +22,17 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"rogerai.fm/roger/v6/internal/coreclient"
+	"rogerai.fm/roger/v7/internal/coreclient"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/client"
-	"rogerai.fm/roger/v6/internal/keyfile"
-	"rogerai.fm/roger/v6/internal/protocol"
-	"rogerai.fm/roger/v6/internal/servedfile"
+	"rogerai.fm/roger/v7/internal/client"
+	"rogerai.fm/roger/v7/internal/keyfile"
+	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/servedfile"
 )
 
 // shareFeeRate is the platform take used only to ESTIMATE the session's live

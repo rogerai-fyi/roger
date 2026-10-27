@@ -24,9 +24,9 @@ import (
 	"sync"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/protocol"
-	"rogerai.fm/roger/v6/internal/servedfile"
-	"rogerai.fm/roger/v6/internal/tower"
+	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/servedfile"
+	"rogerai.fm/roger/v7/internal/tower"
 )
 
 // maxAuthBody bounds how much of a request body the plane reads to verify a signature. A

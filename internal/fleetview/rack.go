@@ -15,8 +15,8 @@ import (
 
 	lm "github.com/thebanri/limoni"
 
-	"rogerai.fm/roger/v6/internal/edge"
-	"rogerai.fm/roger/v6/internal/look"
+	"rogerai.fm/roger/v7/internal/edge"
+	"rogerai.fm/roger/v7/internal/look"
 )
 
 const meterCells = 9

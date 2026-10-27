@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/edge"
+	"rogerai.fm/roger/v7/internal/edge"
 )
 
 func cmdEdgeLogs(cfg config, args []string) error {

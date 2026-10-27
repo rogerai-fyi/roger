@@ -5,15 +5,15 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"rogerai.fm/roger/v6/internal/ownerjoin"
+	"rogerai.fm/roger/v7/internal/ownerjoin"
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/client"
-	"rogerai.fm/roger/v6/internal/edge"
-	"rogerai.fm/roger/v6/internal/node"
-	"rogerai.fm/roger/v6/internal/tui"
-	"rogerai.fm/roger/v6/internal/webui"
+	"rogerai.fm/roger/v7/internal/client"
+	"rogerai.fm/roger/v7/internal/edge"
+	"rogerai.fm/roger/v7/internal/node"
+	"rogerai.fm/roger/v7/internal/tui"
+	"rogerai.fm/roger/v7/internal/webui"
 )
 
 // defaultWebuiPort is where the browser node console binds first; if it's taken the

@@ -27,7 +27,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"rogerai.fm/roger/v6/internal/bddrun"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -35,7 +35,7 @@ import (
 	"time"
 
 	"github.com/cucumber/godog"
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 type cnState struct {

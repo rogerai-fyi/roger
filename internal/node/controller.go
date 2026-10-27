@@ -14,17 +14,17 @@ package node
 import (
 	"errors"
 	"io"
-	"rogerai.fm/roger/v6/internal/servedfile"
+	"rogerai.fm/roger/v7/internal/servedfile"
 	"slices"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/agent"
-	"rogerai.fm/roger/v6/internal/detect"
-	"rogerai.fm/roger/v6/internal/onair"
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/agent"
+	"rogerai.fm/roger/v7/internal/detect"
+	"rogerai.fm/roger/v7/internal/onair"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // DefaultMaxOnAir is the SOFT local on-air cap used when the host supplies none. A

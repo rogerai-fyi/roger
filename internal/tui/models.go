@@ -18,8 +18,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"rogerai.fm/roger/v6/internal/modelview"
-	"rogerai.fm/roger/v6/internal/provision"
+	"rogerai.fm/roger/v7/internal/modelview"
+	"rogerai.fm/roger/v7/internal/provision"
 )
 
 type modelsPane int

@@ -12,8 +12,8 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"rogerai.fm/roger/v6/internal/agent"
-	"rogerai.fm/roger/v6/internal/look"
+	"rogerai.fm/roger/v7/internal/agent"
+	"rogerai.fm/roger/v7/internal/look"
 )
 
 // shortTerminal reports a window with no rows to spare for decoration. A frame taller than

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/detect"
+	"rogerai.fm/roger/v7/internal/detect"
 )
 
 // detectHWClass returns the PRIVACY-BUCKETED hardware class a Linux node advertises:

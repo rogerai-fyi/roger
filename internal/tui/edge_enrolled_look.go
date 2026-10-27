@@ -21,9 +21,9 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
-	"rogerai.fm/roger/v6/internal/edge"
-	"rogerai.fm/roger/v6/internal/glyphs"
-	"rogerai.fm/roger/v6/internal/look"
+	"rogerai.fm/roger/v7/internal/edge"
+	"rogerai.fm/roger/v7/internal/glyphs"
+	"rogerai.fm/roger/v7/internal/look"
 )
 
 // edgeRailCardW is a rail card's width after its rail; edgeRailCardText the text a row holds.

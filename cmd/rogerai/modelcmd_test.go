@@ -1,7 +1,7 @@
 package main
 
 import (
-	"rogerai.fm/roger/v6/internal/edge/wire"
+	"rogerai.fm/roger/v7/internal/edge/wire"
 
 	"bufio"
 	"bytes"
@@ -25,11 +25,11 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"rogerai.fm/roger/v6/internal/detect"
-	"rogerai.fm/roger/v6/internal/hfhub"
-	"rogerai.fm/roger/v6/internal/localmodel"
-	"rogerai.fm/roger/v6/internal/provision"
-	"rogerai.fm/roger/v6/internal/runtime"
+	"rogerai.fm/roger/v7/internal/detect"
+	"rogerai.fm/roger/v7/internal/hfhub"
+	"rogerai.fm/roger/v7/internal/localmodel"
+	"rogerai.fm/roger/v7/internal/provision"
+	"rogerai.fm/roger/v7/internal/runtime"
 )
 
 // TestMain lets this test binary stand in for the inference runtime, reading the same command line

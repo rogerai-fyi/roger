@@ -15,7 +15,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"rogerai.fm/roger/v6/internal/modelview"
+	"rogerai.fm/roger/v7/internal/modelview"
 )
 
 func nearbyRig(t *testing.T) (*httptest.Server, string, *[]modelview.NearbyPick) {

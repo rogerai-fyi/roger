@@ -19,7 +19,7 @@ import (
 	"sync"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // genRecordTTL is how long a record stays readable. The contract ties readability to the

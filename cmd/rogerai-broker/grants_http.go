@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 // The /grants endpoints (GRANT-KEYS-DESIGN section 6.1). All are owner-auth via

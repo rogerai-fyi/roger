@@ -21,7 +21,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/tower"
+	"rogerai.fm/roger/v7/internal/tower"
 )
 
 // SocketName is the admin socket's file name inside the data directory.

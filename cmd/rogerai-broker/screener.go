@@ -11,7 +11,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 // screener is the OFF-PATH content screen for the paid chat relay (ROGERAI_MODERATION_MODE=

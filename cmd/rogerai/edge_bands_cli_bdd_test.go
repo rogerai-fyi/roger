@@ -7,7 +7,7 @@ package main
 import (
 	"context"
 	"fmt"
-	"rogerai.fm/roger/v6/internal/bddrun"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strings"
 	"testing"
 	"time"
@@ -15,7 +15,7 @@ import (
 	"github.com/cucumber/godog"
 	"github.com/stretchr/testify/require"
 
-	"rogerai.fm/roger/v6/internal/edge"
+	"rogerai.fm/roger/v7/internal/edge"
 )
 
 type bandsCLIBDD struct {

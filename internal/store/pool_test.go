@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/pgtest"
+	"rogerai.fm/roger/v7/internal/pgtest"
 )
 
 // The broker's managed Postgres is a small shared cluster (~22 usable backend

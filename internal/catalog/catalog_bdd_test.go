@@ -12,7 +12,7 @@ package catalog
 import (
 	"context"
 	"fmt"
-	"rogerai.fm/roger/v6/internal/bddrun"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strconv"
 	"strings"
 	"testing"

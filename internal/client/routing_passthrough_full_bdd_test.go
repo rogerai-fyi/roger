@@ -42,7 +42,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
-	"rogerai.fm/roger/v6/internal/bddrun"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strconv"
 	"strings"
 	"testing"
@@ -50,7 +50,7 @@ import (
 
 	"github.com/cucumber/godog"
 	messages "github.com/cucumber/messages/go/v21"
-	"rogerai.fm/roger/v6/internal/operator"
+	"rogerai.fm/roger/v7/internal/operator"
 )
 
 type cf4pResp struct {

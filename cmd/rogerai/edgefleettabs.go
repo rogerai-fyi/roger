@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/client"
-	"rogerai.fm/roger/v6/internal/edge"
-	"rogerai.fm/roger/v6/internal/fleetview"
+	"rogerai.fm/roger/v7/internal/client"
+	"rogerai.fm/roger/v7/internal/edge"
+	"rogerai.fm/roger/v7/internal/fleetview"
 )
 
 // edgeGrantLines is every grant as the screen lists it: facts and standing, never a secret.

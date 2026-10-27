@@ -12,7 +12,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"rogerai.fm/roger/v6/internal/client"
+	"rogerai.fm/roger/v7/internal/client"
 )
 
 type limFieldKind int

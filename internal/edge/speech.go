@@ -15,7 +15,7 @@ import (
 	"net/http"
 	"strings"
 
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // SpeechPath is the face's text-to-speech endpoint.

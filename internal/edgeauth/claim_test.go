@@ -8,7 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"rogerai.fm/roger/v6/internal/edgeauth"
+	"rogerai.fm/roger/v7/internal/edgeauth"
 )
 
 func claimFixture(t *testing.T) (*edgeauth.Local, ed25519.PublicKey, ed25519.PrivateKey, string) {

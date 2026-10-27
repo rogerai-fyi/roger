@@ -29,12 +29,12 @@ import (
 
 	"github.com/cucumber/godog"
 
-	"rogerai.fm/roger/v6/internal/agent"
-	"rogerai.fm/roger/v6/internal/bddrun"
-	"rogerai.fm/roger/v6/internal/client"
+	"rogerai.fm/roger/v7/internal/agent"
+	"rogerai.fm/roger/v7/internal/bddrun"
+	"rogerai.fm/roger/v7/internal/client"
 )
 
-const stampModule = "rogerai.fm/roger/v6/internal/buildinfo.Version"
+const stampModule = "rogerai.fm/roger/v7/internal/buildinfo.Version"
 
 type obD struct {
 	t        *testing.T

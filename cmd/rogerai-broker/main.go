@@ -26,8 +26,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"rogerai.fm/roger/v6/internal/buildinfo"
-	"rogerai.fm/roger/v6/internal/tokenizer"
+	"rogerai.fm/roger/v7/internal/buildinfo"
+	"rogerai.fm/roger/v7/internal/tokenizer"
 	"strconv"
 	"strings"
 	"sync"
@@ -36,10 +36,10 @@ import (
 	"time"
 
 	"golang.org/x/sync/singleflight"
-	"rogerai.fm/roger/v6/internal/deviceauth"
-	"rogerai.fm/roger/v6/internal/emailauth"
-	"rogerai.fm/roger/v6/internal/protocol"
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/deviceauth"
+	"rogerai.fm/roger/v7/internal/emailauth"
+	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 // version is the one build version (internal/buildinfo), stamped by the release pipeline.

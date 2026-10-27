@@ -29,8 +29,8 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"rogerai.fm/roger/v6/internal/bddrun"
-	"rogerai.fm/roger/v6/internal/look"
+	"rogerai.fm/roger/v7/internal/bddrun"
+	"rogerai.fm/roger/v7/internal/look"
 	"strconv"
 	"strings"
 	"sync"
@@ -39,9 +39,9 @@ import (
 
 	"github.com/cucumber/godog"
 
-	"rogerai.fm/roger/v6/internal/edge"
-	"rogerai.fm/roger/v6/internal/store"
-	"rogerai.fm/roger/v6/internal/towercore/cert"
+	"rogerai.fm/roger/v7/internal/edge"
+	"rogerai.fm/roger/v7/internal/store"
+	"rogerai.fm/roger/v7/internal/towercore/cert"
 )
 
 // --- the loopback packet bus (a multicast group made of real UDP sockets) ---

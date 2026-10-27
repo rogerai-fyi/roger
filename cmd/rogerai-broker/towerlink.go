@@ -36,10 +36,10 @@ import (
 
 	"errors"
 
-	"rogerai.fm/roger/v6/internal/towercore/admit"
-	"rogerai.fm/roger/v6/internal/towercore/attach"
-	"rogerai.fm/roger/v6/internal/towercore/inv"
-	"rogerai.fm/roger/v6/internal/towercore/link"
+	"rogerai.fm/roger/v7/internal/towercore/admit"
+	"rogerai.fm/roger/v7/internal/towercore/attach"
+	"rogerai.fm/roger/v7/internal/towercore/inv"
+	"rogerai.fm/roger/v7/internal/towercore/link"
 )
 
 // maxInventoryBody bounds what a Tower may push in one request. towerinv enforces its own

@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/edge"
-	"rogerai.fm/roger/v6/internal/fleetview"
+	"rogerai.fm/roger/v7/internal/edge"
+	"rogerai.fm/roger/v7/internal/fleetview"
 )
 
 // edgeRunHealthScreen opens the live health screen (a seam: the test records the call).

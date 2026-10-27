@@ -7,12 +7,12 @@ package edge_test
 
 import (
 	"context"
-	"rogerai.fm/roger/v6/internal/bddrun"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"testing"
 
 	"github.com/cucumber/godog"
 
-	"rogerai.fm/roger/v6/internal/edge"
+	"rogerai.fm/roger/v7/internal/edge"
 )
 
 func TestLANTrustEdgeBDD(t *testing.T) {

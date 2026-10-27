@@ -11,10 +11,10 @@ import (
 	"fmt"
 	"sort"
 
-	"rogerai.fm/roger/v6/internal/client"
-	"rogerai.fm/roger/v6/internal/edge"
-	"rogerai.fm/roger/v6/internal/onair"
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/client"
+	"rogerai.fm/roger/v7/internal/edge"
+	"rogerai.fm/roger/v7/internal/onair"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // edgeSpeechOf resolves a voice band this PROCESS has on air to its local text-to-speech URL; set

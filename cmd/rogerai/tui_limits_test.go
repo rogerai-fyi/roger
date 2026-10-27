@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	"rogerai.fm/roger/v6/internal/tui"
+	"rogerai.fm/roger/v7/internal/tui"
 
 	"github.com/stretchr/testify/require"
 )

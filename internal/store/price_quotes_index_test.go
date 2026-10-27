@@ -5,7 +5,7 @@ package store
 // Postgres only (the in-memory store has no query planner).
 
 import (
-	"rogerai.fm/roger/v6/internal/pgtest"
+	"rogerai.fm/roger/v7/internal/pgtest"
 	"testing"
 
 	"github.com/stretchr/testify/require"

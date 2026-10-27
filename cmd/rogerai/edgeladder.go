@@ -15,9 +15,9 @@ import (
 	"errors"
 	"fmt"
 
-	"rogerai.fm/roger/v6/internal/client"
-	"rogerai.fm/roger/v6/internal/edge"
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/client"
+	"rogerai.fm/roger/v7/internal/edge"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // edgePeersFor is the EdgePeers callback: the peers on this Edge that can serve a band right

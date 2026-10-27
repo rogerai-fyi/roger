@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"io"
 
-	"rogerai.fm/roger/v6/internal/towerpin"
+	"rogerai.fm/roger/v7/internal/towerpin"
 )
 
 func cmdRotateKey(args []string, out io.Writer) error {

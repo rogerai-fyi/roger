@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"rogerai.fm/roger/v6/internal/lanmode"
+	"rogerai.fm/roger/v7/internal/lanmode"
 )
 
 // TestTargetsLANTowerEveryLocalAddress: the replay nonce goes to every address the LAN check

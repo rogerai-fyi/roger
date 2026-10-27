@@ -12,7 +12,7 @@ package edge
 // Spec: features/edge/empty_edge.feature.
 
 import (
-	"rogerai.fm/roger/v6/internal/look"
+	"rogerai.fm/roger/v7/internal/look"
 	"strconv"
 	"time"
 )

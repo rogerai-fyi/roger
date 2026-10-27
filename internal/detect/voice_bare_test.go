@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // bareVoiceServer builds a stub that 404s GET /v1/models (like kokoro-fastapi) but serves the

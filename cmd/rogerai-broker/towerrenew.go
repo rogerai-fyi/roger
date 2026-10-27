@@ -39,8 +39,8 @@ import (
 	"net/http"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/towercore/admit"
-	"rogerai.fm/roger/v6/internal/towercore/enroll"
+	"rogerai.fm/roger/v7/internal/towercore/admit"
+	"rogerai.fm/roger/v7/internal/towercore/enroll"
 )
 
 // towerRenewChallenge issues the nonce a renewal is signed over.

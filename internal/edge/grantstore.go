@@ -17,8 +17,8 @@ import (
 	"path/filepath"
 	"sync"
 
-	"rogerai.fm/roger/v6/internal/filelock"
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/filelock"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 // GrantStore is a file-backed list of the Edge grants this owner has issued.

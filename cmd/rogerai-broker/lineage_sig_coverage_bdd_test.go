@@ -20,7 +20,7 @@ import (
 	"strings"
 
 	"github.com/cucumber/godog"
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 type lrSig struct {

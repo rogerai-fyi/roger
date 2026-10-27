@@ -20,9 +20,9 @@ import (
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/joincode"
-	"rogerai.fm/roger/v6/internal/protocol"
-	"rogerai.fm/roger/v6/internal/towerpin"
+	"rogerai.fm/roger/v7/internal/joincode"
+	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/towerpin"
 )
 
 // JoinKind is what a bearer invite lets its holder do.

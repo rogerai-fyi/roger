@@ -10,7 +10,7 @@ package tui
 import (
 	"testing"
 
-	"rogerai.fm/roger/v6/internal/node"
+	"rogerai.fm/roger/v7/internal/node"
 )
 
 func TestSavedVoicesSeedController(t *testing.T) {

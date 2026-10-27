@@ -47,7 +47,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/towerhub"
+	"rogerai.fm/roger/v7/internal/towerhub"
 )
 
 const (

@@ -9,8 +9,8 @@ import (
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
-	"rogerai.fm/roger/v6/internal/pgmigrate"
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/pgmigrate"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // Postgres is a durable Store. Tables are prefixed `rogerai_` so they share an

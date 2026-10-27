@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/detect"
+	"rogerai.fm/roger/v7/internal/detect"
 )
 
 // Bandwidth is how fast the model's pool can be read, and where the number came from.

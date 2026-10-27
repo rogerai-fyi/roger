@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/detect"
-	"rogerai.fm/roger/v6/internal/protocol"
-	"rogerai.fm/roger/v6/internal/routingrules"
+	"rogerai.fm/roger/v7/internal/detect"
+	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/routingrules"
 )
 
 // netFilters are the slice-2 hard filters a request states. The zero value filters nothing.

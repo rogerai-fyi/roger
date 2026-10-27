@@ -8,8 +8,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"rogerai.fm/roger/v6/internal/localplane/serve"
-	"rogerai.fm/roger/v6/internal/tower"
+	"rogerai.fm/roger/v7/internal/localplane/serve"
+	"rogerai.fm/roger/v7/internal/tower"
 )
 
 // features/join/admin_socket.feature: administration commands work while the Tower serves,

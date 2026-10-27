@@ -13,17 +13,17 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"rogerai.fm/roger/v6/internal/bddrun"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strings"
 	"testing"
 
 	"github.com/cucumber/godog"
 
-	"rogerai.fm/roger/v6/internal/netpriv"
-	"rogerai.fm/roger/v6/internal/tower"
+	"rogerai.fm/roger/v7/internal/netpriv"
+	"rogerai.fm/roger/v7/internal/tower"
 )
 
-const netprivImport = `"rogerai.fm/roger/v6/internal/netpriv"`
+const netprivImport = `"rogerai.fm/roger/v7/internal/netpriv"`
 
 // siteFiles is where each site in the outline decides "local". A site passes only when its
 // file imports netpriv: a site with its own rule fails here before the class is compared.
@@ -181,7 +181,7 @@ func (s *netprivBDD) bothLoopback() error {
 
 func (s *netprivBDD) depsOf(pkg string) error {
 	s.pkg = pkg
-	out, err := exec.Command("go", "list", "-deps", "rogerai.fm/roger/v6/"+pkg).Output()
+	out, err := exec.Command("go", "list", "-deps", "rogerai.fm/roger/v7/"+pkg).Output()
 	if err != nil {
 		return fmt.Errorf("go list -deps %s: %v", pkg, err)
 	}
@@ -192,7 +192,7 @@ func (s *netprivBDD) depsOf(pkg string) error {
 func (s *netprivBDD) importsNone(forbidden ...string) error {
 	for _, d := range s.deps {
 		for _, f := range forbidden {
-			if d == "rogerai.fm/roger/v6/"+f {
+			if d == "rogerai.fm/roger/v7/"+f {
 				return fmt.Errorf("%s imports %s", s.pkg, f)
 			}
 		}
@@ -202,7 +202,7 @@ func (s *netprivBDD) importsNone(forbidden ...string) error {
 
 func (s *netprivBDD) onlyStdlib() error {
 	for _, d := range s.deps {
-		if strings.Contains(strings.SplitN(d, "/", 2)[0], ".") && d != "rogerai.fm/roger/v6/internal/netpriv" {
+		if strings.Contains(strings.SplitN(d, "/", 2)[0], ".") && d != "rogerai.fm/roger/v7/internal/netpriv" {
 			return fmt.Errorf("internal/netpriv imports %s", d)
 		}
 	}

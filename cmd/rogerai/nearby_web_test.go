@@ -12,8 +12,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"rogerai.fm/roger/v6/internal/modelview"
-	"rogerai.fm/roger/v6/internal/servedfile"
+	"rogerai.fm/roger/v7/internal/modelview"
+	"rogerai.fm/roger/v7/internal/servedfile"
 )
 
 func TestTheScreensSuggestTheSameNearbyBandsAsTheTerminal(t *testing.T) {

@@ -8,8 +8,8 @@ import (
 	"os"
 	"strconv"
 
-	"rogerai.fm/roger/v6/internal/edge/wire"
-	"rogerai.fm/roger/v6/internal/netpriv"
+	"rogerai.fm/roger/v7/internal/edge/wire"
+	"rogerai.fm/roger/v7/internal/netpriv"
 )
 
 // The network edge of advertising, as seams: the machine's interfaces and their addresses, the

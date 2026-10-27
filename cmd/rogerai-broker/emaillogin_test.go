@@ -18,7 +18,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 // capturingMailer records what would have been mailed instead of mailing it, so a test can

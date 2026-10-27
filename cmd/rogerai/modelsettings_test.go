@@ -12,7 +12,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"rogerai.fm/roger/v6/internal/localmodel"
+	"rogerai.fm/roger/v7/internal/localmodel"
 )
 
 func TestModelSettingsAreOneFunctionForEverySurface(t *testing.T) {

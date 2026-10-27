@@ -14,7 +14,7 @@ import (
 	"time"
 	"unicode"
 
-	"rogerai.fm/roger/v6/internal/towercore/cert"
+	"rogerai.fm/roger/v7/internal/towercore/cert"
 )
 
 // Refusals the issuer makes. Each is worded for the party that will read it: the owner

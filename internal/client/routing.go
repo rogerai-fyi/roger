@@ -7,15 +7,15 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"rogerai.fm/roger/v6/internal/protocol"
-	"rogerai.fm/roger/v6/internal/routingrules"
+	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/routingrules"
 	"slices"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/operator"
+	"rogerai.fm/roger/v7/internal/operator"
 )
 
 // Routing is the consumer-side routing object a first-party client puts in the request

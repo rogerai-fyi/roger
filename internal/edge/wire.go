@@ -1,6 +1,6 @@
 package edge
 
-import "rogerai.fm/roger/v6/internal/edge/wire"
+import "rogerai.fm/roger/v7/internal/edge/wire"
 
 // The mDNS codec, the multicast transport and the advertisement live in internal/edge/wire, a
 // leaf package that imports nothing from the Edge, so a Core-free binary (roger-tower-local)

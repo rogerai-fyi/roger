@@ -14,11 +14,11 @@ import (
 	"sync"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/hfhub"
-	"rogerai.fm/roger/v6/internal/localmodel"
-	"rogerai.fm/roger/v6/internal/provision"
-	"rogerai.fm/roger/v6/internal/runtime"
-	"rogerai.fm/roger/v6/internal/webui"
+	"rogerai.fm/roger/v7/internal/hfhub"
+	"rogerai.fm/roger/v7/internal/localmodel"
+	"rogerai.fm/roger/v7/internal/provision"
+	"rogerai.fm/roger/v7/internal/runtime"
+	"rogerai.fm/roger/v7/internal/webui"
 )
 
 // modelBudgetEvery bounds how often the page re-measures the machine: the page polls, and reading

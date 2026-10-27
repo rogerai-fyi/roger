@@ -31,9 +31,9 @@ import (
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/coreclient"
-	"rogerai.fm/roger/v6/internal/protocol"
-	"rogerai.fm/roger/v6/internal/towercore/dispatch"
+	"rogerai.fm/roger/v7/internal/coreclient"
+	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/towercore/dispatch"
 )
 
 // Client speaks the edge path for one consumer identity.

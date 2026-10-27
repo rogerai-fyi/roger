@@ -15,8 +15,8 @@ import (
 	"strconv"
 	"strings"
 
-	"rogerai.fm/roger/v6/internal/protocol"
-	"rogerai.fm/roger/v6/internal/routingrules"
+	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/routingrules"
 )
 
 // offerFilter is a parsed filter query. The zero value keeps every offer.

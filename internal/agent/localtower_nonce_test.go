@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"testing"
 
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // The share station signs a standalone Tower's requests with the same decision roger uses

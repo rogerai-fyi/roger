@@ -3,7 +3,7 @@ package tui
 import (
 	"strings"
 
-	"rogerai.fm/roger/v6/internal/client"
+	"rogerai.fm/roger/v7/internal/client"
 )
 
 // BINDING THE BOOTH'S RULES TO ROUTING (MODEL-VARIANTS-DESIGN-2026-08-22 step 5, and the

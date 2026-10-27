@@ -21,11 +21,11 @@ import (
 	"github.com/cucumber/godog"
 	"github.com/muesli/termenv"
 
-	"rogerai.fm/roger/v6/internal/bddrun"
-	"rogerai.fm/roger/v6/internal/detect"
-	"rogerai.fm/roger/v6/internal/look"
-	"rogerai.fm/roger/v6/internal/ownerjoin"
-	towerpkg "rogerai.fm/roger/v6/internal/tower"
+	"rogerai.fm/roger/v7/internal/bddrun"
+	"rogerai.fm/roger/v7/internal/detect"
+	"rogerai.fm/roger/v7/internal/look"
+	"rogerai.fm/roger/v7/internal/ownerjoin"
+	towerpkg "rogerai.fm/roger/v7/internal/tower"
 )
 
 type welcomeBDD struct {

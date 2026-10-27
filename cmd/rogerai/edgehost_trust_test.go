@@ -11,7 +11,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"rogerai.fm/roger/v6/internal/edgeauth"
+	"rogerai.fm/roger/v7/internal/edgeauth"
 )
 
 func TestTheAuthorityListenerTrustsTheRootCertAndTheRevocationsAsTheyAreNow(t *testing.T) {

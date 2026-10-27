@@ -4,14 +4,14 @@ package tui
 // the actuate ceremony while it is pending, and asks before it acts - exactly as forget does.
 
 import (
-	"rogerai.fm/roger/v6/internal/bddrun"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/cucumber/godog"
 
-	"rogerai.fm/roger/v6/internal/edge"
+	"rogerai.fm/roger/v7/internal/edge"
 )
 
 type actuateTUI struct {

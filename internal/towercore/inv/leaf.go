@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/protocol"
-	"rogerai.fm/roger/v6/internal/towerobj"
+	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/towerobj"
 )
 
 // leafMembers is the closed schema for a Station offer.

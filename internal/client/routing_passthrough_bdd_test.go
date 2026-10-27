@@ -21,7 +21,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"regexp"
-	"rogerai.fm/roger/v6/internal/bddrun"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strings"
 	"sync"
 	"testing"

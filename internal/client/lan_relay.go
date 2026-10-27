@@ -13,14 +13,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"rogerai.fm/roger/v6/internal/towerpin"
+	"rogerai.fm/roger/v7/internal/towerpin"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/lanmode"
-	"rogerai.fm/roger/v6/internal/routingrules"
+	"rogerai.fm/roger/v7/internal/lanmode"
+	"rogerai.fm/roger/v7/internal/routingrules"
 )
 
 // relayLAN serves the turn on the LAN or refuses it; it never returns (false, false).

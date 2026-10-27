@@ -18,7 +18,7 @@ import (
 	"net/netip"
 	"sync"
 
-	"rogerai.fm/roger/v6/internal/netpriv"
+	"rogerai.fm/roger/v7/internal/netpriv"
 )
 
 // ErrRefused is the guard's refusal of a non-local connection.

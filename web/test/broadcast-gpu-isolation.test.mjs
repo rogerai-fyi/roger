@@ -120,11 +120,11 @@ test("gpu-isolation: the tool-executing harness is never imported by the node/sh
   // importers (a module path bump, a directory rename), an empty result below would
   // otherwise look identical to a genuine "not imported" pass - the exact vacuous-pass
   // shape the listener test's own comment warns about.
-  const control = grepFiles("rogerai\\.fm/roger/v6/internal/harness", ["internal/tui", "internal/webui"]);
+  const control = grepFiles("rogerai\\.fm/roger/v[0-9]+/internal/harness", ["internal/tui", "internal/webui"]);
   assert.ok(control.some((f) => f.startsWith("internal/tui/")), "the import pattern still matches internal/tui");
   assert.ok(control.some((f) => f.startsWith("internal/webui/")), "the import pattern still matches internal/webui");
 
-  const importers = grepFiles("rogerai\\.fm/roger/v6/internal/harness", ["cmd/rogerai", "internal/agent", "internal/node"]);
+  const importers = grepFiles("rogerai\\.fm/roger/v[0-9]+/internal/harness", ["cmd/rogerai", "internal/agent", "internal/node"]);
   assert.deepEqual(importers, [],
     `the sharing path must never import internal/harness (the tool-executing agent), found: ${importers.join(", ")}`);
 });

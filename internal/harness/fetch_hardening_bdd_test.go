@@ -25,7 +25,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"rogerai.fm/roger/v6/internal/bddrun"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strings"
 	"sync/atomic"
 	"testing"

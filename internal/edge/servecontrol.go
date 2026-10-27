@@ -17,9 +17,9 @@ import (
 	"regexp"
 	"strings"
 
-	"rogerai.fm/roger/v6/internal/provision"
-	"rogerai.fm/roger/v6/internal/servedfile"
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/provision"
+	"rogerai.fm/roger/v7/internal/servedfile"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 // EdgeModel is a roger's own serving and fetch, as it reports them.

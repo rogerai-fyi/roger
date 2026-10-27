@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"sync"
 
-	"rogerai.fm/roger/v6/internal/pgmigrate"
+	"rogerai.fm/roger/v7/internal/pgmigrate"
 )
 
 // --- in-process -------------------------------------------------------------

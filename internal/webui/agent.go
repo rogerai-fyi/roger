@@ -8,9 +8,9 @@ import (
 	"strings"
 	"sync"
 
-	"rogerai.fm/roger/v6/internal/harness"
-	"rogerai.fm/roger/v6/internal/node"
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/harness"
+	"rogerai.fm/roger/v7/internal/node"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // agent.go - THE CONSOLE'S AGENT.

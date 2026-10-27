@@ -10,7 +10,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"rogerai.fm/roger/v6/internal/provision"
+	"rogerai.fm/roger/v7/internal/provision"
 )
 
 func TestTheHubFallbackListsTheTopThreeThatFitByAStatedRule(t *testing.T) {

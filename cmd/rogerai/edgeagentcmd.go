@@ -18,8 +18,8 @@ import (
 	"syscall"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/edge"
-	"rogerai.fm/roger/v6/internal/tui"
+	"rogerai.fm/roger/v7/internal/edge"
+	"rogerai.fm/roger/v7/internal/tui"
 )
 
 // edgePersistDir is where the durable persistent-agent records live, beside the ephemeral

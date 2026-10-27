@@ -21,7 +21,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"rogerai.fm/roger/v6/internal/pgmigrate"
+	"rogerai.fm/roger/v7/internal/pgmigrate"
 )
 
 // errRecorder passes statements through and remembers every error, so a failure the

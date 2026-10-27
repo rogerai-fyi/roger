@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/glyphs"
-	"rogerai.fm/roger/v6/internal/pricetier"
+	"rogerai.fm/roger/v7/internal/glyphs"
+	"rogerai.fm/roger/v7/internal/pricetier"
 )
 
 // BandRow is a compact private-band summary for BASE STATION (metadata only, no secret).

@@ -21,8 +21,8 @@ import (
 	"os"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/edge"
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/edge"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 // edgeExpectScope reads the --scope flag as an expectation scope: "" (the fleet), a tag, or a node id

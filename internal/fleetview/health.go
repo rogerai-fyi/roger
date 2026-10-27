@@ -15,7 +15,7 @@ import (
 
 	lm "github.com/thebanri/limoni"
 
-	"rogerai.fm/roger/v6/internal/edge"
+	"rogerai.fm/roger/v7/internal/edge"
 )
 
 // HealthSnapshot is one read of everything the screen draws, taken together so one frame is

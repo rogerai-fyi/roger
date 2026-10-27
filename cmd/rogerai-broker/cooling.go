@@ -24,7 +24,7 @@ import (
 	"strconv"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // Knobs (read per call so a scenario can flip them without rebuilding the broker; each is a

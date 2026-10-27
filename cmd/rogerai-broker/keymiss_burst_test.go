@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 // slowHashCounter counts key-store reads by hash and holds each one briefly, the way a real

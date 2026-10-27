@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"net"
 
-	"rogerai.fm/roger/v6/internal/netpriv"
+	"rogerai.fm/roger/v7/internal/netpriv"
 )
 
 // DefaultBind is where the consumer plane listens when the operator names no address:

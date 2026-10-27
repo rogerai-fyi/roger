@@ -8,7 +8,7 @@ package tui
 // larger - was not on screen at all, and the $0.27 was not money in the first place.
 
 import (
-	"rogerai.fm/roger/v6/internal/agent"
+	"rogerai.fm/roger/v7/internal/agent"
 	"strings"
 	"testing"
 )

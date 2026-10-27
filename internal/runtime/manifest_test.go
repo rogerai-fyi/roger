@@ -13,7 +13,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"rogerai.fm/roger/v6/internal/runtime"
+	"rogerai.fm/roger/v7/internal/runtime"
 )
 
 func TestEveryEntryCarriesWhatVerifyingBeforeExecutingNeeds(t *testing.T) {

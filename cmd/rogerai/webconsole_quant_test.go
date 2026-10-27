@@ -16,8 +16,8 @@ package main
 import (
 	"testing"
 
-	"rogerai.fm/roger/v6/internal/tui"
-	"rogerai.fm/roger/v6/internal/webui"
+	"rogerai.fm/roger/v7/internal/tui"
+	"rogerai.fm/roger/v7/internal/webui"
 )
 
 func TestConsoleSaveKeepsAQuantRuleTheTerminalSet(t *testing.T) {

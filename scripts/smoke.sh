@@ -121,7 +121,7 @@ fi
 # fails the gate here. Lightest reliable check: grep the version out of the source
 # of truth, then require it in the built dist manual. See CLAUDE.md "Release gate".
 # The fallback is a var so a release/beta can stamp a semver via
-# -ldflags -X rogerai.fm/roger/v6/internal/buildinfo.Version.
+# -ldflags -X rogerai.fm/roger/v7/internal/buildinfo.Version.
 cli_ver=$(sed -n 's/^var Version = "\([0-9][^"]*\)".*/\1/p' internal/buildinfo/buildinfo.go | head -n 1)
 if [ -z "$cli_ver" ]; then
 	red "read Version from internal/buildinfo/buildinfo.go"

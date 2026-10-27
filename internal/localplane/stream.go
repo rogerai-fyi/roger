@@ -16,7 +16,7 @@ import (
 	"net/http"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // Stream limits (RULED 2026-10-07). A token batch is a few KiB, so the chunk cap only stops a

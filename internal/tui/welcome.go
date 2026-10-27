@@ -16,7 +16,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
 
-	"rogerai.fm/roger/v6/internal/look"
+	"rogerai.fm/roger/v7/internal/look"
 )
 
 // promoMsg carries the broker's public GET /promo read: whether new accounts still get a

@@ -9,7 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"rogerai.fm/roger/v6/internal/bddrun"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strings"
 	"testing"
 	"time"
@@ -18,9 +18,9 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/cucumber/godog"
 
-	"rogerai.fm/roger/v6/internal/edge"
-	"rogerai.fm/roger/v6/internal/look"
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/edge"
+	"rogerai.fm/roger/v7/internal/look"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 // fakeSetupBackend is the host's enrollment, faked: it records every call and returns the

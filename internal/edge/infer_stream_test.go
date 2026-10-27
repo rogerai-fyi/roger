@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // A streamed reply that TRUNCATES (an oversized line, a dropped upstream) must NOT end in a signed

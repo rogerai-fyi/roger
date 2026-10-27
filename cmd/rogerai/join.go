@@ -11,8 +11,8 @@ import (
 	"os"
 	"strings"
 
-	"rogerai.fm/roger/v6/internal/joininvite"
-	"rogerai.fm/roger/v6/internal/lanmode"
+	"rogerai.fm/roger/v7/internal/joininvite"
+	"rogerai.fm/roger/v7/internal/lanmode"
 )
 
 const joinUsage = "usage: roger join <invite>    join with the invite the owner printed (roger tower invite, roger edge invite)\n" +

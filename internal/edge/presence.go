@@ -16,12 +16,12 @@ import (
 	"encoding/pem"
 	"io"
 	"net/http"
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/store"
 	"strconv"
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/towercore/cert"
+	"rogerai.fm/roger/v7/internal/towercore/cert"
 )
 
 // PresencePath is where a node pushes its presence.

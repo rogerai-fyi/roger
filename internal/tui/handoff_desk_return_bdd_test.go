@@ -13,18 +13,18 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"rogerai.fm/roger/v6/internal/bddrun"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/cucumber/godog"
-	"rogerai.fm/roger/v6/internal/brief"
-	"rogerai.fm/roger/v6/internal/capsule"
-	"rogerai.fm/roger/v6/internal/client"
-	"rogerai.fm/roger/v6/internal/operator"
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/brief"
+	"rogerai.fm/roger/v7/internal/capsule"
+	"rogerai.fm/roger/v7/internal/client"
+	"rogerai.fm/roger/v7/internal/operator"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 type handoffDeskState struct {

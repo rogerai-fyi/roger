@@ -19,7 +19,7 @@ import (
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/detect"
+	"rogerai.fm/roger/v7/internal/detect"
 )
 
 // Home is where all of it lives: <Dir>/models, <Dir>/runtime and the serving record.

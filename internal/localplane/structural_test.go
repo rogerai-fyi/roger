@@ -11,7 +11,7 @@ package localplane
 import (
 	"testing"
 
-	"rogerai.fm/roger/v6/internal/structural"
+	"rogerai.fm/roger/v7/internal/structural"
 )
 
 func TestConsumerHandlerMakesNoOutboundCall(t *testing.T) {

@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"rogerai.fm/roger/v6/internal/detect/gguftest"
+	"rogerai.fm/roger/v7/internal/detect/gguftest"
 )
 
 // edge_device_runtime.feature §2 "an adapter is part of the entry and served with its base": the

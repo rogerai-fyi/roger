@@ -9,8 +9,8 @@ package tui
 import (
 	"sync"
 
-	"rogerai.fm/roger/v6/internal/edge"
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/edge"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // edgeMic is who holds the endpoint. Shared by pointer between the model's copies and the

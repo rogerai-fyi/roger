@@ -8,9 +8,9 @@ import (
 	"strings"
 	"syscall"
 
-	"rogerai.fm/roger/v6/internal/agent"
-	"rogerai.fm/roger/v6/internal/lanmode"
-	"rogerai.fm/roger/v6/internal/onair"
+	"rogerai.fm/roger/v7/internal/agent"
+	"rogerai.fm/roger/v7/internal/lanmode"
+	"rogerai.fm/roger/v7/internal/onair"
 )
 
 // lanShareContext is how long a LAN share runs: until the operator stops it (a test seam).

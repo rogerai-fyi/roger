@@ -6,8 +6,8 @@ import (
 	"sort"
 	"strings"
 
-	"rogerai.fm/roger/v6/internal/edgeauth"
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/edgeauth"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 // Capability is the vocabulary the rest of the system routes and reasons on. A node

@@ -11,16 +11,16 @@ package serve
 import (
 	"testing"
 
-	"rogerai.fm/roger/v6/internal/structural"
+	"rogerai.fm/roger/v7/internal/structural"
 )
 
 func TestTheStandaloneServePackageLinksNoCore(t *testing.T) {
 	structural.ForbidDeps(t, ".", []string{
-		"rogerai.fm/roger/v6/internal/towerjoin",
-		"rogerai.fm/roger/v6/internal/towercore", // every towercore/* subpackage
-		"rogerai.fm/roger/v6/internal/towerhub",
-		"rogerai.fm/roger/v6/internal/client",
-		"rogerai.fm/roger/v6/internal/agent",
+		"rogerai.fm/roger/v7/internal/towerjoin",
+		"rogerai.fm/roger/v7/internal/towercore", // every towercore/* subpackage
+		"rogerai.fm/roger/v7/internal/towerhub",
+		"rogerai.fm/roger/v7/internal/client",
+		"rogerai.fm/roger/v7/internal/agent",
 	})
 	structural.Deps(t, ".") // the scan really enumerated the graph
 }

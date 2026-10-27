@@ -20,9 +20,9 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
-	"rogerai.fm/roger/v6/internal/edge"
-	"rogerai.fm/roger/v6/internal/glyphs"
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/edge"
+	"rogerai.fm/roger/v7/internal/glyphs"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 // The drawing vocabulary. The three edge textures are three DIFFERENT glyphs, not three

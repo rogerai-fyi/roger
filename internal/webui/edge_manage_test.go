@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/edge"
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/edge"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 // The console's Name and Forget actions go through the SAME host operations the TUI and CLI use

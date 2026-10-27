@@ -9,7 +9,7 @@ package edge
 import (
 	"time"
 
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 // NodeHealth is one node's health as the fleet last knew it.

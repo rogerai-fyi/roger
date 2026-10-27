@@ -24,8 +24,8 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"rogerai.fm/roger/v6/internal/edge"
-	"rogerai.fm/roger/v6/internal/look"
+	"rogerai.fm/roger/v7/internal/edge"
+	"rogerai.fm/roger/v7/internal/look"
 )
 
 // EdgeSetup is the onboarding backend the wizard drives (filled by the host, cmd/rogerai/
