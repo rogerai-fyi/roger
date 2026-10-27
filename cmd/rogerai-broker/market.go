@@ -474,7 +474,7 @@ func (b *broker) computeMarketKeep(keep func(node, model string) bool) any {
 		tq := b.trust[n.NodeID]
 		ttft := tq.ttftMs
 		quality := tq.score()
-		verified := tq.verifiedServing() && !b.probeMinLapsedLocked(n.NodeID, now, b.probe.ceiling)
+		verified := b.verifiedFreshLocked(n.NodeID, tq, now) // one verified rule for the feed, /discover and routing
 		// Per-node time-decayed success evidence (organic EWMA, else probe-verified or
 		// neutral) - NOT the old constant 1.0, so an unproven idle node doesn't inflate
 		// the channel's reliability.
