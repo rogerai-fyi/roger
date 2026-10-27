@@ -2101,11 +2101,43 @@ func (s *np1State) np1SameConstantWork() error {
 	if a.code != b.code || keys(a.hdr) != keys(b.hdr) {
 		return fmt.Errorf("the refusals differ in shape: %d [%s] vs %d [%s]", a.code, keys(a.hdr), b.code, keys(b.hdr))
 	}
+	// Compare the log lines each REFUSAL wrote, picked out by its own request id: the shared
+	// log also carries lines from goroutines the package's earlier runners left behind (shared-
+	// store fallbacks, probes), which can land inside either span on a loaded runner and say
+	// nothing about these two requests (CI: 4 vs 2 lines, none of them this path's).
 	all := s.logs.String()
-	lines := func(span [2]int) int { return strings.Count(all[span[0]:span[1]], "\n") }
+	reqLines := func(span [2]int, r rpResult) ([]string, error) {
+		id := r.hdr.Get("X-RogerAI-Request-Id")
+		if id == "" {
+			return nil, fmt.Errorf("a refusal carries no X-RogerAI-Request-Id")
+		}
+		var out []string
+		for _, ln := range strings.Split(all[span[0]:span[1]], "\n") {
+			if strings.Contains(ln, id) {
+				// the line's shape, with its own request id and timestamp taken out
+				if i := strings.Index(ln, id); i >= 0 {
+					ln = ln[strings.LastIndex(ln[:i], " ")+1:] // drop the timestamp prefix
+				}
+				out = append(out, strings.ReplaceAll(ln, id, "<id>"))
+			}
+		}
+		return out, nil
+	}
 	sa, sb := s.np1LogSpans[len(s.np1LogSpans)-2], s.np1LogSpans[len(s.np1LogSpans)-1]
-	if lines(sa) != lines(sb) {
-		return fmt.Errorf("the private lookup left %d log line(s), the unknown id %d: not the same path", lines(sa), lines(sb))
+	la, err := reqLines(sa, a)
+	if err != nil {
+		return err
+	}
+	lb, err := reqLines(sb, b)
+	if err != nil {
+		return err
+	}
+	if strings.Join(la, "\n") != strings.Join(lb, "\n") {
+		return fmt.Errorf("the private lookup logged %q, the unknown id %q: not the same path", la, lb)
+	}
+	// and nothing in either span, from any goroutine, names the private station
+	if p := s.idOf("p1"); strings.Contains(all[sa[0]:sb[1]], p) {
+		return fmt.Errorf("a log line names the private station %s", p)
 	}
 	if err := s.noStationReceivedAnything(); err != nil {
 		return err
