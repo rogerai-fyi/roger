@@ -735,10 +735,11 @@ func (m model) newAgentRuntime() *agentRuntime {
 			// dies with "no station is serving <model>" on a band the operator is
 			// demonstrably tuned to.
 			Freq: m.agentFreqFor(rt.model),
-			// The operator's STANDING quant preference. An agent turn is exactly the case
-			// the [3] CONFIG rule exists for - nobody is watching a dial, so the filter
-			// cannot help and only a rule can.
-			ExcludeNodes: m.prefExcludes(rt.model),
+			// The operator's STANDING rules (pref, quant set, hidden curated supply) ride
+			// the request body. An agent turn is exactly the case the [3] CONFIG rules
+			// exist for - nobody is watching a dial, so the filter cannot help and only a
+			// rule can.
+			Routing: m.routing(rt.model, m.tunedQuant(rt.model)),
 		})(cctx, messages, tools)
 	}
 	confirmer := func(tool string, args map[string]any) bool {

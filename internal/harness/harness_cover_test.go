@@ -2,6 +2,7 @@ package harness
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net"
 	"net/http"
@@ -15,8 +16,10 @@ import (
 	"rogerai.fm/roger/v6/internal/client"
 )
 
-// TestBrokerCompleterConfidentialHeader: a confidential agent turn sets the
-// X-Roger-Confidential header so the relay routes it to a confidential-capable node.
+// TestBrokerCompleterConfidentialHeader: a confidential agent turn tells the relay it is
+// confidential so it routes to a confidential-capable node - as body roger.confidential
+// (the one carrier policy with the proxy and chat; the X-Roger-Confidential header is the
+// old-broker header-mode form).
 func TestBrokerCompleterConfidentialHeader(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
@@ -24,6 +27,14 @@ func TestBrokerCompleterConfidentialHeader(t *testing.T) {
 	var gotConfidential string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotConfidential = r.Header.Get("X-Roger-Confidential")
+		var body struct {
+			Roger struct {
+				Confidential bool `json:"confidential"`
+			} `json:"roger"`
+		}
+		if json.NewDecoder(r.Body).Decode(&body) == nil && body.Roger.Confidential {
+			gotConfidential = "1"
+		}
 		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`))
 	}))
 	defer srv.Close()

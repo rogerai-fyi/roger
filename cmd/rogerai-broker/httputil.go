@@ -44,6 +44,12 @@ func jsonErr(w http.ResponseWriter, code int, msg string) {
 	writeJSON(w, code, map[string]any{"error": map[string]string{"message": msg}})
 }
 
+// jsonErrCode is jsonErr with a machine-readable error.code beside the message
+// (ROUTING-EXPRESSION-CONTRACT §2: no_match, band_cooling, unknown_routing_key, ...).
+func jsonErrCode(w http.ResponseWriter, code int, errCode, msg string) {
+	writeJSON(w, code, map[string]any{"error": map[string]string{"code": errCode, "message": msg}})
+}
+
 // cors lets the public website (rogerai.fm) fetch read-only market data from a
 // browser. Applied only to public GET endpoints (/discover, /market).
 func cors(w http.ResponseWriter) {

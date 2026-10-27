@@ -36,9 +36,11 @@ func consumerDefaultMaxOut() float64 {
 // relay request: the consumer's explicit cap when set (>0), else the server-side default
 // backstop (consumerDefaultMaxOut). Returns 0 only when the caller sent no cap AND the
 // backstop is disabled, which means "no cap" (the operator ceiling is the sole bound).
+// A cap above the register ceiling is CLAMPED to the ceiling, never an error: no offer
+// can exist above it, so "unlimited" means the ceiling (regression_pins defect 2).
 func effectiveRelayMaxOut(reqMaxOut float64) float64 {
 	if reqMaxOut > 0 {
-		return reqMaxOut
+		return math.Min(reqMaxOut, maxPriceOutCeiling())
 	}
 	return consumerDefaultMaxOut()
 }

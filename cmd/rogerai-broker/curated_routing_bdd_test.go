@@ -189,14 +189,122 @@ func (s *curRouteState) meteredLikeAny() error {
 	return nil
 }
 
+// --- the filter: roger.self_hosted_only rides the REAL relay ---------------------------------
+//
+// The filter scenario needs stations that actually SERVE (the assertion is "who served"), so
+// it rides the upstream_failover harness: a real relayBroker + store + shared store, real
+// stations with scripted upstreams on real tunnels. The curated station is the same
+// registration with the curated flag set, exactly as /nodes/register stores it.
+
+type curFilterState struct {
+	*foState
+	human, curated *fstation
+	served         []string // X-RogerAI-Provider per relay of the last batch
+}
+
+func (s *curFilterState) mixedBand() error {
+	if err := s.foState.reset(); err != nil {
+		return err
+	}
+	s.model = "gpt-oss-20b"
+	s.human = s.standUp("h1", stationOpts{model: s.model, priceIn: 1, priceOut: 2})
+	s.curated = s.standUp("c1", stationOpts{model: s.model, priceIn: 1, priceOut: 2})
+	// The curated flag lives on the registration the broker holds; flip it there, the way
+	// register() persists it (curated + the provider name it requires).
+	s.b.mu.Lock()
+	reg := s.b.nodes[s.curated.id]
+	reg.Curated, reg.CuratedProvider = true, "openrouter"
+	s.b.nodes[s.curated.id] = reg
+	s.b.mu.Unlock()
+	// Both canary-passed at the same speed, as the neutrality fixture above does, so both
+	// sit in the healthy tier on equal terms before anything is relayed.
+	s.b.recordProbe(s.human.id, probePass, 50, 40, true, true)
+	s.b.recordProbe(s.curated.id, probePass, 50, 40, true, true)
+	return s.ensureFunded()
+}
+
+// relayWith fires n signed relays carrying `extra` merged into the body and records who served.
+func (s *curFilterState) relayWith(n int, extra map[string]any) error {
+	s.served = nil
+	for i := 0; i < n; i++ {
+		m := map[string]any{
+			"model":    s.model,
+			"messages": []map[string]string{{"role": "user", "content": utPrompt(s.tokens)}},
+		}
+		for k, v := range extra {
+			m[k] = v
+		}
+		body, _ := json.Marshal(m)
+		r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+		r.Header.Set("Content-Type", "application/json")
+		signReq(r, s.consumerPriv, body)
+		w := &recWriter{ResponseRecorder: httptest.NewRecorder()}
+		s.b.relay(w, r)
+		if w.Code != http.StatusOK {
+			return fmt.Errorf("relay %d = %d: %s", i+1, w.Code, w.Body.String())
+		}
+		s.served = append(s.served, w.Header().Get("X-RogerAI-Provider"))
+	}
+	return nil
+}
+
+func (s *curFilterState) relaysSelfHostedOnly() error {
+	return s.relayWith(12, map[string]any{"roger": map[string]any{"self_hosted_only": true}})
+}
+
+func (s *curFilterState) allServedByHuman() error {
+	for i, id := range s.served {
+		if id != s.human.id {
+			return fmt.Errorf("relay %d was served by %q, not the human station %q - roger.self_hosted_only did not filter", i+1, id, s.human.id)
+		}
+	}
+	return nil
+}
+
+func (s *curFilterState) curatedServedNone() error {
+	for i, id := range s.served {
+		if id == s.curated.id {
+			return fmt.Errorf("relay %d rode the curated station %q under roger.self_hosted_only", i+1, id)
+		}
+	}
+	return nil
+}
+
+func (s *curFilterState) curatedReachableWithoutKey() error {
+	// Same terms, no key: the curated station must be REACHABLE by the ordinary pick
+	// (neutrality, the same observation picksBySameRules makes). Seeded draws, not relays:
+	// after the batch above the human station carries measured successes the curated one
+	// does not, so relay outcomes would show the score, not the filter.
+	for i := 0; i < 64; i++ {
+		n, _, ok := s.b.pickFor(s.model, false, 0, 0, 0, "", nil, nil, nil, pickReq{rng: seededRand(fmt.Sprintf("nokey-%d", i))})
+		if !ok {
+			return fmt.Errorf("pick failed with two healthy stations")
+		}
+		if n.NodeID == s.curated.id {
+			return nil
+		}
+	}
+	return fmt.Errorf("without roger.self_hosted_only the curated station %q was never picked in 64 draws", s.curated.id)
+}
+
 func TestCuratedRoutingFeature(t *testing.T) {
 	st := &curRouteState{t: t}
+	fs := &curFilterState{foState: &foState{t: t, logs: &utLog{}}}
 	suite := godog.TestSuite{
 		ScenarioInitializer: func(sc *godog.ScenarioContext) {
 			sc.Before(func(c context.Context, _ *godog.Scenario) (context.Context, error) {
 				st.reset()
 				return c, nil
 			})
+			sc.After(func(c context.Context, _ *godog.Scenario, _ error) (context.Context, error) {
+				fs.teardown() // a no-op for scenarios that never stood the relay harness up
+				return c, nil
+			})
+			sc.Step(`^a mixed band with a human station and a curated station, both healthy and equally priced$`, fs.mixedBand)
+			sc.Step(`^a funded consumer relays with body roger\.self_hosted_only true twelve times$`, fs.relaysSelfHostedOnly)
+			sc.Step(`^every one of those relays is served by the human station$`, fs.allServedByHuman)
+			sc.Step(`^the curated station serves none of them$`, fs.curatedServedNone)
+			sc.Step(`^without the key the same consumer can still be served by the curated station$`, fs.curatedReachableWithoutKey)
 			sc.Step(`^a human and a curated station on one band$`, st.humanAndCurated)
 			sc.Step(`^the router picks by the same price, health and signal rules it always uses$`, st.picksBySameRules)
 			sc.Step(`^no preference for either kind is hard-coded$`, st.noHardcodedPreference)
