@@ -646,6 +646,7 @@ func TestCategoriesBDD(t *testing.T) {
 			sc.Step(`^station `+q+` is on air for `+q+` with content policy `+q+`$`, st.stationPolicy)
 			sc.Step(`^station `+q+` is on air for `+q+` with category `+q+` and subcategory `+q+`$`, st.stationCat)
 			sc.Step(`^curated station `+q+` is on air for `+q+` with category `+q+` and subcategory `+q+`$`, st.curatedCat)
+			sc.Step(`^curated station `+q+` is on air for `+q+` with no taxonomy$`, func(id, model string) error { return st.curatedCat(id, model, "", "") })
 			sc.Step(`^category `+q+` has (\d+) curated providers$`, st.catCurated)
 			sc.Step(`^subcategory `+q+` has (\d+) curated providers$`, st.subCurated)
 			sc.Step(`^(\d+) stations on air for `+q+` each declaring a different tag$`, st.manyTagStations)
