@@ -122,10 +122,10 @@ screening and Core-observed transit — was taken up and is specified in
 **Setup**, once:
 
 1. On the Station: `roger-station init` mints its two keys and prints the public halves.
-2. On your workstation: `roger tower station invite` authorizes them — signed by your
+2. On your workstation: `roger tower station invite` authorizes them - signed by your
    **account**, because putting a machine on the network under your name is an account
    decision.
-3. On the Tower: `roger tower station attach` redeems it — signed by the **Tower**, because
+3. On the Tower: `roger tower station attach` redeems it - signed by the **Tower**, because
    Core takes the Station's origin from whoever redeems, so a relay cannot attach a Station
    behind somebody else's origin.
 4. Both the Tower and the Station land in **quarantine**. An administrator promotes them; the

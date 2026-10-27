@@ -264,4 +264,3 @@ Feature: A node is the owner's machine, typed by what it can do rather than by w
     When the owner runs re-admit with no device
     Then it lists the forgotten devices by name, hardware and when, newest first
     And says how to re-admit one
-
