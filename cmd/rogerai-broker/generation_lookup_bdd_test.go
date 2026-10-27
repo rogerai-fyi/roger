@@ -67,6 +67,8 @@ type gl3Who struct {
 }
 
 type gl3State struct {
+	gl3LastBody string            // the last raw relay body (early-refusal steps)
+	keyIDs      map[string]string // account keys this scenario minted, by name (generation_keys_bdd_test.go)
 	*sr3State
 
 	who       map[string]*gl3Who
@@ -531,8 +533,14 @@ func (g *gl3State) aliceRequestAny(model string) error {
 
 func (g *gl3State) disconnectBills(cost string) error {
 	c := int(math.Round(sr3f(cost) / (g.st("n-1").priceOut / 1e6)))
+	// Since §14.10 a disconnect bills the FORWARDED text, recounted: the sidecar counts what
+	// reached the consumer as c tokens (prompt recounts to 0 so the cost is the completion's).
+	g.recCompletion = c
 	g.ctxCancel = true
-	g.sse("n-1", []sr3Frame{{line: sr3Content(1, "n-1")}, {line: sr3Content(2, "n-1"), sleep: 300 * time.Millisecond},
+	// The forwarded frame carries text the size of c tokens (~4 chars each), so the bill of
+	// what reached the consumer is c tokens however it is counted.
+	long := fmt.Sprintf(`data: {"choices":[{"delta":{"content":"%s %s"}}]}`, sr3Marker, strings.Repeat("word ", c*4/5))
+	g.sse("n-1", []sr3Frame{{line: long}, {line: sr3Content(2, "n-1"), sleep: 300 * time.Millisecond},
 		{line: sr3Usage(40, c), sleep: 50 * time.Millisecond}, {line: sr3Done}})
 	g.landOn("n-1")
 	if err := g.relayAs("alice", true); err != nil {
@@ -1284,8 +1292,8 @@ func (g *gl3State) receiptIsSecond() error {
 	if err != nil {
 		return err
 	}
-	if rec.RequestID != g.reqID+"-2" {
-		return fmt.Errorf("the record's receipt is %s's, want the second attempt %s-2", rec.RequestID, g.reqID)
+	if want := g.b.attemptID(g.reqID, 2); rec.RequestID != want {
+		return fmt.Errorf("the record's receipt is %s's, want the second attempt %s", rec.RequestID, want)
 	}
 	return nil
 }
@@ -1825,6 +1833,7 @@ func (g *gl3State) statsUnchanged() error {
 type gl3PanicStore struct{ store.Store }
 
 func (g *gl3State) register(sc *godog.ScenarioContext) {
+	g.registerKeyRecord(sc)
 	// Background
 	sc.Step(lit("a broker with an empty in-memory node registry"), g.emptyRegistry)
 	sc.Step(lit("the fee rate is 30%"), g.feeRate30)
@@ -1850,6 +1859,17 @@ func (g *gl3State) register(sc *godog.ScenarioContext) {
 	sc.Step(lit(`"alice" makes a request that is served and later flagged by the off-path screener`), g.servedThenFlagged)
 	sc.Step(`^"alice" makes a request with provider\.sort "([^"]*)" and roger\.pref "([^"]*)"$`, g.aliceSortAndPref)
 	sc.Step(lit(`"alice"'s wallet cannot cover the cheapest hold`), g.walletCannotCover)
+	sc.Step(`^(an unsigned request with no allowlisted Origin|a request with a bad signature|a request bearing an unknown rog-key_ secret|an anonymous request over the per-IP rate limit) is refused with status (\d+)$`, g.gl3RefusedEarly)
+	sc.Step(`^the response still carries X-RogerAI-Request-Id$`, g.gl3HasRequestID)
+	sc.Step(`^no /generation record exists for that request id$`, g.gl3NoRecord)
+	sc.Step(`^a /generation record exists for that request id$`, g.gl3HasRecord)
+	sc.Step(`^"([^"]+)" sends a request with an unknown routing key$`, g.gl3UnknownRoutingKey)
+	sc.Step(`^the relay answered (\d+)$`, func(code int) error {
+		if g.lastCode != code {
+			return fmt.Errorf("the relay answered %d, want %d (%s)", g.lastCode, code, g.gl3LastBody)
+		}
+		return nil
+	})
 	sc.Step(`^"alice" disconnects mid-stream and the settle still bills \$([0-9.]+)$`, g.disconnectBills)
 	sc.Step(`^"([^"]*)" returns 200 with empty output and "([^"]*)" serves$`, g.emptyThenServes)
 	sc.Step(`^"alice" makes a request for "([^"]*)"$`, g.aliceRequestServedOrAny)
@@ -1974,6 +1994,7 @@ func (g *gl3State) register(sc *godog.ScenarioContext) {
 	sc.Step(lit("attempts and cost are present"), g.attemptsAndCostPresent)
 	sc.Step(lit("the record has no receipt"), g.noReceipt)
 	sc.Step(lit("the record has no key_limit and no key_spend_after"), g.noKeyState)
+	sc.Step(lit("the record has no key_id"), func() error { return g.absent("key_id") })
 	sc.Step(`^attempts has exactly one entry, ([a-z]+)'s: \{ (.+) \}$`, g.ownerOneAttempt)
 	sc.Step(lit("served is absent from the body"), g.servedAbsent)
 	sc.Step(`^the body does not contain "([^"]*)"$`, g.bodyLacksName)
@@ -2027,7 +2048,7 @@ func TestGenerationLookupBDD(t *testing.T) {
 			},
 			Options: &godog.Options{
 				Format: "pretty", Paths: []string{"../../features/routing/generation_lookup.feature"},
-				Tags: "~@cli && ~@tui && ~@proxy && ~@harness && ~@docs && ~@later && ~@slice5 && ~@web", TestingT: t, Strict: true,
+				Tags: "~@cli && ~@tui && ~@proxy && ~@harness && ~@docs && ~@later && ~@web", TestingT: t, Strict: true,
 			},
 		}
 		if bddtest.Run(t, &suite) != 0 {
@@ -2064,3 +2085,96 @@ func TestGenerationLookupBDD(t *testing.T) {
 }
 
 var _ = sync.Mutex{}
+
+// ---- refusals before identity / rate limiting write no record (audit fix 2026-10-04) ----------
+
+func (g *gl3State) gl3RawRelay(body []byte, prep func(r *http.Request)) (int, http.Header) {
+	r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+	r.Header.Set("Content-Type", "application/json")
+	if prep != nil {
+		prep(r)
+	}
+	w := httptest.NewRecorder()
+	g.b.relay(w, r)
+	g.gl3LastBody = w.Body.String()
+	return w.Code, w.Header()
+}
+
+func (g *gl3State) gl3RefusedEarly(kind string, status int) error {
+	body := []byte(`{"model":"qwen3-32b","messages":[{"role":"user","content":"hi"}]}`)
+	var code int
+	var hdr http.Header
+	switch kind {
+	case "an unsigned request with no allowlisted Origin":
+		code, hdr = g.gl3RawRelay(body, nil)
+	case "a request with a bad signature":
+		code, hdr = g.gl3RawRelay(body, func(r *http.Request) {
+			signReq(r, g.consumerPriv, []byte(`{"model":"other"}`)) // signed over different bytes
+		})
+	case "a request bearing an unknown rog-key_ secret":
+		code, hdr = g.gl3RawRelay(body, func(r *http.Request) { r.Header.Set("Authorization", "Bearer rog-key_doesnotexist") })
+	case "an anonymous request over the per-IP rate limit":
+		saved := g.b.anonRL
+		g.b.anonRL = &rateLimiter{buckets: map[string]*tokenBucket{}, rpm: 1, burst: 1}
+		defer func() { g.b.anonRL = saved }()
+		for i := 0; i < 5; i++ {
+			code, hdr = g.gl3RawRelay(body, func(r *http.Request) {
+				r.Header.Set("Origin", "https://rogerai.fm")
+				r.RemoteAddr = "198.51.100.77:4242"
+			})
+			if code == http.StatusTooManyRequests {
+				break
+			}
+		}
+	default:
+		return fmt.Errorf("unknown early-refusal kind %q", kind)
+	}
+	if code != status {
+		return fmt.Errorf("%s answered %d, want %d (%s)", kind, code, status, g.gl3LastBody)
+	}
+	g.reqID = hdr.Get("X-RogerAI-Request-Id")
+	g.lastHdr, g.lastCode = hdr, code
+	return nil
+}
+
+func (g *gl3State) gl3HasRequestID() error {
+	if g.lastHdr.Get("X-RogerAI-Request-Id") == "" {
+		return fmt.Errorf("the refused response carries no X-RogerAI-Request-Id")
+	}
+	return nil
+}
+
+func (g *gl3State) gl3NoRecord() error {
+	if g.reqID == "" {
+		return fmt.Errorf("no request id captured")
+	}
+	_, found, err := g.b.genGet(g.reqID)
+	if err != nil {
+		return err
+	}
+	if found {
+		return fmt.Errorf("a /generation record was written for the early refusal %s", g.reqID)
+	}
+	return nil
+}
+
+func (g *gl3State) gl3HasRecord() error {
+	_, found, err := g.b.genGet(g.reqID)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return fmt.Errorf("no /generation record for %s", g.reqID)
+	}
+	return nil
+}
+
+func (g *gl3State) gl3UnknownRoutingKey(label string) error {
+	if err := g.ensureFunded(); err != nil {
+		return err
+	}
+	body := []byte(`{"model":"qwen3-32b","messages":[{"role":"user","content":"hi"}],"provider":{"foo":1}}`)
+	code, hdr := g.gl3RawRelay(body, func(r *http.Request) { signReq(r, g.who[label].priv, body) })
+	g.reqID, g.lastHdr, g.lastCode = hdr.Get("X-RogerAI-Request-Id"), hdr, code
+	return nil
+}

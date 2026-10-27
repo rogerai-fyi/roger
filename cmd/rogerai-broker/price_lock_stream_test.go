@@ -22,6 +22,10 @@ import (
 // non-stream path had already established - eating the hiked price. This drives a real
 // relay round-trip on each path and asserts the stream bills the LOCKED (original) price.
 func TestStreamHonorsNonStreamPriceLock(t *testing.T) {
+	// The station's price here is posted the moment the fixture stands it up; this test is
+	// about the lock's hike protection, so the §14.12 promo-lock window is off (pinned in
+	// features/money/routing_money_hardening.feature).
+	t.Setenv("ROGERAI_LOCK_MIN_POSTED", "0s")
 	db := store.NewMem()
 	b := relayBroker(db)
 

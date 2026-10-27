@@ -117,7 +117,7 @@ func (b *broker) RunCanary(towerID string) reputation.Outcome {
 	}
 	// Recorded exactly as a customer attempt is - if a canary skipped this it would BE
 	// distinguishable, and an attempt nobody recorded could not settle through the courier.
-	if err := b.openEdgeAttempt(grant, target); err != nil {
+	if err := b.openEdgeAttempt(grant, target, ""); err != nil {
 		log.Printf("canary: could not record attempt for tower %s: %v", towerID, err)
 		return ""
 	}

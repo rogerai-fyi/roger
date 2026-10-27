@@ -165,7 +165,7 @@ func (f offerFilter) keeps(o offerView) bool {
 		return false
 	case f.regions != nil && !f.regions[strings.ToLower(strings.TrimSpace(o.Region))]:
 		return false
-	case f.quants != nil && !f.quants[strings.ToLower(o.Quant)]:
+	case f.quants != nil && !f.quantOK(o.Quant):
 		return false
 	case f.selfHosted && o.Curated, f.conf && !o.Confidential, f.free && !(o.FreeNow || (o.In == 0 && o.Out == 0)), f.verified && !o.Verified:
 		return false
@@ -208,4 +208,13 @@ func readFilter(w http.ResponseWriter, r *http.Request) (offerFilter, bool) {
 		return f, false
 	}
 	return f, true
+}
+
+// quantOK applies the quant filter the way the relay applies provider.quantizations: labels
+// match case-insensitively, and "unknown" admits an offer that carries no quant label.
+func (f offerFilter) quantOK(quant string) bool {
+	if quant == "" {
+		return f.quants[protocol.QuantUnknown]
+	}
+	return f.quants[strings.ToLower(quant)]
 }

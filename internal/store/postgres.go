@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -35,6 +36,10 @@ CREATE TABLE IF NOT EXISTS rogerai.receipts (
     prompt_tokens INT, completion_tokens INT, cost DOUBLE PRECISION,
     ts BIGINT, receipt JSONB, created_at TIMESTAMPTZ DEFAULT now());
 ALTER TABLE rogerai.receipts ADD COLUMN IF NOT EXISTS owner_share DOUBLE PRECISION NOT NULL DEFAULT 0;
+-- The consumer-facing request id an attempt belongs to (contract §14.B7 #13): the receipt's
+-- request_id is the per-attempt id the station signed; this column ties it back for the
+-- consumer's own rows and is never selected for a station owner's.
+ALTER TABLE rogerai.receipts ADD COLUMN IF NOT EXISTS relay_request_id TEXT;
 CREATE INDEX IF NOT EXISTS receipts_usr_ts  ON rogerai.receipts (usr, ts DESC);
 CREATE INDEX IF NOT EXISTS receipts_node_ts ON rogerai.receipts (node, ts DESC);
 CREATE TABLE IF NOT EXISTS rogerai.processed_events (key TEXT PRIMARY KEY, at TIMESTAMPTZ DEFAULT now());
@@ -421,7 +426,46 @@ CREATE TABLE IF NOT EXISTS rogerai.pending_holds (
     usr        TEXT NOT NULL,
     amount     DOUBLE PRECISION NOT NULL,
     placed_at  BIGINT NOT NULL);
-CREATE INDEX IF NOT EXISTS pending_holds_placed_at ON rogerai.pending_holds (placed_at);`
+CREATE INDEX IF NOT EXISTS pending_holds_placed_at ON rogerai.pending_holds (placed_at);
+-- account keys (ROUTING-EXPRESSION-CONTRACT section 11): a reservation attributed to a key is a
+-- pending hold carrying its key id; key_ts is the request's start, which dates the key spend.
+ALTER TABLE rogerai.pending_holds ADD COLUMN IF NOT EXISTS key_id TEXT;
+ALTER TABLE rogerai.pending_holds ADD COLUMN IF NOT EXISTS key_ts BIGINT;
+CREATE INDEX IF NOT EXISTS pending_holds_key ON rogerai.pending_holds (key_id) WHERE key_id IS NOT NULL;
+-- account keys: guardrailed bearer credentials an account mints for itself. secret_hash is the
+-- auth lookup key; the secret itself is never stored. A deleted key is kept revoked.
+CREATE TABLE IF NOT EXISTS rogerai.account_keys (
+    id             TEXT PRIMARY KEY,            -- key_<rand>
+    secret_hash    TEXT NOT NULL UNIQUE,        -- sha256(secret)
+    account        TEXT NOT NULL,               -- the minting account's wallet (the payer)
+    name           TEXT NOT NULL DEFAULT '',
+    hint           TEXT NOT NULL DEFAULT '',
+    limit_usd      DOUBLE PRECISION NOT NULL DEFAULT 0,
+    reset          TEXT NOT NULL DEFAULT 'none',
+    anchor         BIGINT NOT NULL DEFAULT 0,
+    expires_at     BIGINT NOT NULL DEFAULT 0,
+    allowed_models JSONB DEFAULT '[]',
+    allowed_nodes  JSONB DEFAULT '[]',
+    disabled       BOOLEAN NOT NULL DEFAULT false,
+    revoked        BOOLEAN NOT NULL DEFAULT false,
+    idem_key       TEXT NOT NULL DEFAULT '',
+    created_at     BIGINT NOT NULL,
+    last_used      BIGINT NOT NULL DEFAULT 0,
+    requests       BIGINT NOT NULL DEFAULT 0,
+    owner_pub      TEXT NOT NULL DEFAULT '');   -- the minting owner key (notice mail)
+CREATE INDEX IF NOT EXISTS account_keys_account ON rogerai.account_keys (account);
+-- Idempotency-Key claims (contract 14.B2): one row per (payer, key); the first insert wins, so a
+-- retry never starts a second job, hold or settle. Rows past the window are taken over.
+CREATE TABLE IF NOT EXISTS rogerai.idempotency_claims (
+    payer       TEXT NOT NULL,
+    key         TEXT NOT NULL,
+    fingerprint TEXT NOT NULL,
+    request_id  TEXT NOT NULL,
+    state       TEXT NOT NULL,
+    deadline    BIGINT NOT NULL DEFAULT 0,
+    created     BIGINT NOT NULL,
+    seq         BIGSERIAL,                   -- claim order: breaks a tie on created for eviction
+    PRIMARY KEY (payer, key));`
 
 // poolLimits reads the connection-pool bounds from the environment. The production
 // cluster is a small shared managed Postgres (~22 usable backends across every app on
@@ -724,6 +768,20 @@ func (p *Postgres) Settle(user, node string, cost, ownerShare float64, rec proto
 		return 0, err
 	}
 	defer tx.Rollback()
+	// A $0 metering settle (signed self-use, a free grant, a voided attempt's lineage receipt)
+	// has no hold in front of it, so nothing has created the payer's wallet row: it reaches
+	// here for a wallet that was never read or seeded. Create the row at balance 0 - the same
+	// upsert BalanceOf performs, WITHOUT the seed grant - so the receipt is recorded instead
+	// of the whole settle failing on a missing row. No money is created, and the wallet's
+	// one-time starter seed is still granted by its first seeding read. In this transaction:
+	// a settle that records nothing leaves no row behind. A PAID settle (cost > 0) is left to
+	// fail on a missing row: debiting a wallet that does not exist is an upstream bug, and
+	// the hold gate (which seeds first) is what makes a paid wallet exist.
+	if cost == 0 {
+		if _, err := tx.Exec(`INSERT INTO rogerai.wallet(usr,balance) VALUES($1,0) ON CONFLICT (usr) DO NOTHING`, user); err != nil {
+			return 0, err
+		}
+	}
 	// Idempotency claim: the receipt row IS the lock. A non-empty request id is
 	// inserted FIRST (owner_share backfilled below once the seed-scaled share is
 	// known); a duplicate finds the row already present, touches NO money, and
@@ -778,9 +836,9 @@ func (p *Postgres) claimReceipt(tx *sql.Tx, user, node string, cost float64, rec
 	rj, _ := json.Marshal(rec)
 	bpt, bct := billedTokens(rec)
 	res, err := tx.Exec(`INSERT INTO rogerai.receipts
-		(request_id,usr,node,model,prompt_tokens,completion_tokens,cost,owner_share,ts,receipt,grant_id)
-		VALUES($1,$2,$3,$4,$5,$6,$7,0,$8,$9,$10) ON CONFLICT (request_id) DO NOTHING`,
-		rec.RequestID, user, node, rec.ServedModel(), bpt, bct, cost, rec.TS, rj, nullStr(rec.GrantID))
+		(request_id,usr,node,model,prompt_tokens,completion_tokens,cost,owner_share,ts,receipt,grant_id,relay_request_id)
+		VALUES($1,$2,$3,$4,$5,$6,$7,0,$8,$9,$10,$11) ON CONFLICT (request_id) DO NOTHING`,
+		rec.RequestID, user, node, rec.ServedModel(), bpt, bct, cost, rec.TS, rj, nullStr(rec.GrantID), nullStr(rec.RelayRequestID))
 	if err != nil {
 		return false, 0, err
 	}
@@ -805,9 +863,9 @@ func (p *Postgres) fillEarnShare(tx *sql.Tx, user, node string, cost float64, re
 	rj, _ := json.Marshal(rec)
 	bpt, bct := billedTokens(rec)
 	_, err := tx.Exec(`INSERT INTO rogerai.receipts
-		(request_id,usr,node,model,prompt_tokens,completion_tokens,cost,owner_share,ts,receipt,grant_id)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (request_id) DO NOTHING`,
-		rec.RequestID, user, node, rec.ServedModel(), bpt, bct, cost, earnShare, rec.TS, rj, nullStr(rec.GrantID))
+		(request_id,usr,node,model,prompt_tokens,completion_tokens,cost,owner_share,ts,receipt,grant_id,relay_request_id)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) ON CONFLICT (request_id) DO NOTHING`,
+		rec.RequestID, user, node, rec.ServedModel(), bpt, bct, cost, earnShare, rec.TS, rj, nullStr(rec.GrantID), nullStr(rec.RelayRequestID))
 	return err
 }
 
@@ -843,7 +901,12 @@ func (p *Postgres) recent(col, val string, limit int) ([]Entry, error) {
 	if limit <= 0 {
 		limit = 50
 	}
-	rows, err := p.db.Query(`SELECT request_id,usr,node,model,prompt_tokens,completion_tokens,cost,owner_share,ts
+	// Only the consumer's own rows carry the attempt's request id (never an owner's).
+	relay := `''`
+	if col == `usr` {
+		relay = `COALESCE(relay_request_id,'')`
+	}
+	rows, err := p.db.Query(`SELECT request_id,usr,node,model,prompt_tokens,completion_tokens,cost,owner_share,ts,`+relay+`
 		FROM rogerai.receipts WHERE `+col+`=$1 ORDER BY ts DESC LIMIT $2`, val, limit)
 	if err != nil {
 		return nil, err
@@ -852,7 +915,7 @@ func (p *Postgres) recent(col, val string, limit int) ([]Entry, error) {
 	var out []Entry
 	for rows.Next() {
 		var e Entry
-		if err := rows.Scan(&e.RequestID, &e.User, &e.Node, &e.Model, &e.PromptTokens, &e.CompletionTokens, &e.Cost, &e.OwnerShare, &e.TS); err != nil {
+		if err := rows.Scan(&e.RequestID, &e.User, &e.Node, &e.Model, &e.PromptTokens, &e.CompletionTokens, &e.Cost, &e.OwnerShare, &e.TS, &e.RelayRequestID); err != nil {
 			return nil, err
 		}
 		out = append(out, e)
@@ -1043,8 +1106,16 @@ func (p *Postgres) Finalize(user, node string, held, cost, ownerShare float64, r
 		return 0, err
 	}
 	// Capture clears the tracked hold (no-op if untracked) IN THIS TX, so the deploy-orphan
-	// sweep never double-refunds a settled request.
-	if _, err := tx.Exec(`DELETE FROM rogerai.pending_holds WHERE request_id=$1`, rec.RequestID); err != nil {
+	// sweep never double-refunds a settled request. A hold attributed to an account key turns
+	// into that key's spend in the same step.
+	var holdKeyID sql.NullString
+	var holdKeyTS sql.NullInt64
+	switch err := tx.QueryRow(`DELETE FROM rogerai.pending_holds WHERE request_id=$1 RETURNING key_id, key_ts`, rec.RequestID).Scan(&holdKeyID, &holdKeyTS); err {
+	case nil, sql.ErrNoRows:
+	default:
+		return 0, err
+	}
+	if err := keySpendCaptureTx(tx, holdKeyID.String, holdKeyTS.Int64, rec.RequestID, cost); err != nil {
 		return 0, err
 	}
 	// Only the REAL (non-seed) funded portion of this cost earns the operator (P0-1):
@@ -1101,7 +1172,9 @@ func (p *Postgres) SettleEdge(user, stationNode, stationAcct, towerNode, towerAc
 	// wrong refund. (The receipt is claimed above, so this no-op path still records the attempt as
 	// settled - correct, because with no reservation there is nothing to bill for it, ever.)
 	var held float64
-	switch err := tx.QueryRow(`DELETE FROM rogerai.pending_holds WHERE request_id=$1 RETURNING amount`, rec.RequestID).Scan(&held); err {
+	var edgeKeyID sql.NullString
+	var edgeKeyTS sql.NullInt64
+	switch err := tx.QueryRow(`DELETE FROM rogerai.pending_holds WHERE request_id=$1 RETURNING amount, key_id, key_ts`, rec.RequestID).Scan(&held, &edgeKeyID, &edgeKeyTS); err {
 	case sql.ErrNoRows:
 		return 0, tx.Commit() // no hold: no-op
 	case nil:
@@ -1116,6 +1189,9 @@ func (p *Postgres) SettleEdge(user, stationNode, stationAcct, towerNode, towerAc
 		stationShare *= scale
 		towerShare *= scale
 		cost = held
+	}
+	if err := keySpendCaptureTx(tx, edgeKeyID.String, edgeKeyTS.Int64, rec.RequestID, cost); err != nil {
+		return 0, err
 	}
 	var bal float64
 	if err := tx.QueryRow(`UPDATE rogerai.wallet SET balance=balance+$2 WHERE usr=$1 RETURNING balance`, user, held-cost).Scan(&bal); err != nil {
@@ -1353,6 +1429,23 @@ func (p *Postgres) OwnerByLogin(login string) (Owner, bool, error) {
 		ORDER BY created_at ASC, pubkey ASC LIMIT 1`, login)
 }
 
+// LinkVerifiedEmail: the partial unique index owners_verified_email_uniq is the arbiter of
+// "one live account per verified address", so a concurrent pair of links cannot both win.
+func (p *Postgres) LinkVerifiedEmail(pubkey, email string, at int64) error {
+	res, err := p.db.Exec(`UPDATE rogerai.owners SET email=$2, email_verified_at=$3
+		WHERE pubkey=$1 AND NOT COALESCE(anonymized,false)`, pubkey, email, time.Unix(at, 0).UTC())
+	if err != nil {
+		if strings.Contains(err.Error(), "owners_verified_email_uniq") {
+			return ErrEmailTaken
+		}
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNoOwner
+	}
+	return nil
+}
+
 // OwnerByVerifiedEmail resolves the account that PROVED it holds this address.
 //
 // The email_verified_at guard is the security boundary: owners.email alone is
@@ -1413,7 +1506,12 @@ func (p *Postgres) scanOwner(query string, arg string) (Owner, bool, error) {
 }
 
 func (p *Postgres) UpdateAccount(login, email string) (Owner, bool, error) {
-	res, err := p.db.Exec(`UPDATE rogerai.owners SET email=$2 WHERE login=$1 AND NOT COALESCE(anonymized,false)`, login, email)
+	// A changed address drops the verified stamp (the proof was for the old one); SET
+	// expressions read the OLD row, so the comparison sees the previous email.
+	res, err := p.db.Exec(`UPDATE rogerai.owners
+		SET email_verified_at = CASE WHEN lower(email) IS NOT DISTINCT FROM lower($2) THEN email_verified_at ELSE NULL END,
+		    email=$2
+		WHERE login=$1 AND NOT COALESCE(anonymized,false)`, login, email)
 	if err != nil {
 		return Owner{}, false, err
 	}
@@ -2216,6 +2314,9 @@ func (p *Postgres) recoverLineageTx(tx *sql.Tx, id, consumerKind, consumerRefPre
 		return ChargebackResult{}, err
 	}
 	if err := appendLedger(tx, wallet, "consumer", consumerKind, -amount, consumerRefPrefix+id, StatePosted, id, now.Unix()); err != nil {
+		return ChargebackResult{}, err
+	}
+	if err := keyReverseTx(tx, requestID, amount); err != nil {
 		return ChargebackResult{}, err
 	}
 	disputeID := id

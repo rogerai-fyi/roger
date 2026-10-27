@@ -56,10 +56,11 @@ Feature: Key limits on the relay - the per-key spend ceiling, window, and allow-
     Then moderation runs first, then the pick, then the key-limit check next to the monthly-cap check, then the hold, then dispatch
     And a prompt moderation rejects is 451 with no key-limit check, no hold, and no usage change
 
+  # corrected 2026-10-02 (founder-approved): the $5.00 spent through the key was debited from the $20.00 balance
   Scenario: The key limit is checked before the wallet hold, so a refused request never touches the wallet
     Given "k1" has $5.00 spent this window
     When a priced relay bearing "k1" arrives
-    Then it is 402 before HoldFor is called and the balance stays $20.00
+    Then it is 402 before HoldFor is called and the balance stays $15.00
 
   Scenario: A free ($0) relay bearing a key skips the limit entirely
     Given node "nf" is on air for "gpt-oss-20b" at $0/$0
@@ -130,9 +131,11 @@ Feature: Key limits on the relay - the per-key spend ceiling, window, and allow-
     Then it is 402 with limit_source "monthly_cap" and the existing monthly message
 
   # --- the 402 body ---------------------------------------------------------------
+  # superseded 2026-10-05 by contract §14 (founder-approved): the one envelope adds error.type and the
+  # request id to metadata (§14.B6); code, message, limit_source and remedy_hint are unchanged.
   Scenario Outline: Every 402 names its source and a remedy
     When a priced relay is refused because of <source>
-    Then the body is {"error":{"code":"<code>","message":"<message>","metadata":{"limit_source":"<source>","remedy_hint":"<hint>"}}}
+    Then the body is {"error":{"code":"<code>","message":"<message>","type":"insufficient_quota","metadata":{"limit_source":"<source>","remedy_hint":"<hint>","request_id":...}}}
 
     Examples:
       | source      | code                 | message                                                                 | hint                                                                                          |
@@ -390,10 +393,25 @@ Feature: Key limits on the relay - the per-key spend ceiling, window, and allow-
     When a relay bearing "k1" is served
     Then the /console lineage row carries key_id "k1"
 
+  # added 2026-10-04 (founder ruling): an account that runs stations AND buys inference sees both
+  # views on /console - the operator view (what its stations served, unchanged) and, separately,
+  # its own consumer requests (with key_id when key-funded) and its own spend today.
+  Scenario: An account that runs stations and buys inference sees both views on /console
+    Given "acct-a" also runs station "n-own" for "own-model" that served one relay for another account
+    When a relay bearing "k1" is served
+    Then /console for "acct-a" has role "owner" and an operator event served by "n-own"
+    And its consumer events list the relay made with "k1", carrying key_id "k1" and its cost
+    And its consumer counters count that relay in spend_today
+    And no consumer event is the relay "n-own" served for the other account
+
+  # corrected 2026-10-02 (founder-approved): key_spend_after 1.002 needs $1.00 spent through the key first
   Scenario: /generation shows key_id, and the key state at settle in the consumer view only
+    Given "k1" has $1.00 spent this window
     When a relay bearing "k1" is served
     Then the consumer view of GET /generation?id= carries key_id "k1", key_limit 5, key_spend_after 1.002 (fields absent for non-key requests)
-    And the owner view (the station's payout owner) carries key_id only, never key_limit or key_spend_after
+    # superseded 2026-10-05 by contract §14 (founder-approved): the owner view drops key_id too
+    # (§14.B7); was "carries key_id only, never key_limit or key_spend_after".
+    And the owner view (the station's payout owner) carries no key_id, key_limit or key_spend_after
 
   Scenario: /usage can group by key
     When "acct-a" GETs /usage?by=key
@@ -410,6 +428,14 @@ Feature: Key limits on the relay - the per-key spend ceiling, window, and allow-
   Scenario: The near-limit key notice email is de-duplicated per key per window
     Given "acct-a" has an email on file and RESEND_API_KEY is set
     When "k1" crosses 80% and then 100% in one window
+    Then at most one 80% email and one 100% email are sent for "k1" that window, naming the key by name and id, never the secret
+
+  # state audit 2026-10-05: the de-duplication is shared, so a second instance does not mail again.
+  Scenario: The key notice email is de-duplicated across instances
+    Given "acct-a" has an email on file and RESEND_API_KEY is set
+    And a second instance shares the store, with its own mailer
+    When "k1" crosses 80% and then 100% in one window on A
+    And a relay bearing "k1" on B is 402 key_limit in the same window
     Then at most one 80% email and one 100% email are sent for "k1" that window, naming the key by name and id, never the secret
 
   Scenario: Logs never print the secret

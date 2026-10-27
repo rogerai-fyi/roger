@@ -8,6 +8,7 @@ package agent
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/hex"
@@ -52,6 +53,10 @@ type Config struct {
 	CuratedAtCost    bool // post at the declared list exactly - no markup, pure pass-through
 	UpstreamPriceIn  float64
 	UpstreamPriceOut float64
+	// ProbeMin is the operator's declared minimum interval between the broker's verification
+	// probes (registration probe_min_s, whole seconds; 0 = undeclared). The broker caps it at
+	// 24h by default, and between probes the node reads as not currently verified.
+	ProbeMin time.Duration
 
 	Broker, Upstream, UpstreamKey string
 	NodeID, Region, HW, Model     string
@@ -152,6 +157,7 @@ type Session struct {
 	probeToks     atomic.Int64 // completion tokens spent on those probes
 	stop          chan struct{}
 	rereg         *reregistrar // shared self-healing re-register coordinator
+	inflight      inflightJobs // the jobs being served now, so a broker cancel can stop them
 	link          atomic.Int32 // LinkState: is the BROKER actually acknowledging us?
 
 	// Private band: the broker-minted band id + the secret frequency code (the code is
@@ -471,6 +477,7 @@ func Start(cfg Config) (*Session, error) {
 		Region: cfg.Region, HW: cfg.HW, Offers: []protocol.ModelOffer{offer},
 		Confidential: cfg.Confidential, Private: cfg.Private,
 		Curated: cfg.Curated, CuratedProvider: cfg.CuratedProvider, CuratedAtCost: cfg.CuratedAtCost,
+		ProbeMinSeconds: int(cfg.ProbeMin / time.Second),
 		// Carry the AUTHORITATIVE station (the same callsign NodeID is derived from) so the broker
 		// can namespace this node's public voices as @<station>/<slug> without parsing the id.
 		Station: cfg.Station,
@@ -516,6 +523,7 @@ func Start(cfg Config) (*Session, error) {
 	for i := 0; i < cfg.Parallel; i++ {
 		go pollLoop(cfg, offer, priv, sess)
 	}
+	go cancelLoop(cfg, sess)
 	return sess, nil
 }
 
@@ -537,7 +545,8 @@ func pollLoop(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey, se
 		token, gen := sess.rereg.curToken()
 		req, _ := http.NewRequest(http.MethodGet, pollURL, nil)
 		req.Header.Set("Authorization", "Bearer "+token)
-		req.Header.Set(ackHeader, "1") // we confirm every job we receive (POST /agent/ack)
+		req.Header.Set(ackHeader, "1")    // we confirm every job we receive (POST /agent/ack)
+		req.Header.Set(cancelHeader, "1") // we stop a job when the broker cancels it (cancelLoop)
 		resp, err := poll.Do(req)
 		if err != nil {
 			// Transient network error: keep the existing short retry (the broker may
@@ -573,14 +582,16 @@ func pollLoop(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey, se
 				continue // re-delivered after a lost ack: acked again, never served twice
 			}
 		}
+		ctx, done := sess.inflight.start(job.ID)
 		if isStream(job.Body) {
-			rec := serveStream(cfg, offer, priv, token, job)
+			rec := serveStreamCtx(ctx, cfg, offer, priv, token, job)
 			recordIf(sess, job, rec)
 		} else {
-			res := serve(cfg, offer, priv, up, job)
+			res := serveCtx(ctx, cfg, offer, priv, up, job)
 			postResult(poll, cfg, token, res)
 			recordIf(sess, job, res.Receipt)
 		}
+		done()
 	}
 }
 
@@ -707,6 +718,12 @@ func isStream(body []byte) bool {
 // token usage from the final chunk, then posts a signed receipt to settle. The
 // node asks the upstream to include a usage chunk so we can meter the stream.
 func serveStream(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey, token string, job protocol.Job) protocol.UsageReceipt {
+	return serveStreamCtx(context.Background(), cfg, offer, priv, token, job)
+}
+
+// serveStreamCtx is serveStream bound to ctx: a broker cancel ends the upstream stream, and the
+// receipt reports the tokens the upstream had reported by then.
+func serveStreamCtx(ctx context.Context, cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey, token string, job protocol.Job) protocol.UsageReceipt {
 	client := &http.Client{Timeout: 10 * time.Minute} // streams can be long
 	// Osaurus hardening (Config.Osaurus, decided once at share time): pin the model to the offer
 	// and mark the request no-persist so tuner traffic can't force-load a different local model
@@ -715,7 +732,7 @@ func serveStream(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey,
 	if cfg.Osaurus {
 		body = pinModel(body, cfg.Model)
 	}
-	upReq, _ := http.NewRequest(http.MethodPost, cfg.Upstream, bytes.NewReader(withUsageOption(body)))
+	upReq, _ := http.NewRequestWithContext(ctx, http.MethodPost, cfg.Upstream, bytes.NewReader(withUsageOption(body)))
 	upReq.Header.Set("Content-Type", "application/json")
 	if cfg.UpstreamKey != "" {
 		upReq.Header.Set("Authorization", "Bearer "+cfg.UpstreamKey)
@@ -835,6 +852,12 @@ func parseUsage(line []byte) (prompt, completion int, ok bool) {
 }
 
 func serve(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey, up *http.Client, job protocol.Job) protocol.JobResult {
+	return serveCtx(context.Background(), cfg, offer, priv, up, job)
+}
+
+// serveCtx is serve bound to ctx: a broker cancel aborts the upstream request, and the job is
+// reported as 499 with nothing delivered (job_cancel.feature C2).
+func serveCtx(ctx context.Context, cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey, up *http.Client, job protocol.Job) protocol.JobResult {
 	// TRUST BOUNDARY: the broker supplies job.Path and we derive a LOCAL endpoint from it (below),
 	// which the loopback backend treats as authenticated. Only forward an ALLOWLISTED upstream
 	// path; refuse everything else BEFORE building a target or touching the backend, so a
@@ -870,7 +893,7 @@ func serve(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey, up *h
 	if osaurusChat {
 		body = pinModel(body, cfg.Model)
 	}
-	upReq, _ := http.NewRequest(http.MethodPost, target, bytes.NewReader(body))
+	upReq, _ := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(body))
 	upReq.Header.Set("Content-Type", "application/json")
 	if cfg.UpstreamKey != "" {
 		upReq.Header.Set("Authorization", "Bearer "+cfg.UpstreamKey)
@@ -880,10 +903,16 @@ func serve(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey, up *h
 	}
 	resp, err := up.Do(upReq)
 	if err != nil {
+		if ctx.Err() != nil {
+			return cancelledResult(job.ID)
+		}
 		return protocol.JobResult{ID: job.ID, Status: http.StatusBadGateway, Body: []byte(`{"error":"upstream unreachable"}`)}
 	}
 	defer resp.Body.Close()
 	respBody, _ := io.ReadAll(resp.Body)
+	if ctx.Err() != nil {
+		return cancelledResult(job.ID)
+	}
 	// Belt-and-suspenders: never relay the node's own upstream key, in case the
 	// upstream echoed the request Authorization header into its response body.
 	respBody = redactUpstreamKey(respBody, cfg.UpstreamKey)

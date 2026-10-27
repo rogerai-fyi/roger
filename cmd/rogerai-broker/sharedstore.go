@@ -50,6 +50,23 @@ const keyPrefix = "rogerai:"
 // returns an error, and EVERY call site is required to fall back to the in-memory
 // path on a non-nil error. A connection failure NEVER propagates as a broker error.
 type sharedStore interface {
+	// Job cancels (jobcancel.go, features/multinode/job_cancel.feature): a node's cancel
+	// capability (until-ms value) and the per-node cancel delivery (pub/sub + short buffer).
+	cancelCapSet(node string, untilMs int64, ttl time.Duration) error
+	cancelCapGet(node string) (untilMs int64, err error)
+	cancelPush(node string, entry []byte, ttl time.Duration) error
+	cancelDrain(node string) ([][]byte, error)
+	cancelSubscribe(ctx context.Context, node string) (<-chan []byte, func(), error)
+
+	// Pair cooldowns (paircool.go, contract §14.2): pairCoolExtend raises one (node|model)
+	// field of a payer's cooldown hash to untilMs - atomically, never lowering it - and keeps
+	// the hash alive at least ttl; pairCooling reads a payer's whole hash; coolPayerNote
+	// records payer in node's 429 window (scores are unix-ms, entries older than window are
+	// dropped) and returns the distinct payers left. All shared across instances.
+	pairCoolExtend(payer, field string, untilMs int64, ttl time.Duration) (int64, error)
+	pairCooling(payer string) (map[string]int64, error)
+	coolPayerNote(node, payer string, nowMs int64, window time.Duration) (int, error)
+
 	// rateAllow is the shared token-bucket: it consumes one token for key under the
 	// given rpm/burst and reports whether the caller may proceed (mirrors
 	// rateLimiter.allowAt semantics). retryAfter is a seconds hint when denied. A
@@ -89,6 +106,11 @@ type sharedStore interface {
 	// on the sync loop. A non-nil err means the snapshot is unavailable this round (the caller
 	// keeps the last merged view). Keyed by node+"\x00"+model.
 	toolsVerified(ttl time.Duration) (map[string]bool, error)
+
+	// Total latency per node (totallatency.go): setTotalLatency writes a node's EWMA through,
+	// totalLatencies reads every node's figure for the sync loop's merge.
+	setTotalLatency(node string, ms float64) error
+	totalLatencies() (map[string]float64, error)
 
 	// cacheGet returns the cached bytes for key (found == true) or a miss
 	// (found == false). It is a READ-ONLY accelerator for the hot, expensive read
@@ -156,6 +178,12 @@ type sharedStore interface {
 	// non-nil err means the backend was unreachable; the caller must fall back to doing
 	// the underlying (idempotent) work.
 	setIfAbsent(key, val string, ttl time.Duration) (set bool, err error)
+	// counterDel removes a counter / setIfAbsent key (releases a lock taken with setIfAbsent).
+	// A missing key is not an error.
+	counterDel(key string) error
+	// delIfEqual removes a setIfAbsent key only while it still holds val (compare-and-delete),
+	// so a holder whose lock lapsed never frees the lock another holder has since taken.
+	delIfEqual(key, val string) error
 
 	// healthy reports whether the backend currently looks reachable (best-effort).
 	healthy() bool
@@ -431,6 +459,10 @@ func (m *memStore) counterIncr(string, float64) (float64, error) { return 0, err
 func (m *memStore) setIfAbsent(string, string, time.Duration) (bool, error) {
 	return false, errNoSharedStore
 }
+
+func (m *memStore) counterDel(string) error { return errNoSharedStore }
+
+func (m *memStore) delIfEqual(string, string) error { return errNoSharedStore }
 
 func (m *memStore) healthy() bool { return false }
 func (m *memStore) Close() error  { return nil }
@@ -1791,6 +1823,41 @@ func (v *valkeyStore) counterIncr(key string, delta float64) (float64, error) {
 	}
 	v.setUp(true)
 	return val, nil
+}
+
+func (v *valkeyStore) counterDel(key string) error {
+	if v == nil || v.rdb == nil {
+		return errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	if err := v.rdb.Del(ctx, counterKeyPrefix+key).Err(); err != nil {
+		v.noteErr("counterDel", err)
+		return err
+	}
+	v.setUp(true)
+	return nil
+}
+
+var delIfEqualScript = redis.NewScript(`
+if redis.call("GET", KEYS[1]) == ARGV[1] then
+  return redis.call("DEL", KEYS[1])
+end
+return 0
+`)
+
+func (v *valkeyStore) delIfEqual(key, val string) error {
+	if v == nil || v.rdb == nil {
+		return errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	if err := delIfEqualScript.Run(ctx, v.rdb, []string{counterKeyPrefix + key}, val).Err(); err != nil {
+		v.noteErr("delIfEqual", err)
+		return err
+	}
+	v.setUp(true)
+	return nil
 }
 
 func (v *valkeyStore) setIfAbsent(key, val string, ttl time.Duration) (bool, error) {

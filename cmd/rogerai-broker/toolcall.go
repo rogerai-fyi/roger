@@ -354,9 +354,11 @@ func (b *broker) syncToolsVerified() {
 // and a peer never surfaces a verdict the host retracted. Caller holds metricsMu.
 func (b *broker) toolsVerifiedForLocked(nodeID, model string) bool {
 	if b.shared != nil {
-		return b.toolsMerged[toolKey(nodeID, model)]
+		return b.toolsMerged[toolKey(nodeID, model)] // the shared field carries its own TTL
 	}
-	return b.toolsOK[toolKey(nodeID, model)]
+	// Single-instance has no shared TTL, so a node on the declared probe-minimum lane gets
+	// the same toolsVerifiedTTL clock here: the verdict is never extended to cover the gap.
+	return b.toolsOK[toolKey(nodeID, model)] && !b.probeMinLapsedLocked(nodeID, time.Now(), toolsVerifiedTTL)
 }
 
 // authoritativeFor reports whether THIS instance hosts the node's live poll and may therefore
@@ -388,7 +390,7 @@ func (b *broker) probeToolCall(node protocol.NodeRegistration, model string, aut
 		return
 	}
 	nonce := newToolNonce() // fresh per probe: the model must echo it, defeating a canned reply
-	job := protocol.Job{ID: protocol.NewRequestID(), User: "probe", Body: toolCanaryBody(model, nonce)}
+	job := protocol.Job{ID: b.attemptID(protocol.NewRequestID(), 1), User: b.probePseudonym(node.NodeID), Body: toolCanaryBody(model, nonce)}
 
 	if mi {
 		ctx, cancel := context.WithCancel(context.Background())

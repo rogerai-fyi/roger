@@ -257,6 +257,7 @@ func classifiedText(body string) string {
 // --- relay results ---------------------------------------------------------------
 
 type relayResult struct {
+	relayID    string // X-RogerAI-Request-Id: what screening, flags and logs name the request by
 	code       int
 	body       string
 	hdrReceipt string
@@ -550,6 +551,7 @@ func (s *opsState) relay(id int, body []byte) relayResult {
 	s.b.relay(w, r)
 	res := relayResult{
 		code: w.Code, body: w.Body.String(), hdrReceipt: w.Header().Get("X-RogerAI-Receipt"),
+		relayID: w.Header().Get("X-RogerAI-Request-Id"),
 		elapsed: time.Since(start),
 		user:    protocol.UserIDFromPubkey(hex.EncodeToString(priv.Public().(ed25519.PublicKey))),
 		wallet:  fmt.Sprintf("u_gh_%d", id),
@@ -629,7 +631,13 @@ func (s *opsState) drain() error {
 	return fmtErr("screening queue did not drain: %+v", s.scr.snapshot())
 }
 
+// firedCount counts the FIRED lines for key once every onset goroutine has finished:
+// adminAlert marks the key synchronously but claims the onset, applies flap accounting and
+// logs "alert: FIRED" on its own goroutine (alertOnset), which drain()'s quiescence check
+// does not cover. Counting before it had run read 0 on a loaded CI runner; the wait makes
+// the count exact on any machine (the bound is a liveness guard, not a timing margin).
 func (s *opsState) firedCount(key string) int {
+	s.b.waitAlertsInflight(10 * time.Second)
 	return strings.Count(s.logs.String(), "alert: FIRED "+strconv.Quote(key))
 }
 
@@ -1075,11 +1083,11 @@ func (s *opsState) csamRowExists() error {
 }
 func (s *opsState) flagRowExists(cat string) error {
 	for _, f := range s.flags(s.last) {
-		if strings.EqualFold(f.Category, cat) && f.RequestID != "" && f.RequestID == s.last.requestID {
+		if strings.EqualFold(f.Category, cat) && f.RequestID != "" && f.RequestID == s.last.relayID {
 			return nil
 		}
 	}
-	return fmtErr("no moderation_flags row with category %s + request id %s for %s: %+v", cat, s.last.requestID, s.pseudonymOf(s.last), s.flags(s.last))
+	return fmtErr("no moderation_flags row with category %s + request id %s for %s: %+v", cat, s.last.relayID, s.pseudonymOf(s.last), s.flags(s.last))
 }
 func (s *opsState) flagCarriesAll() error {
 	fl := s.flags(s.last)
@@ -1438,8 +1446,8 @@ func (s *opsState) staleLineNames() error {
 	if line == "" {
 		return fmtErr("no MODERATION SKIPPED (stale after 429 backoff) line:\n%s", s.logs.String())
 	}
-	if !strings.Contains(line, s.last.requestID) || !strings.Contains(line, s.pseudonymOf(s.last)) {
-		return fmtErr("SKIPPED line does not name request id %s + pseudonym %s: %s", s.last.requestID, s.pseudonymOf(s.last), line)
+	if !strings.Contains(line, s.last.relayID) || !strings.Contains(line, s.pseudonymOf(s.last)) {
+		return fmtErr("SKIPPED line does not name request id %s + pseudonym %s: %s", s.last.relayID, s.pseudonymOf(s.last), line)
 	}
 	return nil
 }

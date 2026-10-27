@@ -6,6 +6,7 @@ package main
 // `roger profile` command set and `roger config show`.
 
 import (
+	"bufio"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -147,6 +148,9 @@ type useFlags struct {
 	selfHosted, confidential, noFallbacks bool
 	advanced, yes, raw                    bool
 	port                                  int
+	// Account keys (features/auth/key_guardrails.feature).
+	key                string
+	saveKey, forgetKey bool
 }
 
 // useHelp is `roger use --help`: the routing flags grouped under one heading.
@@ -175,6 +179,11 @@ routing:
   --region list     lowercase regions (eu,us)
   --max-cost $      per-request USD cap; 0 = no per-request cap
   --freq CODE       tune a private band by its frequency code
+
+account keys:
+  --key rog-key_... relay with an account key instead of this device; - reads it from stdin
+                    (or set ROGER_KEY)
+  --save-key        remember the key for later sessions; --forget-key removes it
 
 advanced flags: --port --max-in --min-tps --confidential --yes --raw
   --port N          local endpoint port (0 = auto-pick a free one)
@@ -272,13 +281,16 @@ func parseUseFlags(args []string) (f *useFlags, help bool, err error) {
 	fs.BoolVar(&f.yes, "yes", false, "")
 	fs.BoolVar(&f.raw, "raw", false, "")
 	fs.IntVar(&f.port, "port", 0, "")
+	fs.StringVar(&f.key, "key", "", "")
+	fs.BoolVar(&f.saveKey, "save-key", false, "")
+	fs.BoolVar(&f.forgetKey, "forget-key", false, "")
 	if err := fs.Parse(rest); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil, true, nil
 		}
 		return nil, false, flagError("use", err)
 	}
-	if f.model == "" || fs.NArg() > 0 {
+	if (f.model == "" && !f.forgetKey) || fs.NArg() > 0 {
 		return nil, false, fmt.Errorf("usage: roger use <model> [flags]")
 	}
 	switch {
@@ -710,6 +722,20 @@ func cmdUse(cfg config, args []string) error {
 	if err != nil {
 		return err
 	}
+	if f.forgetKey {
+		if cfg.UseKey == "" {
+			fmt.Println("no key was saved - nothing to forget")
+		} else {
+			cfg.UseKey = ""
+			if err := saveConfig(cfg); err != nil {
+				return err
+			}
+			fmt.Println("forgot the saved key - `roger use` signs with this device again")
+		}
+		if f.model == "" {
+			return nil
+		}
+	}
 	if f.advanced {
 		fmt.Println("advanced flags: --port --max-in --min-tps --confidential --yes --raw")
 	}
@@ -731,7 +757,56 @@ func cmdUse(cfg config, args []string) error {
 	opt.Port, opt.TypicalOut, opt.Yes, opt.Raw = f.port, typical, f.yes, f.raw
 	opt.RoutingLine = routingLine(t.r)
 	opt.TunedProfile = t.profile
+	key, note, err := useAccountKey(&cfg, f)
+	if err != nil {
+		return err
+	}
+	opt.Key, opt.KeyNote = key, note
 	return client.Use(cfg.Broker, cfg.User, t.model, opt)
+}
+
+// useAccountKey resolves the account key a session relays with: --key's (- reads it from
+// stdin), else ROGER_KEY's, else the one saved with --save-key. Neither stdin nor the
+// environment puts it in shell history or ps. --save-key writes it only after the transport
+// check, so a refused key is never stored.
+func useAccountKey(cfg *config, f *useFlags) (key, note string, err error) {
+	key = strings.TrimSpace(f.key)
+	if key == "-" {
+		line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+		if key = strings.TrimSpace(line); key == "" {
+			return "", "", fmt.Errorf("--key - read no key from stdin")
+		}
+	}
+	if key == "" {
+		key = strings.TrimSpace(os.Getenv("ROGER_KEY"))
+	}
+	if key != "" && !client.IsAccountKey(key) {
+		return "", "", fmt.Errorf("--key takes an account key (rog-key_...) - mint one with `roger keys mint`")
+	}
+	if key != "" {
+		if err := client.KeyTransportOK(cfg.Broker); err != nil {
+			return "", "", err // checked before --save-key, so a refused key is never written
+		}
+	}
+	if f.saveKey {
+		if key == "" {
+			return "", "", fmt.Errorf("--save-key needs --key rog-key_... (or ROGER_KEY)")
+		}
+		cfg.UseKey = key
+		if err := saveConfig(*cfg); err != nil {
+			return "", "", err
+		}
+	}
+	if key == "" && cfg.UseKey != "" {
+		key = cfg.UseKey // a key saved earlier with --save-key
+		if err := client.KeyTransportOK(cfg.Broker); err != nil {
+			return "", "", err // a saved key, checked against this run's broker
+		}
+	}
+	if key != "" {
+		note = useKeyNote(key, cfg.UseKey, strings.TrimSpace(f.key) != "")
+	}
+	return key, note, nil
 }
 
 // ── roger config set-limit / show ───────────────────────────────────────────────────────

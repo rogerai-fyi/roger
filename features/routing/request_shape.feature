@@ -51,11 +51,12 @@ Feature: Routing request shape - the body carriers, their validation, precedence
     And a logged-in consumer "u-1" with a $5.00 balance
 
   # --- the three carriers parse ----------------------------------------------------------
+  # superseded 2026-10-04 by contract §14 (founder-approved): a body that states no output limit is sent the default max_tokens the hold was sized for (§14.11)
   Scenario: A request with no routing carrier behaves exactly as today
     When "u-1" posts a chat completion for "qwen3-32b" with no routing body and no routing headers
     Then the response is 200
     And the served node is one of "n-a", "n-b"
-    And the station received a body whose only top-level keys are "model", "messages"
+    And the station received a body whose only top-level keys are "model", "messages" and the default "max_tokens"
 
   Scenario: An empty provider object is accepted and changes nothing
     When "u-1" posts a chat completion for "qwen3-32b" with body `"provider": {}`

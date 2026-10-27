@@ -56,7 +56,7 @@
         <div class="man-quick__card tint-panel">
           <span class="man-quick__step">1 · Install</span>
           <p>macOS or Linux, one line (Windows: <code>install.ps1</code> in PowerShell).</p>
-          <!-- include: install-box.html id=installCmdManual cmd='curl <span class="tok">-fsSL</span> https://rogerai.fm/install.sh | sh' -->
+          <!-- include: install-box.html id=installCmdManual cmd='curl <span class="tok">-fsSL</span> https://rogerai.fm/install.sh <span class="tok">| sh</span>' -->
         </div>
 
         <div class="man-quick__card tint-panel">
@@ -580,7 +580,7 @@
               (<code>pref</code>, or <code>order</code> against a pinned node) follows the body.</p>
             <div class="man-plate">
               <div class="man-plate__row"><span class="man-plate__k"><code>models</code></span><span class="man-plate__v">an ordered fallback list tried after <code>model</code> (at most 5): the broker moves on when a model has no eligible station, its stations are exhausted, or the prompt does not fit its window - never on your own bad request, and never after the first streamed token</span></div>
-              <div class="man-plate__row"><span class="man-plate__k"><code>provider</code></span><span class="man-plate__v">OpenRouter-shaped node selection with node ids in place of provider slugs: <code>order</code>, <code>only</code>, <code>ignore</code>, <code>allow_fallbacks</code>, <code>sort</code> (price / throughput / latency), <code>quantizations</code> (verbatim labels; <code>unknown</code> admits an unlabeled offer), <code>max_price</code> (<code>prompt</code>, <code>completion</code>, <code>request</code>)</span></div>
+              <div class="man-plate__row"><span class="man-plate__k"><code>provider</code></span><span class="man-plate__v">OpenRouter-shaped node selection with node ids in place of provider slugs: <code>order</code>, <code>only</code>, <code>ignore</code>, <code>allow_fallbacks</code>, <code>sort</code> (price / throughput / latency; latency ranks on the measured time to the whole answer, and on time to first token where that is not measured yet), <code>quantizations</code> (verbatim labels; <code>unknown</code> admits an unlabeled offer), <code>max_price</code> (<code>prompt</code>, <code>completion</code>, <code>request</code>)</span></div>
               <div class="man-plate__row"><span class="man-plate__k"><code>roger</code></span><span class="man-plate__v">the network-specific knobs: <code>pref</code> (cheap / balanced / fast / reliable), <code>require</code> (<code>tools</code>, <code>vision</code>), <code>params_b</code> [min, max] billions, <code>min_ctx</code>, <code>min_tps</code>, <code>max_ttft_ms</code>, <code>trust_min</code> (any / verified / confidential), <code>self_hosted_only</code>, <code>confidential</code>, <code>region</code>, <code>freq</code> (a private band code), <code>profile</code></span></div>
             </div>
             <p>A key the broker does not know is a <code>400</code> naming it, so a typo never
@@ -608,11 +608,16 @@
               <div class="man-plate__row"><span class="man-plate__k">X-Roger-Exclude-Nodes</span><span class="man-plate__v">comma-separated station ids to skip (body <code>provider.ignore</code>; the two sets are combined)</span></div>
               <div class="man-plate__row"><span class="man-plate__k">X-Roger-Freq</span><span class="man-plate__v">a private band code: admission to that band's stations, never spend authorization, never logged (body <code>roger.freq</code>)</span></div>
             </div>
-            <p>What comes back: <code>X-RogerAI-Provider</code> (the station that served),
+            <p>What comes back: <code>X-RogerAI-Request-Id</code> (your request),
+              <code>X-RogerAI-Provider</code> (the station that served),
               <code>X-RogerAI-Model</code> (the model that served), <code>X-RogerAI-Cost</code>
               (exact), <code>X-RogerAI-Tokens-In</code> / <code>-Out</code>,
-              <code>X-RogerAI-Price</code> (your 24h price lock) and
-              <code>X-RogerAI-Receipt</code> (the signed receipt). A stream ends with one
+              <code>X-RogerAI-Price</code> (your 24h price lock),
+              <code>X-RogerAI-Receipt</code> (the signed receipt) and
+              <code>X-RogerAI-Attempt-Id</code> (the attempt that served: each attempt a station
+              receives has its own id, so stations on one failover chain cannot link your
+              request, and the receipt names that attempt). Your own usage history lists each
+              attempt beside the request it belongs to. A stream ends with one
               final <b>usage chunk</b> carrying the same receipt before <code>[DONE]</code>,
               so a streaming client is metered exactly like a non-streaming one. The full
               field list with types and ranges is in the broker's
@@ -793,7 +798,13 @@
               <code>roger share --advanced</code> reveals <code>--node</code>,
               <code>--region</code>, <code>--parallel</code>, <code>--upstream</code>,
               <code>--ctx</code>, <code>--confidential</code>, <code>--free-window</code>,
-              and <code>--schedule</code>.</p>
+              <code>--schedule</code>, and <code>--probe-min</code>.</p>
+            <p>If every request to your upstream costs real money, <code>--probe-min 6h</code>
+              (or <code>"probe_min": "6h"</code> under the model in <code>share_prices</code>)
+              tells the broker to send its verification probes at most that often, capped at
+              24h. The trade is on your side of the dial: verification lapses between probes,
+              so the band shows as not currently verified and ranks below freshly probed
+              bands until the next probe or a real request refreshes it.</p>
           </section>
 
           <!-- ============== §T RUN A TOWER ============== -->
@@ -1472,7 +1483,7 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre></div>
                   <tr><td><code>use &lt;model&gt;</code></td><td>open a local OpenAI endpoint for your bots (aliases: <code>connect</code>, <code>tune</code>). Flags: <code>--max-out $</code> (headline cap, skip stations above this $/1M out) · <code>--yes</code> (skip the connect confirm) · <code>--advanced</code> reveals <code>--port</code> (0 = auto-pick) · <code>--max-in</code> · <code>--min-tps</code> · <code>--confidential</code> · <code>--raw</code> (keep raw model output; skip the reasoning-as-answer fallback)</td></tr>
                   <tr><td><code>balance</code></td><td>wallet balance ($). Topping up is <code>topup [usd]</code>; <code>balance --topup [usd]</code> and <code>balance topup [usd]</code> are retained aliases</td></tr>
                   <tr><td><code>topup [usd]</code></td><td>add funds (opens Stripe Checkout); bare <code>topup</code> is $10, minimum $1, whole cents only</td></tr>
-                  <tr><td><code>share</code></td><td>go on air - FREE by default, no login (auto-detects your model). Flags: <code>--model</code> · <code>--price-in</code> / <code>--price-out</code> ($/1M to earn; needs login) · <code>--free-window HH:MM-HH:MM</code> · <code>--schedule &lt;json&gt;</code> (time-of-use) · <code>--advanced</code> reveals <code>--node</code> · <code>--region</code> · <code>--parallel</code> · <code>--upstream</code> / <code>--upstream-key</code> · <code>--ctx</code> · <code>--confidential</code> (real TEE hardware required). With no local server it runs a guided "no model found" fallback</td></tr>
+                  <tr><td><code>share</code></td><td>go on air - FREE by default, no login (auto-detects your model). Flags: <code>--model</code> · <code>--price-in</code> / <code>--price-out</code> ($/1M to earn; needs login) · <code>--free-window HH:MM-HH:MM</code> · <code>--schedule &lt;json&gt;</code> (time-of-use) · <code>--advanced</code> reveals <code>--node</code> · <code>--region</code> · <code>--parallel</code> · <code>--upstream</code> / <code>--upstream-key</code> · <code>--ctx</code> · <code>--confidential</code> (real TEE hardware required) · <code>--probe-min &lt;duration&gt;</code> (probe at most this often, capped at 24h; verification lapses between probes). With no local server it runs a guided "no model found" fallback</td></tr>
                   <tr><td><code>limits</code></td><td>print your per-model spend limits (mirrors the in-app <code>/limits</code>; edit with <code>config set-limit</code>)</td></tr>
                   <tr><td><code>grant</code></td><td>private access keys for your bots/family: <code>create --name &lt;n&gt;</code> · <code>list</code> · <code>show</code> · <code>revoke</code> (aliases <code>new</code> / <code>ls</code> / <code>rm</code>)</td></tr>
                   <tr><td><code>payout</code></td><td>cash out provider earnings (login + KYC gated): <code>status</code> (default) · <code>onboard</code> (Stripe Connect KYC) · <code>request</code> (pays your payable balance) · <code>history</code> (aliases: <code>payouts</code> / <code>cashout</code>; <code>withdraw</code> for <code>request</code>)</td></tr>

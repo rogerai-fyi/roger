@@ -199,10 +199,10 @@ func (b *broker) metricsSeries(w http.ResponseWriter, r *http.Request) {
 	wallet, walletOK := b.dashIdentity(r)
 	consumer := walletOK && walletLoggedIn(wallet)
 	_, owner, ownerOK := b.payoutOwner(r, nil)
-	provider := ownerOK && owner.Pubkey != "" && owner.GitHubID != 0
+	provider := ownerOK && owner.Pubkey != "" && hasVerifiedIdentity(owner)
 
 	if !consumer && !provider {
-		jsonErr(w, http.StatusUnauthorized, "not logged in - run `roger login` to view your metrics")
+		b.refuseSession(w, r, "not logged in - run `roger login` to view your metrics")
 		return
 	}
 
@@ -404,24 +404,27 @@ func buildSeries(cons, prov []store.Entry, keyFn func(int64) string, table []fro
 // hostname-free in this system). success is always true here: only SETTLED receipts
 // reach the store, so a present receipt is a successful request.
 type consoleEvent struct {
-	RequestID string  `json:"request_id"` // the receipt / chain id
-	TS        int64   `json:"ts"`
-	Model     string  `json:"model"`
-	Node      string  `json:"node"` // node callsign (hostname-free node id)
-	TokensIn  int64   `json:"tokens_in"`
-	TokensOut int64   `json:"tokens_out"`
-	Cost      float64 `json:"cost"`   // consumer $ paid
-	Earned    float64 `json:"earned"` // provider owner-share $ (0 on the consumer view)
-	Success   bool    `json:"success"`
+	RequestID string `json:"request_id"` // the receipt / chain id (the per-attempt id)
+	// RelayRequestID is the X-RogerAI-Request-Id the attempt belongs to: the consumer's own
+	// rows only (store.Entry carries it nowhere else).
+	RelayRequestID string  `json:"relay_request_id,omitempty"`
+	TS             int64   `json:"ts"`
+	Model          string  `json:"model"`
+	Node           string  `json:"node"` // node callsign (hostname-free node id)
+	TokensIn       int64   `json:"tokens_in"`
+	TokensOut      int64   `json:"tokens_out"`
+	Cost           float64 `json:"cost"`   // consumer $ paid
+	Earned         float64 `json:"earned"` // provider owner-share $ (0 on the consumer view)
+	Success        bool    `json:"success"`
+	KeyID          string  `json:"key_id,omitempty"` // the account key that made the request
 }
 
 // console handles GET /console (alias /activity): the recent lineage activity feed +
 // live counters. Dual-auth, own-data only. An OWNER (bound operator account) sees the
 // activity their NODES served (earned per row, active-nodes counter); a CONSUMER sees
-// their CONSUMPTION (cost per row, spend-today counter). A caller who is both is shown
-// the provider view (their node-serving console) since that is the operator-facing
-// "console" page; the consumer feed is /me + /usage. Honest empty state: no fabricated
-// rows, real receipts only.
+// their CONSUMPTION (cost per row, spend-today counter). A caller who is both gets the
+// provider view plus, separately, consumer_events / consumer_counters for their own
+// requests. Honest empty state: no fabricated rows, real receipts only.
 func (b *broker) console(w http.ResponseWriter, r *http.Request) {
 	if corsCredsPreflight(w, r) {
 		return
@@ -434,10 +437,10 @@ func (b *broker) console(w http.ResponseWriter, r *http.Request) {
 	wallet, walletOK := b.dashIdentity(r)
 	consumer := walletOK && walletLoggedIn(wallet)
 	_, owner, ownerOK := b.payoutOwner(r, nil)
-	provider := ownerOK && owner.Pubkey != "" && owner.GitHubID != 0
+	provider := ownerOK && owner.Pubkey != "" && hasVerifiedIdentity(owner)
 
 	if !consumer && !provider {
-		jsonErr(w, http.StatusUnauthorized, "not logged in - run `roger login` to view your console")
+		b.refuseSession(w, r, "not logged in - run `roger login` to view your console")
 		return
 	}
 
@@ -473,14 +476,11 @@ func (b *broker) computeConsole(now time.Time, limit int, wallet string, consume
 		today, _ = b.db.EntriesByUser(wallet, dayStart, dayUntil)
 	}
 
-	events := make([]consoleEvent, 0, len(recent))
-	for _, e := range recent {
-		events = append(events, consoleEvent{
-			RequestID: e.RequestID, TS: e.TS, Model: e.Model, Node: e.Node,
-			TokensIn: int64(e.PromptTokens), TokensOut: int64(e.CompletionTokens),
-			Cost: round6(e.Cost), Earned: round6(e.OwnerShare), Success: true,
-		})
+	var keyOf map[string]string
+	if consumer {
+		keyOf = b.keyRefsOf(wallet)
 	}
+	events := consoleEvents(recent, keyOf, !provider)
 
 	// Live counters from today's receipts (and, for an owner, the active node set).
 	var reqToday int64
@@ -509,11 +509,44 @@ func (b *broker) computeConsole(now time.Time, limit int, wallet string, consume
 		counters["spend_today"] = round6(spendToday)
 	}
 
-	return map[string]any{
+	out := map[string]any{
 		"role":     role, // "owner" | "consumer"
 		"events":   events,
 		"counters": counters,
 	}
+	// BOTH VIEWS (founder ruling 2026-10-04): an operator who also buys inference sees their
+	// own consumer requests too, separately from what their stations served, so they can audit
+	// their spend (with the key id when a key funded the request).
+	if provider && consumer {
+		mine, _ := b.db.RecentByUser(wallet, limit)
+		mineToday, _ := b.db.EntriesByUser(wallet, dayStart, dayUntil)
+		var spend float64
+		for _, e := range mineToday {
+			spend += e.Cost
+		}
+		out["consumer_events"] = consoleEvents(mine, keyOf, true)
+		out["consumer_counters"] = map[string]any{"requests_today": int64(len(mineToday)), "spend_today": round6(spend)}
+	}
+	return out
+}
+
+// consoleEvents maps lineage entries to console rows. keyOf names the account key that made a
+// request (consumer rows only); withKey is false for the operator view, which never names the
+// consumer's key.
+func consoleEvents(entries []store.Entry, keyOf map[string]string, withKey bool) []consoleEvent {
+	events := make([]consoleEvent, 0, len(entries))
+	for _, e := range entries {
+		ev := consoleEvent{
+			RequestID: e.RequestID, RelayRequestID: e.RelayRequestID, TS: e.TS, Model: e.Model, Node: e.Node,
+			TokensIn: int64(e.PromptTokens), TokensOut: int64(e.CompletionTokens),
+			Cost: round6(e.Cost), Earned: round6(e.OwnerShare), Success: true,
+		}
+		if withKey {
+			ev.KeyID = keyOf[e.RequestID]
+		}
+		events = append(events, ev)
+	}
+	return events
 }
 
 // entriesForOwner returns the most-recent receipts served by ALL nodes bound to the

@@ -304,8 +304,13 @@ func (b *broker) verifySessionFull(val string) (login string, githubID int64, wa
 	if len(f) != 4 && len(f) != 5 {
 		return "", 0, "", "", false
 	}
-	gid, _ := strconv.ParseInt(f[1], 10, 64)
-	exp, _ := strconv.ParseInt(f[3], 10, 64)
+	// Strict: a field that does not parse is not a session. (This used to ignore the error and
+	// read 0, so a signed string of the right shape but wrong content still decoded.)
+	gid, gerr := strconv.ParseInt(f[1], 10, 64)
+	exp, eerr := strconv.ParseInt(f[3], 10, 64)
+	if gerr != nil || eerr != nil {
+		return "", 0, "", "", false
+	}
 	if time.Now().Unix() > exp {
 		return "", 0, "", "", false
 	}
@@ -457,6 +462,17 @@ func (b *broker) sessionOwner(r *http.Request) (login string, gid int64, wallet 
 	return login, gid, wallet, true
 }
 
+// sessionEnrichOwner resolves the owner row behind a session for the account views: the
+// GitHub row by (login, gid) when the session is a GitHub one, else whatever
+// sessionAnyOwner resolves from the request (an Apple sub or a proven email address).
+func (b *broker) sessionEnrichOwner(r *http.Request, login string, gid int64) (store.Owner, bool) {
+	if o, ok := b.sessionGitHubOwner(login, gid); ok {
+		return o, true
+	}
+	_, o, found, _ := b.sessionAnyOwner(r)
+	return o, found
+}
+
 // sessionGitHubOwner resolves a session's login to its GitHub owner row, enforcing the
 // root invariant of features/security/apple_session_isolation.feature (audit finding #3):
 // a session login may resolve a GitHub owner ONLY for a GitHub session, and a GitHub
@@ -468,6 +484,9 @@ func (b *broker) sessionGitHubOwner(login string, gid int64) (store.Owner, bool)
 		return store.Owner{}, false
 	}
 	o, found, _ := b.db.OwnerByLogin(login)
+	if found && o.GitHubID != gid { // a renamed/reused login must not reach the old row
+		return store.Owner{}, false
+	}
 	return o, found
 }
 
@@ -499,7 +518,7 @@ func (b *broker) sessionAnyOwner(r *http.Request) (login string, o store.Owner, 
 	if err != nil || c.Value == "" {
 		return "", store.Owner{}, false, false
 	}
-	l, gid, _, appleSub, vok := b.verifySessionFull(c.Value)
+	l, gid, sessWallet, appleSub, vok := b.verifySessionFull(c.Value)
 	if !vok {
 		return "", store.Owner{}, false, false
 	}
@@ -513,11 +532,31 @@ func (b *broker) sessionAnyOwner(r *http.Request) (login string, o store.Owner, 
 			return l, rec, true, true
 		}
 	default: // email session: gid==0 and no Apple sub. login is the proven address.
+		// The owner's own wallet must be the one this session carries. An email session that was
+		// live when its address was linked to a GitHub/Apple account still carries the OLD email
+		// wallet: resolving the linked owner for it would be a mixed identity (that account's
+		// data, a different wallet). It resolves nothing until the person signs in again.
 		if rec, f, _ := b.db.OwnerByVerifiedEmail(l); f {
-			return l, rec, true, true
+			if w, wok := accountWalletForOwner(rec); wok && w == sessWallet {
+				return l, rec, true, true
+			}
 		}
 	}
 	return l, store.Owner{}, false, true
+}
+
+// sessionProvider names the sign-in behind a session from its wallet namespace (each
+// provider's wallet is derived from its own unique key), falling back to the GitHub id.
+func sessionProvider(wallet string, gid int64) string {
+	switch {
+	case strings.HasPrefix(wallet, "u_gh_"), gid != 0:
+		return "github"
+	case strings.HasPrefix(wallet, "u_apple_"):
+		return "apple"
+	case isEmailWallet(wallet):
+		return "email"
+	}
+	return "unknown"
 }
 
 func (b *broker) accountGet(w http.ResponseWriter, r *http.Request, login string, gid int64, wallet string) {
@@ -527,11 +566,23 @@ func (b *broker) accountGet(w http.ResponseWriter, r *http.Request, login string
 		"github_id":    gid,
 		"balance":      round6(bal),
 		"connect":      map[string]any{"status": "none"},
+		// Who is signed in, so every page can say so and tell a consumer from an operator
+		// instead of showing "-" / "could not load". All of it is already in hand.
+		"login":          login,
+		"provider":       sessionProvider(wallet, gid),
+		"email_verified": false,
+		"operator":       false,
 	}
-	// Enrich from the owner record if this login is a bound operator account
-	// (GitHub sessions only - the gid gate, A1).
-	if o, ok := b.sessionGitHubOwner(login, gid); ok {
+	if sessionProvider(wallet, gid) == "email" {
+		out["email"] = login // the proven address IS the login of an email-only session
+		out["email_verified"] = true
+	}
+	// Enrich from the owner record if this session resolves to a bound account, per
+	// provider (the gid gate, A1: never by a bare login string).
+	if o, ok := b.sessionEnrichOwner(r, login, gid); ok {
 		out["email"] = o.Email
+		out["email_verified"] = o.EmailVerifiedAt != 0
+		out["operator"] = o.Pubkey != "" && hasVerifiedIdentity(o)
 		out["created_at"] = o.CreatedAt
 		status := o.ConnectStatus
 		if status == "" {
@@ -551,7 +602,10 @@ func (b *broker) accountPatch(w http.ResponseWriter, r *http.Request, login stri
 	var req struct {
 		Email string `json:"email"`
 	}
-	_ = json.Unmarshal(body, &req)
+	if err := json.Unmarshal(body, &req); err != nil { // not "an empty email": nothing is changed on garbage
+		jsonErr(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
 	if req.Email != "" && !strings.Contains(req.Email, "@") {
 		jsonErr(w, http.StatusBadRequest, "invalid email")
 		return
@@ -560,6 +614,16 @@ func (b *broker) accountPatch(w http.ResponseWriter, r *http.Request, login stri
 	// write an owner row through a login collision (A1 write leg).
 	if gid == 0 {
 		jsonErr(w, http.StatusNotFound, "no operator account for this login (run `roger login` on a node first)")
+		return
+	}
+	// A VERIFIED address is a sign-in credential, not a contact-email field: changing it here
+	// would silently drop the verification (the next emailed sign-in would mint a separate
+	// account). Replace it with the add-an-address flow instead.
+	// ANY change counts, including clearing it: UpdateAccount nulls the verification whenever the
+	// address differs, and an empty or absent email differs from a verified one.
+	if cur, found := b.sessionGitHubOwner(login, gid); found && cur.EmailVerifiedAt != 0 &&
+		!strings.EqualFold(req.Email, cur.Email) {
+		jsonErr(w, http.StatusConflict, "that is your verified sign-in address - use \"Sign in with email too\" to replace it")
 		return
 	}
 	o, ok, err := b.db.UpdateAccount(login, req.Email)
@@ -624,7 +688,7 @@ func corsCreds(w http.ResponseWriter, r *http.Request) {
 }
 
 // corsExposedHeaders is every relay response header a first-party browser page may read.
-const corsExposedHeaders = "X-RogerAI-Request-Id, X-RogerAI-Model, X-RogerAI-Provider, X-RogerAI-Relay, X-RogerAI-Cost, X-RogerAI-Receipt, " +
+const corsExposedHeaders = "X-RogerAI-Request-Id, X-RogerAI-Model, X-RogerAI-Provider, X-RogerAI-Relay, X-RogerAI-Cost, X-RogerAI-Receipt, X-RogerAI-Attempt-Id, " +
 	"X-RogerAI-Tokens-In, X-RogerAI-Tokens-Out, X-RogerAI-Balance, X-RogerAI-Price, X-RogerAI-TPS, X-RogerAI-Quality, " +
 	"X-RogerAI-Monthly-Cap, X-RogerAI-Monthly-Spend, X-RogerAI-Monthly-Pct, X-RogerAI-Monthly-Notice, Retry-After"
 
