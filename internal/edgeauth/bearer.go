@@ -137,7 +137,7 @@ func (l *Local) bearerFind(r Request) (string, bool, error) {
 	newest := -1
 	for i, c := range got {
 		if strings.HasPrefix(c.Join, bearerPrefix) && c.SpentBy != "" && c.SpentBy == r.UserKey &&
-			(newest < 0 || c.At >= got[newest].At) {
+			(newest < 0 || c.SpentAt >= got[newest].SpentAt) {
 			newest = i
 		}
 	}
@@ -190,7 +190,7 @@ func (l *Local) proveBearer(resp *Response, join, nonce, userKey string) error {
 		}
 		resp.ProofStatus = ""
 		resp.RootProof = RootProof(c.Code, RootFingerprint(root), resp.Account, resp.NodeID, nonce)
-		got[i].SpentBy = userKey
+		got[i].SpentBy, got[i].SpentAt = userKey, l.now().Unix()
 		break
 	}
 	return l.writeJSON(CodesFile, got)

@@ -342,11 +342,11 @@ Feature: One invite, one paste, for Towers and Edge devices
   # checked for free, so a request from a key that spent many invites costs no more than one more
   # stretch than a stranger's.
   @security
-  Scenario: Only the newest invite a key spent is checked for its retry
-    Given a device that spent an invite, then joined again with a fresh one
-    When it asks again with a proof of the older invite
+  Scenario: Only the invite a key spent last is checked for its retry
+    Given a device that spent an invite, then joined again with another
+    When it asks again with a proof of the invite it spent first
     Then it is issued as an allowed key is, with no root proof from that invite
-    And a retry with the fresh invite is still proven
+    And a retry with the invite it spent last is still proven, whichever of the two was minted first
 
   # Audit 2026-10-13: an invite bound to a device is bound to its KEY, through the id that key derives.
   @security

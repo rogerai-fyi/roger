@@ -200,3 +200,30 @@ func TestOnlyTheNewestInviteAKeySpentIsCheckedForARetry(t *testing.T) {
 	require.NoError(t, err)
 	requireProof(t, newer, resp, retry.Nonce)
 }
+
+// Review 2026-10-27: "newest" is by SPEND, not by mint. A device that joined with invite B and then
+// rejoined with the earlier-minted, still-live invite A spent A last; when that answer is lost, its
+// retry with A is the one checked for free, and is proven.
+func TestTheRetryCheckedIsTheInviteSpentLastNotMintedLast(t *testing.T) {
+	local, err := edgeauth.Designate(t.TempDir(), "shed")
+	require.NoError(t, err)
+	_, user := keypair(t)
+	node, _ := keypair(t)
+	a, err := local.MintBearerCode()
+	require.NoError(t, err)
+	time.Sleep(1100 * time.Millisecond)
+	b, err := local.MintBearerCode()
+	require.NoError(t, err)
+	_, err = local.Issue(proven(t, local, user, node, b))
+	require.NoError(t, err)
+	time.Sleep(1100 * time.Millisecond) // spends are dated to the second
+	first := proven(t, local, user, node, a)
+	resp, err := local.Issue(first)
+	require.NoError(t, err)
+	requireProof(t, a, resp, first.Nonce)
+
+	retry := proven(t, local, user, node, a) // the answer above was lost
+	resp, err = local.Issue(retry)
+	require.NoError(t, err)
+	requireProof(t, a, resp, retry.Nonce)
+}
