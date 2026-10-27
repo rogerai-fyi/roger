@@ -425,3 +425,18 @@ func TestEdgeReachAllAnswersForEveryNode(t *testing.T) {
 	require.Empty(t, got["n_dark"].Attempts)
 	require.Contains(t, got["n_noaddr"].Attempts[0], "no address")
 }
+
+// The help says what approve checks and no more: a serving roger device is enrolled on the
+// fingerprint it advertised itself, which nobody but the device vouches for, so the help never calls
+// that "verified".
+func TestEdgeApproveHelpSaysWhatItChecks(t *testing.T) {
+	for _, c := range edgeSubcommands {
+		if c.name != "approve" {
+			continue
+		}
+		require.NotContains(t, c.purpose, "verified")
+		require.Contains(t, c.purpose, "fingerprint it advertises")
+		return
+	}
+	t.Fatal("no approve subcommand")
+}

@@ -81,7 +81,7 @@ var edgeSubcommands = []edgeSubcommand{
 	{"forget", "<node>", "remove a node from this Edge", 1, 1},
 	{"tag", "<node> [+tag|-tag|tag...] [--clear]", "show or change the owner's words for a unit: a group a rule can cover", 1, 14},
 	{"nearby", "", "list the devices pinging on this network that are not on your Edge yet", 0, 0},
-	{"approve", "<id>", "let a nearby device onto your Edge: a phone by claim, a roger device verified and enrolled", 1, 1},
+	{"approve", "<id>", "let a nearby device onto your Edge: a phone by claim, a roger device enrolled on the fingerprint it advertises", 1, 1},
 	{"adopt", "<candidate>", "take a discovered candidate into the fleet", 1, 1}, // the old name for approve, kept one release (§7)
 	{"readmit", "[<node>]", "bring back a device you forgot or revoked (lifts its revocation); alone, lists them", 0, 1},
 	{"scan", "", "look for nodes on this network now", 0, 0},
@@ -1628,7 +1628,8 @@ func edgeAdoptWant(want string) (string, error) {
 		}
 		return fmt.Sprintf("adopted %s - it can now claim its certificate; it appears as a member when it checks in.\n%s", name, edgeNodeCodeLine(c.ID, name)), nil
 	}
-	// A serving candidate is verified and enrolled directly; it is NOT granted a claim (a grant that
+	// A serving candidate is enrolled directly once it serves the fingerprint it advertised (its own
+	// word: no pairing phrase is compared here); it is NOT granted a claim (a grant that
 	// outlives revoke/forget would let a removed node re-claim a fresh certificate - audit 2026-09-23).
 	n, err = edgeAdoptCandidate(st, c, c.Name, want)
 	if err != nil {

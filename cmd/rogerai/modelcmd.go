@@ -893,7 +893,7 @@ func modelServeDetached(ctx context.Context, h localmodel.Home, m localmodel.Mod
 				// by its own check, so the fit line is the verdict of the build on the air.
 				fmt.Fprintf(modelOut, "the %s build could not start it in the background - serving with the %s build instead (serve.log says why)\n", rt.Build, s.Build)
 				fit, rt = modelVerdict{line: "serving at " + strconv.Itoa(s.Ctx) + " context"}, modelRT{Build: runtime.Build(s.Build)}
-				if now, err := modelRuntimeFor(ctx, s.Build); err == nil {
+				if now, ok := modelInstalledRT(runtime.Build(s.Build)); ok {
 					if _, f, err := modelPlanFit(ctx, m, modelBudgetFor(now.Offloads), s.Ctx, now.Exe); err == nil {
 						fit, rt = f, now
 					}
@@ -941,6 +941,26 @@ func modelInstalledExe() string {
 		return "" // not here yet: roger's estimate stands, and says so
 	}
 	return exe
+}
+
+// modelInstalledRT is build b as it already sits on this disk, for a screen to judge with: it
+// resolves, fetches, asks and records nothing, so the background roger's own record stands. Metal
+// is not a runtime choice, so it is no answer here; a Metal host has that one build, and a
+// background fallback to another build cannot happen there.
+func modelInstalledRT(b runtime.Build) (modelRT, bool) {
+	plan, _, err := runtime.Plan(modelHost(), string(b))
+	if err != nil {
+		return modelRT{}, false
+	}
+	for _, a := range plan {
+		if a.Build != b {
+			continue
+		}
+		if exe, ok := runtime.InstalledBuild(a, modelHome().Runtime()); ok {
+			return modelRT{Exe: exe, Tag: a.Tag, Build: a.Build, Offloads: a.Offloads}, true
+		}
+	}
+	return modelRT{}, false
 }
 
 // modelRuntimeErr says why there is no runtime, and what the machine can still do.

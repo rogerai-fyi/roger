@@ -78,3 +78,34 @@ func TestAWrongProofAgainstABoundCodeIsBudgeted(t *testing.T) {
 	_, err = local.Issue(boundReq(t, local, code, aPub))
 	require.ErrorIs(t, err, edgeauth.ErrUnknownMachine, "the budget voided the code")
 }
+
+// The node id a request names is proved against its node key BEFORE any invite is consulted: a
+// request whose key does not derive the id it claims is refused as a key mismatch, matches no invite
+// and spends nothing, so it can neither borrow a bound invite's node id nor wear down its budget.
+func TestABoundBearerCodeIsNotConsultedForAnUnprovedNodeID(t *testing.T) {
+	local, err := edgeauth.Designate(t.TempDir(), "shed")
+	require.NoError(t, err)
+	aPub, _ := keypair(t)
+	bPub, _ := keypair(t)
+	code, err := local.MintBearerCodeFor(edgeauth.NodeID(aPub))
+	require.NoError(t, err)
+	claimsA := func(proofCode string) edgeauth.Request {
+		_, user := keypair(t)
+		req := edgeauth.NewRequest(edgeauth.LocalAccount, "workshop", "host", bPub, time.Now())
+		req.NodeID = edgeauth.NodeID(aPub) // B's key, A's id
+		req.Sign(user)
+		req.JoinProof = edgeauth.JoinProof(proofCode, local.Descriptor().Fingerprint, req)
+		return req
+	}
+	_, err = local.Issue(claimsA(code))
+	require.ErrorIs(t, err, edgeauth.ErrKeyMismatch, "the right code does not lend B the id it is bound to")
+	for i := 0; i < edgeauth.BearerGuessBudget; i++ {
+		_, err = local.Issue(claimsA("wrong-" + code))
+		require.ErrorIs(t, err, edgeauth.ErrKeyMismatch, "attempt %d", i)
+	}
+	allowed, err := local.Allowed()
+	require.NoError(t, err)
+	require.Empty(t, allowed)
+	_, err = local.Issue(boundReq(t, local, code, aPub))
+	require.NoError(t, err, "requests that never proved their node id spent none of the invite's budget")
+}

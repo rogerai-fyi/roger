@@ -464,4 +464,3 @@ Feature: A one-time welcome card inside the TUI
     When the welcome card is rendered by the TUI at 100, 80 and 60 columns
     Then each frame contains every key and label, and no line overflows
     And the 100-column frame matches the committed golden file for the welcome card
-

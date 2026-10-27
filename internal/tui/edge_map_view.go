@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"rogerai.fm/roger/v6/internal/edge"
 	"rogerai.fm/roger/v6/internal/store"
@@ -403,11 +404,8 @@ func edgeTrunc(s string, w int) string {
 	if lipgloss.Width(s) <= w {
 		return s
 	}
-	r := []rune(s)
-	if len(r) > w-1 {
-		r = r[:max(1, w-1)]
-	}
-	return string(r) + "…"
+	// Cells, not runes: a wide character is two. w is at least 1 here, so a cut keeps its "…".
+	return ansi.Truncate(s, w, "…")
 }
 
 // edgeSelectedNet returns the node the map highlight is on, and its index. It is what the control

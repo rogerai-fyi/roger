@@ -261,4 +261,3 @@ clean: kill
 # test runs inside `make cover-gate`, so the gate already enforces it; this is the quick local run.
 cross:
 	@go test ./cmd/rogerai -run '^TestEveryReleaseTargetCompiles$$' -count=1
-
