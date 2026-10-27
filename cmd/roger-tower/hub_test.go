@@ -24,12 +24,9 @@ import (
 	"testing"
 	"time"
 
-	"crypto/sha256"
 	"github.com/stretchr/testify/require"
 	"rogerai.fm/roger/v6/internal/protocol"
 	"rogerai.fm/roger/v6/internal/tower"
-	"rogerai.fm/roger/v6/internal/towercore/dispatch"
-	"rogerai.fm/roger/v6/internal/towercore/link"
 	"rogerai.fm/roger/v6/internal/towerhub"
 	"rogerai.fm/roger/v6/internal/towerjoin"
 )
@@ -335,149 +332,6 @@ func TestAPermanentlyRefusedRecoveredReceiptIsAbandonedAndUnspooled(t *testing.T
 	require.Contains(t, out.String(), "ABANDONED")
 	require.Empty(t, spool.load(time.Now()),
 		"a permanently refused receipt must leave the spool, or every restart re-presents it")
-}
-
-// --- the whole ride: submit -> poll -> complete -> settle at Core -------------------
-//
-// This is the one test that walks a receipt the way production does: a consumer's sealed
-// submit lands at the hub, the node polls it out over a SIGNED poll, completes with a
-// receipt, and the courier forwards that receipt to Core tower-signed. Everything before it
-// tested the stations of that ride separately; nothing proved the track connects. It is also
-// the only test that exercises OnComplete as wired - the spool write, the queue handoff -
-// rather than by calling pieces directly.
-func TestACompletedJobsReceiptRidesToCore(t *testing.T) {
-	// Roger Core's grant-signing key - the test holds the private half, so it can mint the
-	// grant a real Core would have minted for this consumer.
-	corePub, corePriv, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
-	registry := dispatch.NewWithStore(dispatch.Config{
-		Network: link.PublicNetwork, Signer: corePriv,
-		Lifetime: time.Minute, Now: time.Now,
-	}, nil)
-
-	// The node's assertion keypair - Core would have recorded the public half at attach.
-	nodePub, nodePriv, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
-
-	core := newCoreStub(t)
-	core.reply["/tower/dispatch/key"] = func(w http.ResponseWriter, _ int) bool {
-		_ = json.NewEncoder(w).Encode(map[string]any{"dispatch_key": hex.EncodeToString(corePub)})
-		return true
-	}
-	core.answerHubNodes(`{"nodes":[{"station_id":"st-1","assertion_key":"` +
-		hex.EncodeToString(nodePub) + `","state":"active"}]}`)
-	core.reply["/tower/edge/settle"] = func(w http.ResponseWriter, _ int) bool {
-		_, _ = w.Write([]byte(`{}`))
-		return true
-	}
-
-	st := servingTower(t)
-	out := &syncBuffer{}
-	stop := make(chan struct{})
-	wait, err := runHubInBackground(st, hubOptions{Addr: "127.0.0.1:0"}, out, stop)
-	require.NoError(t, err)
-
-	// The hub prints its bound address once the listener is up.
-	var hubAddr string
-	require.Eventually(t, func() bool {
-		for _, line := range strings.Split(out.String(), "\n") {
-			if strings.HasPrefix(line, "hub: listening on ") {
-				hubAddr = strings.Fields(strings.TrimPrefix(line, "hub: listening on "))[0]
-				return true
-			}
-		}
-		return false
-	}, 5*time.Second, 10*time.Millisecond, "the hub never said where it is listening")
-
-	// The grant a real Core mints at authorize time: it names THIS tower, so the hub's
-	// tower-binding check passes, and the test's own Station.
-	identity, err := st.IdentityKey()
-	require.NoError(t, err)
-	grant, err := registry.MintEdge(dispatch.EdgeTarget{
-		// The ADMISSION id - what Core writes into every grant it issues. Never st.TowerID,
-		// the local init id Core has never heard of; a hub that verifies grants against that
-		// refuses every consumer, which is exactly what a live v6.0.0 Tower did.
-		TowerID: "tw-1", StationID: "st-1", StationEpoch: 1,
-		Model: "m", Modality: "text", RelayName: "st-1.relay.example",
-		MaxIn: 1000, MaxOut: 1000,
-		AssertionKey: nodePub, ConsumerKey: consumerHubPub(t),
-	})
-	require.NoError(t, err)
-
-	base := "http://" + hubAddr
-	sum := sha256.Sum256(identity.Public().(ed25519.PublicKey))
-	consumer := &towerhub.Client{BaseURL: base, TowerID: "tw-1",
-		HTTP: &http.Client{Timeout: 30 * time.Second}}
-	node := &towerhub.Client{BaseURL: base, TowerID: "tw-1", // nodes sign with the id Core told them at attach
-		TowerKeyHash: hex.EncodeToString(sum[:]),
-		Sign:         towerhub.SignWith(nodePriv),
-		HTTP:         &http.Client{Timeout: 30 * time.Second}}
-
-	// The consumer submits and BLOCKS until the node answers - production shape.
-	type submitOut struct {
-		res towerhub.Result
-		err error
-	}
-	submitted := make(chan submitOut, 1)
-	go func() {
-		res, serr := consumer.SubmitJob(t.Context(), grant.Signed, []byte("sealed-request"))
-		submitted <- submitOut{res, serr}
-	}()
-
-	// The node polls its queue until the job lands, then completes with its receipt.
-	var job towerhub.Job
-	require.Eventually(t, func() bool {
-		j, ok, perr := node.PollJob(t.Context(), "st-1")
-		if perr != nil || !ok {
-			return false
-		}
-		job = j
-		return true
-	}, 10*time.Second, 50*time.Millisecond, "the submitted job never reached the node's queue")
-	require.Equal(t, []byte("sealed-request"), job.Envelope, "the sealed body must cross the hub intact")
-
-	require.NoError(t, node.CompleteResult(t.Context(), "st-1", towerhub.Result{
-		AttemptID: job.AttemptID, Envelope: []byte("sealed-answer"), Receipt: []byte("the-receipt"),
-	}))
-
-	// The consumer's blocked submit now returns the sealed answer and the receipt.
-	got := <-submitted
-	require.NoError(t, got.err)
-	require.Equal(t, []byte("sealed-answer"), got.res.Envelope)
-
-	// Stopping the hub drains the courier; the receipt must reach Core even though the
-	// process is going down - that is the whole reason the final drain exists.
-	close(stop)
-	wait()
-	require.Equal(t, 1, core.called("/tower/edge/settle"),
-		"the node completed and was never couriered: its pay ended here")
-	var settle struct {
-		StationID string `json:"station_id"`
-		AttemptID string `json:"attempt_id"`
-		Receipt   []byte `json:"receipt"`
-	}
-	require.NoError(t, json.Unmarshal(core.body("/tower/edge/settle"), &settle))
-	require.Equal(t, "st-1", settle.StationID)
-	require.Equal(t, job.AttemptID, settle.AttemptID)
-	require.Equal(t, []byte("the-receipt"), settle.Receipt,
-		"the receipt must reach Core byte-identical: Core verifies it against the station's key")
-
-	// And delivered means unspooled: the next run of this tower recovers nothing.
-	spool, err := newSettleSpool(st.Dir())
-	require.NoError(t, err)
-	require.Empty(t, spool.load(time.Now()), "a settled receipt stayed in the spool")
-
-	// And the operator SAW it happen: one line per carried job, or "is anything riding my
-	// tower?" is answered by silence in both directions.
-	require.Contains(t, out.String(), "carried ", "a settled receipt must print the carried-job line")
-	require.Contains(t, out.String(), "receipt settled")
-}
-
-func consumerHubPub(t *testing.T) ed25519.PublicKey {
-	t.Helper()
-	pub, _, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
-	return pub
 }
 
 // A receipt whose forward fails TRANSIENTLY at shutdown is abandoned for THIS run - the

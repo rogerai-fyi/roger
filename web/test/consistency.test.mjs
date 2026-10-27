@@ -121,7 +121,7 @@ test("the tuner sits right after the hero, on every page long enough to need one
   const bad = [];
   for (const page of PAGES) {
     const html = strip(read(page));
-    const sections = (html.match(/class="sectionno"/g) || []).length;
+    const sections = (html.match(/class="sectionno"|class="bc-sec__no[^"]*">(?:&sect;|§)\d/g) || []).length;
     const tuner = html.lastIndexOf("<", html.indexOf('class="toc-tuner"'));
     if (html.indexOf('class="toc-tuner"') < 0) {
       if (sections >= 4 && !NO_TUNER[page]) bad.push(`${page}: ${sections} numbered sections and no tuner`);
@@ -172,6 +172,7 @@ const BARE_PRE = {
   "stations.html": "the signed-in plate's own command well (account-base .cmd)",
   "dashboard.html": "the signed-in plate's own command well (account-base .cmd)",
   "console.html": "the signed-in plate's own command well (account-base .cmd)",
+  "payouts.html": "the signed-in plate's own command well (account-base .cmd)",
 };
 test("every block of commands is a .code-block (the install line the install-box partial)", () => {
   const bad = [];

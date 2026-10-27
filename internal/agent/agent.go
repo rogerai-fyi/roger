@@ -52,6 +52,10 @@ type Config struct {
 	CuratedAtCost    bool // post at the declared list exactly - no markup, pure pass-through
 	UpstreamPriceIn  float64
 	UpstreamPriceOut float64
+	// ProbeMin is the operator's declared minimum interval between the broker's verification
+	// probes (registration probe_min_s, whole seconds; 0 = undeclared). The broker caps it at
+	// 24h by default, and between probes the node reads as not currently verified.
+	ProbeMin time.Duration
 
 	Broker, Upstream, UpstreamKey string
 	NodeID, Region, HW, Model     string
@@ -471,6 +475,7 @@ func Start(cfg Config) (*Session, error) {
 		Region: cfg.Region, HW: cfg.HW, Offers: []protocol.ModelOffer{offer},
 		Confidential: cfg.Confidential, Private: cfg.Private,
 		Curated: cfg.Curated, CuratedProvider: cfg.CuratedProvider, CuratedAtCost: cfg.CuratedAtCost,
+		ProbeMinSeconds: int(cfg.ProbeMin / time.Second),
 		// Carry the AUTHORITATIVE station (the same callsign NodeID is derived from) so the broker
 		// can namespace this node's public voices as @<station>/<slug> without parsing the id.
 		Station: cfg.Station,
