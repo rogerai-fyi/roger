@@ -3285,6 +3285,7 @@
       cell(tr0, "col-variant mono small", one.quant || "-");
       cell(tr0, "col-status mono", "ROGER");
       cell(tr0, "col-price muted", "-"); cell(tr0, "num", "-"); cell(tr0, "num", "-"); cell(tr0, "num", "-");
+      cell(tr0, "cat-cell", "");
       var a0 = cell(tr0, "col-actions row-actions");
       var stopB = el("button", "btn small", "stop serving"); stopB.type = "button";
       stopB.onclick = function () { modelsStopServing(one); };
@@ -3299,6 +3300,7 @@
       cell(tr, "col-variant mono small", m.quant || "-");
       cell(tr, "col-status mono", "ON DISK");
       cell(tr, "col-price muted", fmtBytes(m.bytes)); cell(tr, "num", "-"); cell(tr, "num", "-"); cell(tr, "num", "-");
+      cell(tr, "cat-cell", "");
       var act = cell(tr, "col-actions row-actions");
       if (v.can_serve) {
         var cur = sv;
@@ -3319,7 +3321,7 @@
     var j = v.job;
     if (j && j.state !== "done") {
       var trj = el("tr", "is-fetch");
-      var cj = el("td", "mono"); cj.colSpan = 8;
+      var cj = el("td", "mono"); cj.colSpan = 9;
       var heads = { fetching: "\u2193 FETCHING", failed: "FETCH FAILED", interrupted: "FETCH INTERRUPTED" };
       cj.appendChild(el("b", null, (heads[j.state] || j.state) + "  "));
       cj.appendChild(el("span", "small", j.repo + "  " + j.file));
@@ -3337,7 +3339,7 @@
     }
     // ALWAYS LAST: the way to get a model, visibly a row of the list - never a hidden key.
     var trg = el("tr", "is-get");
-    var cg = el("td"); cg.colSpan = 8;
+    var cg = el("td"); cg.colSpan = 9;
     var gb = el("button", "btn primary small", "+ Get a model that fits this machine"); gb.type = "button";
     gb.onclick = function () { show($("share-getmodel"), true); modelsNearby(); };
     cg.appendChild(gb);
