@@ -356,3 +356,24 @@ func TestModelOnlyAnInstalledBuildIsAskedToFit(t *testing.T) {
 	placeBuild(t, r.home.Runtime(), runtime.BuildCUDA)
 	require.Contains(t, modelInstalledExe(), "ubuntu-cuda-12.8-x64", "once it is, its server is the one asked")
 }
+
+// A screen judges with the build as it sits on this disk: a build not here, or one the plan cannot
+// name, is no answer, and nothing is fetched or recorded either way.
+func TestModelInstalledRTReadsTheDiskOnly(t *testing.T) {
+	r, asked := gpuRig(t)
+	_, ok := modelInstalledRT(runtime.BuildCUDA)
+	require.False(t, ok, "not installed yet")
+	_, ok = modelInstalledRT("turbo")
+	require.False(t, ok, "not a build the plan names")
+	placeBuild(t, r.home.Runtime(), runtime.BuildCUDA)
+	rt, ok := modelInstalledRT(runtime.BuildCUDA)
+	require.True(t, ok)
+	require.Equal(t, runtime.BuildCUDA, rt.Build)
+	require.True(t, rt.Offloads)
+	require.Contains(t, rt.Exe, "ubuntu-cuda-12.8-x64")
+	_, ok = modelInstalledRT(runtime.BuildCPU)
+	require.False(t, ok, "the cuda build being here does not make the cpu build here")
+	require.Empty(t, asked, "no build is asked anything")
+	_, had := modelReadSettled()
+	require.False(t, had, "nothing is recorded")
+}

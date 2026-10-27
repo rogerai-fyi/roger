@@ -6,6 +6,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -17,6 +18,7 @@ import (
 
 	"rogerai.fm/roger/v6/internal/localmodel"
 	"rogerai.fm/roger/v6/internal/provision"
+	"rogerai.fm/roger/v6/internal/runtime"
 )
 
 // quietDo is nearbyRig.do with the default output, not the full account.
@@ -106,6 +108,59 @@ func TestQuietADetachedServeThatFellBackSaysWhichBuildServes(t *testing.T) {
 	require.Equal(t, "the cuda build could not start it in the background - serving with the cpu build instead (serve.log says why)", ls[0], s.out)
 	require.Contains(t, ls[2], "· the cpu build", "the fit line is the build that serves:\n%s", s.out)
 	require.NotContains(t, s.out, "the cuda build, ", s.out)
+}
+
+// The fit line after a background fallback is a display: it reads what is on this disk and resolves,
+// fetches and records nothing. The background roger's own record (auto, the CPU build, and why the GPU
+// build did not start) stays as it wrote it, so the next prediction is still the build that serves.
+func TestQuietADetachedFallbackDisplayLeavesTheBackgroundsRecord(t *testing.T) {
+	s := quietRig(t)
+	oldHost, oldLoad := modelHost, modelLoadCheck
+	t.Cleanup(func() { modelHost, modelLoadCheck = oldHost, oldLoad })
+	modelHost = func() runtime.Host { return hostNVIDIA }
+	modelLoadCheck = func(context.Context, string, map[string]string) error { return nil }
+	cpu := placeBuild(t, modelHome().Runtime(), runtime.BuildCPU)
+	stub := modelRuntimeFor
+	resolved := []string{}
+	modelRuntimeFor = func(ctx context.Context, choice string) (modelRT, error) {
+		resolved = append(resolved, choice)
+		if choice == "auto" {
+			return stub(ctx, choice) // the foreground judges the cuda build, as the rig has it
+		}
+		return modelResolveRuntime(ctx, choice) // the real resolver for anything else
+	}
+	failed := "the cuda build could not start it: exit status 1"
+	modelSpawn = func(args []string, logPath string) error {
+		if err := s.spawn(args, logPath); err != nil {
+			return err
+		}
+		// What the background roger leaves: the CPU build serves, and its record says why.
+		modelRecordSettled(modelSettled{Choice: "auto", Platform: cpu.Platform, Tag: cpu.Tag, Notes: []string{failed}})
+		p := modelHome().RecordOf(localmodel.Serving{Port: 18933})
+		b, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		var rec localmodel.Serving
+		require.NoError(t, json.Unmarshal(b, &rec))
+		rec.Build = "cpu"
+		b, _ = json.Marshal(rec)
+		return os.WriteFile(p, b, 0o600)
+	}
+	modelDetachPort(t, 18933)
+	require.NoError(t, s.exec("roger model serve smollm2-135m-instruct --detach --port 18933"))
+	require.NoError(t, s.err)
+	require.Contains(t, lines(s.out)[2], "· the cpu build", s.out)
+	require.NotContains(t, s.out, "fetching llama.cpp", "a display never fetches a runtime")
+	st, ok := modelReadSettled()
+	require.True(t, ok)
+	require.Equal(t, modelSettled{Choice: "auto", Platform: cpu.Platform, Tag: cpu.Tag, Notes: []string{failed}}, st,
+		"the background's record is left as it wrote it")
+	a, notes, err := modelPredict()
+	require.NoError(t, err)
+	require.Equal(t, runtime.BuildCPU, a.Build, "the next prediction is the build that serves, not the cuda build that failed")
+	require.Equal(t, []string{failed}, notes)
+	require.Equal(t, []string{"auto"}, resolved, "the display path resolves nothing")
 }
 
 // modelDetachPort makes the stand-in's port the one the command names, so its record is findable.
