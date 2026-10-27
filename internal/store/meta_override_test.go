@@ -73,3 +73,16 @@ func TestMetaOverrideCRUD(t *testing.T) {
 		})
 	}
 }
+
+// The in-memory store hands out a COPY of the stored tags: a caller that edits what it read
+// must never change what is stored (the Postgres backend decodes a fresh slice already).
+func TestMetaOverrideReadDoesNotAlias(t *testing.T) {
+	db := NewMem()
+	_ = db.SetMetaOverride(MetaOverride{Owner: "o", NodeID: "n", Model: "m",
+		Taxonomy: protocol.Taxonomy{Tags: []string{"ppe"}}})
+	got, _, _ := db.MetaOverride("n", "m")
+	got.Taxonomy.Tags[0] = "tampered"
+	if again, _, _ := db.MetaOverride("n", "m"); again.Taxonomy.Tags[0] != "ppe" {
+		t.Fatalf("editing a read changed the stored override: %v", again.Taxonomy.Tags)
+	}
+}

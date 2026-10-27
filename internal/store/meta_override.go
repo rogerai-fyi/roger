@@ -31,6 +31,7 @@ func (m *Mem) MetaOverride(node, model string) (MetaOverride, bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	ov, ok := m.metaOverrides[overrideKey(node, model)]
+	ov.Taxonomy.Tags = append([]string(nil), ov.Taxonomy.Tags...) // a copy: a reader never edits the store
 	return ov, ok, nil
 }
 
