@@ -160,7 +160,7 @@ func TestEdgeAgentRuntimeRefusesAnUnreadableEdge(t *testing.T) {
 // path", on the approve and fleet-screen surface too (edgeAdoptWant), not only the screen's adopt.
 func TestApproveCannotMoveAServingMemberOntoTheClaimPath(t *testing.T) {
 	newFacedAuthority(t, "desk")
-	id := "n_" + strings.Repeat("6f", 24)
+	id := enrollServingNode(t, "pi")
 	edgeSeed(t, store.EdgeNode{ID: id, Name: "pi", Kind: "board", Pin: strings.Repeat("ab", 32), Presence: string(edge.PresenceDark)})
 	st, err := loadEdgeState()
 	require.NoError(t, err)

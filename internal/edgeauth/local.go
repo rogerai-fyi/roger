@@ -273,6 +273,9 @@ func (l *Local) Issue(r Request) (Response, error) {
 		if err := l.recordIssued(r2.NodeID, leaf.SerialNumber.String()); err != nil {
 			return fmt.Errorf("that certificate could not be recorded, so it has NOT been issued: %w", err)
 		}
+		if err := l.recordJoined(r2.NodeID, "enroll"); err != nil {
+			return fmt.Errorf("that certificate could not be recorded, so it has NOT been issued: %w", err)
+		}
 		// Remember the NAME it enrolled under: the request is signed by a key this authority allowed,
 		// so it is the owner's choice, and the fleet calls the member by it when it first sees it
 		// (enrollment.feature). A name it cannot remember does not undo the certificate.
@@ -659,6 +662,9 @@ func (l *Local) Claim(c ClaimRequest, now time.Time) (Response, error) {
 			return fmt.Errorf("that certificate could not be issued: %w", err)
 		}
 		if err := l.recordIssued(c.NodeID, leaf.SerialNumber.String()); err != nil {
+			return fmt.Errorf("that certificate could not be recorded, so it has NOT been issued: %w", err)
+		}
+		if err := l.recordJoined(c.NodeID, "claim"); err != nil {
 			return fmt.Errorf("that certificate could not be recorded, so it has NOT been issued: %w", err)
 		}
 		// Consume the grant only AFTER the certificate is safely recorded, so a write failure does
@@ -1161,4 +1167,31 @@ func (l *Local) EnrolledName(nodeID string) string {
 		return ""
 	}
 	return m[nodeID]
+}
+
+// joinedFile is how each node joined this authority: "enroll" (a machine enrolled with a request this
+// authority allowed, which serves its certificate) or "claim" (a device that claimed one, like a phone).
+// It is the authority's own record, so an unauthenticated advert cannot change what it says.
+const joinedFile = "joined.json"
+
+func (l *Local) recordJoined(nodeID, how string) error {
+	m := map[string]string{}
+	if err := l.readJSON(joinedFile, &m); err != nil {
+		return err
+	}
+	if m[nodeID] == how {
+		return nil
+	}
+	m[nodeID] = how
+	return l.writeJSON(joinedFile, m)
+}
+
+// JoinedByEnrollment reports whether this authority recorded the node as enrolled rather than
+// claimed. A node from before the record existed reads false.
+func (l *Local) JoinedByEnrollment(nodeID string) bool {
+	m := map[string]string{}
+	if err := l.readJSON(joinedFile, &m); err != nil {
+		return false
+	}
+	return m[nodeID] == "enroll"
 }

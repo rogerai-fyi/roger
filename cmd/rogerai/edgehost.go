@@ -351,12 +351,12 @@ func (h *edgeHost) adopt(id, name string) error {
 	if err != nil {
 		return fmt.Errorf("could not check whether this device is already a member: %w", err)
 	}
-	if known && (c.Pin != "" || n.Pin != "" || edge.Presence(n.Presence) == edge.PresenceVerified) {
+	if known && (c.Pin != "" || edgeServesItsCert(n.ID) || edge.Presence(n.Presence) == edge.PresenceVerified) {
 		// Refuse re-adopting a known member on the SERVING path on ANY presence: re-pinning a member
 		// from an unauthenticated LAN advert could point it at an attacker's certificate and take over
-		// that node's identity in the fleet. Whether it serves is read from the member's OWN record
-		// (n.Pin), never only from the advert, which can claim to serve nothing (claim.feature,
-		// 2026-10-26). Refuse a LIVE member on any path too. Only a NON-live member that joins by CLAIM
+		// that node's identity in the fleet. Whether it serves is read from how this authority recorded
+		// it joining (edgeServesItsCert), never only from the advert, which can claim to serve nothing
+		// (claim.feature, 2026-10-26). Refuse a LIVE member on any path too. Only a NON-live member that joins by CLAIM
 		// is re-admitted below, and its old certificate goes only when it claims with its node key.
 		return fmt.Errorf("%s is already a member of this Edge - forget it first to re-adopt", h.unitName(n))
 	}

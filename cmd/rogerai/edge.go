@@ -1592,6 +1592,14 @@ func cmdEdgeAdopt(cfg config, args []string) error {
 	return cmdEdgeApprove(cfg, args)
 }
 
+// edgeServesItsCert reports whether this authority enrolled the node as a machine that serves its own
+// certificate, rather than a device that claimed one. A phone that has checked in carries a Pin too, so
+// the Pin cannot tell them apart; the authority's record of how it joined can, and no advert changes it.
+func edgeServesItsCert(nodeID string) bool {
+	local, ok, err := edgeauth.OpenLocal(edgeAuthDir())
+	return err == nil && ok && local.JoinedByEnrollment(nodeID)
+}
+
 // edgeAdoptWant adopts the candidate the owner named and returns the line that says what
 // happened - shared by the CLI and the fleet screen, so both do exactly the same thing.
 func edgeAdoptWant(want string) (string, error) {
@@ -1605,12 +1613,13 @@ func edgeAdoptWant(want string) (string, error) {
 		// re-pin from an unauthenticated advert - an identity-takeover risk), is refused here. Whether
 		// this is a claim re-admit is known only once the candidate is resolved, so gate precisely: if
 		// there is a matching non-serving candidate and the member is not live, fall through; else stop.
-		// Whether the member serves a certificate is read from its OWN record as well as the advert,
-		// which can claim to serve nothing (claim.feature, 2026-10-26).
+		// Whether the member serves a certificate is read from how this authority recorded it joining,
+		// as well as from the advert, which can claim to serve nothing (claim.feature, 2026-10-26).
 		c, cok, _ := edgeResolve(st.candidates, want)
-		reAdmitByClaim := cok && c.Pin == "" && n.Pin == "" && edge.Presence(n.Presence) != edge.PresenceVerified
+		serves := edgeServesItsCert(n.ID)
+		reAdmitByClaim := cok && c.Pin == "" && !serves && edge.Presence(n.Presence) != edge.PresenceVerified
 		if !reAdmitByClaim {
-			if edge.Presence(n.Presence) != edge.PresenceVerified && n.Pin == "" {
+			if edge.Presence(n.Presence) != edge.PresenceVerified && !serves {
 				return fmt.Sprintf("%s is on this Edge but offline and not on the network right now - it re-admits when it re-pings, or run `roger edge readmit %s`.", n.Name, want), nil
 			}
 			return fmt.Sprintf("%s is already a member of this Edge - nothing to do (forget it first to re-adopt).", n.Name), nil

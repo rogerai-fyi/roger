@@ -176,3 +176,15 @@ func TestARoutineReAdmitThatIsNeverClaimedChangesNothing(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, id, gotID)
 }
+
+// The authority records how each node joined, so whether a member serves its own certificate is read
+// from its own record, never from an advert (claim.feature, 2026-10-26).
+func TestTheAuthorityRecordsHowANodeJoined(t *testing.T) {
+	_, local, pub, priv, id := secFixture(t)
+	require.False(t, local.JoinedByEnrollment(id), "nothing recorded yet")
+	require.NoError(t, local.GrantClaim(id, "pixel-8"))
+	_, err := local.Claim(signedClaim(t, pub, priv, time.Now()), time.Now())
+	require.NoError(t, err)
+	require.False(t, local.JoinedByEnrollment(id), "a device that claimed did not enroll")
+	require.False(t, local.JoinedByEnrollment("n_never"))
+}
