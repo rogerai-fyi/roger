@@ -359,3 +359,21 @@ func TestTwoForgottenDevicesWithOneNameAreToldApart(t *testing.T) {
 	require.NotContains(t, out, "roger edge readmit attic\n")
 	require.Contains(t, out, "roger edge readmit n_attic2")
 }
+
+// Pre-push audit (2026-10-26, minor): with no forgotten device by that name, `readmit attic` fell
+// through to a device on the network calling itself attic and asked "re-admit attic?" as if it were
+// one this Edge knew. A name a device announces is only what it says about itself, so the question
+// says so.
+func TestReadmitByAnAnnouncedNameSaysTheNameIsOnlyAnnounced(t *testing.T) {
+	newFacedAuthority(t, "desk")
+	st, err := loadEdgeState()
+	require.NoError(t, err)
+	st.candidates = []store.EdgeNode{{ID: "n_" + strings.Repeat("7a", 24), Name: "attic", Kind: "board"}}
+	require.NoError(t, st.save())
+	edgeStdin = strings.NewReader("n\n")
+	out, code := edgeRun(t, "edge", "readmit", "attic")
+	require.Equal(t, 0, code, out)
+	require.Contains(t, out, "nothing this Edge forgot is called attic")
+	require.Contains(t, out, "calls itself attic")
+	require.Contains(t, out, "left alone")
+}

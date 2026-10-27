@@ -1768,6 +1768,10 @@ func cmdEdgeReadmit(cfg config, args []string) error {
 		question, done = edge.ReAdmitQuestion(gone, now), edgeDepartedSaid(gone)
 	} else if cok {
 		named(c)
+		if _, forgot, _ := edge.FindDeparted(departed, c.ID, now); !forgot && c.Name == want {
+			// Matched only by what a device on the network says it is called: said as such.
+			question = fmt.Sprintf("nothing this Edge forgot is called %s, but a device on this network calls itself %s. re-admit it?", want, want)
+		}
 	} else if nodes, lerr := st.list(); lerr == nil {
 		n, nok, nerr := edgeResolve(nodes, want)
 		if nerr != nil {
