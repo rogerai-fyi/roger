@@ -422,13 +422,19 @@ func (s *plState) holdReleased(string) error {
 	if spends != 0 {
 		return fmt.Errorf("%d spend row(s): the consumer was charged with an unreadable price lock", spends)
 	}
-	if open := holds - releases - spends - voids; open != 0 {
-		return fmt.Errorf("%d hold(s) left open", open)
+	// A failed settle writes a $0 void receipt row AND releases the hold, so the void is a
+	// receipt, not a closure: every hold must have its own release.
+	if holds == 0 || releases != holds {
+		return fmt.Errorf("holds %d, releases %d (voids %d): want every hold released", holds, releases, voids)
 	}
 	return nil
 }
 
 func TestPriceLockDurableBDD(t *testing.T) {
+	// These scenarios mean ordinary locks. A price posted moments before the lock is minted
+	// makes a promo lock that ends with that price (§14.12); promo locks have their own
+	// scenarios (hardening_money.feature), so this suite treats every price as long posted.
+	t.Setenv("ROGERAI_LOCK_MIN_POSTED", "0s")
 	fo := &foState{t: t, logs: &utLog{}}
 	st := &plState{psState: newPSState(fo)}
 	prev := log.Writer()

@@ -435,13 +435,22 @@ func (s *rx6State) classifierNotCalled() error {
 	return nil
 }
 
-func (s *rx6State) noLock(_, model string) error {
+// noLock checks the named user holds no lock for model on any station. It is scoped to that
+// user's wallet: other runners in the same package share the test database and may hold
+// locks for the same model id.
+func (s *rx6State) noLock(user, model string) error {
+	u, ok := s.users[user]
+	if !ok || u.wallet == "" {
+		return fmt.Errorf("unknown scenario user %q", user)
+	}
 	qs, err := s.b.db.PriceQuotes("", model)
 	if err != nil {
 		return err
 	}
-	if len(qs) > 0 {
-		return fmt.Errorf("a price lock exists: %s on %s for %s", qs[0].User, qs[0].Node, qs[0].Model)
+	for _, q := range qs {
+		if q.User == u.wallet {
+			return fmt.Errorf("a price lock exists: %s on %s for %s", q.User, q.Node, q.Model)
+		}
 	}
 	return nil
 }

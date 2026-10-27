@@ -3325,6 +3325,11 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		if keyLimited && keyHoldGapForTest != nil {
 			keyHoldGapForTest(b)
 		}
+		// The monthly-cap twin of the key seam: tests run another instance's whole request between
+		// this request's cap pre-check and its hold (the hold transaction still decides).
+		if maxCost > freeFloorHold && capHoldGapForTest != nil {
+			capHoldGapForTest()
+		}
 		var keyLim store.KeyLimit
 		if keyLimited && keyHold {
 			from, until, _ := keyWindow(akey, keyStart)

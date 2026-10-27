@@ -42,13 +42,15 @@ func (s *caState) founder() error { s.inst("A"); s.inst("B"); return nil }
 
 func (s *caState) id() string { return s.st("s1").id }
 
-// coolMinutes records separate 120 s cooldowns on instance name until minutes are covered,
-// advancing the shared clock past each one so they are separate windows.
+// coolMinutes records separate cooldowns (120 s, the last one shorter) on instance name that
+// add up to exactly minutes, advancing the shared clock past each one so they are separate
+// windows. Exact totals matter: the page threshold is 10 min (fairness_and_abuse.feature).
 func (s *caState) coolMinutes(minutes int, name string) error {
 	b := s.inst(name)
-	for covered := 0; covered < minutes*60; covered += 120 {
-		b.coolStation(s.id(), "m", 120)
-		s.advance(121 * time.Second)
+	for left := minutes * 60; left > 0; left -= 120 {
+		sec := min(left, 120)
+		b.coolStation(s.id(), "m", sec)
+		s.advance(time.Duration(sec+1) * time.Second)
 	}
 	return nil
 }
