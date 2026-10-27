@@ -253,9 +253,10 @@ func TestABrowseOnlyInstanceAdvertisesNothing(t *testing.T) {
 // echoPlane answers every query with whatever packet hear() returns, once: a machine hearing its own
 // advert back off the group, which it does once multicast loopback is on (wire/transport.go).
 type echoPlane struct {
-	mu      sync.Mutex
-	hear    func() []byte
-	pending []byte
+	mu        sync.Mutex
+	hear      func() []byte
+	pending   []byte
+	delivered int // echoes handed to the reader
 }
 
 func (e *echoPlane) Send([]byte) error {
@@ -274,6 +275,7 @@ func (e *echoPlane) Recv(b []byte) (int, net.Addr, error) {
 	}
 	n := copy(b, e.pending)
 	e.pending = nil
+	e.delivered++
 	return n, &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 5353}, nil
 }
 func (e *echoPlane) SetReadDeadline(time.Time) error { return nil }
@@ -307,7 +309,10 @@ func TestAPassThatHearsOnlyItselfFoundNoPeers(t *testing.T) {
 	require.NoError(t, d.Start(context.Background()))
 	require.Equal(t, 2, opened, "an advertising and a browsing plane")
 	rep := d.RunOnce(context.Background())
-	require.Equal(t, 1, rep.Seen, "the browser heard this machine's own advert")
+	plane.mu.Lock()
+	require.Equal(t, 1, plane.delivered, "the browser heard this machine's own advert")
+	plane.mu.Unlock()
+	require.Zero(t, rep.Seen, "and does not count itself as a device it saw (audit 2026-10-26)")
 	require.Contains(t, rep.Notes, "no peers found", "this machine's own advert is not a peer")
 	nodes, err := f.List()
 	require.NoError(t, err)

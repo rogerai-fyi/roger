@@ -382,7 +382,8 @@ func (d *Discovery) RunOnce(ctx context.Context) Report {
 	peers := 0
 	for _, ad := range res.Adverts {
 		if ad.NodeID == d.opts.Self.NodeID {
-			continue // ourselves, heard back off the group
+			rep.Seen-- // ourselves, heard back off the group: not a device seen
+			continue
 		}
 		peers++
 		d.consider(ctx, ad, &rep)
