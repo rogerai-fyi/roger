@@ -1537,6 +1537,7 @@ func (b *broker) agentPoll(w http.ResponseWriter, r *http.Request) {
 func (b *broker) agentPollMulti(w http.ResponseWriter, r *http.Request, t *nodeTunnel, node string) {
 	ctx := r.Context()
 	var legacy <-chan []byte
+	var resub <-chan busSub
 	if b.dispatchMode != dispatchViaQueueOnly {
 		ch, cancel, err := b.shared.busSubscribeJobs(ctx, node)
 		switch {
@@ -1544,8 +1545,13 @@ func (b *broker) agentPollMulti(w http.ResponseWriter, r *http.Request, t *nodeT
 			defer cancel()
 			legacy = ch
 		case b.dispatchMode == dispatchViaBus:
-			w.WriteHeader(http.StatusNoContent) // bus unavailable: re-poll (the dispatcher saw 0 subscribers)
-			return
+			// Bus unavailable: no peer can reach this poll, but a job handed over IN MEMORY on
+			// this instance (a shared-store outage, storeoutage.go) still can, so hold the poll
+			// and keep re-subscribing in the background: peers reach it again the moment the
+			// store answers, not at the next re-poll.
+			subCtx, stop := context.WithCancel(ctx)
+			defer stop()
+			resub = b.resubscribeJobs(subCtx, node)
 		}
 	}
 	q := b.dqueue()
@@ -1586,6 +1592,9 @@ func (b *broker) agentPollMulti(w http.ResponseWriter, r *http.Request, t *nodeT
 		case job := <-t.jobs: // drain any in-memory job (mixed-mode safety)
 			_ = json.NewEncoder(w).Encode(job)
 			return
+		case sub := <-resub: // the bus answers again: peers can reach this poll from now on
+			defer sub.cancel()
+			legacy, resub = sub.ch, nil
 		case raw, ok := <-legacy:
 			if !ok {
 				if b.dispatchMode == dispatchViaBus {
@@ -1619,6 +1628,44 @@ func (b *broker) agentPollMulti(w http.ResponseWriter, r *http.Request, t *nodeT
 	}
 }
 
+// busSub is a confirmed job-channel subscription handed to a poll by resubscribeJobs.
+type busSub struct {
+	ch     <-chan []byte
+	cancel func()
+}
+
+// busResubscribeEvery paces resubscribeJobs. Each attempt fails fast while the store is
+// marked down (one attempt, busSubscribe), so this is the recovery latency, not a hot loop.
+const busResubscribeEvery = 50 * time.Millisecond
+
+// resubscribeJobs retries the node's job-channel subscription until it succeeds or ctx ends,
+// delivering the live subscription once. One that lands after the poll has gone is released.
+func (b *broker) resubscribeJobs(ctx context.Context, node string) <-chan busSub {
+	out := make(chan busSub)
+	go func() {
+		tick := time.NewTicker(busResubscribeEvery)
+		defer tick.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-tick.C:
+			}
+			ch, cancel, err := b.shared.busSubscribeJobs(ctx, node)
+			if err != nil {
+				continue
+			}
+			select {
+			case out <- busSub{ch, cancel}:
+			case <-ctx.Done():
+				cancel()
+			}
+			return
+		}
+	}()
+	return out
+}
+
 // agentResult handles POST /agent/result?node=<id>: the node returns a served
 // job's result + signed receipt. Authenticated by the node's Bearer BridgeToken.
 func (b *broker) agentResult(w http.ResponseWriter, r *http.Request) {
@@ -1647,8 +1694,10 @@ func (b *broker) agentResult(w http.ResponseWriter, r *http.Request) {
 	// when it happens to be local), so this is the single delivery path - no
 	// double-serve. A bus publish error is surfaced to the node (the relay's own timeout
 	// is the backstop: it fails the request cleanly and refunds the hold).
-	if b.multiInstance && b.shared != nil {
+	if b.multiInstance && b.shared != nil && !b.isLocalJob(res.ID) {
 		// A queue-dispatched job names its origin; send the result to that instance's inbox.
+		// (A job handed over in memory during a store outage skips this: its relay waits on
+		// this instance's tunnel, below.)
 		if q := b.dqueue(); q != nil {
 			origin, err := q.originOf(res.ID)
 			if err != nil {
@@ -2934,11 +2983,41 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+		// STORE DOWN, NOT MISSING: the pick skipped every station only because none polls this
+		// instance while the shared store is down (runtime_store_outage.feature). Say so, with
+		// a Retry-After, rather than "no node offers".
+		if b.dispatchStoreDown() {
+			reachable := false
+			b.mu.Lock()
+			for _, p := range picks {
+				rq := p.rr
+				rq.allowUnreachable = true
+				if _, _, ok := b.pickFor(p.m.bare, confidentialOnly, minTPS, maxPrice, maxPriceOut, pinNode, exclude, allow, privateAllow,
+					rq.seeded(seededRand(routeSeed))); ok {
+					reachable = true
+					break
+				}
+			}
+			b.mu.Unlock()
+			if reachable {
+				b.stats.busDispatchErr.Add(1) // a dispatch the dead bus refused (dispatch.feature)
+				dispatchBusUnavailable(w)
+				return
+			}
+		}
 		// Anonymous = free models + grant keys only, no balance. A not-logged-in keypair
 		// whose every reachable station is a PAID public offer is rejected here with a clear
 		// login prompt (we never silently seed an anon wallet to spend). Free models,
 		// self-use, and grants are unaffected.
 		if unpay {
+			// A signed-in caller resolves to an anonymous wallet when the durable store cannot
+			// answer the account lookup. Telling them to log in would be wrong: an unreachable
+			// store is a retryable 503, never a skipped money check.
+			if herr := b.db.Healthy(); herr != nil {
+				w.Header().Set("Retry-After", "5")
+				jsonErr(w, http.StatusServiceUnavailable, "the account store is unavailable - retry shortly")
+				return
+			}
 			jsonErr(w, http.StatusUnauthorized, "log in to spend on paid models - run `roger login` (free models and grant keys work without an account)")
 			return
 		}
@@ -3240,10 +3319,13 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		// account's cap. Global across every PAID path (this hold gate is the one all of
 		// public use / --freq / grant / agent / chat funnel through). Free/self ($0) skip
 		// the whole block, so they are never blocked. Sets near/at-cap notice headers.
-		if st, msg := b.monthlyCapCheck(w, payer, maxCost, now); st != 0 {
-			unlockKey()
-			jsonErr402(w, "monthly_cap_reached", msg, "monthly_cap", remedyMonthly)
-			return
+		// A floor-only hold (a $0 offer) is never refused by the cap: free stations bypass it.
+		if maxCost > freeFloorHold {
+			if st, msg := b.monthlyCapCheck(w, payer, maxCost, now); st != 0 {
+				unlockKey()
+				jsonErr402(w, "monthly_cap_reached", msg, "monthly_cap", remedyMonthly)
+				return
+			}
 		}
 		// Seed new users so the hold can land (W4: skip the upsert tx for an already-
 		// seeded wallet via the Redis seeded flag; Postgres ON-CONFLICT stays the real
@@ -3258,6 +3340,11 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		}
 		if keyLimited && keyHoldGapForTest != nil {
 			keyHoldGapForTest(b)
+		}
+		// The monthly-cap twin of the key seam: tests run another instance's whole request between
+		// this request's cap pre-check and its hold (the hold transaction still decides).
+		if maxCost > freeFloorHold && capHoldGapForTest != nil {
+			capHoldGapForTest()
 		}
 		var keyLim store.KeyLimit
 		if keyLimited && keyHold {
@@ -3277,24 +3364,37 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			b.keyAtLimit(ks, keyStart)
 			jsonErr402(w, "key_limit_reached", keyLimitMessage(ks, keyStart), "key_limit", remedyKey(akey.ID))
 		}
-		hold := func(amount float64) (bool, error) {
-			if keyHold {
-				return b.db.HoldForKey(payer, b.attemptID(requestID, 1), amount, akey.ID, keyStart.UnixMilli(), keyLim)
+		// The monthly cap is decided IN the hold transaction, together with the key limit
+		// (store.HoldGuarded): the pre-check above can be overtaken by another request's hold
+		// landing in between, the transaction cannot. A floor-only hold (a $0 offer) never meets
+		// the cap.
+		monthlyCap := 0.0
+		if maxCost > freeFloorHold {
+			monthlyCap, _ = b.db.MonthlyCapOf(payer)
+		}
+		hold := func(amount float64) (store.CappedHold, error) {
+			g := store.HoldGuard{Now: now}
+			if amount > freeFloorHold {
+				g.MonthlyCap = monthlyCap
 			}
-			return b.db.HoldFor(payer, b.attemptID(requestID, 1), amount) // keyed on the first attempt; tracked: the deploy-orphan sweep reclaims it if this relay is SIGKILLed mid-flight
+			if keyHold {
+				g.KeyID, g.KeyTS, g.Key = akey.ID, keyStart.UnixMilli(), keyLim
+			}
+			return b.db.HoldGuarded(payer, b.attemptID(requestID, 1), amount, g) // keyed on the first attempt; tracked: the deploy-orphan sweep reclaims it if this relay is SIGKILLed mid-flight
 		}
 		held := false
-		// A ceiling is only ATTEMPTED under the cap (monthlyCapFits: no notice headers, no
-		// cap email - a refused ceiling is not a refused request; the first pick was just
-		// checked above and proceeds). Priciest first, so the plan keeps as many pairs as the
+		var headCap store.CappedHold // the plan head's hold, when the monthly cap refused it
+		// A ceiling is only ATTEMPTED under the cap, decided in the hold transaction (no notice
+		// headers, no cap email - a refused ceiling is not a refused request; the first pick was
+		// just checked above and proceeds). Priciest first, so the plan keeps as many pairs as the
 		// wallet covers: a pair it cannot cover is trimmed, a cheaper later pair stays. The
 		// key limit trims the same way.
 		tryCeilings := func() bool {
 			for _, ceiling := range planCeilings(plan) {
-				if !b.monthlyCapFits(payer, ceiling, now) || (keyLimited && !keyState.fits(ceiling)) {
+				if keyLimited && !keyState.fits(ceiling) {
 					continue
 				}
-				ok, herr := hold(ceiling)
+				res, herr := hold(ceiling)
 				if errors.Is(herr, store.ErrKeyLimit) {
 					continue // the key cannot cover this ceiling: trim it, as the pre-check does
 				}
@@ -3303,7 +3403,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 					jsonErr(w, http.StatusInternalServerError, "wallet error")
 					return false
 				}
-				if ok {
+				if res.OK {
 					held, maxCost = true, ceiling
 					break
 				}
@@ -3313,7 +3413,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		// tryHead holds the plan's first pair at its own cost: ok=false is a wallet that
 		// cannot cover it; done=true means an error was already answered.
 		tryHead := func() (ok, done bool) {
-			ok, herr := hold(maxCost)
+			res, herr := hold(maxCost)
 			if errors.Is(herr, store.ErrKeyLimit) {
 				refuseKeyLimit()
 				return false, true
@@ -3323,7 +3423,10 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 				jsonErr(w, http.StatusInternalServerError, "wallet error")
 				return false, true
 			}
-			return ok, false
+			if res.OverCap {
+				headCap = res
+			}
+			return res.OK, false
 		}
 		if !tryCeilings() {
 			return
@@ -3354,6 +3457,15 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 					held = ok
 				}
 			}
+		}
+		if !held && headCap.OverCap {
+			// The monthly cap refused the plan's head in the hold transaction: the approved cap
+			// refusal (its headers, and the 100% notice when the request is too large), never a
+			// balance message.
+			unlockKey()
+			_, msg := b.capRefusal(w, payer, headCap.Spend, headCap.Pending, maxCost, monthlyCap, now)
+			jsonErr402(w, "monthly_cap_reached", msg, "monthly_cap", remedyMonthly)
+			return
 		}
 		if !held {
 			unlockKey()
@@ -3546,6 +3658,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		usable := producedUsableOutput(res.Status, completion, rec.CompletionTokens)
 		var pin, pout float64
 		var until time.Time
+		var lockErr error // an unreadable price lock fails the settle safe (no charge)
 		if pricing.fixed {
 			pin, pout = pricing.in, pricing.out
 		} else {
@@ -3558,7 +3671,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 				// base price in effect - protect from owner hikes for the lock window. Only a
 				// SERVED attempt mints the lock (quotedPrice): a voided one is priced under a
 				// running lock or at the current price and leaves none behind.
-				pin, pout, until = b.quotedPrice(user, node.NodeID, req.Model, curIn, curOut, usable)
+				pin, pout, until, lockErr = b.quotedPrice(user, node.NodeID, req.Model, curIn, curOut, usable)
 			}
 		}
 		rec.PriceIn, rec.PriceOut = pin, pout
@@ -3627,7 +3740,14 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		// station that over-claims must not bill up to a pricier sibling's reservation);
 		// the held amount still goes to settleRequest so Finalize returns the rest.
 		cost := clampSettleCost(rec.CostWith2(billedPrompt, billedCompletion), math.Min(maxCost, c.maxCost))
-		newBal, ferr := b.settleRequest(payer, node.NodeID, maxCost, cost, rec, grantID, pricing.free)
+		var newBal float64
+		var ferr error
+		if lockErr != nil {
+			// never bill a current price that might be a hike over the consumer's lock
+			ferr = fmt.Errorf("price lock unavailable: %w", lockErr)
+		} else {
+			newBal, ferr = b.settleRequest(payer, node.NodeID, maxCost, cost, rec, grantID, pricing.free)
+		}
 		if ferr != nil {
 			// Settle failed - leave settled=false so the deferred ReleaseHold
 			// refunds the user in full (fail safe toward the customer) and emit no
@@ -3770,11 +3890,19 @@ const (
 	dispatchGone                            // the consumer disconnected before the result
 )
 
-// dispatchErrOutcome maps a dispatch-plane error to its outcome (counting it).
+// dispatchErrOutcome maps a dispatch-plane error to its outcome, counting it as a request that
+// failed for that reason.
 func (b *broker) dispatchErrOutcome(err error) dispatchOutcome {
+	outcome := dispatchOutcomeOf(err)
+	b.countDispatchFailure(err, outcome)
+	return outcome
+}
+
+// dispatchOutcomeOf maps a dispatch-plane error to its outcome without counting it, for a
+// caller that may still serve the job in memory (see awaitRemote).
+func dispatchOutcomeOf(err error) dispatchOutcome {
 	switch err {
 	case errNoPoller:
-		b.stats.busNoPoller.Add(1)
 		return dispatchNoPoller
 	case errStationBusy:
 		return dispatchBusy
@@ -3785,16 +3913,30 @@ func (b *broker) dispatchErrOutcome(err error) dispatchOutcome {
 	case context.DeadlineExceeded:
 		return dispatchTimeout
 	}
-	b.stats.busDispatchErr.Add(1)
 	return dispatchBusErr
+}
+
+// countDispatchFailure counts a request that failed with err (classified as outcome).
+func (b *broker) countDispatchFailure(err error, outcome dispatchOutcome) {
+	switch {
+	case err == errNoPoller:
+		b.stats.busNoPoller.Add(1)
+	case outcome == dispatchBusErr:
+		b.stats.busDispatchErr.Add(1)
+	}
 }
 
 // writeDispatchFailure answers a request whose dispatch did not reach a result: 503 with a
 // Retry-After and a code (contract §14.8) - station_off_air when the station was not live,
 // station_busy for everything else (no poller free, a lost handoff, a dispatch-plane error),
 // $0. The queue modes say what happened in the message (off air is not busy); the legacy bus
-// and the single-instance path keep their original wording.
+// and the single-instance path keep their original wording. A bus failure during a runtime
+// store outage says so (no station is reachable from this instance).
 func (b *broker) writeDispatchFailure(w http.ResponseWriter, outcome dispatchOutcome) {
+	if outcome == dispatchBusErr && b.dispatchStoreDown() {
+		dispatchBusUnavailable(w) // runtime store outage: no station reachable from here
+		return
+	}
 	status, body := b.dispatchFailure(outcome)
 	w.Header().Set("Retry-After", "1")
 	w.Header().Set("X-RogerAI-Cost", "0")
@@ -3874,33 +4016,22 @@ func (b *broker) dispatchAwait(ctx context.Context, t *nodeTunnel, nodeID string
 	// measurement (concurrentTPS is only sampled when this is >= 2).
 	concurrentAtDispatch := b.inflightOf(nodeID)
 	if b.multiInstance && b.shared != nil {
-		// MULTI-INSTANCE: the poller for this node may be on a PEER instance. Any failure
-		// fails the request cleanly (the caller's deferred ReleaseHold refunds the hold).
-		tk, derr := b.dispatchRemote(ctx, nodeID, job, false)
-		if derr != nil {
+		local, outcome := b.outageLocalDispatch(nodeID)
+		if !local && outcome == dispatchResult {
+			// MULTI-INSTANCE: the poller for this node may be on a PEER instance. Any failure
+			// fails the request cleanly (the caller's deferred ReleaseHold refunds the hold).
+			res, outcome, retryLocal := b.awaitRemote(ctx, nodeID, job, deadline)
+			if !retryLocal {
+				return res, concurrentAtDispatch, outcome
+			}
+			local = true // the dispatch store just failed: serve the local poller in memory
+		}
+		if !local {
 			b.exitInflight(nodeID, false)
-			return protocol.JobResult{}, concurrentAtDispatch, b.dispatchErrOutcome(derr)
+			return protocol.JobResult{}, concurrentAtDispatch, outcome
 		}
-		defer tk.close()
-		if b.dispatchMode == dispatchViaBus {
-			b.stats.busDispatch.Add(1)
-		}
-		raw, werr := tk.awaitResultCtx(ctx, deadline)
-		var res protocol.JobResult
-		if werr == nil && json.Unmarshal(raw, &res) != nil {
-			werr = errBadResult
-		}
-		if werr == errConsumerGone {
-			b.exitInflight(nodeID, false)
-			b.sendCancel(nodeID, job.ID) // the station stops too, when it can (job_cancel.feature)
-			return protocol.JobResult{}, concurrentAtDispatch, dispatchGone
-		}
-		if werr != nil {
-			b.exitInflight(nodeID, false)
-			return protocol.JobResult{}, concurrentAtDispatch, b.dispatchErrOutcome(werr)
-		}
-		b.exitInflightStatus(nodeID, res.Status)
-		return res, concurrentAtDispatch, dispatchResult
+		b.markLocalJob(job.ID) // its result is read back in memory, not routed through the store
+		defer b.unmarkLocalJob(job.ID)
 	}
 	select {
 	case t.jobs <- job:
@@ -3927,6 +4058,58 @@ func (b *broker) dispatchAwait(ctx context.Context, t *nodeTunnel, nodeID string
 		b.exitInflight(nodeID, false)
 		return protocol.JobResult{}, concurrentAtDispatch, dispatchTimeout
 	}
+}
+
+// outageLocalDispatch decides, for a multi-instance dispatch, whether the shared store is
+// down: then a station polling this instance is served in memory (local=true) and any other
+// is unreachable (dispatchBusErr). With the store up it returns (false, dispatchResult).
+func (b *broker) outageLocalDispatch(nodeID string) (local bool, outcome dispatchOutcome) {
+	if !b.dispatchStoreDown() {
+		return false, dispatchResult
+	}
+	if b.polledHere(nodeID) {
+		return true, dispatchResult
+	}
+	b.stats.busDispatchErr.Add(1) // a dispatch the dead bus refused (dispatch.feature)
+	return false, dispatchBusErr
+}
+
+// awaitRemote is the cross-instance dispatch + wait. retryLocal reports that the dispatch
+// store failed before the job left this instance while the station polls here, so the caller
+// should hand it over in memory instead (in-flight accounting is still open in that case).
+func (b *broker) awaitRemote(ctx context.Context, nodeID string, job protocol.Job, deadline time.Time) (res protocol.JobResult, outcome dispatchOutcome, retryLocal bool) {
+	tk, derr := b.dispatchRemote(ctx, nodeID, job, false)
+	if derr != nil {
+		outcome = dispatchOutcomeOf(derr)
+		// In memory only when the job certainly never left: a dispatch that may have landed
+		// could otherwise be served twice (once from the store, once from here). Served that
+		// way, the request has not failed, so the error is not counted.
+		if outcome == dispatchBusErr && !mayHaveLanded(derr) && b.polledHere(nodeID) {
+			return protocol.JobResult{}, outcome, true
+		}
+		b.countDispatchFailure(derr, outcome)
+		b.exitInflight(nodeID, false)
+		return protocol.JobResult{}, outcome, false
+	}
+	defer tk.close()
+	if b.dispatchMode == dispatchViaBus {
+		b.stats.busDispatch.Add(1)
+	}
+	raw, werr := tk.awaitResultCtx(ctx, deadline)
+	if werr == nil && json.Unmarshal(raw, &res) != nil {
+		werr = errBadResult
+	}
+	if werr == errConsumerGone {
+		b.exitInflight(nodeID, false)
+		b.sendCancel(nodeID, job.ID) // the station stops too, when it can (job_cancel.feature)
+		return protocol.JobResult{}, dispatchGone, false
+	}
+	if werr != nil {
+		b.exitInflight(nodeID, false)
+		return protocol.JobResult{}, b.dispatchErrOutcome(werr), false
+	}
+	b.exitInflightStatus(nodeID, res.Status)
+	return res, dispatchResult, false
 }
 
 // nonStreamRelayWait bounds how long the NON-stream relay waits for a provider result
@@ -3969,7 +4152,7 @@ func (b *broker) busDispatchJob(ctx context.Context, nodeID string, job protocol
 	delivered, perr := b.shared.busPublishJob(nodeID, raw)
 	if perr != nil {
 		cancel()
-		return nil, nil, perr
+		return nil, nil, landedErr{perr} // the PUBLISH may have reached a poller
 	}
 	if delivered == 0 {
 		cancel()
@@ -4521,7 +4704,11 @@ func (b *broker) streamAttempt(lw *lazySSE, c attemptCand, bill streamBill, requ
 			curIn, curOut, _, scheduled := offer.ActivePrice(time.Now())
 			pin, pout = curIn, curOut
 			if !scheduled {
-				pin, pout, until = b.quotedPrice(consumer, node.NodeID, model, curIn, curOut, false)
+				// A peek for the header only; an unreadable lock shows the current price here,
+				// and the settle below refuses to bill without the lock.
+				if lin, lout, luntil, lerr := b.quotedPrice(consumer, node.NodeID, model, curIn, curOut, false); lerr == nil {
+					pin, pout, until = lin, lout, luntil
+				}
 			}
 		}
 		lockedAt := int64(0)
@@ -4578,13 +4765,37 @@ func (b *broker) streamAttempt(lw *lazySSE, c attemptCand, bill streamBill, requ
 	// double-charge).
 	var dispatchFailed <-chan struct{} // closed when a dispatched job is withdrawn or lost
 	var dispatchTk *dispatchTicket
+	// RUNTIME STORE OUTAGE: a station polling this instance is handed the stream job in memory
+	// (its chunks and result come back to this instance's sink and tunnel); any other station
+	// is unreachable from here.
+	local, outcome := false, dispatchResult
 	if b.multiInstance && b.shared != nil {
+		local, outcome = b.outageLocalDispatch(node.NodeID)
+	}
+	if b.multiInstance && b.shared != nil && !local && outcome == dispatchResult {
 		tk, derr := b.dispatchRemote(context.Background(), node.NodeID, job, true)
 		if derr != nil {
-			b.exitInflight(node.NodeID, false)
-			return protocol.JobResult{}, true, b.dispatchErrOutcome(derr)
+			outcome = dispatchOutcomeOf(derr)
+			// In memory only when the job certainly never left (see awaitRemote); counted only
+			// when the request then fails for it.
+			local = outcome == dispatchBusErr && !mayHaveLanded(derr) && b.polledHere(node.NodeID)
+			if !local {
+				b.countDispatchFailure(derr, outcome)
+			}
+		} else {
+			dispatchTk = tk
 		}
-		dispatchTk = tk
+	}
+	if b.multiInstance && b.shared != nil && !local && outcome != dispatchResult {
+		b.exitInflight(node.NodeID, false)
+		return protocol.JobResult{}, true, outcome // nothing was sent: the caller may fail over
+	}
+	if local {
+		b.markLocalJob(job.ID) // its result and chunks are read back in memory, not routed through the store
+		defer b.unmarkLocalJob(job.ID)
+	}
+	if dispatchTk != nil {
+		tk := dispatchTk
 		defer tk.close()
 		if b.dispatchMode == dispatchViaBus {
 			b.stats.busDispatch.Add(1)
@@ -4711,6 +4922,7 @@ func (b *broker) streamAttempt(lw *lazySSE, c attemptCand, bill streamBill, requ
 		}
 		var pin, pout float64
 		var lockedUntil time.Time
+		var lockErr error // an unreadable price lock fails the settle safe (no charge)
 		if pricing.fixed {
 			pin, pout = pricing.in, pricing.out
 		} else {
@@ -4722,7 +4934,7 @@ func (b *broker) streamAttempt(lw *lazySSE, c attemptCand, bill streamBill, requ
 				// otherwise a logged-in user's stream would dodge the lock (different key) and
 				// eat an owner's mid-engagement hike. See streamBill.consumer. Only a SERVED
 				// stream mints it (quotedPrice).
-				pin, pout, lockedUntil = b.quotedPrice(consumer, node.NodeID, model, curIn, curOut, producedOutput)
+				pin, pout, lockedUntil, lockErr = b.quotedPrice(consumer, node.NodeID, model, curIn, curOut, producedOutput)
 			}
 		}
 		rec.PriceIn, rec.PriceOut = pin, pout
@@ -4771,7 +4983,13 @@ func (b *broker) streamAttempt(lw *lazySSE, c attemptCand, bill streamBill, requ
 		rec.SignBroker(b.priv)
 		// The serving station's own ceiling clamps the bill (see the relay path).
 		cost := clampSettleCost(rec.CostWith2(billedPrompt, billedCompletion), math.Min(maxCost, c.maxCost))
-		newBal, ferr := b.settleRequest(user, node.NodeID, maxCost, cost, rec, grantID, pricing.free)
+		var newBal float64
+		ferr := lockErr
+		if ferr != nil {
+			ferr = fmt.Errorf("price lock unavailable: %w", ferr) // never bill an unlocked price
+		} else {
+			newBal, ferr = b.settleRequest(user, node.NodeID, maxCost, cost, rec, grantID, pricing.free)
+		}
 		settleFailed := ferr != nil
 		if settleFailed {
 			// settle failed - leave settled=false so the deferred ReleaseHold refunds
@@ -5120,9 +5338,10 @@ func (b *broker) agentStream(w http.ResponseWriter, r *http.Request) {
 	// (regardless of co-location), so the bus is the single ordered path - writing both
 	// would double-deliver. A bus publish error ends the forward; the relay's stream
 	// timeout is the backstop (it fails/closes the client stream cleanly).
-	if b.multiInstance && b.shared != nil {
+	if b.multiInstance && b.shared != nil && !b.isLocalJob(jobID) {
 		// A queue-dispatched job streams to its origin's inbox (ordered: one sender, one
-		// stream); a legacy-dispatched job to its per-job bus channel.
+		// stream); a legacy-dispatched job to its per-job bus channel. (A job handed over in
+		// memory during a store outage writes this instance's sink directly, below.)
 		publish := b.shared.busPublishStreamChunk
 		finish := func() { _ = b.shared.busPublishStreamDone(jobID) }
 		if q := b.dqueue(); q != nil {
@@ -5320,6 +5539,10 @@ type pickReq struct {
 	// capOf, when set, receives the capacity of each node in the eligible pool (§14.5: the
 	// Tower coin is weighted by eligible capacity on each side).
 	capOf map[string]int
+	// allowUnreachable lifts the runtime-store-outage filter (a station that does not poll this
+	// instance is skipped while the shared store is down); the relay sets it only to ask "would a
+	// station serve if the store were up?" after a pick found nothing.
+	allowUnreachable bool
 }
 
 // capabilityNames is the capability requirement in words ("tools", "vision", "tools and
@@ -5432,6 +5655,9 @@ func (b *broker) pickFor(model string, confidentialOnly bool, minTPS, maxPriceIn
 	for _, n := range b.nodes {
 		if time.Since(b.lastSeen[n.NodeID]) >= nodeTTL {
 			continue
+		}
+		if !req.allowUnreachable && b.outageSkipLocked(n.NodeID, now) {
+			continue // shared store down: a station not polling THIS instance cannot be reached
 		}
 		// --- HARD FILTERS (unchanged): banned, private/freq, pin, exclude, allow,
 		// confidential, min-tps. None of these are score-able; they gate eligibility. ---

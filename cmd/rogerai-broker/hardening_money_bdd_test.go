@@ -1929,11 +1929,12 @@ func (s *mh6State) servedAt(who, _ string) error {
 }
 
 func (s *mh6State) lockExistsFor(name string) bool {
-	id := s.st(name).id
-	s.b.mu.Lock()
-	defer s.b.mu.Unlock()
-	for k, q := range s.b.quotes {
-		if strings.Contains(k, "|"+id+"|") && time.Now().Before(q.until) {
+	qs, err := s.b.db.PriceQuotes(s.st(name).id, "")
+	if err != nil {
+		return false
+	}
+	for _, q := range qs {
+		if time.Now().Before(q.Until) {
 			return true
 		}
 	}

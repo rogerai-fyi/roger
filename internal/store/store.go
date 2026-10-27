@@ -132,6 +132,35 @@ type Store interface {
 	// in-flight request). The relay path uses HoldFor; Hold stays for the unit/parity
 	// callers that don't need tracking.
 	HoldFor(user, requestID string, amount float64) (ok bool, err error)
+	// HoldForCapped is HoldFor under the wallet's monthly spend cap, decided where the money
+	// is reserved: in ONE transaction under the wallet row lock (Postgres) / the store mutex
+	// (in-memory) it places the hold only if month-to-date captured spend + the wallet's
+	// open pending holds + amount <= monthlyCap. monthlyCap <= 0 means no cap (plain HoldFor).
+	// The result says whether the hold landed, whether the cap refused it, and the spend and
+	// pending totals the decision read (for the at-limit headers).
+	HoldForCapped(user, requestID string, amount, monthlyCap float64, now time.Time) (CappedHold, error)
+	// HoldGuarded is HoldFor under every limit the hold must fit, decided in the hold's own
+	// transaction: an account key's spend limit (ErrKeyLimit when the key cannot cover it)
+	// and the wallet's monthly cap (OverCap). HoldForKey and HoldForCapped are this with one
+	// guard each.
+	HoldGuarded(user, requestID string, amount float64, g HoldGuard) (CappedHold, error)
+	// QuotePrice returns the live 24 h price quote for (user, node, model): the first caller
+	// mints it from (in, out) locked for window; every later caller, on any broker instance,
+	// reads that same quote until it expires, after which the next caller mints a fresh one.
+	// Durable (survives restarts and shared-store flushes) and decided once (insert-if-absent).
+	QuotePrice(user, node, model string, in, out float64, now time.Time, window time.Duration) (PriceQuote, error)
+	// LockPrice is QuotePrice with the relay's two rules (§14.12): only a SERVED attempt mints
+	// a lock (o.Mint; otherwise a live lock is read and none is written, ok=false when there
+	// is none), and a PROMO lock (o.Promo: minted under a price posted too briefly) lives only
+	// while the station's price is still the one it was minted under. A dead lock is replaced
+	// on a mint, as an expired one is.
+	LockPrice(user, node, model string, in, out float64, now time.Time, window time.Duration, o LockOpts) (q PriceQuote, ok bool, err error)
+	// PriceQuotes lists the stored price locks for a station and model ("" = any), live or
+	// not: an inspection read (tests, operator views), never a pricing decision.
+	PriceQuotes(node, model string) ([]StoredQuote, error)
+	// PruneExpiredPriceQuotes deletes up to limit price quotes that expired at or before now
+	// and returns how many it deleted; a live quote is never touched.
+	PruneExpiredPriceQuotes(now time.Time, limit int) (int, error)
 	// ReleaseHoldFor returns a TRACKED reservation to the user and clears its pending-hold
 	// row, IDEMPOTENTLY: it refunds (and writes the hold_release ledger row) ONLY if the
 	// row still exists. A second call - or a call after the sweep already reclaimed it - is
@@ -938,7 +967,8 @@ type Mem struct {
 	processed   map[string]bool
 	owners      map[string]Owner // keyed by pubkey
 	policy      PayoutPolicy
-	monthlyCap  map[string]float64 // wallet -> explicit monthly spend cap ($); absent = env default
+	monthlyCap  map[string]float64    // wallet -> explicit monthly spend cap ($); absent = env default
+	priceQuotes map[string]PriceQuote // (user|node|model) -> the durable 24 h price lock (QuotePrice)
 
 	ledger   []LedgerRow     // append-only money events
 	ledgerID int64           // monotonic ledger id

@@ -475,7 +475,24 @@ CREATE TABLE IF NOT EXISTS rogerai.idempotency_claims (
     deadline    BIGINT NOT NULL DEFAULT 0,
     created     BIGINT NOT NULL,
     seq         BIGSERIAL,                   -- claim order: breaks a tie on created for eviction
-    PRIMARY KEY (payer, key));`
+    PRIMARY KEY (payer, key));
+-- pending_holds_usr: the capped hold (HoldForCapped) sums one wallet's open holds under its row lock.
+CREATE INDEX IF NOT EXISTS pending_holds_usr ON rogerai.pending_holds (usr);
+-- price_quotes: the 24 h price lock (features/money/price_lock_durable.feature). One row per
+-- (payer, station, model); minting is insert-if-absent, an expired row is replaced, so racing
+-- broker instances bill under ONE quote and the promise survives restarts and cache flushes.
+CREATE TABLE IF NOT EXISTS rogerai.price_quotes (
+    usr          TEXT NOT NULL,
+    node         TEXT NOT NULL,
+    model        TEXT NOT NULL,
+    price_in     DOUBLE PRECISION NOT NULL,
+    price_out    DOUBLE PRECISION NOT NULL,
+    locked_until BIGINT NOT NULL,
+    PRIMARY KEY (usr, node, model));
+-- price_quotes_locked_until: the hold sweep prunes expired quotes (PruneExpiredPriceQuotes).
+CREATE INDEX IF NOT EXISTS price_quotes_locked_until ON rogerai.price_quotes (locked_until);
+-- price_quotes.promo: a lock minted under a price posted too briefly ends with that price (§14.12).
+ALTER TABLE rogerai.price_quotes ADD COLUMN IF NOT EXISTS promo BOOLEAN NOT NULL DEFAULT false;`
 
 // poolLimits reads the connection-pool bounds from the environment. The production
 // cluster is a small shared managed Postgres (~22 usable backends across every app on
@@ -1299,6 +1316,188 @@ func (p *Postgres) HoldFor(user, requestID string, amount float64) (bool, error)
 		return false, err
 	}
 	return true, tx.Commit()
+}
+
+// HoldForCapped is HoldFor under the monthly cap. The wallet row is locked FOR UPDATE first,
+// so every capped hold, settle and release of this wallet serializes on it; the month spend
+// and the open pending holds are then read inside the same transaction and the hold placed
+// only if spend + pending + amount fits the cap. See the Store interface.
+func (p *Postgres) HoldForCapped(user, requestID string, amount, monthlyCap float64, now time.Time) (CappedHold, error) {
+	return p.HoldGuarded(user, requestID, amount, HoldGuard{MonthlyCap: monthlyCap, Now: now})
+}
+
+// HoldGuarded: see Store. ONE transaction decides every limit and the debit: the key row lock
+// first (it serializes every limited hold on the key across instances), then the wallet row
+// lock (it serializes the wallet's holds, so the monthly cap's sum cannot be overtaken), then
+// the checks, then the debit. The lock order is the same on every path, so two holds cannot
+// deadlock on these rows.
+func (p *Postgres) HoldGuarded(user, requestID string, amount float64, g HoldGuard) (CappedHold, error) {
+	var res CappedHold
+	tx, err := p.db.Begin()
+	if err != nil {
+		return res, err
+	}
+	defer tx.Rollback()
+	if g.KeyID != "" && g.Key.USD > 0 {
+		// The reservations and the window spend are read in ONE statement (one snapshot), so a
+		// capture committing in between can neither be counted twice nor missed.
+		if _, err := tx.Exec(`SELECT 1 FROM rogerai.account_keys WHERE id=$1 FOR UPDATE`, g.KeyID); err != nil {
+			return res, err
+		}
+		to := g.Key.To
+		if to <= 0 {
+			to = 1 << 62
+		}
+		var reserved, spend float64
+		if err := tx.QueryRow(`SELECT
+			(SELECT COALESCE(SUM(amount),0) FROM rogerai.pending_holds WHERE key_id=$1 AND request_id<>$2),
+			(SELECT COALESCE(SUM(-amount),0) FROM rogerai.ledger
+				WHERE holder=$1 AND kind IN ($3,$4) AND state<>'reversed' AND ts>=$5 AND ts<$6)`,
+			g.KeyID, requestID, KindKeySpend, KindKeyReversal, g.Key.From, to).Scan(&reserved, &spend); err != nil {
+			return res, err
+		}
+		if !g.Key.fits(spend, reserved, amount) {
+			return res, ErrKeyLimit
+		}
+	}
+	var bal float64
+	switch err := tx.QueryRow(`SELECT balance FROM rogerai.wallet WHERE usr=$1 FOR UPDATE`, user).Scan(&bal); err {
+	case sql.ErrNoRows:
+		return res, nil // no wallet row: the balance can't cover it
+	case nil:
+	default:
+		return res, err
+	}
+	if g.MonthlyCap > 0 {
+		start, end := monthRange(g.Now)
+		if err := tx.QueryRow(`SELECT COALESCE(SUM(-amount),0) FROM rogerai.ledger
+			WHERE holder=$1 AND kind=$2 AND state<>'reversed' AND ts>=$3 AND ts<$4`,
+			user, KindSpend, start, end).Scan(&res.Spend); err != nil {
+			return res, err
+		}
+		if err := tx.QueryRow(`SELECT COALESCE(SUM(amount),0) FROM rogerai.pending_holds WHERE usr=$1`, user).Scan(&res.Pending); err != nil {
+			return res, err
+		}
+		if overCap(res.Spend, res.Pending, amount, g.MonthlyCap) {
+			res.OverCap = true
+			return res, nil
+		}
+	}
+	if bal < amount {
+		return res, nil
+	}
+	if _, err := tx.Exec(`UPDATE rogerai.wallet SET balance=balance-$2 WHERE usr=$1`, user, amount); err != nil {
+		return res, err
+	}
+	ref := ""
+	if g.KeyID != "" {
+		ref = requestID // a key's hold names its request in the ledger, as HoldForKey always did
+	}
+	if err := appendLedger(tx, user, "consumer", KindHold, -amount, "", StatePending, ref, 0); err != nil {
+		return res, err
+	}
+	if g.KeyID != "" {
+		if _, err := tx.Exec(`INSERT INTO rogerai.pending_holds(request_id,usr,amount,placed_at,key_id,key_ts) VALUES($1,$2,$3,$4,$5,$6)
+			ON CONFLICT (request_id) DO UPDATE SET usr=EXCLUDED.usr, amount=EXCLUDED.amount, placed_at=EXCLUDED.placed_at,
+			key_id=EXCLUDED.key_id, key_ts=EXCLUDED.key_ts`,
+			requestID, user, amount, time.Now().Unix(), g.KeyID, g.KeyTS); err != nil {
+			return res, err
+		}
+	} else if _, err := tx.Exec(`INSERT INTO rogerai.pending_holds(request_id,usr,amount,placed_at) VALUES($1,$2,$3,$4)
+		ON CONFLICT (request_id) DO UPDATE SET usr=EXCLUDED.usr, amount=EXCLUDED.amount, placed_at=EXCLUDED.placed_at`,
+		requestID, user, amount, time.Now().Unix()); err != nil {
+		return res, err
+	}
+	res.OK = true
+	return res, tx.Commit()
+}
+
+// quoteReadBackGapForTest, when set, runs right after QuotePrice's statement, where a two-step
+// read-back once let a concurrent prune delete the live quote in between. Nil in production.
+var quoteReadBackGapForTest func()
+
+// QuotePrice returns the live price quote for (user, node, model), minting it from (in, out)
+// with a lock of window when none exists or the existing one has expired. ONE statement: on a
+// conflict with a LIVE row the update keeps that row's values and RETURNING reads them under
+// the same row lock, so racing instances all bill under the first quote and no prune can
+// remove the row between deciding and reading it back. See the Store interface.
+func (p *Postgres) QuotePrice(user, node, model string, in, out float64, now time.Time, window time.Duration) (PriceQuote, error) {
+	q, _, err := p.LockPrice(user, node, model, in, out, now, window, LockOpts{Mint: true})
+	return q, err
+}
+
+// PriceQuotes: see Store.
+func (p *Postgres) PriceQuotes(node, model string) ([]StoredQuote, error) {
+	rows, err := p.db.Query(`SELECT usr, node, model, price_in, price_out, locked_until, promo FROM rogerai.price_quotes
+		WHERE ($1 = '' OR node = $1) AND ($2 = '' OR model = $2)`, node, model)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []StoredQuote
+	for rows.Next() {
+		var q StoredQuote
+		var until int64
+		if err := rows.Scan(&q.User, &q.Node, &q.Model, &q.In, &q.Out, &until, &q.Promo); err != nil {
+			return nil, err
+		}
+		q.Until = time.Unix(0, until)
+		out = append(out, q)
+	}
+	return out, rows.Err()
+}
+
+// LockPrice: see Store. A mint is ONE statement - insert-if-absent, with a dead row (expired,
+// or a promo lock whose price has moved) replaced and a live one kept - and the row it returns
+// is the one that decides, so racing instances bill under one quote. A read writes nothing.
+func (p *Postgres) LockPrice(user, node, model string, in, out float64, now time.Time, window time.Duration, o LockOpts) (PriceQuote, bool, error) {
+	var q PriceQuote
+	if !o.Mint {
+		var until int64
+		err := p.db.QueryRow(`SELECT price_in, price_out, locked_until, promo FROM rogerai.price_quotes
+			WHERE usr=$1 AND node=$2 AND model=$3`, user, node, model).Scan(&q.In, &q.Out, &until, &q.Promo)
+		if err == sql.ErrNoRows {
+			return PriceQuote{}, false, nil
+		}
+		if err != nil {
+			return PriceQuote{}, false, err
+		}
+		q.Until = time.Unix(0, until)
+		if !q.live(now, in, out) {
+			return PriceQuote{}, false, nil
+		}
+		return q, true, nil
+	}
+	until := now.Add(window).UnixNano()
+	err := p.db.QueryRow(`INSERT INTO rogerai.price_quotes AS pq (usr,node,model,price_in,price_out,locked_until,promo)
+		VALUES($1,$2,$3,$4,$5,$6,$8)
+		ON CONFLICT (usr,node,model) DO UPDATE SET
+			price_in     = CASE WHEN pq.locked_until <= $7 OR (pq.promo AND (pq.price_in <> EXCLUDED.price_in OR pq.price_out <> EXCLUDED.price_out)) THEN EXCLUDED.price_in ELSE pq.price_in END,
+			price_out    = CASE WHEN pq.locked_until <= $7 OR (pq.promo AND (pq.price_in <> EXCLUDED.price_in OR pq.price_out <> EXCLUDED.price_out)) THEN EXCLUDED.price_out ELSE pq.price_out END,
+			promo        = CASE WHEN pq.locked_until <= $7 OR (pq.promo AND (pq.price_in <> EXCLUDED.price_in OR pq.price_out <> EXCLUDED.price_out)) THEN EXCLUDED.promo ELSE pq.promo END,
+			locked_until = CASE WHEN pq.locked_until <= $7 OR (pq.promo AND (pq.price_in <> EXCLUDED.price_in OR pq.price_out <> EXCLUDED.price_out)) THEN EXCLUDED.locked_until ELSE pq.locked_until END
+		RETURNING price_in, price_out, locked_until, promo`,
+		user, node, model, in, out, until, now.UnixNano(), o.Promo).Scan(&q.In, &q.Out, &until, &q.Promo)
+	if quoteReadBackGapForTest != nil {
+		quoteReadBackGapForTest()
+	}
+	if err != nil {
+		return q, false, err
+	}
+	q.Until = time.Unix(0, until)
+	return q, true, nil
+}
+
+// PruneExpiredPriceQuotes deletes up to limit quotes whose lock ended at or before now, in one
+// bounded statement. See the Store interface.
+func (p *Postgres) PruneExpiredPriceQuotes(now time.Time, limit int) (int, error) {
+	res, err := p.db.Exec(`DELETE FROM rogerai.price_quotes WHERE ctid IN (
+		SELECT ctid FROM rogerai.price_quotes WHERE locked_until <= $1 LIMIT $2)`, now.UnixNano(), limit)
+	if err != nil {
+		return 0, err
+	}
+	n, err := res.RowsAffected()
+	return int(n), err
 }
 
 // ReleaseHoldFor returns a TRACKED reservation idempotently: the atomic DELETE ... RETURNING
