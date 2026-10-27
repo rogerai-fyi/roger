@@ -272,12 +272,17 @@
 
   // ---- list + per-row actions ----------------------------------------------
   function loadKeys() {
-    show("keysLoading"); hide("keysError"); hide("keysEmpty");
+    show("keysLoading"); hide("keysError"); hide("keysEmpty"); hide("keysNoOperator");
     api("/grants").then(function (r) {
-      if (r.status === 403) { throw new Error("forbidden"); }
+      if (r.status === 403) { return { noOperator: true }; } // signed in, no machine on air: normal
+      if (!r.ok) { throw new Error("load failed"); }       // a real fault is NOT "no keys yet"
       return r.json();
     }).then(function (j) {
       hide("keysLoading");
+      if (j && j.noOperator) { // keys are minted by an account that has put a machine on air
+        hide("keysWrap"); hide("createForm"); show("keysNoOperator");
+        return;
+      }
       var rows = (j && j.grants) || [];
       var tbody = $("keysRows");
       if (tbody) tbody.innerHTML = "";

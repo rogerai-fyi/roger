@@ -60,6 +60,9 @@ func (b *broker) verifiedFreshLocked(nodeID string, tq trustState, now time.Time
 	if !tq.verifiedServing() || b.organicContradictsLocked(nodeID, tq) {
 		return false
 	}
+	if b.probeMinLapsedLocked(nodeID, now, b.probe.ceiling) {
+		return false // a declared probe minimum never extends the mark past the normal window
+	}
 	if b.probe.ceiling <= 0 {
 		return true // no freshness window configured: nothing to age out of
 	}

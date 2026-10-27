@@ -135,6 +135,8 @@ section[id] { scroll-margin-top: 72px; }
   font-family: var(--font-mono); font-size: var(--t-sm); font-variant-numeric: tabular-nums;
   color: var(--ink-900); background: var(--paper); border: 1px solid var(--hairline-2);
 }
+/* a field that ships empty shows its placeholder whole ("set a rate" was clipped at 8ch) */
+.calc__field input[type="number"][placeholder] { width: 13ch; }
 .calc__field input[type="number"]:focus-visible { outline: 2px solid var(--live); outline-offset: 1px; }
 .calc__hint {
   grid-column: 1 / -1; margin-top: -2px;

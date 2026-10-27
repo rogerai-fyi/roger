@@ -106,8 +106,10 @@
 }
 .pg-bench::before { top: 7px; left: 7px; }
 .pg-bench::after  { top: 7px; right: 7px; }
+/* the plate wraps: a status that fits sits beside the name, a long one (the broker out of
+   reach) drops to its own line under it rather than squeezing into a column */
 .pg-bench__plate {
-  display: flex; align-items: baseline; gap: var(--s-4);
+  display: flex; flex-wrap: wrap; align-items: baseline; column-gap: var(--s-4); row-gap: var(--s-1);
   padding: 8px var(--s-6) 7px; border-bottom: 1px solid var(--hairline-2);
   background: var(--paper-2);
   font-family: var(--font-mono); letter-spacing: var(--tracking-label);
@@ -121,10 +123,11 @@
 .pg-bench__op[hidden] { display: none; }
 @media (max-width: 900px) { .pg-bench__op { display: none; } }
 .pg-bench__status {
-  margin-left: auto; display: inline-flex; align-items: center; gap: 8px;
-  font-size: var(--t-micro); color: var(--ink-400);
+  margin-left: auto; display: inline-flex; align-items: flex-start; gap: 8px;
+  font-size: var(--t-micro); line-height: 1.5; color: var(--ink-400);
 }
-.pg-bench__status .livedot { --dot-size: 8px; }
+/* the lamp sits on the first line of a wrapped status, not between its lines */
+.pg-bench__status .livedot { --dot-size: 8px; flex: none; margin-top: calc((1.5em - var(--dot-size)) / 2); }
 .pg-bench__status[data-state="live"] { color: var(--live-text); }
 .pg-bench__status[data-state="live"] .livedot { --dot: var(--live); }
 .pg-bench__status[data-state="quiet"] { color: var(--ink-400); }
