@@ -234,7 +234,7 @@ func modelWebFetch(repo, file string) error {
 	}
 	for _, f := range files {
 		if f.Path == file {
-			return h.StartFetch(hub, provision.Fetcher{}, repo, f, modelLicense(context.Background(), repo), nil)
+			return h.StartFetch(hub, modelBackgroundFetcher(), repo, f, modelLicense(context.Background(), repo), nil)
 		}
 	}
 	return fmt.Errorf("%s has no file %q in its listing", repo, file)

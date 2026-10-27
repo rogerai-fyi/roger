@@ -106,16 +106,23 @@ func init() {
 // defaultModelFetcher measures the disk it writes to, so a file that cannot fit is refused before a
 // byte moves, with the numbers.
 func defaultModelFetcher() *provision.Fetcher {
-	return &provision.Fetcher{OnProgress: modelProgress, FreeSpace: func(dir string) (int64, bool) {
-		for d := dir; ; d = filepath.Dir(d) { // the models directory may not exist yet: its disk does
-			if mib, ok := hwDiskFreeMiB(d); ok {
-				return int64(mib) << 20, true
-			}
-			if filepath.Dir(d) == d {
-				return 0, false
-			}
+	return &provision.Fetcher{OnProgress: modelProgress, FreeSpace: modelDiskFree}
+}
+
+// modelBackgroundFetcher is the fetcher for a fetch that runs in the background (the console, an Edge
+// request, the nearby list): it measures the disk the same way and prints nothing.
+func modelBackgroundFetcher() provision.Fetcher { return provision.Fetcher{FreeSpace: modelDiskFree} }
+
+// modelDiskFree is the free space on the disk that holds dir.
+func modelDiskFree(dir string) (int64, bool) {
+	for d := dir; ; d = filepath.Dir(d) { // the models directory may not exist yet: its disk does
+		if mib, ok := hwDiskFreeMiB(d); ok {
+			return int64(mib) << 20, true
 		}
-	}}
+		if filepath.Dir(d) == d {
+			return 0, false
+		}
+	}
 }
 
 func modelHub() *hfhub.Client {

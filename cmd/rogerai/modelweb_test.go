@@ -230,3 +230,27 @@ func TestConsoleViewCarriesEveryServeAndRefusesASecondUnderOneBand(t *testing.T)
 	_, err = modelWebServe("acme/Tiny-GGUF:Q8_0", 0, true)
 	require.ErrorContains(t, err, `"tiny" is already on the air`)
 }
+
+// 2026-10-27 pre-push audit: a fetch started from the console (or from afar, or from the nearby list)
+// measures the disk first, as `roger model get` does, and a file that cannot fit fails with the
+// numbers before a byte is written.
+func TestABackgroundFetchMeasuresTheDiskFirst(t *testing.T) {
+	r := webRig(t)
+	prev := hwDiskFreeMiB
+	t.Cleanup(func() { hwDiskFreeMiB = prev })
+	hwDiskFreeMiB = func(string) (int, bool) { return 0, true }
+	require.NoError(t, modelWebFetch("acme/Tiny-GGUF", "Tiny-Q4_K_M.gguf"))
+	var j localmodel.Job
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		var ok bool
+		if j, ok = r.home.Job(); ok && (j.State == localmodel.JobDone || j.State == localmodel.JobFailed) {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	require.Equal(t, localmodel.JobFailed, j.State, "%+v", j)
+	require.Contains(t, j.Err, "is free on")
+	_, err := r.home.Find("acme/Tiny-GGUF:Q4_K_M")
+	require.Error(t, err, "nothing was fetched")
+}

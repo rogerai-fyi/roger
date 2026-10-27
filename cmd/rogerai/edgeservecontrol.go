@@ -271,7 +271,7 @@ func edgeModelServe(task edge.ModelTask) (string, string) {
 			"(roger model get %s), where the owner sees what goes, or with a larger budget", strings.Join(ids, ", "), task.Model)
 	}
 	ctxLen := v.Ctx
-	err = h.StartFetch(hub, provision.Fetcher{}, repo, f.File, modelLicense(ctx, repo), func(m localmodel.Model, err error) {
+	err = h.StartFetch(hub, modelBackgroundFetcher(), repo, f.File, modelLicense(ctx, repo), func(m localmodel.Model, err error) {
 		if err == nil {
 			// A switch, never --add: serving a second model beside the first is the owner's call at
 			// this machine (local_models.feature §5), not something remote_model.feature grants.
