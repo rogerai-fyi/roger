@@ -50,6 +50,8 @@ type shareRow struct {
 	quant   string
 	weights string
 	variant string
+	// declared / inferred are the model's taxonomy halves (node.Controller.MetaFor).
+	declared, inferred protocol.Taxonomy
 }
 
 // schedToProtocol converts the TUI's editable windows into the wire
@@ -331,8 +333,10 @@ func (m model) shareView(w int) string {
 	case dense:
 		b.WriteString("  " + stDim.Render(fmt.Sprintf("  %-14s  %-8s  %s", "MODEL", "STATUS", "PRICE")) + "\n")
 	default:
-		b.WriteString("  " + stDim.Render(fmt.Sprintf("  %-24s  %-9s  %-12s  %-9s  %-10s  %s",
-			"MODEL", "STATUS", "PRICE", "SERVED", "OUT TOK", "AT LIST")) + "\n")
+		// Clamped to the terminal: the CATEGORY column made the full row wider than the
+		// widths just above the dense cut-off (taxonomy_share_layout_test.go).
+		b.WriteString(truncVisible("  "+stDim.Render(fmt.Sprintf("  %-24s  %-9s  %-12s  %-9s  %-10s  %-9s  %s",
+			"MODEL", "STATUS", "PRICE", "SERVED", "OUT TOK", "AT LIST", "CATEGORY")), w) + "\n")
 	}
 
 	// WHY "AT LIST" AND NOT "EARNINGS".
@@ -420,13 +424,13 @@ func (m model) shareView(w int) string {
 				outTok = fmt.Sprintf("%d", toks)
 				earn = dollars(live.Earnings())
 			}
-			plain = fmt.Sprintf("%s %-24s  %-9s  %-12s  %-9s  %-10s  %s",
-				lampG, pad(modelCell, nameW), statusTxt, priceTxt, served, outTok, earn)
+			plain = fmt.Sprintf("%s %-24s  %-9s  %-12s  %-9s  %-10s  %-9s  %s",
+				lampG, pad(modelCell, nameW), statusTxt, priceTxt, served, outTok, earn, shareCategoryCell(row))
 		}
 
 		if sel {
 			// Reverse-video accent bar across the whole row - unmistakable cursor.
-			b.WriteString(selCarat(true) + rowSel(true, plain, tableW) + "\n")
+			b.WriteString(truncVisible(selCarat(true)+rowSel(true, plain, tableW), w) + "\n")
 			continue
 		}
 		// Unselected: a dot/blank gutter, dim model, colored status + price cells.
@@ -442,15 +446,15 @@ func (m model) shareView(w int) string {
 			b.WriteString(selCarat(false) + lampS.Render(lampG) + " " + stDim.Render(pad(modelCell, 14)) + "  " + stN + "  " + sharePriceCell(priceTxt) + "\n")
 			continue
 		}
-		served, outTok, earn := stDim.Render(pad("-", 9)), stDim.Render(pad("-", 10)), stDim.Render("-")
+		served, outTok, earn := stDim.Render(pad("-", 9)), stDim.Render(pad("-", 10)), stDim.Render(pad("-", 9))
 		if on {
 			reqs, toks := live.Served()
 			served = stLive.Render(pad(fmt.Sprintf("%d", reqs), 9))
 			outTok = stDim.Render(pad(fmt.Sprintf("%d", toks), 10))
-			earn = stEmber.Render(dollars(live.Earnings()))
+			earn = stEmber.Render(pad(dollars(live.Earnings()), 9))
 		}
-		b.WriteString(selCarat(false) + lampS.Render(lampG) + " " + stDim.Render(pad(modelCell, nameW)) + "  " + st + "  " +
-			sharePriceCell(pad(priceTxt, 12)) + "  " + served + "  " + outTok + "  " + earn + "\n")
+		b.WriteString(truncVisible(selCarat(false)+lampS.Render(lampG)+" "+stDim.Render(pad(modelCell, nameW))+"  "+st+"  "+
+			sharePriceCell(pad(priceTxt, 12))+"  "+served+"  "+outTok+"  "+earn+"  "+stDim.Render(shareCategoryCell(row)), w) + "\n")
 	}
 
 	// DETAIL BANNER: a full-width contextual line for the SELECTED row (only when

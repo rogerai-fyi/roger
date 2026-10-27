@@ -202,7 +202,7 @@
     if (!tbody.children.length) {
       var er = el("tr", "empty-row");
       var td = el("td", null, "No models detected yet. Try re-detect.");
-      td.colSpan = 8; er.appendChild(td); tbody.appendChild(er);
+      td.colSpan = 9; er.appendChild(td); tbody.appendChild(er);
     }
   }
 
@@ -219,7 +219,8 @@
     tr.appendChild(el("td", "num served"));               // 4 served
     tr.appendChild(el("td", "num outtok"));               // 5 out tok
     tr.appendChild(el("td", "num earnings"));             // 6 earnings
-    tr.appendChild(el("td", "col-actions"));              // 7 actions
+    tr.appendChild(el("td", "cat-cell"));                 // 7 category
+    tr.appendChild(el("td", "col-actions"));              // 8 actions
     return tr;
   }
 
@@ -284,8 +285,11 @@
     tds[5].textContent = fmtInt(row.out_tokens);
     tds[6].textContent = fmtUSD(row.earnings);
 
+    // --- category: the declaration, else the guess marked "~", else a dash ---
+    tds[7].textContent = catLabel(row);
+
     // --- actions ---
-    tds[7].innerHTML = "";
+    tds[8].innerHTML = "";
     var actions = el("div", "row-actions");
     var onairBtn = el("button", "btn small", onAir ? "Take off air" : "Put on air");
     onairBtn.setAttribute("data-act", "onair");
@@ -298,8 +302,12 @@
     priceBtn.setAttribute("data-model", row.model);
     actions.appendChild(onairBtn);
     actions.appendChild(privBtn);
+    var catBtn = el("button", "btn small ghost", "Category");
+    catBtn.setAttribute("data-act", "category");
+    catBtn.setAttribute("data-model", row.model);
     actions.appendChild(priceBtn);
-    tds[7].appendChild(actions);
+    actions.appendChild(catBtn);
+    tds[8].appendChild(actions);
   }
 
   /* 6. SHARE ACTIONS ------------------------------------------------------- */
@@ -391,6 +399,74 @@
       closeModal();
       toast((r && r.message) || "Pricing saved.", "ok");
     }).catch(toastErr);
+  }
+
+  // --- category modal (features/categories/console_editor.feature) ---
+  function catPair(t) { return t.subcategory ? t.category + "/" + t.subcategory : t.category; }
+  function catLabel(row) {
+    if (row.declared) return row.declared.category ? catPair(row.declared) : "(no category)";
+    if (row.inferred && row.inferred.category) return catPair(row.inferred) + "~";
+    return "—";
+  }
+  var catModel = null, catList = [];
+  function fillSelect(sel, values, cur) {
+    sel.innerHTML = "";
+    values.forEach(function (v) {
+      var o = el("option", "", v || "(none)"); o.value = v; if (v === cur) o.selected = true; sel.appendChild(o);
+    });
+  }
+  function fillSubs(cur) {
+    var cat = $("cat-cat").value, subs = [""];
+    catList.forEach(function (c) { if (c.name === cat) subs = subs.concat(c.subcategories); });
+    fillSelect($("cat-sub"), subs, cur);
+  }
+  function openCatModal(model) {
+    catModel = model;
+    $("cat-model").textContent = model;
+    show($("cat-err"), false);
+    Promise.all([
+      api("GET", "/api/categories"),
+      api("GET", "/api/share/meta?model=" + encodeURIComponent(model))
+    ]).then(function (res) {
+      catList = (res[0] && res[0].categories) || [];
+      var d = res[1] && res[1].declared, inf = res[1] && res[1].inferred;
+      var guess = !(d && (d.category || (d.tags && d.tags.length) || d.tuning || d.content_policy || d.license || d.base_model));
+      var t = (guess ? inf : d) || {};
+      show($("cat-guess"), guess);
+      fillSelect($("cat-cat"), [""].concat(catList.map(function (c) { return c.name; })), t.category || "");
+      fillSubs(t.subcategory || "");
+      $("cat-tags").value = (t.tags || []).join(", ");
+      $("cat-tuning").value = t.tuning || "";
+      $("cat-policy").value = t.content_policy || "";
+      $("cat-license").value = t.license || "";
+      $("cat-base").value = t.base_model || "";
+      modalOpen("modal-cat");
+    }).catch(toastErr);
+  }
+  function catFail(e) {
+    // The server's reason, in the modal, so the operator can correct it in place.
+    $("cat-err").textContent = e.message;
+    show($("cat-err"), true);
+  }
+  function saveCat() {
+    if (!catModel) return;
+    var cat = $("cat-cat").value, sub = $("cat-sub").value;
+    var tags = $("cat-tags").value.split(",").map(function (s) { return s.trim(); }).filter(Boolean);
+    apiPost("/api/share/meta", {
+      model: catModel, category: sub ? cat + "/" + sub : cat, tags: tags,
+      tuning: $("cat-tuning").value, content_policy: $("cat-policy").value,
+      license: $("cat-license").value.trim(), base_model: $("cat-base").value.trim()
+    }).then(function () {
+      closeModal();
+      toast("Category saved - it applies the next time the model goes on air.", "ok");
+    }).catch(catFail);
+  }
+  function clearCat() {
+    if (!catModel) return;
+    api("DELETE", "/api/share/meta?model=" + encodeURIComponent(catModel)).then(function () {
+      closeModal();
+      toast("Category cleared - the guess is back.", "ok");
+    }).catch(catFail);
   }
 
   // --- rename + detect ---
@@ -1563,6 +1639,7 @@
       if (act === "onair") actOnAir(model);
       else if (act === "private") actPrivate(model);
       else if (act === "price") openPriceModal(model);
+      else if (act === "category") openCatModal(model);
     });
 
     // share header
@@ -1580,6 +1657,11 @@
     // price modal
     $("price-add-window").onclick = function () { addWindowRow(); };
     $("price-save").onclick = savePrice;
+
+    // category modal
+    $("cat-cat").onchange = function () { fillSubs(""); };
+    $("cat-save").onclick = saveCat;
+    $("cat-clear").onclick = clearCat;
 
     // freq code card
     $("code-copy").onclick = function () { copyText($("code-value").textContent, $("code-copy")); };
