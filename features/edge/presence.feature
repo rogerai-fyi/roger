@@ -87,7 +87,7 @@ Feature: A node can present itself to the authority by dialing out, and be recor
   # =========================================================================
   # RULED 2026-10-13 (founder). JSON: "v": 3, and beside "vitals" (phone only: "thermal", "foreground")
   # a "power" object valid for ANY kind: "battery_pct" (0..100), "charging" (bool), "source" ("ac" |
-  # "battery" | "unknown"), "low_power" (bool), "minutes_left" (int >= 0); every field optional,
+  # "battery" | "unknown"), "low_power" (bool), "minutes_left" (int, 0 to a year); every field optional,
   # absent is absent. In v3 a phone's battery and charging travel under "power", and under "vitals"
   # they are refused. Signed by the node key over these lines joined by "\n", an absent reading an
   # EMPTY line:
@@ -101,6 +101,20 @@ Feature: A node can present itself to the authority by dialing out, and be recor
     Given a host on a UPS HAT that dials out
     When it presents v3 with power: battery 81%, not charging, source battery, 120 minutes left
     Then it is recorded with that power, and the window and the power rules read it
+
+  # Review 2026-10-26: bounded, so no reading overflows a duration when it is printed.
+  @security
+  Scenario: a time remaining over a year is refused, and never printed as one
+    When a v3 presence says more than a year of battery is left
+    Then it is refused as a reading that cannot be true
+    And a reading already held that says so is shown as "over a year left"
+
+  # Review 2026-10-26: a nonce is 16 random bytes as 32 lowercase hex. One of another shape (a UUID,
+  # uppercase hex) is refused in words that say what is wrong with it, not as a replay.
+  @security
+  Scenario: a malformed nonce is refused as malformed, not as already seen
+    When a presence or an invocation carries a UUID or uppercase hex as its nonce
+    Then it is refused with "malformed nonce", and nothing about a replay
 
   @security
   Scenario: power outside the version that signs it is refused

@@ -13,6 +13,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"rogerai.fm/roger/v6/internal/store"
 )
 
 func TestPresenceV3GoldenVectors(t *testing.T) {
@@ -73,6 +75,7 @@ func TestPresenceV3CarriesPowerForAnyKind(t *testing.T) {
 		"a source that is not a word":    func(p *PresenceRequest) { p.Power = &PowerVitals{Source: "solar"} },
 		"a battery over 100":             func(p *PresenceRequest) { b := 101; p.Power = &PowerVitals{BatteryPct: &b} },
 		"a negative time left":           func(p *PresenceRequest) { m := -1; p.Power = &PowerVitals{MinutesLeft: &m} },
+		"more than a year left":          func(p *PresenceRequest) { m := MaxMinutesLeft + 1; p.Power = &PowerVitals{MinutesLeft: &m} },
 		"a v3 battery under vitals":      func(p *PresenceRequest) { p.Kind = "mobile"; p.Vitals = &PhoneVitals{BatteryPct: &pct} },
 		"phone vitals from a host in v3": func(p *PresenceRequest) { p.Kind = "host"; p.Vitals = &PhoneVitals{Thermal: "fair"} },
 	} {
@@ -102,4 +105,13 @@ func TestPresenceV3CarriesPowerForAnyKind(t *testing.T) {
 	require.False(t, *n.Phone.Foreground)
 	require.Equal(t, 18, *n.Phone.BatteryPct, "a phone's battery is on its phone line too")
 	require.True(t, *n.Power.LowPower)
+}
+
+// A time remaining is bounded (review 2026-10-26): a year is the most any reading may say, and a
+// supply line never prints an overflowed duration, whatever a member's own readings carried.
+func TestATimeRemainingIsBounded(t *testing.T) {
+	ok := MaxMinutesLeft
+	require.Contains(t, SupplyLine(&store.EdgePower{MinutesLeft: &ok}), "left")
+	huge := 1 << 40
+	require.Contains(t, SupplyLine(&store.EdgePower{MinutesLeft: &huge}), "over a year left")
 }

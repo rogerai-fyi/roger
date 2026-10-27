@@ -40,6 +40,10 @@ func (h *nonceHeap) Pop() any {
 	return e
 }
 
+// malformedNonce is the refusal for a nonce that is not 16 random bytes as 32 lowercase hex: a
+// shape mistake, said as one, never as a replay.
+const malformedNonce = "malformed nonce: a nonce is 16 random bytes as 32 lowercase hex characters"
+
 type nonceCache struct {
 	mu      sync.Mutex
 	seen    map[string]int64 // owner|nonce -> unix expiry

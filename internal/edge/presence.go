@@ -80,6 +80,10 @@ type PowerVitals struct {
 
 // powerSources is the closed vocabulary of a power source. "solar" and "ups" are not in it: no
 // operating system this reads reports them as a source, and a word nobody can report is a guess.
+// MaxMinutesLeft is the most a time-remaining reading may say: a year. Past it an estimate is no
+// estimate (a discharge rate near zero), and a duration that large would overflow when printed.
+const MaxMinutesLeft = 365 * 24 * 60
+
 var powerSources = map[string]bool{"": true, "ac": true, "battery": true, "unknown": true}
 
 // presenceVersionRefusal is the exact words an authority uses for a version it does not read; a
@@ -122,6 +126,9 @@ func (p PresenceRequest) vitalsRefusal() string {
 			}
 			if w.MinutesLeft != nil && *w.MinutesLeft < 0 {
 				return "a negative time remaining"
+			}
+			if w.MinutesLeft != nil && *w.MinutesLeft > MaxMinutesLeft {
+				return "a time remaining over a year"
 			}
 		}
 	default:
@@ -278,6 +285,10 @@ func PresenceHandlerFunc(fleet *Fleet, trust func() *cert.Authority, now func() 
 		//    request with a near-future TS stays acceptable until TS+window; expiring its nonce at
 		//    now+window would prune it while the very same bytes are still fresh, opening a replay
 		//    window (audit 2026-09-24).
+		if !isLowerHex(req.Nonce, 32) {
+			refusePresence(w, malformedNonce)
+			return
+		}
 		if !seen.admit(req.NodeID, req.Nonce, time.Unix(req.TS, 0).Add(presenceFreshness).Unix(), now().Unix()) {
 			refusePresence(w, "that presence was already seen")
 			return

@@ -21,6 +21,7 @@ import (
 	"strings"
 	"time"
 
+	"rogerai.fm/roger/v6/internal/edge"
 	"rogerai.fm/roger/v6/internal/store"
 )
 
@@ -109,8 +110,11 @@ func edgeLinuxPower(root string) *store.EdgePower {
 			left, err1 := strconv.ParseFloat(nowS, 64)
 			rate, err2 := strconv.ParseFloat(rateS, 64)
 			if ok1 && ok2 && err1 == nil && err2 == nil && rate > 0 && left >= 0 {
-				m := int(left / rate * 60)
-				p.MinutesLeft = &m
+				// Past a year it is no estimate (a rate near zero), and is left out.
+				if mins := left / rate * 60; mins <= edge.MaxMinutesLeft {
+					m := int(mins)
+					p.MinutesLeft = &m
+				}
 				break
 			}
 		}
@@ -179,8 +183,9 @@ func parsePmsetBatt(out string) *store.EdgePower {
 	if m := pmsetLeft.FindStringSubmatch(out); m != nil && p.Charging != nil && !*p.Charging {
 		h, _ := strconv.Atoi(m[1])
 		mm, _ := strconv.Atoi(m[2])
-		left := h*60 + mm
-		p.MinutesLeft = &left
+		if left := h*60 + mm; left <= edge.MaxMinutesLeft {
+			p.MinutesLeft = &left
+		}
 	}
 	return p
 }

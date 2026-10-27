@@ -92,3 +92,14 @@ func TestPowerAloneIsStillARecord(t *testing.T) {
 
 	require.Nil(t, edgeReadResourcesFrom(t.TempDir(), now), "and truly nothing is still no record")
 }
+
+// A discharge rate near zero makes an estimate of centuries; past a year it is no estimate, and is
+// left out rather than sent (a v3 presence over a year is refused, and the cast would overflow).
+func TestAnImplausibleTimeLeftIsLeftOut(t *testing.T) {
+	root := t.TempDir()
+	fakeSupply(t, root, "BAT0", map[string]string{"type": "Battery", "capacity": "50", "status": "Discharging",
+		"energy_now": "20000000", "power_now": "1"})
+	p := edgeLinuxPower(root)
+	require.NotNil(t, p)
+	require.Nil(t, p.MinutesLeft)
+}

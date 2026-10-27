@@ -182,7 +182,11 @@ func SupplyLine(p *store.EdgePower) string {
 	if p.LowPower != nil && *p.LowPower {
 		parts = append(parts, "low power mode")
 	}
-	if p.MinutesLeft != nil {
+	switch {
+	case p.MinutesLeft == nil:
+	case *p.MinutesLeft > MaxMinutesLeft:
+		parts = append(parts, "over a year left")
+	default:
 		parts = append(parts, "about "+Age(time.Duration(*p.MinutesLeft)*time.Minute)+" left")
 	}
 	return strings.Join(parts, " · ")
