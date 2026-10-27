@@ -241,3 +241,31 @@
 @media (max-width: 640px) {
   .hw-ladder { --diagram-min: 1182px; }
 }
+
+/* ---- devices a site already has (features/web/sensor_positioning.feature) ----------
+   Three devices, one install: the shared install pill over three line drawings on one
+   hairline, each with its status lamp (.cap-lamp, components.css). A planned device is a
+   dashed ghost, set by its data-cap-stage alone, so the drawing follows the status file. */
+.devices { margin-top: var(--s-12); }
+.devices > h3 { margin: 0 0 var(--s-3); }
+.devices__lead { max-width: 44rem; margin: 0 0 var(--s-5); color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body); }
+.devices__install { margin: 0 0 var(--s-6); }
+.devices__list {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s-4);
+  margin: 0; padding: var(--s-6) 0 0; list-style: none; border-top: 1px solid var(--hairline-2);
+}
+.device { min-width: 0; padding: var(--s-4); color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body); }
+.device b { display: block; margin: var(--s-3) 0 var(--s-1); color: var(--ink-900); font-weight: var(--weight-semi); }
+.device p { margin: var(--s-2) 0 0; }
+.device__art { display: block; width: 100%; max-width: 160px; height: auto; fill: none; stroke: currentColor; stroke-width: 1.5; color: var(--ink-700); }
+.device__status { display: block; font-size: var(--t-xs); color: var(--ink-500); }
+.device__status .cap-lamp { width: 11px; height: 11px; margin: -2px var(--s-1) 0; }
+.device[data-cap-stage="planned"] { outline: 1px dashed var(--ink-400); outline-offset: -1px; background: transparent; }
+.device[data-cap-stage="planned"] .device__art { color: var(--ink-400); stroke-dasharray: 4 3; }
+.devices__cap { margin-top: var(--s-4); }
+@media (max-width: 820px) {
+  .devices__list { grid-template-columns: 1fr; }
+  .device { display: grid; grid-template-columns: 96px minmax(0, 1fr); column-gap: var(--s-4); align-items: start; }
+  .device__art { grid-row: span 4; }
+  .device b { margin-top: 0; }
+}

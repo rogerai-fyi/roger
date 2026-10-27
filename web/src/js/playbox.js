@@ -259,8 +259,8 @@
      "under wave family i don't see all the models"). One compact spine per
      tier, "band · reach". Nothing is faked: Nano's spine is the playable
      recorded demo; every other tier says exactly why it cannot play yet, and
-     no training is claimed that the research pages don't back (Pico holds the
-     only trained waypoint - its recorded contracts run on the WAVE MESH deck,
+     no training is claimed that the research pages don't back (Pico is on air
+     as wave-pico-293m - its recorded contracts run on the WAVE MESH deck,
      which its spine points to).
 
      LAYOUT AUDIT 2026-08-17: seven equal cards, six of them unplayable, buried
@@ -274,16 +274,15 @@
     // narrowest spine without an ellipsis eating it (audit item 6). It is the same
     // reach the homepage ladder states - "one machine's telemetry · Raspberry Pi".
     spine: true, model: "wave-pico", label: "WAVE PICO", sub: "250–300M · one machine",
-    chip: "WAYPOINT TRAINED",
-    why: "A 100M-class waypoint is trained (certified against our own release gate; " +
-      "250–300M is the tier target). No public checkpoint yet - its recorded " +
-      "contracts play on the WAVE MESH deck above."
+    chip: "ON AIR",
+    why: "On air as the free band wave-pico-293m, the 293M v6 release. No public " +
+      "checkpoint yet - its recorded contracts play on the WAVE MESH deck above."
   };
   var FAMILY_SPINES = [
     { spine: true, model: "wave-micro", label: "WAVE MICRO", sub: "7–8B · the site",
-      chip: "PLANNED", why: "A planned scratch build - no checkpoint exists to put on air yet." },
+      chip: "TRAINING", why: "Its from-scratch 7B run is training - no checkpoint exists to put on air yet." },
     { spine: true, model: "wave-giga", label: "WAVE GIGA", sub: "27–35B · the plant",
-      chip: "PLANNED", why: "A planned band, not a final specification - nothing to play yet." },
+      chip: "GATED", why: "Its release build is gated - it is not on the band yet, so nothing to play." },
     { spine: true, model: "wave-tera", label: "WAVE TERA", sub: "80–120B · enterprise",
       chip: "PLANNED", why: "A planned band: faults and trends correlated across many plants at once. Nothing to play yet." },
     { spine: true, model: "wave-peta", label: "WAVE PETA", sub: "150–200B · regional",
@@ -339,7 +338,7 @@
     // micro → exa. Splitting the row is a weighting change, not an edit to the
     // Spectrum - see the LAYOUT AUDIT note on PICO_SPINE.
     groups.push({ group: "WAVE FAMILY", wrap: true, entries: [PICO_SPINE, DEMO_TAPE] });
-    groups.push({ group: "PLANNED TIERS", wrap: true, ladder: true, entries: FAMILY_SPINES });
+    groups.push({ group: "NOT YET PLAYABLE", wrap: true, ladder: true, entries: FAMILY_SPINES });
     // NO shelf row scrolls sideways. The family row was fixed for that once already
     // (founder: "under wave family i don't see all the models") but ALSO ON AIR and
     // OFF AIR kept the clipping strip: with four models off air, the row showed two

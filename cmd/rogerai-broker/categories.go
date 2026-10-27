@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 
+	"rogerai.fm/roger/v6/internal/detect"
 	"rogerai.fm/roger/v6/internal/protocol"
 )
 
@@ -190,6 +191,21 @@ func (b *broker) decodedView(body []byte) decodedPublicView {
 	}
 	b.decoded[string(body)] = d
 	return d
+}
+
+// publishedTaxonomy is the taxonomy an offer is published with: its own, canonicalized at
+// emission; or, when it carries no claim at all (a station on a roger release older than the
+// taxonomy), the broker's own guess by the node's rule (detect.InferTaxonomy), labelled
+// "inferred". A view only - never stored or mirrored as the station's claim
+// (features/categories/broker_inference.feature). Curated proxies are never guessed: their
+// ids name a vendor's product, which the id hints misread (founder ruling 2026-10-27).
+func publishedTaxonomy(o protocol.ModelOffer, curated bool) protocol.Taxonomy {
+	modality := offerModality(o.Modality)
+	t := o.Taxonomy.Canonical(modality)
+	if t.TaxonomySource != "" || curated {
+		return t
+	}
+	return detect.InferTaxonomy(o.Model, modality, protocol.CanonicalCapabilities(o.Capabilities))
 }
 
 // taxonomyVotes accumulates what one model's online stations say it is for (/market).

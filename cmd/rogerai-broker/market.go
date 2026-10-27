@@ -227,7 +227,7 @@ func (b *broker) enrichOffersForNode(out []offerView, n protocol.NodeRegistratio
 			Quant:    protocol.CanonicalQuant(o.Quant),
 			Weights:  protocol.CanonicalVariantText(o.Weights),
 			Variant:  protocol.CanonicalVariantText(o.Variant),
-			Taxonomy: o.Taxonomy.Canonical(offerModality(o.Modality)),
+			Taxonomy: publishedTaxonomy(o, n.Curated),
 			In:       pin, Out: pout, Ctx: o.Ctx, CtxEstimated: o.CtxEstimated, Online: online,
 			Confidential: b.confidential[n.NodeID], FreeNow: free, Scheduled: len(o.Schedule) > 0,
 			TPS:    tps,
@@ -490,7 +490,7 @@ func (b *broker) computeMarket() any {
 			// market's human-supply claim, and letting proxies inflate it would make the
 			// dial's own story unverifiable (the exact dishonesty the curated flag exists
 			// to prevent).
-			a.tax.add(o.Taxonomy.Canonical(offerModality(o.Modality)), n.Curated)
+			a.tax.add(publishedTaxonomy(o, n.Curated), n.Curated)
 			if n.Curated {
 				a.curated++
 			} else {
