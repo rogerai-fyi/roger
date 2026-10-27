@@ -134,6 +134,10 @@ type SharePrice struct {
 	// would read a disarmed model as undecided on the next launch and re-arm it, which
 	// is precisely the surprise the opt-out default has to avoid.
 	AutoStart *bool `json:"auto_start,omitempty"`
+	// ProbeMin is the model's declared minimum interval between broker verification probes,
+	// a Go duration ("6h"), for an upstream that bills every request. It seeds headless
+	// `roger share` (where --probe-min wins) and the TUI/auto-started shares alike.
+	ProbeMin string `json:"probe_min,omitempty"`
 }
 
 // ShareVoice is a per-model on-air voice identity persisted in config.json
@@ -697,6 +701,14 @@ func tuiHooks(cfg config) tui.Hooks {
 				}
 				h.SavedAutoStart[mdl] = *p.AutoStart
 			}
+			// A malformed probe_min is skipped here rather than blocking the TUI; headless
+			// `roger share` refuses it with the parse error.
+			if d, err := parseProbeMin(p.ProbeMin); err == nil && d > 0 {
+				if h.SavedProbeMin == nil {
+					h.SavedProbeMin = map[string]time.Duration{}
+				}
+				h.SavedProbeMin[mdl] = d
+			}
 		}
 	}
 	// Seed each model's saved voice identity (share_voices) so the on-air offer carries
@@ -1070,6 +1082,31 @@ func validateCuratedShare(curated, upstream string, upIn, upOut float64, atCost 
 	return nil
 }
 
+// probeMinUsage is the --probe-min help, and the disclosure an operator reads before opting
+// in: the cap, and what the longer interval costs them.
+const probeMinUsage = "minimum time between the broker's verification probes, as a duration (e.g. 6h), for an upstream that bills every request; capped at 24h by the broker. The cost: verification lapses between probes, so the band shows as not currently verified and ranks below freshly probed bands. Can also be set per model as share_prices.<model>.probe_min in config.json"
+
+// parseProbeMin reads a saved share_prices probe_min: empty is undeclared, anything else
+// must be zero or a Go duration of at least one second (the wire carries whole seconds, so
+// a sub-second value would silently register as undeclared).
+func parseProbeMin(s string) (time.Duration, error) {
+	if s == "" {
+		return 0, nil
+	}
+	d, err := time.ParseDuration(s)
+	if err == nil {
+		err = checkProbeMin(d)
+	}
+	return d, err
+}
+
+func checkProbeMin(d time.Duration) error {
+	if d < 0 || (d > 0 && d < time.Second) {
+		return fmt.Errorf("must be 0 or at least 1s")
+	}
+	return nil
+}
+
 func cmdShare(cfg config, args []string) error {
 	// Defaults inherit the saved onboarding share config (model + price) when set,
 	// so `roger share` after the wizard Just Works with the choices already made.
@@ -1146,7 +1183,8 @@ func cmdShare(cfg config, args []string) error {
 	curated := fs.String("curated", "", "declare this station a CURATED proxy for the named commercial provider (e.g. openrouter). Requires an explicit --upstream (the commercial endpoint); declare its list via --upstream-price-in/out (zero = a free upstream). The broker posts list + its routing markup and settles back your list plus half the routing fee. Verification: one canary at registration earns the check mark, then a minimal weekly recheck - billed to your upstream, typically under a cent a month per band")
 	upIn := fs.Float64("upstream-price-in", 0, "curated: the upstream's list $/1M input the broker derives the posted price from")
 	upOut := fs.Float64("upstream-price-out", 0, "curated: the upstream's list $/1M output")
-	advanced := fs.Bool("advanced", false, "show advanced flags (--node --region --parallel --upstream --modality --ctx --confidential --free-window --schedule --curated --upstream-price-in --upstream-price-out)")
+	probeMin := fs.Duration("probe-min", 0, probeMinUsage)
+	advanced := fs.Bool("advanced", false, "show advanced flags (--node --region --parallel --upstream --modality --ctx --confidential --free-window --schedule --curated --upstream-price-in --upstream-price-out --probe-min)")
 	fs.Usage = func() {
 		fmt.Print(`roger share - go on air as a provider (auto-detects your local model)
 
@@ -1160,7 +1198,7 @@ func cmdShare(cfg config, args []string) error {
   --price-out <P>     $/1M output tokens to earn (default 0 = free, no login)
   --private           hidden band, frequency-code only (needs ` + "`roger login`" + `)
   --check             hardware preflight: report and exit (never blocks a share)
-  --advanced          reveal: --node --region --parallel --upstream --modality --ctx --confidential --free-window --schedule --curated --upstream-price-in/out
+  --advanced          reveal: --node --region --parallel --upstream --modality --ctx --confidential --free-window --schedule --curated --upstream-price-in/out --probe-min
 
 Earning needs a GitHub-linked owner: run ` + "`roger login`" + ` first. Free sharing
 needs no login. When you earn, payouts are a 30-day hold (10% reserved to day 90), $25 min, monthly.
@@ -1176,8 +1214,11 @@ needs no login. When you earn, payouts are a 30-day hold (10% reserved to day 90
 	if err := validateCuratedShare(strings.TrimSpace(*curated), strings.TrimSpace(*upstream), *upIn, *upOut, *atCost); err != nil {
 		return err
 	}
+	if err := checkProbeMin(*probeMin); err != nil {
+		return fmt.Errorf("--probe-min %s: %v", *probeMin, err)
+	}
 	if *advanced {
-		fmt.Println("advanced flags: --node --region --parallel --upstream --upstream-key --modality --ctx --confidential --free-window --schedule --curated --upstream-price-in --upstream-price-out")
+		fmt.Println("advanced flags: --node --region --parallel --upstream --upstream-key --modality --ctx --confidential --free-window --schedule --curated --upstream-price-in --upstream-price-out --probe-min")
 	}
 	// EARN login-gate, UP FRONT (mirrors the --private pre-check below): a priced share
 	// 401s at the broker if the owner is not GitHub-linked. Fail FAST here - before any
@@ -1198,9 +1239,11 @@ needs no login. When you earn, payouts are a 30-day hold (10% reserved to day 90
 	// below, so "set it in the TUI, it applies when you `share` headless" actually holds.
 	// An explicit flag is always honored as an override (never clobbered by the saved
 	// profile). fs.Visit only reports flags that were set on the command line.
-	var setIn, setOut, setFreeWin, setSched bool
+	var setIn, setOut, setFreeWin, setSched, setProbeMin bool
 	fs.Visit(func(f *flag.Flag) {
 		switch f.Name {
+		case "probe-min":
+			setProbeMin = true
 		case "price-in":
 			setIn = true
 		case "price-out":
@@ -1403,6 +1446,14 @@ needs no login. When you earn, payouts are a 30-day hold (10% reserved to day 90
 	// (cfg.Prices) when the user passed no explicit flags, so the headless daemon serves
 	// exactly what the editor produced. Explicit flags always win.
 	*priceIn, *priceOut, sched = seedSharePricing(cfg, mdl, *priceIn, *priceOut, sched, sharePricingFlags{setIn, setOut, setFreeWin, setSched})
+	// The saved per-model probe_min applies when --probe-min was not given (same parity rule).
+	if !setProbeMin {
+		d, err := parseProbeMin(cfg.Prices[mdl].ProbeMin)
+		if err != nil {
+			return fmt.Errorf("bad share_prices[%q].probe_min %q in config.json: %v", mdl, cfg.Prices[mdl].ProbeMin, err)
+		}
+		*probeMin = d
+	}
 	if *confidential {
 		// Preflight FIRST (cheap, local, no broker round-trip): if this host is not an AMD
 		// SEV-SNP confidential VM there is no /dev/sev-guest and we cannot produce a real
@@ -1456,6 +1507,7 @@ needs no login. When you earn, payouts are a 30-day hold (10% reserved to day 90
 		Curated: strings.TrimSpace(*curated) != "", CuratedProvider: strings.TrimSpace(*curated),
 		CuratedAtCost:   *atCost,
 		UpstreamPriceIn: *upIn, UpstreamPriceOut: *upOut,
+		ProbeMin: *probeMin,
 		// A tts share's DEFAULT voice/speed (a single id or a blend string) rides the offer so the
 		// node injects it when a request omits `voice`. Only meaningful for tts (harmless otherwise).
 		Voice: *voice, Speed: *voiceSpeed,

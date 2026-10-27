@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -1462,6 +1463,23 @@ func (p *Postgres) OwnerByLogin(login string) (Owner, bool, error) {
 		ORDER BY created_at ASC, pubkey ASC LIMIT 1`, login)
 }
 
+// LinkVerifiedEmail: the partial unique index owners_verified_email_uniq is the arbiter of
+// "one live account per verified address", so a concurrent pair of links cannot both win.
+func (p *Postgres) LinkVerifiedEmail(pubkey, email string, at int64) error {
+	res, err := p.db.Exec(`UPDATE rogerai.owners SET email=$2, email_verified_at=$3
+		WHERE pubkey=$1 AND NOT COALESCE(anonymized,false)`, pubkey, email, time.Unix(at, 0).UTC())
+	if err != nil {
+		if strings.Contains(err.Error(), "owners_verified_email_uniq") {
+			return ErrEmailTaken
+		}
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNoOwner
+	}
+	return nil
+}
+
 // OwnerByVerifiedEmail resolves the account that PROVED it holds this address.
 //
 // The email_verified_at guard is the security boundary: owners.email alone is
@@ -1522,7 +1540,12 @@ func (p *Postgres) scanOwner(query string, arg string) (Owner, bool, error) {
 }
 
 func (p *Postgres) UpdateAccount(login, email string) (Owner, bool, error) {
-	res, err := p.db.Exec(`UPDATE rogerai.owners SET email=$2 WHERE login=$1 AND NOT COALESCE(anonymized,false)`, login, email)
+	// A changed address drops the verified stamp (the proof was for the old one); SET
+	// expressions read the OLD row, so the comparison sees the previous email.
+	res, err := p.db.Exec(`UPDATE rogerai.owners
+		SET email_verified_at = CASE WHEN lower(email) IS NOT DISTINCT FROM lower($2) THEN email_verified_at ELSE NULL END,
+		    email=$2
+		WHERE login=$1 AND NOT COALESCE(anonymized,false)`, login, email)
 	if err != nil {
 		return Owner{}, false, err
 	}

@@ -87,6 +87,14 @@
       var el = document.getElementById(id);
       if (el) { io.observe(el); sections.push({ el: el, k: byId[id] }); }
     });
+    // ...and once a scroll settles: a jump from the foot of the page straight back to the
+    // top (Home, a tap on a phone's status bar) crosses the band without any section
+    // reporting, which left the needle on the last station
+    var settle = 0;
+    if (window.addEventListener) window.addEventListener("scroll", function () {
+      if (settle) window.clearTimeout(settle);
+      settle = window.setTimeout(function () { settle = 0; current(resting()); }, 160);
+    }, { passive: true });
   }
 
   // ---- drag and tap to tune -------------------------------------------------

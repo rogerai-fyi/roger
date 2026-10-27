@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"rogerai.fm/roger/v6/internal/protocol"
 )
 
 // clientProxyResponseHeaderTimeout mirrors internal/client/client.go proxyResponseHeaderTimeout
@@ -76,4 +77,41 @@ func TestLazySSEPreCommitCap(t *testing.T) {
 	require.Equal(t, "n1", rec.Header().Get("X-RogerAI-Provider"))
 	require.True(t, rec.Flushed)
 	require.Equal(t, written, rec.Body.Len(), "the buffered bytes were flushed, none retained")
+}
+
+// TestNextAttemptHonorsTheMinimumAttemptBudget pins the deadline gate of the failover
+// re-pick with no clock race in it: a sibling is re-tried only while at least
+// relayMinAttemptBudget remains on the request's single deadline (the 10s-of-90s shape the
+// routing/upstream_failover "respects the request's own deadline" scenario drives end to
+// end), a zero deadline (the streaming relay) never gates, and a non-failoverable status
+// never re-picks no matter how much time is left. Margins are minutes, not milliseconds.
+func TestNextAttemptHonorsTheMinimumAttemptBudget(t *testing.T) {
+	s1, s2 := &nodeTunnel{}, &nodeTunnel{}
+	b := &broker{tunnels: map[string]*nodeTunnel{"s1": s1, "s2": s2}}
+	plan := []attemptCand{
+		{node: protocol.NodeRegistration{NodeID: "s1"}, t: s1},
+		{node: protocol.NodeRegistration{NodeID: "s2"}, t: s2},
+	}
+	cases := []struct {
+		name      string
+		remaining time.Duration // 0 = no deadline
+		status    int
+		want      int
+	}{
+		{"plenty of budget left re-picks the sibling", time.Hour, 500, 1},
+		{"a minute more than the budget left re-picks", relayMinAttemptBudget + time.Minute, 500, 1},
+		{"less than the budget left does not start a second attempt", relayMinAttemptBudget / 2, 500, -1},
+		{"a lapsed deadline does not start a second attempt", -time.Minute, 500, -1},
+		{"no deadline never gates", 0, 500, 1},
+		{"a non-failoverable status never re-picks", time.Hour, 400, -1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var deadline time.Time
+			if tc.remaining != 0 {
+				deadline = time.Now().Add(tc.remaining)
+			}
+			require.Equal(t, tc.want, b.nextAttempt(plan, 0, tc.status, deadline))
+		})
+	}
 }

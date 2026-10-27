@@ -5,7 +5,9 @@
    and readable without JS): it inserts a native range control above the
    list; drag it, or arrow through it, and the item under the needle is
    tuned (.is-tuned - the page styles what tuned looks like). Pointing at an
-   item moves the scrubber to it. It starts on the first item. Every item
+   item moves the scrubber to it. It starts on the first item, or on the item
+   data-scrub-start names (a zero-based index) when the list is laid out whole;
+   a sideways gallery always starts on its first item, which is the one it shows. Every item
    stays fully readable; tuning only marks one, it never fades the others.
    The control's accessible name is the list's aria-label; each position
    reads out the item's <b> text.
@@ -74,6 +76,10 @@
       }, { passive: true });
     }
     list.parentNode.insertBefore(range, list);
-    tune(0);
+    // data-scrub-start="k": the item tuned on load (default the first). A sideways
+    // gallery ignores it: it shows its first item on load and loading never scrolls
+    // it, so the needle starts on that first item too (the needle and the view agree)
+    var start = parseInt(list.getAttribute("data-scrub-start"), 10);
+    tune(start >= 0 && start < items.length && !overflows() ? start : 0);
   }
 })();
