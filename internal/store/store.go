@@ -232,6 +232,13 @@ type Store interface {
 	// resurrecting the old one. The caller passes an already-normalized address; the
 	// comparison is case-insensitive so a stray spelling cannot mint a second account.
 	OwnerByVerifiedEmail(email string) (Owner, bool, error)
+	// LinkVerifiedEmail records an address AND the proof of it on the account identified by
+	// pubkey, atomically: the caller has just verified a mailed code for it. It REPLACES any
+	// address already on the account (the old proof does not follow the row). At most one
+	// live account may hold a verified address: ErrEmailTaken if another does (the address
+	// is compared case-insensitively; a deleted account holds nothing), ErrNoOwner if
+	// pubkey is unknown or the account is deleted. Idempotent for the same address.
+	LinkVerifiedEmail(pubkey, email string, at int64) error
 	// OwnerByAppleSub returns the owner linked to this Apple identity (the stable
 	// "sub" claim Apple issues per account), ok=false if none. The sub is Apple's
 	// unique account key, so this resolves the correct account without any reliance on
@@ -1310,7 +1317,14 @@ func (m *Mem) Settle(user, node string, cost, ownerShare float64, rec protocol.U
 		}
 		m.settled[rec.RequestID] = true
 	}
-	m.wallet[user] -= cost
+	// A $0 metering settle for a wallet this store has never seen must not materialize its
+	// balance entry: BalanceOf seeds a wallet only when the entry is ABSENT, so creating it
+	// here would silently forfeit the wallet's one-time starter seed. Postgres creates a
+	// zero-balance row in this case, but its seed claim is independent of the row, so both
+	// stores agree: the receipt is recorded, the balance reads 0, the seed is still owed.
+	if _, known := m.wallet[user]; known || cost != 0 {
+		m.wallet[user] -= cost
+	}
 	m.spend[user] += cost
 	// Only the REAL (non-seed) funded portion of this cost earns the operator a payable
 	// lot: free seed credits must never mint a payout (P0-1). consumeSeed is called
@@ -1412,6 +1426,12 @@ func (m *Mem) ReleaseHoldFor(user, requestID string) (float64, error) {
 // ErrNoPendingHold: RekeyHold found no tracked reservation under the source id for this
 // payer (captured, released, or swept already).
 var ErrNoPendingHold = errors.New("no pending hold to rekey")
+
+// ErrEmailTaken: another live account already holds this verified address.
+var ErrEmailTaken = errors.New("that address is verified on another account")
+
+// ErrNoOwner: no live account row for the given key (unknown or deleted).
+var ErrNoOwner = errors.New("no account for this key")
 
 // RekeyHold moves the tracked reservation to the failover attempt's id (no wallet/ledger
 // change). See the Store interface.
@@ -1779,6 +1799,23 @@ func canonicalOwner(owners map[string]Owner, match func(Owner) bool) (Owner, boo
 	return best, found, nil
 }
 
+func (m *Mem) LinkVerifiedEmail(pubkey, email string, at int64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	o, ok := m.owners[pubkey]
+	if !ok || o.Anonymized {
+		return ErrNoOwner
+	}
+	for pk, other := range m.owners {
+		if pk != pubkey && !other.Anonymized && other.EmailVerifiedAt != 0 && strings.EqualFold(other.Email, email) {
+			return ErrEmailTaken
+		}
+	}
+	o.Email, o.EmailVerifiedAt = email, at
+	m.owners[pubkey] = o
+	return nil
+}
+
 func (m *Mem) OwnerByVerifiedEmail(email string) (Owner, bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -1803,6 +1840,9 @@ func (m *Mem) UpdateAccount(login, email string) (Owner, bool, error) {
 	defer m.mu.Unlock()
 	for pk, o := range m.owners {
 		if o.Login == login && !o.Anonymized {
+			if !strings.EqualFold(o.Email, email) { // the proof was for the old address
+				o.EmailVerifiedAt = 0
+			}
 			o.Email = email
 			m.owners[pk] = o
 			return o, true, nil

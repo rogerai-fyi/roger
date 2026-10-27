@@ -181,7 +181,8 @@ func (b *broker) enrichOffersForNode(out []offerView, n protocol.NodeRegistratio
 	sr, srSeen := b.success[n.NodeID]
 	quality := tq.score()
 	ttft := tq.ttftMs
-	verified := tq.verifiedServing()
+	// A declared probe minimum never extends the mark: past the normal window it lapses.
+	verified := tq.verifiedServing() && !b.probeMinLapsedLocked(n.NodeID, now, b.probe.ceiling)
 	staleness := b.measurementStalenessLocked(n.NodeID, now)
 	capacity := capacityOf(b.concurrentTPS[n.NodeID], n.HW)
 	radius := 0.0
@@ -451,7 +452,7 @@ func (b *broker) computeMarket() any {
 		tq := b.trust[n.NodeID]
 		ttft := tq.ttftMs
 		quality := tq.score()
-		verified := tq.verifiedServing()
+		verified := tq.verifiedServing() && !b.probeMinLapsedLocked(n.NodeID, now, b.probe.ceiling)
 		// Per-node time-decayed success evidence (organic EWMA, else probe-verified or
 		// neutral) - NOT the old constant 1.0, so an unproven idle node doesn't inflate
 		// the channel's reliability.

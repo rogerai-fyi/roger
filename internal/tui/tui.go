@@ -111,6 +111,9 @@ type Hooks struct {
 	// EXPLICITLY decided about appear: an absent model is undecided, not disarmed, and
 	// the two lead to opposite behaviour the first time it is shared.
 	SavedAutoStart map[string]bool
+	// SavedProbeMin seeds each model's declared minimum probe interval (config.json
+	// share_prices probe_min), so TUI and auto-started shares register it (nil = none).
+	SavedProbeMin map[string]time.Duration
 	// SavedVoices seeds each model's on-air voice identity (dj name / default voice /
 	// speed / language / sample clip URL) from the host's config.json share_voices block,
 	// so a saved identity - including the BOOTH-less sample_url - arms the offer without
@@ -1293,6 +1296,7 @@ func NewController(broker string, hooks Hooks) *node.Controller {
 		Prices:      hooks.SavedPrices,
 		Voices:      hooks.SavedVoices,
 		AutoStart:   hooks.SavedAutoStart,
+		ProbeMin:    hooks.SavedProbeMin,
 		Hooks: node.Hooks{
 			SaveUpstream:  hooks.SaveUpstream,
 			SavePrice:     hooks.SavePrice,
@@ -2314,7 +2318,7 @@ func clipboardWrite(s string) tea.Cmd {
 		return nil
 	}
 	return func() tea.Msg {
-		fmt.Print(osc52(s))
+		fmt.Fprint(clipboardOut, osc52(s))
 		copyToClipboard(s)
 		return nil
 	}
@@ -2329,6 +2333,13 @@ func (m model) transcriptText() string {
 	}
 	return strings.Join(lines, "\n")
 }
+
+// clipboardLookPath finds a clipboard tool and clipboardOut receives the OSC 52 escape;
+// tests replace both so a run never touches the developer's real clipboard.
+var (
+	clipboardLookPath           = exec.LookPath
+	clipboardOut      io.Writer = os.Stdout
+)
 
 // copyToClipboard best-effort copies s to the OS clipboard via the platform tool
 // (wl-copy / xclip / xsel on Linux, pbcopy on macOS, clip on Windows). Returns true
@@ -2352,7 +2363,7 @@ func copyToClipboard(s string) bool {
 		tools = []tool{{"wl-copy", nil}, {"xclip", []string{"-selection", "clipboard"}}, {"xsel", []string{"--clipboard", "--input"}}}
 	}
 	for _, t := range tools {
-		path, err := exec.LookPath(t.bin)
+		path, err := clipboardLookPath(t.bin)
 		if err != nil {
 			continue
 		}

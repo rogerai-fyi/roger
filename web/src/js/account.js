@@ -16,6 +16,14 @@
     }).catch(function () { return null; });
   }
   function get(path) { return api(path); }
+  // Boot read: keeps the STATUS, because only a 401 means "signed out". A 5xx or a dropped
+  // connection is a fault to show - sending a signed-in person to login would bounce them to
+  // the dashboard and lose their place.
+  function bootGet(path) {
+    return fetch(BROKER + path, { credentials: "include" }).then(function (r) {
+      return (r.ok ? r.json() : Promise.resolve(null)).then(function (data) { return { status: r.status, data: data }; });
+    }).catch(function () { return { status: 0, data: null }; });
+  }
 
   function text(id, v) { var el = document.getElementById(id); if (el) el.textContent = v; }
   function show(id) { var el = document.getElementById(id); if (el) el.hidden = false; }
@@ -70,28 +78,100 @@
     });
   }
 
+  // ---- add a verified email to a GitHub/Apple account (features/auth/email_link.feature) ----
+  // The session proves who is adding; the mailed code proves the address is theirs; the token
+  // the broker hands back ties the code to this account. Nothing is stored in the page.
+  function initLink(a) {
+    if (a.provider !== "github" && a.provider !== "apple") return; // an email sign-in already IS its address
+    show("linkPanel");
+    if (a.email_verified && a.email) text("linkCurrent", "Verified: " + a.email + ". Adding another replaces it.");
+    if (a.operator === false) { hide("linkForm"); show("linkNeedsLogin"); return; }
+    show("linkForm");
+    var token = "", addr = "";
+    function say(m) { text("linkMsg", m); }
+    function fail(r) {
+      return r.json().catch(function () { return {}; }).then(function (j) {
+        say((j && j.error && j.error.message) || "that did not work - try again");
+      });
+    }
+    function post(path, body) {
+      return fetch(BROKER + path, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    }
+    on("linkSend", "click", function () {
+      addr = ((document.getElementById("linkEmail") || {}).value || "").trim();
+      if (!addr) return;
+      say("Sending...");
+      post("/auth/email/link/start", { email: addr }).then(function (r) {
+        if (!r.ok) return fail(r);
+        return r.json().then(function (j) {
+          token = j.token || "";
+          show("linkStep2");
+          say("If that address can receive mail, a code is on its way.");
+        });
+      }).catch(function () { say("Could not reach RogerAI. Check your connection and try again."); });
+    });
+    on("linkVerify", "click", function () {
+      var code = ((document.getElementById("linkCode") || {}).value || "").trim();
+      if (!code) return;
+      post("/auth/email/link/verify", { email: addr, code: code, token: token }).then(function (r) {
+        if (!r.ok) return fail(r);
+        return r.json().then(function (j) {
+          var done = (j && j.email) || addr;
+          hide("linkStep2");
+          // the address is now a sign-in credential: lock the contact field without a reload
+          var emEl = document.getElementById("email");
+          if (emEl) { emEl.value = done; emEl.readOnly = true; }
+          hide("saveEmail");
+          say(done + " is added and verified. Signing in with an emailed code now reaches this account." +
+            (j && j.merge_note ? " " + j.merge_note : ""));
+          text("linkCurrent", "Verified: " + done);
+        });
+      }).catch(function () { say("Could not reach RogerAI. Check your connection and try again."); });
+    });
+  }
+
   // Strip a trailing slash AND a ".html" suffix so the branch matches whether the
   // page is served at the clean path (/billing) or the static file (/billing.html) -
   // the static host serves /billing.html, so matching only "/billing" left it blank.
   var path = location.pathname.replace(/\/$/, "").replace(/\.html$/, "");
   var qs = new URLSearchParams(location.search);
   if (path.endsWith("/account")) {
-    get("/account").then(function (a) {
-      if (!a) { location.replace("/login.html"); return; }
-      text("who", "@" + (a.github_login || "you"));
-      text("handle", "@" + (a.github_login || "you"));
+    bootGet("/account").then(function (res) {
+      if (res.status === 401) { location.replace("/login.html"); return; }
+      if (!res.data) { show("card"); show("pageError"); document.getElementById("card").classList.add("is-fault"); wireLogout(); return; }
+      var a = res.data;
+      text("who", RogerFmt.who(a));
+      text("handle", RogerFmt.who(a));
       text("balance", cr(a.balance));
-      text("ghid", a.github_id || "-");
+      text("signin", { github: "GitHub", apple: "Apple", email: "Email" }[a.provider] || (a.github_id ? "GitHub" : "-"));
+      // Whether any machine is linked to THIS sign-in; absent on an older broker.
+      if (typeof a.operator === "boolean") text("machines", a.operator ? "Linked" : "None linked to this sign-in");
       text("connect", (a.connect && a.connect.status) || "none");
       text("since", a.created_at ? when(a.created_at) : "-");
       var em = document.getElementById("email");
       if (em && a.email) em.value = a.email;
+      initLink(a);
+      // A verified address (an email sign-in, or one added with "Sign in with email too") is a
+      // sign-in credential: show it, never edit it here - editing it would silently drop the
+      // verification, and the next emailed sign-in would create a separate account.
+      if ((a.provider === "email" || a.email_verified) && em) {
+        em.readOnly = true;
+        hide("saveEmail");
+      }
       show("card");
       wireLogout();
       on("saveEmail", "click", function () {
         var email = (document.getElementById("email") || {}).value || "";
-        api("/account", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: email }) })
-          .then(function (r) { text("saveMsg", r ? " saved" : " could not save"); });
+        // Fetch directly so a refusal can say WHY (the broker's own message), not a bare failure.
+        fetch(BROKER + "/account", { method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: email }) })
+          .then(function (r) {
+            if (r.ok) { text("saveMsg", " saved"); return; }
+            return r.json().catch(function () { return {}; }).then(function (j) {
+              var m = j && j.error && j.error.message;
+              text("saveMsg", " " + (m || "could not save"));
+            });
+          })
+          .catch(function () { text("saveMsg", " could not reach RogerAI"); });
       });
       on("export", "click", function () {
         // POST then download the JSON the browser receives.

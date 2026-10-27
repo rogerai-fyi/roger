@@ -30,11 +30,12 @@ test("released Wave copy names Apache-2.0 decisively and separates network servi
 test("homepage puts Wave Labs proof before the install action without adding a hidden reveal", () => {
   const home = read("index.html");
   const hero = home.match(/<section class="hero">[\s\S]*?<\/section>/)?.[0] || "";
-  const proof = hero.indexOf("WAVE PICO");
+  const proof = hero.indexOf("THE WAVE SPECTRUM");
   const install = hero.indexOf('class="install"');
   assert.ok(proof > 0 && proof < install, "the Labs plate precedes install in the first hero flow");
-  // The plate states program status, not a licence or a version it cannot back.
-  assert.match(hero, /TRAINED/);
+  // The plate states program status, not a licence or a version it cannot back. The
+  // status words are the ledger stages (test/wave-status.test.mjs holds them to the data).
+  assert.match(hero, /PICO ON AIR · NANO TRAINING/);
   assert.doesNotMatch(hero, /APACHE-2\.0|v1\.0|AVAILABLE/);
   for (const marker of ["hero__eyebrow", "hero__title", "hero__sub", "hero__proof", 'class="install"']) {
     const tag = hero.match(new RegExp(`<[^>]*class="[^"]*${marker.replace('class="', "")}[^"]*"[^>]*>`))?.[0] || "";
