@@ -2327,7 +2327,7 @@ func clipboardWrite(s string) tea.Cmd {
 		return nil
 	}
 	return func() tea.Msg {
-		fmt.Print(osc52(s))
+		fmt.Fprint(clipboardOut, osc52(s))
 		copyToClipboard(s)
 		return nil
 	}
@@ -2342,6 +2342,13 @@ func (m model) transcriptText() string {
 	}
 	return strings.Join(lines, "\n")
 }
+
+// clipboardLookPath finds a clipboard tool and clipboardOut receives the OSC 52 escape;
+// tests replace both so a run never touches the developer's real clipboard.
+var (
+	clipboardLookPath           = exec.LookPath
+	clipboardOut      io.Writer = os.Stdout
+)
 
 // copyToClipboard best-effort copies s to the OS clipboard via the platform tool
 // (wl-copy / xclip / xsel on Linux, pbcopy on macOS, clip on Windows). Returns true
@@ -2365,7 +2372,7 @@ func copyToClipboard(s string) bool {
 		tools = []tool{{"wl-copy", nil}, {"xclip", []string{"-selection", "clipboard"}}, {"xsel", []string{"--clipboard", "--input"}}}
 	}
 	for _, t := range tools {
-		path, err := exec.LookPath(t.bin)
+		path, err := clipboardLookPath(t.bin)
 		if err != nil {
 			continue
 		}
