@@ -89,12 +89,9 @@ func cmdEdgeService(cfg config, args []string) error {
 	return usagef("usage: roger edge service [install | remove]")
 }
 
-// edgeServiceUser is who the service runs as: the owner whose config holds this machine's Edge, even
-// when the command itself was run with sudo.
+// edgeServiceUser is who the service runs as: the user whose config this run read, which holds this
+// machine's Edge.
 func edgeServiceUser() string {
-	if u := os.Getenv("SUDO_USER"); u != "" && edgeServiceEUID() == 0 {
-		return u
-	}
 	if u, err := user.Current(); err == nil {
 		return u.Username
 	}
@@ -102,13 +99,20 @@ func edgeServiceUser() string {
 }
 
 // edgeServiceUnit is the unit roger installs, against this run's config location.
-func edgeServiceUnit(exe, who string) string {
+func edgeServiceUnit(exe, who string) (string, error) {
 	return edgeServiceUnitFor(exe, who, os.Getenv("XDG_CONFIG_HOME"))
 }
 
 // edgeServiceUnitFor is the unit for one config location: a non-default one is carried, or the
 // service would boot roger as a machine on no Edge.
-func edgeServiceUnitFor(exe, who, xdg string) string {
+func edgeServiceUnitFor(exe, who, xdg string) (string, error) {
+	// systemd reads an empty User= as root, and a newline writes a line of its own into the unit.
+	if who == "" || strings.ContainsAny(who, " \t\r\n") {
+		return "", fmt.Errorf("roger cannot tell which user the service should run as (%q), so it wrote nothing", who)
+	}
+	if strings.ContainsAny(exe+xdg, "\r\n") {
+		return "", fmt.Errorf("a path with a line break in it cannot go in a service unit, so nothing was written")
+	}
 	env := ""
 	if xdg != "" {
 		env = "Environment=XDG_CONFIG_HOME=" + xdg + "\n"
@@ -127,10 +131,14 @@ RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
-`, who, env, exe)
+`, who, env, exe), nil
 }
 
 func edgeServiceInstall() error {
+	// Under sudo this run reads root's config, not the owner's: say how to run it instead.
+	if who := os.Getenv("SUDO_USER"); who != "" && edgeServiceEUID() == 0 && !edgeEnrolledHere() {
+		return fmt.Errorf("run `roger edge service install` without sudo, as %s: roger prints the sudo steps itself, and under sudo it reads root's settings, where this machine is on no Edge", who)
+	}
 	if !edgeEnrolledHere() {
 		return fmt.Errorf("%w; a service for a machine on no Edge would only fail at every boot", edgeNotEnrolledErr())
 	}
@@ -138,7 +146,10 @@ func edgeServiceInstall() error {
 	if err != nil {
 		return err
 	}
-	unit := edgeServiceUnit(exe, edgeServiceUser())
+	unit, err := edgeServiceUnit(exe, edgeServiceUser())
+	if err != nil {
+		return err
+	}
 	fmt.Printf("roger will install this as %s - it starts roger at boot and restarts it if it stops:\n\n", edgeServiceUnitPath)
 	for _, l := range strings.Split(strings.TrimRight(unit, "\n"), "\n") {
 		fmt.Println("    " + l)
