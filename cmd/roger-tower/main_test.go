@@ -2,20 +2,18 @@ package main
 
 import (
 	"bytes"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/stretchr/testify/require"
+	"rogerai.fm/roger/v6/internal/pgtest"
 	"rogerai.fm/roger/v6/internal/tower"
 )
 
@@ -707,13 +705,13 @@ func TestWithoutAConfigTheDataDirectoryIsStillTheStore(t *testing.T) {
 // in the data directory. Asserting both halves is the point - a test that only checked the
 // happy path would pass just as well against the silent file-store fallback this fixes.
 func TestDurableStorageKeepsStateInTheDatabaseAndNotOnDisk(t *testing.T) {
-	dsn := os.Getenv("ROGERAI_TEST_DATABASE_URL")
+	dsn := pgtest.DSN(t)
 	if dsn == "" {
 		t.Skip("set ROGERAI_TEST_DATABASE_URL to exercise the durable store")
 	}
 	dir := initStandalone(t)
 	secret := filepath.Join(t.TempDir(), "db-url")
-	require.NoError(t, os.WriteFile(secret, []byte(privateDSN(t, dsn)), 0o600))
+	require.NoError(t, os.WriteFile(secret, []byte(dsn), 0o600))
 	cfg := writeConfig(t, standaloneYAML+"storage:\n  urlFile: "+secret+"\n")
 
 	// Bootstrap the local operator first - a network with none may not attach Stations. Doing
@@ -741,54 +739,6 @@ func TestDurableStorageKeepsStateInTheDatabaseAndNotOnDisk(t *testing.T) {
 	out, err = runCLI(t, "stations", "--dir", dir)
 	require.NoError(t, err)
 	require.NotContains(t, out, "st-durable", "the Station was written to local disk as well")
-}
-
-// privateDSN redirects THIS package's Postgres test to its own database.
-//
-// `go test ./...` runs PACKAGES in parallel against the one shared
-// ROGERAI_TEST_DATABASE_URL, and a Tower snapshot written into the shared database is a row
-// some other package's suite is not expecting. internal/store and internal/towercore/attach
-// both hit this and solved it the same way; it cost a long diagnosis the first time, because
-// the failure surfaces in the OTHER package as something inexplicable.
-//
-// A DSN that does not parse as a URL keeps the shared-database behaviour.
-var privateDBOnce sync.Once
-
-func privateDSN(t *testing.T, dsn string) string {
-	t.Helper()
-	u, err := url.Parse(dsn)
-	if err != nil || u.Path == "" || u.Path == "/" {
-		return dsn
-	}
-	name := strings.TrimPrefix(u.Path, "/") + "_rogertower"
-	privateDBOnce.Do(func() {
-		admin, aerr := sql.Open("pgx", dsn)
-		if aerr != nil {
-			t.Fatalf("private db: open admin: %v", aerr)
-		}
-		defer admin.Close()
-		// DROP FIRST, so every run starts on a clean network.
-		//
-		// This used to only CREATE and tolerate "already exists", which is fine on CI - a
-		// fresh Postgres service per job - and wrong anywhere the database outlives the
-		// run. A Tower's bootstrap is ONE-TIME per network and it is DURABLE by the very
-		// nature of what this test asserts, so the second `go test` against the same
-		// server found an operator already admitted and failed with "bootstrap rejected".
-		//
-		// That is worse than a flake: it makes the release gate pass once and fail
-		// afterwards, so the person running it twice before a push cannot tell a real
-		// break from their own leftovers. Clean-slate semantics per run, matching what
-		// internal/store's private database already does.
-		if _, derr := admin.Exec(`DROP DATABASE IF EXISTS "` + name + `"`); derr != nil {
-			t.Fatalf("private db: drop %s: %v", name, derr)
-		}
-		if _, cerr := admin.Exec(`CREATE DATABASE "` + name + `"`); cerr != nil &&
-			!strings.Contains(cerr.Error(), "already exists") {
-			t.Fatalf("private db: create %s: %v", name, cerr)
-		}
-	})
-	u.Path = "/" + name
-	return u.String()
 }
 
 // Every subcommand refuses a flag it does not define, and the refusal reaches the caller as
