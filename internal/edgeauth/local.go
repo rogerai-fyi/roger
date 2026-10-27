@@ -189,14 +189,14 @@ func (l *Local) Issue(r Request) (Response, error) {
 	}
 	var resp Response
 	err := l.withLock(func() error {
-		// Check the allow-list FIRST, before any revocation disk work, so the tombstone can never be a
-		// revocation oracle for a stranger and every refusal below is the SAME ErrUnknownMachine. Log
-		// each REFUSED attempt so the owner's request log answers "did that machine even ask" (a
-		// successful enrol is logged by iss.Issue itself) (audit 2026-09-24).
 		// Bind the node id to the key it presents FIRST: before any invite is consulted, so a bound
 		// invite is only ever compared with a node id the request has proved, and before the
 		// revocation list, so an allowed-key holder cannot probe an arbitrary node id's revocation
-		// status (a mismatch is refused here, the same as iss.Issue would) (audit 2026-09-24).
+		// status (a mismatch is refused here, the same as iss.Issue would) (audit 2026-09-24). A
+		// mismatch says nothing the requester does not know: whether its own key derives its own id.
+		// Then the allow-list, before any revocation disk work, so the tombstone can never be a
+		// revocation oracle for a stranger. Each REFUSED attempt is logged so the owner's request log
+		// answers "did that machine even ask" (a successful enrol is logged by iss.Issue itself).
 		pub, err := r.NodePublicKey()
 		if err != nil {
 			l.iss.record(r)

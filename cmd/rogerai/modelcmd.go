@@ -930,7 +930,9 @@ func modelInstalledExe() string {
 }
 
 // modelInstalledRT is build b as it already sits on this disk, for a screen to judge with: it
-// resolves, fetches, asks and records nothing, so the background roger's own record stands.
+// resolves, fetches, asks and records nothing, so the background roger's own record stands. Metal
+// is not a runtime choice, so it is no answer here; a Metal host has that one build, and a
+// background fallback to another build cannot happen there.
 func modelInstalledRT(b runtime.Build) (modelRT, bool) {
 	plan, _, err := runtime.Plan(modelHost(), string(b))
 	if err != nil {

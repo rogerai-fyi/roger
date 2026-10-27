@@ -404,7 +404,8 @@ func edgeTrunc(s string, w int) string {
 	if lipgloss.Width(s) <= w {
 		return s
 	}
-	return ansi.Truncate(s, w, "…") // cells, not runes: a wide character is two
+	// Cells, not runes: a wide character is two. w is at least 1 here, so a cut keeps its "…".
+	return ansi.Truncate(s, w, "…")
 }
 
 // edgeSelectedNet returns the node the map highlight is on, and its index. It is what the control
