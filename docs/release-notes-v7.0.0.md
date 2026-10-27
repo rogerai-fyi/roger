@@ -1,6 +1,6 @@
 # v7.0.0 - one program, a private network you can join with one line, and phones on the Edge
 
-Draft for review. Not tagged. The version strings (internal/buildinfo, openapi.yaml, the manual's changelog) are not bumped yet: the smoke gate ties the buildinfo fallback to web/src/manual.html, which is frozen for the SvelteKit migration. Release builds are stamped at link time, so a tagged binary still reports 7.0.0. This release lands after the routing pull requests on main; the
+Draft for review. Not tagged. This release lands after the routing pull requests on main; the
 routing work is listed here because this branch carries it too, and it ships to users in this
 release.
 
