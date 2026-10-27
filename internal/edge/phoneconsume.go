@@ -20,18 +20,13 @@ package edge
 // cannot replay it to another face, and only the authority, the one holder of the root key, can
 // relay at all. A face from before this reads nothing new and receipts the turn to the authority.
 //
-// WHAT THIS DOES NOT PROTECT, SAID OUT LOUD (audit 2026-10-13). The authority listener is plain HTTP.
-//   - Confidentiality: a prompt and its answer cross the LAN between the phone and the authority in
-//     the clear. Anyone on that network can read them.
-//   - Reply integrity: nothing authenticates the REPLY. A device in the path can rewrite an answer, a
-//     band list or a receipt header, and the phone cannot tell.
-//   - Authority authenticity: the phone reaches the authority by an address it was given or saw
-//     advertised; an impostor answering there (mDNS spoofing) can read the turn and answer it.
-//   - The request itself cannot be forged or altered (the signature covers its body, target and
-//     action), and it is refused if replayed to the authority or relayed to a face it was not made for.
-//     Within five minutes a captured request can still be presented ONCE where it has not been seen,
-//     which the authority's nonce cache refuses; a restart of the authority empties that cache.
-// The fix is docs/edge-authority-https.md, pending the founder's ruling.
+// TRANSPORT (ruled 2026-10-13, docs/edge-authority-https.md). These paths are served only on the
+// authority's TLS listener, under a server certificate the Edge root issues; the plain listener
+// refuses them (cmd/rogerai/edgeauthtls.go), with or without a TLS listener up. The request itself
+// cannot be forged or altered (the signature covers its body, target and action), and it is refused
+// if replayed to the authority or relayed to a face it was not made for. A restart of the authority
+// empties its nonce cache, so within five minutes a captured request can be presented once more to
+// that restarted authority.
 
 import (
 	"bytes"
@@ -111,8 +106,7 @@ const (
 // errNotVerified is the ONE refusal for every way a caller's identity can fail - no certificate, not
 // this root, revoked, expired, a key that does not derive the id, not in this fleet, a bad signature -
 // so a captured certificate without its key cannot tell a live member from a removed one (audit
-// 2026-10-13). The authority-side trouble feed (f3cec7d1, not on this branch) still answers these
-// apart and checks the certificate before the signature; it should take the same order and words.
+// 2026-10-13).
 const errNotVerified = "that request could not be verified as a member of this Edge"
 
 // ConsumeCanonical is exactly what a phone signs: the domain, its node id, the action, the target
