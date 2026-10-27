@@ -1,0 +1,232 @@
+/* Wave model pages (research-wave-pico.html, research-wave-nano.html), and the two shared
+   partials they include (wave-mesh.html, wave-firewatch.html). Loaded by the model pages
+   only (build.mjs CSS_BUNDLES), after research.css, which gives them the hero, the section
+   furniture and the device-contract grid. Mono + one red: red marks a reading (a meter's
+   tick, the gate line, the deciding record), never a wash. Labels are --t-micro (11px) or
+   larger at every width. Nothing here moves, so reduced motion and print need no rule. */
+
+/* ---- labels: the research kicker (research.css), set as a block where it heads a column */
+:is(.wm-mesh__col, .wm-footnote) > .research-kicker { display: block; text-transform: uppercase; }
+.wm-runs__size .research-kicker, .wm-run .install__meta .research-kicker { text-transform: uppercase; }
+.wm-ref {
+  color: var(--ink-400); font-family: var(--font-mono); font-size: var(--t-micro);
+  letter-spacing: .04em; white-space: nowrap;
+}
+.wm-aside { max-width: 68ch; margin: var(--s-6) 0 0; color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body); }
+
+/* ---- hero: the at-a-glance plate -------------------------------------------------- */
+.wm-plate { padding: var(--s-6); }
+.wm-plate dl { display: grid; gap: 0; margin: var(--s-4) 0 0; }
+.wm-plate dl > div {
+  display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: var(--s-3);
+  padding: var(--s-3) 0; border-top: 1px solid var(--hairline);
+}
+.wm-plate dt {
+  color: var(--ink-400); font-family: var(--font-mono); font-size: var(--t-micro);
+  letter-spacing: var(--tracking-label); text-transform: uppercase; padding-top: 2px;
+}
+.wm-plate dd { margin: 0; color: var(--ink-900); font-size: var(--t-sm); line-height: var(--lh-snug); overflow-wrap: anywhere; }
+.wm-plate dd code { font-size: var(--t-xs); }
+
+/* ---- §1 purpose: two lists side by side ------------------------------------------- */
+.wm-split { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-10); }
+.wm-list { margin: var(--s-4) 0 0; padding: 0; list-style: none; }
+.wm-list > li {
+  padding: var(--s-4) 0; border-top: 1px solid var(--hairline);
+  color: var(--ink-500); line-height: var(--lh-body);
+}
+.wm-list > li:last-child { border-bottom: 1px solid var(--hairline); }
+.wm-list b { color: var(--ink-900); font-weight: var(--weight-semi); }
+
+/* ---- the run block and the runs-on row -------------------------------------------- */
+.wm-run { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: var(--s-6); margin-top: var(--s-6); }
+.wm-run .install__meta { display: block; margin-top: var(--s-3); color: var(--ink-500); font-size: var(--t-sm); }
+.wm-runs-fig { padding: var(--s-6); background: var(--paper); }
+.wm-runs {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--s-4);
+  margin: 0; padding: 0; list-style: none;
+}
+.wm-runs > li {
+  position: relative; padding: var(--s-4) var(--s-4) var(--s-4) calc(var(--s-4) + 18px);
+  border: 1px solid var(--hairline); border-radius: var(--r-md);
+  color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-snug);
+}
+.wm-runs > li b {
+  display: block; margin-bottom: var(--s-1); color: var(--ink-900);
+  font-family: var(--font-mono); font-size: var(--t-xs); font-weight: var(--weight-medium);
+  letter-spacing: .06em; text-transform: uppercase;
+}
+/* the lamp: filled ink where the release runs today, a ring where the run is owed */
+.wm-runs > li::before {
+  content: ""; position: absolute; left: var(--s-4); top: calc(var(--s-4) + 3px);
+  width: 8px; height: 8px; border-radius: 50%; background: var(--ink-900);
+}
+.wm-runs > li[data-state="owed"]::before { background: transparent; box-shadow: inset 0 0 0 1.5px var(--ink-500); }
+.wm-runs__size { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2) var(--s-4); margin: var(--s-5) 0 0; color: var(--ink-900); font-size: var(--t-sm); }
+.wm-runs__size b { font-family: var(--font-mono); font-weight: var(--weight-medium); }
+.wm-runs-fig > figcaption { margin-top: var(--s-5); }
+
+/* a span on a scale: the range a family of files or a set of seeds covers */
+.wm-span {
+  position: relative; display: inline-block; width: 160px; height: 8px;
+  border-radius: var(--r-pill); background: var(--hairline);
+}
+.wm-span i {
+  position: absolute; top: 0; bottom: 0; border-radius: var(--r-pill); background: var(--ink-900);
+  left: calc(var(--lo) / var(--max) * 100%); width: calc((var(--hi) - var(--lo)) / var(--max) * 100%);
+}
+
+/* ---- FIG. the escalation gate ------------------------------------------------------ */
+/* One bar of real work, ordered by the model's own confidence. The part under the gate
+   escalates (hatched, drawn as an outcome, not a failure); the red line is the gate; the
+   part over it is what the model answers. Its width is the measured accept share, --v. */
+.wm-gate { padding: var(--s-6); }
+.wm-gate__scale { display: flex; align-items: stretch; height: 40px; margin-top: var(--s-6); }
+.wm-gate__esc {
+  flex: 0 0 calc(100% - var(--v) * 1%); border-radius: var(--r-md) 0 0 var(--r-md);
+  background: repeating-linear-gradient(135deg, var(--paper) 0 6px, var(--hairline-2) 6px 7px);
+  box-shadow: inset 0 0 0 1px var(--hairline-2);
+}
+.wm-gate__line { position: relative; flex: 0 0 3px; margin: -8px 0 0; border-radius: 2px; background: var(--live); }
+/* the gate's own name, above its line (decoration: the legend below says it in words) */
+.wm-gate__line::before {
+  content: "GATE"; position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); padding-bottom: 4px;
+  color: var(--live-text); font-family: var(--font-mono); font-size: var(--t-micro); letter-spacing: var(--tracking-label);
+}
+.wm-gate__ok { flex: 1 1 auto; border-radius: 0 var(--r-md) var(--r-md) 0; background: var(--ink-700); }
+.wm-gate__legend { display: grid; grid-template-columns: calc(100% - var(--v) * 1%) minmax(0, 1fr); gap: var(--s-4); margin-top: var(--s-4); }
+.wm-gate__side { margin: 0; color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body); }
+.wm-gate__side--ok { padding-left: var(--s-4); border-left: 1px solid var(--hairline-2); }
+.wm-gate__side b {
+  display: block; margin-bottom: var(--s-1); color: var(--ink-900);
+  font-family: var(--font-mono); font-size: var(--t-xs); font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-label); text-transform: uppercase;
+}
+.wm-gate__read { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s-4); margin: var(--s-6) 0 0; padding-top: var(--s-5); border-top: 1px solid var(--hairline-2); }
+.wm-gate__read dt { color: var(--ink-400); font-family: var(--font-mono); font-size: var(--t-micro); letter-spacing: var(--tracking-label); text-transform: uppercase; }
+.wm-gate__read dd { margin: var(--s-2) 0 0; color: var(--ink-900); font-size: var(--t-h2); font-weight: var(--weight-semi); letter-spacing: var(--tracking-h2); line-height: 1; font-variant-numeric: tabular-nums; }
+.wm-gate > figcaption { margin-top: var(--s-5); }
+
+/* ---- FIG. the readouts ---------------------------------------------------------- */
+/* An instrument row per measurement: label, value, unit, a meter on 0..100 (or --max), and
+   the R-number. The meter is a hairline track, an ink fill to the value and a red tick at
+   it; a range draws the span between --lo and --hi with ticks at both ends. */
+.wm-panel { padding: var(--s-6); }
+.wm-readouts { margin: 0; padding: 0; list-style: none; }
+.wm-readout {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: baseline;
+  column-gap: var(--s-3); row-gap: var(--s-2);
+  padding: var(--s-4) 0; border-bottom: 1px solid var(--hairline);
+}
+.wm-readout:first-child { padding-top: 0; }
+.wm-readout__label { color: var(--ink-700); font-size: var(--t-sm); line-height: var(--lh-snug); }
+.wm-readout > b {
+  color: var(--ink-900); font-family: var(--font-mono); font-size: var(--t-body); font-weight: var(--weight-medium);
+  font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right;
+}
+.wm-readout__unit {
+  color: var(--ink-400); font-family: var(--font-mono); font-size: var(--t-micro);
+  letter-spacing: .04em; white-space: nowrap; text-align: right; min-width: 9ch;
+}
+.wm-readout > .wm-meter { grid-column: 1 / 3; }
+.wm-readout > .wm-ref { grid-column: 3; text-align: right; }
+.wm-meter { position: relative; display: block; height: 6px; border-radius: var(--r-pill); background: var(--hairline); }
+.wm-meter::before {
+  content: ""; position: absolute; left: 0; top: 0; bottom: 0; border-radius: var(--r-pill);
+  width: calc(var(--v, 0) * 1%); background: var(--ink-700);
+}
+.wm-meter::after {
+  content: ""; position: absolute; top: -4px; bottom: -4px; width: 2px; border-radius: 1px;
+  left: calc(var(--v, 0) * 1% - 1px); background: var(--live);
+}
+.wm-readout--range .wm-meter::before {
+  left: calc(var(--lo) / var(--max) * 100%); width: calc((var(--hi) - var(--lo)) / var(--max) * 100%);
+}
+.wm-readout--range .wm-meter::after {
+  left: calc(var(--lo) / var(--max) * 100% - 1px);
+  width: calc((var(--hi) - var(--lo)) / var(--max) * 100% + 2px);
+  background: transparent; box-shadow: inset 2px 0 0 var(--live), inset -2px 0 0 var(--live);
+}
+.wm-panel > figcaption { margin-top: var(--s-5); }
+.wm-readouts--fire { margin-top: var(--s-6); max-width: 760px; }
+#vision .wm-readouts { max-width: 760px; margin-bottom: var(--s-6); }
+
+/* ---- the comparator line and the Measured footnote ---------------------------------- */
+.wm-compare {
+  max-width: 72ch; margin: var(--s-8) 0 0; padding-left: var(--s-4); border-left: 2px solid var(--live);
+  color: var(--ink-500); line-height: var(--lh-body);
+}
+.wm-compare b { color: var(--ink-900); }
+.wm-footnote { margin-top: var(--s-10); padding-top: var(--s-5); border-top: 1px solid var(--hairline-2); }
+.wm-notes {
+  columns: 2 280px; column-gap: var(--s-8);
+  margin: var(--s-3) 0 0; padding: 0; list-style: none;
+  color: var(--ink-500); font-size: var(--t-xs); line-height: var(--lh-body);
+}
+.wm-notes li { break-inside: avoid; padding: var(--s-1) 0; }
+.wm-notes b { color: var(--ink-900); font-family: var(--font-mono); font-weight: var(--weight-medium); }
+
+/* ---- limits ---------------------------------------------------------------------- */
+.wm-limits { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 var(--s-8); margin: 0; padding: 0; list-style: none; }
+.wm-limits > li {
+  position: relative; padding: var(--s-4) 0 var(--s-4) var(--s-6); border-top: 1px solid var(--hairline-2);
+  color: var(--ink-700); line-height: var(--lh-body);
+}
+.wm-limits > li::before {
+  content: ""; position: absolute; left: 0; top: calc(var(--s-4) + .62em);
+  width: 10px; height: 1px; background: var(--ink-500);
+}
+
+/* ---- FIG. the mesh ----------------------------------------------------------------- */
+.wm-mesh { padding: var(--s-6); }
+.wm-mesh__grid { display: grid; grid-template-columns: minmax(0, .8fr) minmax(0, 1.25fr) minmax(0, 1.1fr); gap: var(--s-6); align-items: start; }
+.wm-mesh__col { position: relative; min-width: 0; }
+/* the flow between columns: a hairline arrow in the gap */
+.wm-mesh__col + .wm-mesh__col::before {
+  content: "\2192"; position: absolute; left: calc(var(--s-6) * -.5); top: 44px; transform: translateX(-50%);
+  color: var(--ink-500); font-family: var(--font-mono); font-size: var(--t-sm);
+}
+.wm-mesh__nodes, .wm-log, .wm-q { display: grid; gap: var(--s-2); margin: var(--s-3) 0 0; padding: 0; list-style: none; }
+.wm-mesh__nodes li, .wm-log li, .wm-q li {
+  padding: var(--s-3); border-radius: var(--r-md); background: var(--paper);
+  color: var(--ink-500); font-size: var(--t-xs); line-height: var(--lh-snug);
+}
+.wm-mesh__nodes b { display: block; color: var(--ink-900); font-family: var(--font-mono); font-size: var(--t-xs); font-weight: var(--weight-medium); text-transform: uppercase; letter-spacing: .06em; }
+.wm-log li { display: grid; gap: var(--s-1); font-family: var(--font-mono); }
+.wm-log code { color: var(--ink-900); font-weight: var(--weight-medium); }
+.wm-log b { color: var(--ink-900); font-weight: var(--weight-medium); margin-right: 4px; }
+/* the deciding record: the one red on the figure, as a rule, never a wash */
+.wm-log li.is-deciding { box-shadow: inset 3px 0 0 var(--live); }
+.wm-q b { color: var(--ink-900); font-family: var(--font-mono); font-weight: var(--weight-medium); margin-right: 6px; }
+.wm-q em { display: block; margin-top: var(--s-1); color: var(--live-text); font-style: normal; }
+.wm-q li.is-answered { box-shadow: inset 0 0 0 1px var(--ink-900); }
+.wm-mesh > figcaption { margin-top: var(--s-5); }
+.wm-mesh__rules code { font-size: var(--t-xs); overflow-wrap: anywhere; }
+
+/* ---- FIG. the escalation ladder (the shared step path, on a plate) ------------------- */
+.wm-ladder-fig { padding: var(--s-8) var(--s-6) var(--s-6); }
+.wm-ladder-fig > figcaption { margin-top: var(--s-6); }
+
+/* ---- phones and tablets ----------------------------------------------------------- */
+@media (max-width: 960px) {
+  .wm-mesh__grid { grid-template-columns: 1fr; gap: var(--s-8); }
+  .wm-mesh__col + .wm-mesh__col::before { content: "\2193"; left: 50%; top: calc(var(--s-8) * -.5 - 10px); }
+}
+@media (max-width: 820px) {
+  .wm-split, .wm-run, .wm-limits { grid-template-columns: 1fr; }
+  .wm-split { gap: var(--s-6); }
+}
+@media (max-width: 640px) {
+  .wm-gate, .wm-panel, .wm-mesh, .wm-runs-fig { padding: var(--s-4); }
+  .wm-ladder-fig { padding: var(--s-4); }
+  .wm-gate__legend { grid-template-columns: 1fr; }
+  .wm-gate__side--ok { padding-left: 0; border-left: 0; padding-top: var(--s-3); border-top: 1px solid var(--hairline-2); }
+  .wm-gate__read { grid-template-columns: 1fr; gap: var(--s-3); }
+  .wm-gate__read > div { display: flex; justify-content: space-between; align-items: baseline; gap: var(--s-3); }
+  .wm-gate__read dd { font-size: var(--t-h3); margin: 0; }
+  .wm-readout { grid-template-columns: minmax(0, 1fr) auto; }
+  .wm-readout__unit { grid-column: 1; grid-row: 2; text-align: left; }
+  .wm-readout > .wm-meter { grid-column: 1 / -1; }
+  .wm-readout > .wm-ref { grid-column: 2; grid-row: 2; }
+  .wm-plate dl > div { grid-template-columns: 64px minmax(0, 1fr); }
+}

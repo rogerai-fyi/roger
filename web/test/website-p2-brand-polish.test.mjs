@@ -35,7 +35,7 @@ test("homepage puts Wave Labs proof before the install action without adding a h
   assert.ok(proof > 0 && proof < install, "the Labs plate precedes install in the first hero flow");
   // The plate states program status, not a licence or a version it cannot back. The
   // status words are the ledger stages (test/wave-status.test.mjs holds them to the data).
-  assert.match(hero, /PICO ON AIR · NANO TRAINING/);
+  assert.match(hero, /PICO ON AIR · NANO GATED/);   // founder ruling 2026-10-21
   assert.doesNotMatch(hero, /APACHE-2\.0|v1\.0|AVAILABLE/);
   for (const marker of ["hero__eyebrow", "hero__title", "hero__sub", "hero__proof", 'class="install"']) {
     const tag = hero.match(new RegExp(`<[^>]*class="[^"]*${marker.replace('class="', "")}[^"]*"[^>]*>`))?.[0] || "";
@@ -73,7 +73,7 @@ test("mobile research exposes a compact program-status ticker", () => {
   assert.match(page, /class="release-ticker"/);
   const ticker = visible(page.match(/<p class="release-ticker"[\s\S]*?<\/p>/)?.[0] || "");
   // SPECTRUM RENAME (2026-08-14): the ticker carries Pico's waypoint status.
-  for (const fact of ["WAYPOINT", "Wave Pico", "100M-class", "no public checkpoint yet"]) {
+  for (const fact of ["ON AIR", "Wave Pico", "wave-pico-293m", "no public checkpoint yet"]) {   // ruling 2026-10-21
     assert.match(ticker, new RegExp(fact, "i"));
   }
   assert.doesNotMatch(ticker, /AVAILABLE|v1\.0|Apache-2\.0/i);

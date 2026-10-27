@@ -229,9 +229,9 @@ test("only released artifacts present download controls", () => {
   assert.doesNotMatch(page, /aria-disabled="true"/);
   for (const stage of [
     /16K saliency calibration/,
-    /Certifying the waypoint/,
+    /On air as wave-pico-293m/,
     /Architecture and data design/,
-    /Scratch build queued/,
+    /Release build gated/,
   ]) assert.match(page, stage);
   assert.doesNotMatch(page, /href="[^"]*(?:placeholder|coming-soon)[^"]*"/i);
 });
@@ -260,10 +260,12 @@ test("Wave Micro publishes its program status instead of a release contract", ()
   // honest status is the same PLANNED the other untrained tiers carry. The
   // guarantee this lock exists for is unchanged and is re-anchored below: the card
   // states a stage, never a released artifact.
-  assert.match(cardText, /PLANNED/i);
+  // FOUNDER RULING 2026-10-21: Micro's from-scratch 7B run started, so its stage is
+  // TRAINING. Still no artifact: the card states a stage, never a release.
+  assert.match(cardText, /TRAINING/);
   assert.doesNotMatch(cardText, /base ?\+ ?specialize|BASE SELECTED/i,
     "Micro is trained from scratch; no base-selection claim may survive here");
-  assert.match(cardText, /pipeline standing up/i);
+  assert.match(cardText, /7B run in training/i);
   assert.match(cardText, /no checkpoint released/i);
   // No placeholder evidence: the earlier version listed five fields that all deferred to
   // a model card that did not exist, which looked like rigour and was not.
