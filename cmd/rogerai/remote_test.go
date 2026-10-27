@@ -437,7 +437,6 @@ func TestRemoteInputLoopConfirmGate(t *testing.T) {
 		t.Fatalf("timed out waiting for %d sends", n)
 	}
 
-	fmt.Fprint(w, "   \n")         // blank: skipped, nothing sent
 	fmt.Fprint(w, "hello there\n") // ordinary turn
 	waitSent(1)
 	gate.set("cf9")
@@ -459,6 +458,11 @@ func TestRemoteInputLoopConfirmGate(t *testing.T) {
 	waitSent(6)
 	fmt.Fprint(w, "back to a turn\n") // gate consumed: an ordinary turn again
 	waitSent(7)
+	// A BLANK LINE IS SKIPPED, NOTHING SENT - and it is written LAST, once the seventh send
+	// proves the pipe is drained, so the loop's next Read returns exactly this line. Written
+	// first, back to back with "hello there", the two usually arrived in one Read and the
+	// blank was never seen on its own; the count below is what asserts the skip.
+	fmt.Fprint(w, "   \n")
 	_ = w.Close() // EOF: the loop must return
 	select {
 	case <-loopDone:
