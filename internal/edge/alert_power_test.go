@@ -153,3 +153,34 @@ func TestAPowerCallClosesWhenAHeardNodeStopsReportingIt(t *testing.T) {
 		require.NotContains(t, alerts[0].String(), "back on external power", name)
 	}
 }
+
+// Review 2026-10-27: the close for a reading that is no longer reported reads the same on every
+// surface - the sinks (Discord, Telegram, a webhook) and the events timeline - and never as a value
+// that went back under its line. And only a WHOLE power report that is gone or stale closes a call:
+// a beat that leaves one field out is not a reason to page a close and then a re-fire.
+func TestAnUnreportedCloseReadsTheSameEverywhere(t *testing.T) {
+	a := Alert{At: time.Now(), RuleID: "on_battery", NodeID: "n_pi", Node: "pi", Metric: MetricOnBattery,
+		Op: OpGT, Threshold: 0, Unreported: true}
+	require.Contains(t, AlertWords(a), "pi no longer reports its power")
+	require.NotContains(t, AlertWords(a), "on_battery 0")
+	low := a
+	low.Metric, low.Op, low.Threshold = MetricBattery, OpLT, 20
+	require.NotContains(t, AlertWords(low), "battery 0")
+	require.Contains(t, alertEventDetail(low), "no longer reports its power")
+	require.NotContains(t, alertEventDetail(low), "back under")
+	body, err := sinkBody(SinkWebhook, low)
+	require.NoError(t, err)
+	require.Contains(t, string(body), `"unreported":true`)
+	require.NotContains(t, string(body), `"value":0`)
+}
+
+func TestAPowerReportMissingOneFieldKeepsTheCall(t *testing.T) {
+	now := time.Now()
+	rules := RuleSet(DefaultRules())
+	st, _ := Evaluate(rules, []NodeHealth{powered("n_pi", "host", 80, false, "battery", false)}, nil, now)
+	require.True(t, st.Firing("on_battery", "n_pi"))
+	partial := powered("n_pi", "host", 80, false, "", false) // this beat did not say its source
+	next, alerts := Evaluate(rules, []NodeHealth{partial}, st, now)
+	require.True(t, next.Firing("on_battery", "n_pi"), "one missing field is no verdict")
+	require.Empty(t, alerts)
+}

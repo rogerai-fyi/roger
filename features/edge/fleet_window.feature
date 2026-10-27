@@ -390,7 +390,9 @@ Feature: From the authority, every unit can be seen, judged and acted on without
   Scenario: a power call closes when a node that is still heard stops reporting that reading
     Given "pi" has the call "on_battery" standing
     When "pi" is heard again with no power report, or with one older than the liveness window
-    Then the call is closed with a line saying "pi no longer reports its power"
+    Then the call is closed with a line saying "pi no longer reports its power", in those words on
+      every surface (the alert log, the sinks, the webhook, the events timeline), never as a value
+    And a beat that only leaves one power field out keeps the call, so it does not flap
     But while "pi" is dark the call stands, because a dark node is no evidence either way
 
   @edge

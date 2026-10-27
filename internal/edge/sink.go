@@ -302,11 +302,16 @@ func sinkBody(kind SinkKind, a Alert) ([]byte, error) {
 	case SinkTelegram:
 		return json.Marshal(map[string]string{"text": text})
 	case SinkWebhook:
-		return json.Marshal(map[string]any{
+		body := map[string]any{
 			"text": text, "node": a.Node, "metric": string(a.Metric),
 			"value": a.Value, "threshold": a.Threshold, "firing": a.Firing, "test": a.Test,
 			"at": a.At.UTC().Format(time.RFC3339),
-		})
+		}
+		if a.Unreported {
+			delete(body, "value") // there is no reading, and a zero would be read as one
+			body["unreported"] = true
+		}
+		return json.Marshal(body)
 	}
 	return nil, fmt.Errorf("%q is not a kind of sink", string(kind))
 }
@@ -320,6 +325,9 @@ func AlertWords(a Alert) string {
 	state := "FIRING"
 	if !a.Firing {
 		state = "CLEARED"
+	}
+	if a.Unreported {
+		return "ROGER EDGE " + state + " · " + a.Node + " · " + string(a.Metric) + " · " + a.Node + " no longer reports its power, so this call is closed"
 	}
 	out := "ROGER EDGE " + state + " · " + a.Node + " · " + string(a.Metric)
 	if a.Metric != "" && a.Threshold != 0 {

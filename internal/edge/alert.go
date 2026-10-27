@@ -474,9 +474,10 @@ func Evaluate(rules RuleSet, hs []NodeHealth, prev AlertState, now time.Time) (A
 			was := prev.Firing(r.ID, h.ID)
 			if !have {
 				switch {
-				case was && isPowerMetric(m) && !h.Dark:
-					// A node still heard that no longer reports this power reading has nothing left to
-					// judge: the call closes, without claiming the power is back.
+				case was && isPowerMetric(m) && !h.Dark && (h.Power == nil || h.PowerAge > DefaultTTL):
+					// A node still heard whose power report is gone (or stale) has nothing left to judge:
+					// the call closes, without claiming the power is back. A report that only leaves one
+					// field out is no verdict, so it holds below rather than flapping close and re-fire.
 					alerts = append(alerts, Alert{At: now, RuleID: r.ID, NodeID: h.ID, Node: alertUnit(h), Metric: m,
 						Threshold: r.Value, Op: r.Op, Unreported: true})
 				case was:
