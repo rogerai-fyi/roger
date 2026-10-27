@@ -75,7 +75,11 @@ type ModelOffer struct {
 	// (ROUTING-EXPRESSION-CONTRACT §5): a declared attribute, never measured or verified.
 	// 0 = not declared (the broker may estimate it from the model id, marked as an estimate).
 	// Excluded from the possession proof and omitempty for the reason given on Capabilities.
-	ParamsB  float64 `json:"params_b,omitempty"`
+	ParamsB float64 `json:"params_b,omitempty"`
+	// Taxonomy says what the model is FOR (category, tags, lineage, content policy). Embedded
+	// so its keys sit flat on the offer. Unverified DISPLAY + FILTER attributes, excluded from
+	// the possession proof for the same reason as Capabilities. See taxonomy.go.
+	Taxonomy
 	PriceIn  float64 `json:"price_in"`  // credits per 1,000,000 input units (tokens or chars; see Unit)
 	PriceOut float64 `json:"price_out"` // credits per 1,000,000 output units (tokens or audio-bytes)
 	Ctx      int     `json:"ctx"`
@@ -165,6 +169,7 @@ func (o *ModelOffer) Normalize() {
 	o.Quant = CanonicalQuant(o.Quant)
 	o.Weights = CanonicalVariantText(o.Weights)
 	o.Variant = CanonicalVariantText(o.Variant)
+	o.Taxonomy.normalize(o.Modality)
 }
 
 // variantTextMax bounds ONE variant field. These are node-supplied strings that end up on
@@ -222,25 +227,38 @@ func canonicalQuantCase(s string) string {
 // Control characters are removed rather than escaped: this text is rendered into a
 // terminal, and a node that could embed an ANSI escape or a newline in its "weights" could
 // repaint another operator's screen or break a row in half. Nothing legitimate needs them.
-func CanonicalVariantText(s string) string {
+func CanonicalVariantText(s string) string { return boundedText(s, variantTextMax) }
+
+// boundedText is CanonicalVariantText with a caller-chosen byte cap (the taxonomy's base model
+// and license are longer names than a quant label).
+func boundedText(s string, max int) string {
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return ""
 	}
 	var b strings.Builder
 	b.Grow(len(s))
+	n := 0
 	for _, r := range s {
-		// Drop C0/C1 controls and DEL. Everything printable survives, including the
-		// non-ASCII a publisher might legitimately use in a name.
-		if r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f) {
+		// Drop C0/C1 controls and DEL, and the display-spoofing characters: bidi embeddings,
+		// overrides and isolates (one name rendered as another), zero-width characters, and
+		// the line/paragraph separators (a row broken as a newline would). Everything else
+		// printable survives, including the non-ASCII a publisher might use in a name.
+		if r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f) || spoofing(r) {
 			continue
 		}
 		b.WriteRune(r)
-		if b.Len() >= variantTextMax {
+		// The cap counts CHARACTERS, so a non-ASCII name gets the same room as an ASCII one.
+		if n++; n >= max {
 			break
 		}
 	}
 	return strings.TrimSpace(b.String())
+}
+
+func spoofing(r rune) bool {
+	return (r >= 0x200B && r <= 0x200F) || (r >= 0x2028 && r <= 0x202E) ||
+		(r >= 0x2066 && r <= 0x2069) || r == 0xFEFF
 }
 
 // CapVision marks a chat model that accepts image_url content (the photo path). It is
@@ -478,6 +496,7 @@ func (r NodeRegistration) regSigningBytes() []byte {
 			// consequence if they are not: see their doc on ModelOffer.
 			offers[i].Quant, offers[i].Weights, offers[i].Variant = "", "", ""
 			offers[i].ParamsB = 0
+			offers[i].Taxonomy = Taxonomy{} // display-only too: see Taxonomy
 		}
 		c.Offers = offers
 	}

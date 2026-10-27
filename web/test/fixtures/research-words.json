@@ -50,8 +50,8 @@
   ]
  },
  "broadcasts-how-llms-work.html": {
-  "sha": "a69e429c452ae28e3a2e1e1c09b88e1615b04f833e7fdf5c8eb0aca3364840cf",
-  "length": 12386,
+  "sha": "52f2fca0f5d218183d67424a1374c516b19358b90472dea5c0578991bea8a5c9",
+  "length": 12466,
   "hrefs": [
    "/broadcasts.html",
    "/research-wave-family.html",
@@ -74,8 +74,8 @@
   ]
  },
  "broadcasts-jev-vs-wave.html": {
-  "sha": "41e8d20ecf748045936101f2620373454ec03b8906df1ba5786ea20bbe031435",
-  "length": 11379,
+  "sha": "020ea4c2686f820b564a108a0b27176727485e0ef1bd402b3e4ff924cd33b16a",
+  "length": 11409,
   "hrefs": [
    "/broadcasts.html",
    "/research-wave-family.html"
@@ -181,8 +181,8 @@
   ]
  },
  "research-hardware.html": {
-  "sha": "767345c472487bf0e143d1dfe6e774cb3ad5d64e18354926c29afdbee62bccd4",
-  "length": 8226,
+  "sha": "cdf730286dca07557d13371db7cfead9f4238cfc6f16b8531df1feeecca2c934",
+  "length": 8896,
   "hrefs": [
    "/research.html",
    "/research-models.html",
@@ -207,8 +207,8 @@
   ]
  },
  "research-industry.html": {
-  "sha": "29145d318da80ea115b1b149f6e670d41216739ed8ee842738623a42187601a2",
-  "length": 8066,
+  "sha": "a49005f9d6d27ac46579b9d958962c5c5e93a453c0fb59e6a851e58e7b1739b4",
+  "length": 8995,
   "hrefs": [
    "/research.html",
    "#market-oilgas",
@@ -236,13 +236,18 @@
   ]
  },
  "research-models.html": {
-  "sha": "b3e870c9e572a7abfcd1a7b47a5dc32b68a60eafce3311c43f665b511f5f0926",
-  "length": 6280,
+  "sha": "5073ae09a575c9dd11304ac5600db2aad62951a9f11f5a653a7403f979d78dba",
+  "length": 6767,
   "hrefs": [
    "/research.html",
+   "/research-wave-pico.html",
+   "/research-wave-nano.html",
    "/research-wave-family.html",
-   "https://huggingface.co/rogerai-fyi",
    "mailto:labs@rogerai.fm?subject=Hello%20from%20the%20website",
+   "/research-wave-pico.html",
+   "/research-wave-nano.html",
+   "/research-wave-pico.html",
+   "/research-wave-nano.html",
    "https://huggingface.co/rogerai-fyi/DeepSeek-V4-Flash-MTP-GGUF",
    "/broadcasts-deepseek-mtp-gguf.html",
    "/broadcasts.html",
@@ -251,22 +256,52 @@
   ]
  },
  "research-wave-family.html": {
-  "sha": "3690c2572e283a771294df0c4852cee40edadc6bd703c2544a1c58ffb8921f2d",
-  "length": 17216,
+  "sha": "474dcdf7045acb551ac93822a9776eb12360878ab455bf648e4a0346441e954f",
+  "length": 17712,
   "hrefs": [
    "/research.html",
    "#infinite",
+   "/research-wave-pico.html",
+   "/research-wave-nano.html",
    "/research-industry.html#devices",
    "/playbox.html#factory",
    "/research.html#models",
    "/broadcasts.html"
   ]
  },
- "research.html": {
-  "sha": "9336603bab34fa992d5c3f008a10c7d4efb5b3ce2e50f227d1508a2ff1cd1149",
-  "length": 5480,
+ "research-wave-nano.html": {
+  "sha": "3576ca5bf92cf129b2249f96a18d44668ec4e509d9c24a38a1ae228295a1afb1",
+  "length": 10085,
   "hrefs": [
    "/research-models.html",
+   "#measured",
+   "#vision",
+   "/research-wave-pico.html",
+   "/research-wave-pico.html",
+   "/research-wave-family.html",
+   "/research-models.html"
+  ]
+ },
+ "research-wave-pico.html": {
+  "sha": "757fef1d76fb8b28d18c8ac333bf902acb6b95aaf4beafe2c3a614416393d130",
+  "length": 8509,
+  "hrefs": [
+   "/research-models.html",
+   "#run",
+   "#measured",
+   "/research-wave-nano.html",
+   "/research-wave-nano.html",
+   "/research-wave-family.html",
+   "/research-models.html"
+  ]
+ },
+ "research.html": {
+  "sha": "ffbc8f03d06fd52176eba6b356cb357294d470cbce3d3918352836b2778b9171",
+  "length": 5425,
+  "hrefs": [
+   "/research-models.html",
+   "/research-wave-pico.html",
+   "/research-wave-nano.html",
    "/research-wave-family.html",
    "/research-hardware.html",
    "/research-industry.html",

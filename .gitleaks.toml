@@ -23,6 +23,29 @@ description = "Audited false positives (see header). Verified: no real secret co
 # generated coverage/ report or web/dist/ build output) could mask a real secret bundled
 # into generated output, so every suppression here is a precise, audited string.
 regexes = [
+  # --- Audited 2026-10-27 (on the unmerged Edge branches wt/simple-join, wt/jetson-local) ---
+  # Edge bearer JOIN-PROOF golden vectors (internal/edgeauth/testdata/join_proof_vectors.json
+  # and its generator gen_join_proof_vectors.py): fixed sequential test node keys and keys
+  # derived by PBKDF2 from published one-time test codes. Every value was reproduced exactly
+  # by re-running the generator. Test data, not credentials.
+  '''00112233445566778899aabbccddeeff''',
+  '''0593c046af53232bd64c421285981b243dbfb58aca72cd05a92b790a15807e70''',
+  '''0a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f9''',
+  '''0dcca7ff252bad1731a9b0a6b168c3cb2ebae86737e7895a012d06c1dfa80921''',
+  '''1f2e3d4c5b6a79880918273645546372819aabbccddeeff00112233445566778''',
+  '''3e6fd14446fd909d91669d4967b6241a4cf0a8a8455472e9bc1daf750214bcbd''',
+  '''75d8aea587dc461c6c5b911e7dc27a9ba76b81d9831c2a89de19411d82b9169b''',
+  '''9795017b8ff63376b3f948c4c9f2133625de1a89460d2e2eac99adb073059c45''',
+  '''f9e8d7c6b5a4938271605f4e3d2c1b0af9e8d7c6b5a4938271605f4e3d2c1b0a''',
+  # checks_root golden vectors (internal/edgeauth/testdata/checks_root_vectors.json, unpushed
+  # branches at audit time): Ed25519 PUBLIC node keys from a documented pure-Python RFC 8032
+  # signer. Public keys are not secrets.
+  '''3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c''',
+  '''fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025''',
+  # join-sas golden vectors (internal/joinsas/testdata/sas_vectors.json): fixed test client and
+  # tower keys in a documented, Python-generated vector file. Test data, not credentials.
+  '''293b1186e4eddc2c56cc08582f8236981d633d1023691c7d637bae459f377c8c''',
+  '''64dbdc38ede19b85cac8beccc15d52debb1a30e42c2fa15716ce95ac0913ad09''',
   # --- Audited 2026-10-11 (all on unmerged feature branches; each verified a non-secret) ---
   # Edge root-proof GOLDEN VECTORS (internal/edgeauth/testdata/root_proof_vectors.json): keys
   # derived from published one-time test codes by an independent Python reference; test data.

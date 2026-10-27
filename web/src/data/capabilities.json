@@ -1,0 +1,72 @@
+{
+  "_about": "Single source of truth for adapter, base-skill and device status (features/web/sensor_positioning.feature, proposed). Pages render it via {{cap:<id>.<name|stage|label|description>}} (web/scripts/wave-status.mjs); test/capabilities.test.mjs holds every page to it. Build input only: not shipped.",
+  "stages": {
+    "planned": "Declared; nothing is trained or built for it yet.",
+    "lab": "Trained or built and measured on our own benchmark; not released, and no field claim.",
+    "release-candidate": "Passed its own release gate; not yet installable by a customer.",
+    "available": "A customer can install it on their own machine, and its card is published."
+  },
+  "stageLabels": {
+    "planned": "planned",
+    "lab": "in the lab",
+    "release-candidate": "release candidate",
+    "available": "available"
+  },
+  "capabilities": [
+    {
+      "id": "fire-warning",
+      "kind": "adapter",
+      "name": "Fire early warning",
+      "base": "pico",
+      "stage": "lab",
+      "description": "An add-on for Wave Pico, built to read smoke chemistry and heat against a baseline and raise a warning that says why and how sure it is."
+    },
+    {
+      "id": "telemetry-drift",
+      "kind": "base-skill",
+      "name": "Telemetry drift",
+      "base": "pico",
+      "stage": "lab",
+      "description": "Not an add-on: built into the base model. It is designed to flag a reading drifting out of its normal band, with how sure it is."
+    },
+    {
+      "id": "custom",
+      "kind": "adapter",
+      "name": "Your own",
+      "base": "pico",
+      "stage": "planned",
+      "description": "An add-on trained on your own machines and your own normal days. You will be able to build one; the tooling is not built yet."
+    }
+  ],
+  "devices": [
+    {
+      "id": "laptop",
+      "name": "Laptop or desktop",
+      "installs": true,
+      "stage": "lab",
+      "ghost": false,
+      "description": "RogerAI installs on macOS, Linux and Windows. No speed is printed until one is measured on the machine."
+    },
+    {
+      "id": "industrial-pc",
+      "name": "Industrial PC",
+      "installs": true,
+      "stage": "lab",
+      "ghost": false,
+      "description": "The fanless box already on the floor, with Linux on an Intel, AMD or ARM chip. RogerAI installs on it; its speed is not measured yet, so none is printed."
+    },
+    {
+      "id": "ipad",
+      "name": "iPad",
+      "installs": true,
+      "stage": "planned",
+      "ghost": true,
+      "description": "The RogerAI app already runs compact models on the iPad; Wave models and adapters are not built for it yet."
+    }
+  ],
+  "offers": {
+    "hardware": false,
+    "monitoring": false,
+    "subscription": false
+  }
+}

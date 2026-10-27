@@ -63,7 +63,7 @@ const OWN_TIMING = {
   "components.css .toc-tuner__hint": "the tuner hint's 250ms fade (approved spec, tuner-drag test)",
   "components.css .toc-tuner__needle": "the needle's 0.6s spring swing (approved spec)",
   "components.css .toc-tuner__name": "a station name coming into tune, 0.5s (text motion)",
-  "base.css .nav__app-word": "the nav's cycling App word, 0.26s (text motion)",
+  "components.css .cycle-word": "the cycle word (nav App word, homepage headline), 0.26s (text motion)",
 };
 test("motion: interaction transitions use the --d-N duration tokens", () => {
   const loose = [];
