@@ -397,6 +397,9 @@ func (s Store) UpdateTrust(change func(cur Trust, readErr error) (Trust, error))
 	defer func() { _ = filelock.Unlock(f) }()
 	cur, readErr := s.LoadTrust()
 	next, err := change(cur, readErr)
+	if errors.Is(err, errTrustUnchanged) {
+		return nil
+	}
 	if err != nil {
 		return err
 	}
@@ -404,12 +407,11 @@ func (s Store) UpdateTrust(change func(cur Trust, readErr error) (Trust, error))
 	if err != nil {
 		return err
 	}
-	tmp := s.path(TrustFile) + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, s.path(TrustFile))
+	return atomicWriteFile(s.path(TrustFile), b, 0o600)
 }
+
+// errTrustUnchanged is what a change returns when there is nothing to write.
+var errTrustUnchanged = errors.New("unchanged")
 
 // SaveTrust records the revocation list and when it was refreshed, keeping when the last signed list
 // was signed.
@@ -430,7 +432,7 @@ func (s Store) Revoke(serial string, _ time.Time) error {
 		}
 		for _, got := range t.Revoked {
 			if got == serial {
-				return t, nil // already revoked here; nothing to change
+				return t, errTrustUnchanged // already revoked here; nothing to write
 			}
 		}
 		t.Revoked = append(t.Revoked, serial)

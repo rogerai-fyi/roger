@@ -683,15 +683,34 @@ func TestSaveTrustOverwritesAnUnreadableTrustFile(t *testing.T) {
 func TestConcurrentRevocationsAllLand(t *testing.T) {
 	st := edgeauth.Store{Dir: t.TempDir()}
 	var wg sync.WaitGroup
+	errs := make(chan error, 40)
 	for i := 0; i < 40; i++ {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			require.NoError(t, st.Revoke(fmt.Sprintf("%04x", i), time.Now()))
+			errs <- st.Revoke(fmt.Sprintf("%04x", i), time.Now())
 		}(i)
 	}
 	wg.Wait()
+	close(errs)
+	for err := range errs {
+		require.NoError(t, err)
+	}
 	tr, err := st.LoadTrust()
 	require.NoError(t, err)
 	require.Len(t, tr.Revoked, 40, "every revocation landed")
+}
+
+// Revoking a serial already on the list writes nothing.
+func TestRevokingAListedSerialWritesNothing(t *testing.T) {
+	dir := t.TempDir()
+	st := edgeauth.Store{Dir: dir}
+	require.NoError(t, st.Revoke("0a0a", time.Now()))
+	p := filepath.Join(dir, edgeauth.TrustFile)
+	old := time.Now().Add(-time.Hour)
+	require.NoError(t, os.Chtimes(p, old, old))
+	require.NoError(t, st.Revoke("0a0a", time.Now()))
+	fi, err := os.Stat(p)
+	require.NoError(t, err)
+	require.True(t, fi.ModTime().Equal(old), "the file was not rewritten")
 }

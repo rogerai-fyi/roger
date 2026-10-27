@@ -1738,7 +1738,8 @@ func cmdEdgeReadmit(cfg config, args []string) error {
 	id, name, question, done := "", "", "", ""
 	consequence := "its previous certificate is revoked and it may claim a fresh one to rejoin"
 	after := "its old certificate is revoked; it can claim a fresh one and rejoin."
-	named := func(n store.EdgeNode) {
+	// named fills in what is asked about n, and reports whether it is a device this Edge forgot.
+	named := func(n store.EdgeNode) bool {
 		id, name = n.ID, ""
 		if !edge.LooksLikeID(n.Name) {
 			name = n.Name
@@ -1749,10 +1750,11 @@ func cmdEdgeReadmit(cfg config, args []string) error {
 				name = d.Name
 			}
 			question, done = edge.ReAdmitQuestion(d, time.Now()), edgeDepartedSaid(d)
-			return
+			return true
 		}
 		said := edge.UnitName(n, nil)
 		question, done = "re-admit "+said+"?", said
+		return false
 	}
 	var c store.EdgeNode
 	cok := false
@@ -1767,9 +1769,9 @@ func cmdEdgeReadmit(cfg config, args []string) error {
 		id, name = gone.ID, gone.Name
 		question, done = edge.ReAdmitQuestion(gone, now), edgeDepartedSaid(gone)
 	} else if cok {
-		named(c)
-		if _, forgot, _ := edge.FindDeparted(departed, c.ID, now); !forgot && c.Name == want {
-			// Matched only by what a device on the network says it is called: said as such.
+		if forgot := named(c); !forgot && !strings.HasPrefix(c.ID, want) {
+			// Matched only by what a device on the network says it is called (its name, or the name a
+			// screen shows for it): said as such.
 			question = fmt.Sprintf("nothing this Edge forgot is called %s, but a device on this network calls itself %s. re-admit it?", want, want)
 		}
 	} else if nodes, lerr := st.list(); lerr == nil {

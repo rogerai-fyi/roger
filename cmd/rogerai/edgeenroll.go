@@ -1097,18 +1097,15 @@ func edgeTakeSignedRevocations(ctx context.Context, st edgeauth.Store, endpoint 
 	if signedAt.After(now.Add(edgeSignedSkew)) {
 		return fmt.Sprintf("refused the revocation list from %s: it says it was signed %s from now - the authority's clock or the list is wrong; this machine's list is unchanged", endpoint, signedAt.Sub(now).Round(time.Second))
 	}
-	t, err := st.LoadTrust()
-	if err != nil {
-		return "could not read this machine's revocation list: " + err.Error()
-	}
-	if signed.At < t.SignedAt {
-		return fmt.Sprintf("refused the revocation list from %s: it is older than the one this machine already took - this machine's list is unchanged", endpoint)
-	}
-	// The merge is made against the list as it stands at the write, so a revocation landing meanwhile
-	// (a claim on this authority) is kept.
+	// The replay check and the merge are made against the list as it stands at the write, under its
+	// lock, so a newer list or a revocation landing meanwhile (a claim on this authority) is kept.
+	errOlder := errors.New("older")
 	err = st.UpdateTrust(func(cur edgeauth.Trust, readErr error) (edgeauth.Trust, error) {
 		if readErr != nil {
 			return cur, readErr
+		}
+		if signed.At < cur.SignedAt {
+			return cur, errOlder
 		}
 		have := map[string]bool{}
 		merged := append([]string(nil), cur.Revoked...)
@@ -1122,6 +1119,9 @@ func edgeTakeSignedRevocations(ctx context.Context, st edgeauth.Store, endpoint 
 		}
 		return edgeauth.Trust{Revoked: merged, RefreshedAt: signedAt.Unix(), SignedAt: signedAt.Unix()}, nil
 	})
+	if errors.Is(err, errOlder) {
+		return fmt.Sprintf("refused the revocation list from %s: it is older than the one this machine already took - this machine's list is unchanged", endpoint)
+	}
 	if err != nil {
 		return "could not save the refreshed revocation list: " + err.Error()
 	}
