@@ -31,9 +31,16 @@ Feature: The public market carries and filters by the model taxonomy
     And the offer from "n2" has category "vision", subcategory "ocr", tags "manufacturing", content policy "" and source "inferred"
     And the offer from "n4" has category "language", subcategory "chat", tags "", content policy "uncensored" and source "declared"
 
-  Scenario: An offer with no taxonomy carries no taxonomy keys
+  # Updated 2026-10-27 with founder OK (broker_inference.feature): a station that sends no
+  # taxonomy is published with the broker's guess; only a curated proxy, never guessed, stays bare.
+  Scenario: A station that sent no taxonomy is published with the broker's guess
     When a consumer GETs /discover
-    Then the JSON offer from "n5" has none of the keys "category,subcategory,tags,tuning,base_model,content_policy,license,taxonomy_source"
+    Then the offer from "n5" has category "language", subcategory "chat", tags "", content policy "" and source "inferred"
+
+  Scenario: An offer with no taxonomy and no guess carries no taxonomy keys
+    Given curated station "c9" is on air for "proxy-x" with no taxonomy
+    When a consumer GETs /discover
+    Then the JSON offer from "c9" has none of the keys "category,subcategory,tags,tuning,base_model,content_policy,license,taxonomy_source"
 
   Scenario: A voice offer reads as audio even though it declared nothing
     When a consumer GETs /discover
@@ -65,7 +72,7 @@ Feature: The public market carries and filters by the model taxonomy
       | category=Vision                         | n1,n2,n3       |
       | category=vision&subcategory=ocr         | n1,n2          |
       | subcategory=ocr                         | n1,n2          |
-      | category=language                       | n4             |
+      | category=language                       | n4,n5          |
       | category=audio                          | n6             |
       | category=audio&subcategory=tts          | n6             |
       | tag=manufacturing                       | n1,n2          |
@@ -79,7 +86,7 @@ Feature: The public market carries and filters by the model taxonomy
       | category=vision&policy=none             | n2,n3          |
       | category=vision&tag=ppe                 | n3             |
       | source=declared                         | n1,n3,n4       |
-      | source=inferred                         | n2             |
+      | source=inferred                         | n2,n5,n6       |
 
   Scenario Outline: An unknown or invalid filter value matches nothing, it is not ignored
     When a consumer GETs /discover?<query>
@@ -102,7 +109,7 @@ Feature: The public market carries and filters by the model taxonomy
 
   Scenario: Unrelated query parameters are ignored
     When a consumer GETs /discover?foo=bar&category=language
-    Then the listed nodes are "n4"
+    Then the listed nodes are "n4,n5"
 
   Scenario: A filtered /discover keeps the cheapest-first order
     When a consumer GETs /discover?category=vision
@@ -127,9 +134,10 @@ Feature: The public market carries and filters by the model taxonomy
     When a consumer GETs /market
     Then the market row for "qwen3-vl-8b" has content policies "aligned,uncensored"
 
-  Scenario: A /market row with no declared taxonomy carries no taxonomy keys
+  Scenario: A /market row with no taxonomy and no guess carries no taxonomy keys
+    Given curated station "c9" is on air for "proxy-x" with no taxonomy
     When a consumer GETs /market
-    Then the JSON market row for "gpt-oss-20b" has none of the keys "category,subcategory,category_providers,tags,content_policies"
+    Then the JSON market row for "proxy-x" has none of the keys "category,subcategory,category_providers,tags,content_policies"
 
   Scenario: A category tie is broken alphabetically
     Given station "n9" is on air for "tie-m" with category "vision" and subcategory "vlm"
