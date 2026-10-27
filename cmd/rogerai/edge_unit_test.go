@@ -425,3 +425,32 @@ func TestEdgeReachAllAnswersForEveryNode(t *testing.T) {
 	require.Empty(t, got["n_dark"].Attempts)
 	require.Contains(t, got["n_noaddr"].Attempts[0], "no address")
 }
+
+// Pre-push audit (2026-10-26): every command prints a unit by its UnitName, and every command must
+// take that name back. An unnamed board reads "Pi 5", or "Pi 5 ab12" beside another one.
+func TestEdgeResolveTakesTheNameTheScreenShows(t *testing.T) {
+	pi := func(id string) store.EdgeNode {
+		return store.EdgeNode{ID: id, Name: id, Kind: "host", Instances: []store.EdgeInstance{{Name: "r",
+			Software: &store.EdgeSoftware{Machine: "Raspberry Pi 5 Model B Rev 1.0"}}}}
+	}
+	one, two := "n_ab12"+strings.Repeat("0", 44), "n_cd34"+strings.Repeat("0", 44)
+	n, ok, err := edgeResolve([]store.EdgeNode{pi(one)}, "Pi 5")
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, one, n.ID)
+
+	both := []store.EdgeNode{pi(one), pi(two)}
+	n, ok, err = edgeResolve(both, "Pi 5 cd34")
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, two, n.ID)
+	_, ok, err = edgeResolve(both, "Pi 5")
+	require.NoError(t, err)
+	require.False(t, ok, "beside another, the bare word names neither")
+
+	named := store.EdgeNode{ID: "n_ee" + strings.Repeat("0", 46), Name: "Pi 5"}
+	n, ok, err = edgeResolve(append(both, named), "Pi 5")
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, named.ID, n.ID, "a name the owner gave comes first")
+}

@@ -660,7 +660,7 @@ func (m *model) edgeStartBind() {
 		return
 	}
 	if m.hooks.EdgeSetAgentJob == nil {
-		m.status = stEmber.Render("this build cannot bind a model here - run `roger edge model " + it.name + " <model>`")
+		m.status = stEmber.Render("this build cannot bind a model here - run `roger edge model " + edge.ShellWord(it.name) + " <model>`")
 		return
 	}
 	m.edge.binding = true
@@ -792,7 +792,7 @@ func (m *model) edgeStartRename() {
 	it, _ := m.edgeSelectedNet()
 	if it.member && it.node != nil {
 		if m.hooks.EdgeName == nil {
-			m.status = stEmber.Render("this build cannot rename a device here - run `roger edge name " + it.name + " <name>`")
+			m.status = stEmber.Render("this build cannot rename a device here - run `roger edge name " + edge.ShellWord(it.name) + " <name>`")
 			return
 		}
 		m.edge.renaming = true
@@ -821,7 +821,7 @@ func (m *model) edgeForgetSelected() {
 		return
 	}
 	if m.hooks.EdgeForget == nil {
-		m.status = stEmber.Render("this build cannot forget a device here - run `roger edge forget " + it.name + "`")
+		m.status = stEmber.Render("this build cannot forget a device here - run `roger edge forget " + edge.ShellWord(it.name) + "`")
 		return
 	}
 	m.edge.forgetID = it.node.ID
@@ -860,7 +860,7 @@ func (m *model) edgeConfirmActuateSelected() {
 		return
 	}
 	if m.hooks.EdgeConfirmActuate == nil {
-		m.status = stEmber.Render("this build cannot confirm actuate here - run `roger edge actuate " + it.name + "`")
+		m.status = stEmber.Render("this build cannot confirm actuate here - run `roger edge actuate " + edge.ShellWord(it.name) + "`")
 		return
 	}
 	m.edge.actuateID, m.edge.actuateName = it.node.ID, it.name

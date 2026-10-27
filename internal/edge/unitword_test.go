@@ -114,3 +114,19 @@ func TestAsleepNeedsAPhoneAndFreshVitals(t *testing.T) {
 	w, _ = edge.UnitWord(n, 0, now)
 	require.NotEqual(t, edge.WordAsleep, w, "only a phone sleeps")
 }
+
+// Pre-push audit (2026-10-26): a hint that prints a unit's name inside a command must print one the
+// owner can paste: "Pi 5 ab12" is three shell words unless it is quoted.
+func TestAUnitNameInACommandIsOneShellWord(t *testing.T) {
+	for in, want := range map[string]string{
+		"pi":        "pi",
+		"pi-1":      "pi-1",
+		"Pi 5":      "'Pi 5'",
+		"Pi 5 ab12": "'Pi 5 ab12'",
+		"bob's pi":  `'bob'\''s pi'`,
+		"$HOME":     "'$HOME'",
+		"":          "''",
+	} {
+		require.Equal(t, want, edge.ShellWord(in), in)
+	}
+}

@@ -1254,6 +1254,18 @@ func edgeResolve(nodes []store.EdgeNode, want string) (store.EdgeNode, bool, err
 	if len(nameHits) > 1 {
 		return store.EdgeNode{}, false, edgeAmbiguous(want, nameHits)
 	}
+	// The name every screen shows ("Pi 5", "Pi 5 ab12" for an unnamed board) is taken back too.
+	for _, n := range nodes {
+		if edge.UnitName(n, nodes) == want {
+			nameHits = append(nameHits, n)
+		}
+	}
+	if len(nameHits) == 1 {
+		return nameHits[0], true, nil
+	}
+	if len(nameHits) > 1 {
+		return store.EdgeNode{}, false, edgeAmbiguous(want, nameHits)
+	}
 	var hits []store.EdgeNode
 	for _, n := range nodes {
 		if want != "" && strings.HasPrefix(n.ID, want) {
