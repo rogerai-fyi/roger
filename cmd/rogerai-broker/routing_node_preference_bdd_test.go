@@ -107,12 +107,6 @@ type np1State struct {
 	// that served it (tps, success, exploration counts), so shares read after a batch would
 	// judge the batch's own side effects instead of the scenario's fixture.
 	np1Shares map[string]map[string]float64
-	// np1Metrics0 is the stations' measured routing state (throughput, success, trust) when the
-	// scenario's first batch started. Every later batch starts from it again, so two batches
-	// that are compared sample the SAME state: the relays of the first batch fold real,
-	// wall-clock-dependent measurements into those EWMAs, and on a loaded machine that alone
-	// moved the second batch's picks (CI: s3 0.10 -> 0.005 between two identical prefs).
-	np1Metrics0 *np1Metrics
 }
 
 func (s *np1State) np1Reset() error {
@@ -126,7 +120,6 @@ func (s *np1State) np1Reset() error {
 	s.np1RA, s.np1TPS, s.np1BannedOps = map[string]string{}, map[string]float64{}, map[string]bool{}
 	s.np1Later, s.np1BResults, s.np1Collision, s.np1PoseTower = nil, nil, "", ""
 	s.np1Shares, s.np1TTFTOnly = nil, false
-	s.np1Metrics0 = nil
 	return nil
 }
 
@@ -371,11 +364,7 @@ func (s *np1State) np1Generic(text string) error {
 		s.np1Prev = s.batch
 	}
 	s.batch, s.np1Attempts, s.np1AttemptHits = nil, nil, nil
-	if count >= 20 && s.np1Metrics0 != nil {
-		s.np1RestoreMetrics(s.np1Metrics0)
-	}
 	if count >= 20 && s.np1Shares == nil {
-		s.np1Metrics0 = s.np1SnapshotMetrics()
 		s.np1Shares = map[string]map[string]float64{}
 		for _, pref := range []string{"", "balanced", "cheap", "fast", "reliable"} {
 			s.np1Shares[pref] = s.np1Share(pref, nil)
@@ -2367,43 +2356,4 @@ func TestRoutingNodePreferenceBDD(t *testing.T) {
 	if suite.Run() != 0 {
 		t.Fatal("features/routing/node_preference.feature has failing scenarios")
 	}
-}
-
-// np1Metrics is a copy of the per-station measurements the pick scores on.
-type np1Metrics struct {
-	tps, success, concurrentTPS map[string]float64
-	successCount                map[string]int
-	trust                       map[string]trustState
-}
-
-func np1CopyMap[K comparable, V any](m map[K]V) map[K]V {
-	if m == nil {
-		return nil
-	}
-	out := make(map[K]V, len(m))
-	for k, v := range m {
-		out[k] = v
-	}
-	return out
-}
-
-func (s *np1State) np1SnapshotMetrics() *np1Metrics {
-	s.b.mu.Lock()
-	m := &np1Metrics{tps: np1CopyMap(s.b.tps)}
-	s.b.mu.Unlock()
-	s.b.metricsMu.Lock()
-	m.success, m.concurrentTPS = np1CopyMap(s.b.success), np1CopyMap(s.b.concurrentTPS)
-	m.successCount, m.trust = np1CopyMap(s.b.successCount), np1CopyMap(s.b.trust)
-	s.b.metricsMu.Unlock()
-	return m
-}
-
-func (s *np1State) np1RestoreMetrics(m *np1Metrics) {
-	s.b.mu.Lock()
-	s.b.tps = np1CopyMap(m.tps)
-	s.b.mu.Unlock()
-	s.b.metricsMu.Lock()
-	s.b.success, s.b.concurrentTPS = np1CopyMap(m.success), np1CopyMap(m.concurrentTPS)
-	s.b.successCount, s.b.trust = np1CopyMap(m.successCount), np1CopyMap(m.trust)
-	s.b.metricsMu.Unlock()
 }
