@@ -13,7 +13,7 @@ import (
 // THE DEPENDENCY DECISION (CLAUDE.md's minimisation rung, recorded where the code is):
 // the alternatives were a pure-Go zeroconf/mDNS library (hashicorp/mdns, grandcat/
 // zeroconf, brutella/dnssd) or golang.org/x/net/dns/dnsmessage for the codec alone.
-// Both were rejected.
+// Neither is used.
 //
 //   - A zeroconf LIBRARY brings a whole service-discovery framework - its own goroutine
 //     and cache model, its own interface handling, its own idea of what a service
@@ -21,15 +21,15 @@ import (
 //     which is exactly the seam this spec needs to control: an advertisement here is a
 //     HINT, and the authority is a certificate we pin ourselves. None of the candidates
 //     is actively maintained, and this repository settles money.
-//   - golang.org/x/net/dns/dnsmessage is the codec the standard library itself vendors,
-//     and would have been the natural pick - but it is not in this module's graph, and
-//     `go get` of it also pulled x/crypto and x/sys forward. Moving the crypto module of
-//     a money service sideways to avoid writing 200 lines of DNS encoding is the wrong
-//     trade.
+//   - golang.org/x/net IS in this module now, for one setsockopt (multicast loopback,
+//     transport.go), but its dnsmessage codec is still not used: the decoder here is
+//     hardened for a hostile LAN in ways a general codec is not asked to be, and the
+//     encoder is the few record shapes below.
 //
-// So: no new module. What is here is only what `_rogerai._tcp` needs - PTR, SRV, TXT, A
-// and AAAA, no compression on the way out, and a decoder that is hardened for a HOSTILE
-// LAN, because every byte it reads came from an unauthenticated multicast group:
+// So: no discovery library and no general codec. What is here is only what
+// `_rogerai._tcp` needs - PTR, SRV, TXT, A and AAAA, no compression on the way out, and a
+// decoder that is hardened for a HOSTILE LAN, because every byte it reads came from an
+// unauthenticated multicast group:
 // bounded message size, bounded record count, bounded label and name length, and a
 // pointer-hop cap with a strictly-backwards rule so a crafted compression loop cannot
 // spin. FuzzParseMessage keeps it honest.
