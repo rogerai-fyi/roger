@@ -41,7 +41,7 @@ import (
 	"rogerai.fm/roger/v6/internal/store"
 )
 
-type eaState struct {
+type emailAcctState struct {
 	*foState
 
 	addr    string // the email account under test
@@ -84,7 +84,7 @@ type eaState struct {
 // u makes a scenario's address unique per scenario run (plus-addressing with the run nonce):
 // the Postgres store persists across scenarios, so a fixed address would carry one scenario's
 // wallet, spend and owner rows into the next. Every step maps the address it is given.
-func (s *eaState) u(addr string) string {
+func (s *emailAcctState) u(addr string) string {
 	i := strings.Index(addr, "@")
 	if i < 0 || addr == "" {
 		return addr
@@ -98,7 +98,7 @@ func eaGID() int64 {
 	return n.Int64() + 1_000_000
 }
 
-func (s *eaState) reset() error {
+func (s *emailAcctState) reset() error {
 	if err := s.foState.reset(); err != nil {
 		return err
 	}
@@ -115,7 +115,7 @@ func (s *eaState) reset() error {
 
 // signInByEmail drives the REAL emailed-code sign-in and returns the session cookie value and
 // the wallet the broker resolved for it.
-func (s *eaState) signInByEmail(addr string) (string, error) {
+func (s *emailAcctState) signInByEmail(addr string) (string, error) {
 	mark := s.mailCount()
 	rec := s.postWeb(s.b.emailStart, "/auth/email/start", map[string]any{"email": addr}, "")
 	if rec.Code != http.StatusOK {
@@ -137,7 +137,7 @@ func (s *eaState) signInByEmail(addr string) (string, error) {
 	return "", fmt.Errorf("/auth/email/verify set no session cookie")
 }
 
-func (s *eaState) mailCount() int {
+func (s *emailAcctState) mailCount() int {
 	s.mailMu.Lock()
 	defer s.mailMu.Unlock()
 	return len(s.mails)
@@ -145,7 +145,7 @@ func (s *eaState) mailCount() int {
 
 var eaSixDigits = regexp.MustCompile(`\b(\d{6})\b`)
 
-func (s *eaState) codeAfter(mark int) (string, error) {
+func (s *emailAcctState) codeAfter(mark int) (string, error) {
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
 		s.mailMu.Lock()
@@ -165,7 +165,7 @@ func (s *eaState) codeAfter(mark int) (string, error) {
 
 // postWeb calls a browser-facing handler from the allowlisted web origin, with an optional
 // session cookie.
-func (s *eaState) postWeb(h http.HandlerFunc, path string, in any, session string) *httptest.ResponseRecorder {
+func (s *emailAcctState) postWeb(h http.HandlerFunc, path string, in any, session string) *httptest.ResponseRecorder {
 	body, _ := json.Marshal(in)
 	req := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -180,7 +180,7 @@ func (s *eaState) postWeb(h http.HandlerFunc, path string, in any, session strin
 
 // approveDevice runs the REAL device login: the CLI key starts it (signed), the email session
 // approves it, binding the key to the account.
-func (s *eaState) approveDevice(session string) (ed25519.PrivateKey, error) {
+func (s *emailAcctState) approveDevice(session string) (ed25519.PrivateKey, error) {
 	_, priv, _ := ed25519.GenerateKey(nil)
 	return priv, s.approveKey(session, priv)
 }
@@ -188,7 +188,7 @@ func (s *eaState) approveDevice(session string) (ed25519.PrivateKey, error) {
 // approveKey runs the REAL device login for an existing key: the key starts it (signed), the
 // session approves it. Used for a second approval of the same device and for linking a proven
 // address onto a key that already belongs to a provider account.
-func (s *eaState) approveKey(session string, priv ed25519.PrivateKey) error {
+func (s *emailAcctState) approveKey(session string, priv ed25519.PrivateKey) error {
 	body := []byte(`{}`)
 	req := httptest.NewRequest(http.MethodPost, "/auth/device/start", bytes.NewReader(body))
 	signReq(req, priv, body)
@@ -208,7 +208,7 @@ func (s *eaState) approveKey(session string, priv ed25519.PrivateKey) error {
 	return nil
 }
 
-func (s *eaState) setBalance(wallet string, want float64) error {
+func (s *emailAcctState) setBalance(wallet string, want float64) error {
 	bal, err := s.db.BalanceOf(wallet, s.b.seedFunds) // creates the row the way production does
 	if err != nil {
 		return err
@@ -226,7 +226,7 @@ func (s *eaState) setBalance(wallet string, want float64) error {
 }
 
 // chatBody is the relay body for the scenario model.
-func (s *eaState) chatBody(model string, stream bool) []byte {
+func (s *emailAcctState) chatBody(model string, stream bool) []byte {
 	m := map[string]any{"model": model, "messages": []map[string]string{{"role": "user", "content": utPrompt(s.tokens)}}}
 	if stream {
 		m["stream"] = true
@@ -237,7 +237,7 @@ func (s *eaState) chatBody(model string, stream bool) []byte {
 
 // relayAs sends one relay as the given identity: a session cookie (from the web origin), a
 // signed key, or an unsigned request with extra headers.
-func (s *eaState) relayAs(session string, key ed25519.PrivateKey, model, pin string, stream bool, hdr map[string]string) *httptest.ResponseRecorder {
+func (s *emailAcctState) relayAs(session string, key ed25519.PrivateKey, model, pin string, stream bool, hdr map[string]string) *httptest.ResponseRecorder {
 	body := s.chatBody(model, stream)
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -261,7 +261,7 @@ func (s *eaState) relayAs(session string, key ed25519.PrivateKey, model, pin str
 	return rec
 }
 
-func (s *eaState) relayAccount(model, pin string, stream bool) *httptest.ResponseRecorder {
+func (s *emailAcctState) relayAccount(model, pin string, stream bool) *httptest.ResponseRecorder {
 	if s.via == "key" {
 		return s.relayAs("", s.key, model, pin, stream, nil)
 	}
@@ -269,7 +269,7 @@ func (s *eaState) relayAccount(model, pin string, stream bool) *httptest.Respons
 }
 
 // getDash GETs a dashboard route as the account's session.
-func (s *eaState) getDash(h http.HandlerFunc, path, session string) *httptest.ResponseRecorder {
+func (s *emailAcctState) getDash(h http.HandlerFunc, path, session string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(http.MethodGet, path, nil)
 	req.Header.Set("Origin", testWebOrigin)
 	req.AddCookie(&http.Cookie{Name: sessionCookie, Value: session})
@@ -281,7 +281,7 @@ func (s *eaState) getDash(h http.HandlerFunc, path, session string) *httptest.Re
 	return rec
 }
 
-func (s *eaState) upstreamHits(name string) int {
+func (s *emailAcctState) upstreamHits(name string) int {
 	st := s.st(name)
 	st.mu.Lock()
 	defer st.mu.Unlock()
@@ -290,7 +290,7 @@ func (s *eaState) upstreamHits(name string) int {
 
 // settleSpend records `amount` of real spend for the wallet through the same store calls the
 // relay's settle makes (hold, then finalize with a receipt).
-func (s *eaState) settleSpend(wallet string, amount float64) error {
+func (s *emailAcctState) settleSpend(wallet string, amount float64) error {
 	reqID := "spend-" + utNonce()
 	ok, err := s.db.HoldFor(wallet, reqID, amount)
 	if err != nil || !ok {
@@ -304,7 +304,7 @@ func (s *eaState) settleSpend(wallet string, amount float64) error {
 	return nil
 }
 
-func (s *eaState) seedEntries(wallet string) (int, error) {
+func (s *emailAcctState) seedEntries(wallet string) (int, error) {
 	rows, err := s.db.LedgerOf(wallet, nil, 1000)
 	if err != nil {
 		return 0, err
@@ -320,21 +320,21 @@ func (s *eaState) seedEntries(wallet string) (int, error) {
 
 // --- Background ---------------------------------------------------------------------------
 
-func (s *eaState) configuredMailer() error { return nil } // foState's broker always has one
+func (s *emailAcctState) configuredMailer() error { return nil } // foState's broker always has one
 
-func (s *eaState) paidStation(name, model, in, out string) error {
+func (s *emailAcctState) paidStation(name, model, in, out string) error {
 	pin, _ := strconv.ParseFloat(in, 64)
 	pout, _ := strconv.ParseFloat(out, 64)
 	s.standUp(name, stationOpts{model: model, priceIn: pin, priceOut: pout})
 	return nil
 }
 
-func (s *eaState) freeStation(name, model string) error {
+func (s *emailAcctState) freeStation(name, model string) error {
 	s.standUp(name, stationOpts{model: model})
 	return nil
 }
 
-func (s *eaState) signedInWithCode(addr string) error {
+func (s *emailAcctState) signedInWithCode(addr string) error {
 	addr = s.u(addr)
 	sess, err := s.signInByEmail(addr)
 	if err != nil {
@@ -344,7 +344,7 @@ func (s *eaState) signedInWithCode(addr string) error {
 	return nil
 }
 
-func (s *eaState) walletHolds(addr, amt string) error {
+func (s *emailAcctState) walletHolds(addr, amt string) error {
 	v, _ := strconv.ParseFloat(amt, 64)
 	if err := s.setBalance(walletForEmail(s.u(addr)), v); err != nil {
 		return err
@@ -355,7 +355,7 @@ func (s *eaState) walletHolds(addr, amt string) error {
 
 // --- the spend gate -----------------------------------------------------------------------
 
-func (s *eaState) callsThrough(addr, identity string) error {
+func (s *emailAcctState) callsThrough(addr, identity string) error {
 	switch identity {
 	case "the browser session minted by the emailed code":
 		s.via = "session"
@@ -380,13 +380,13 @@ func (s *eaState) callsThrough(addr, identity string) error {
 	return nil
 }
 
-func (s *eaState) callerRelaysPinned(model, pin string) error {
+func (s *emailAcctState) callerRelaysPinned(model, pin string) error {
 	s.rcvdStart[pin] = s.upstreamHits(pin)
 	s.relayAccount(model, pin, false)
 	return nil
 }
 
-func (s *eaState) responseFrom(code int, name string) error {
+func (s *emailAcctState) responseFrom(code int, name string) error {
 	if s.resp.Code != code {
 		return fmt.Errorf("status %d, want %d (%s)", s.resp.Code, code, s.resp.Body.String())
 	}
@@ -396,16 +396,16 @@ func (s *eaState) responseFrom(code int, name string) error {
 	return nil
 }
 
-func (s *eaState) response200From(name string) error { return s.responseFrom(200, name) }
+func (s *emailAcctState) response200From(name string) error { return s.responseFrom(200, name) }
 
-func (s *eaState) receiptRecorded() error {
+func (s *emailAcctState) receiptRecorded() error {
 	if s.resp.Header().Get("X-RogerAI-Receipt") == "" {
 		return fmt.Errorf("no X-RogerAI-Receipt on the response")
 	}
 	return nil
 }
 
-func (s *eaState) costDebitedFrom(addr string) error {
+func (s *emailAcctState) costDebitedFrom(addr string) error {
 	cost, err := strconv.ParseFloat(s.resp.Header().Get("X-RogerAI-Cost"), 64)
 	if err != nil || cost <= 0 {
 		return fmt.Errorf("X-RogerAI-Cost %q, want a positive cost", s.resp.Header().Get("X-RogerAI-Cost"))
@@ -417,20 +417,20 @@ func (s *eaState) costDebitedFrom(addr string) error {
 	return nil
 }
 
-func (s *eaState) no401LogIn() error {
+func (s *emailAcctState) no401LogIn() error {
 	if s.resp.Code == http.StatusUnauthorized || strings.Contains(s.resp.Body.String(), "log in to spend") {
 		return fmt.Errorf("got the log-in refusal: %d %s", s.resp.Code, s.resp.Body.String())
 	}
 	return nil
 }
 
-func (s *eaState) accountRelaysPinned(model, pin string) error {
+func (s *emailAcctState) accountRelaysPinned(model, pin string) error {
 	s.rcvdStart[pin] = s.upstreamHits(pin)
 	s.relayAccount(model, pin, false)
 	return nil
 }
 
-func (s *eaState) response402Code(code string) error {
+func (s *emailAcctState) response402Code(code string) error {
 	if s.resp.Code != http.StatusPaymentRequired {
 		return fmt.Errorf("status %d, want 402 (%s)", s.resp.Code, s.resp.Body.String())
 	}
@@ -446,26 +446,26 @@ func (s *eaState) response402Code(code string) error {
 	return nil
 }
 
-func (s *eaState) responseNot401() error {
+func (s *emailAcctState) responseNot401() error {
 	if s.resp.Code == http.StatusUnauthorized {
 		return fmt.Errorf("got 401: %s", s.resp.Body.String())
 	}
 	return nil
 }
 
-func (s *eaState) costHeaderIs(v string) error {
+func (s *emailAcctState) costHeaderIs(v string) error {
 	if got := s.resp.Header().Get("X-RogerAI-Cost"); got != v {
 		return fmt.Errorf("X-RogerAI-Cost %q, want %q", got, v)
 	}
 	return nil
 }
 
-func (s *eaState) accountStreamsPinned(model, pin string) error {
+func (s *emailAcctState) accountStreamsPinned(model, pin string) error {
 	s.relayAccount(model, pin, true)
 	return nil
 }
 
-func (s *eaState) streamUsageChunk() error {
+func (s *emailAcctState) streamUsageChunk() error {
 	body := s.resp.Body.String()
 	if s.resp.Code != 200 {
 		return fmt.Errorf("status %d: %s", s.resp.Code, body)
@@ -490,7 +490,7 @@ func (s *eaState) streamUsageChunk() error {
 	return fmt.Errorf("no broker usage chunk carrying the receipt in the stream")
 }
 
-func (s *eaState) streamDebited(addr string) error {
+func (s *emailAcctState) streamDebited(addr string) error {
 	// a stream carries the settled cost in its trailing meter; the wallet must have moved by it
 	bal, _ := s.db.PeekBalance(walletForEmail(s.u(addr)))
 	if !(bal < s.balStart) {
@@ -499,12 +499,12 @@ func (s *eaState) streamDebited(addr string) error {
 	return nil
 }
 
-func (s *eaState) secondPaidStation(name, model string) error {
+func (s *emailAcctState) secondPaidStation(name, model string) error {
 	s.standUp(name, stationOpts{model: model, priceIn: 0.5, priceOut: 1.5})
 	return nil
 }
 
-func (s *eaState) answers429Next(name string) error {
+func (s *emailAcctState) answers429Next(name string) error {
 	st := s.st(name)
 	st.set(func(n int, w http.ResponseWriter, _ *http.Request) {
 		if n == 1 {
@@ -531,13 +531,13 @@ func (s *eaState) answers429Next(name string) error {
 	return nil
 }
 
-func (s *eaState) accountRelays(model string) error {
+func (s *emailAcctState) accountRelays(model string) error {
 	s.rcvdStart["n-1"] = s.upstreamHits("n-1")
 	s.relayAccount(model, "", false)
 	return nil
 }
 
-func (s *eaState) planNotTrimmedToFree() error {
+func (s *emailAcctState) planNotTrimmedToFree() error {
 	if s.upstreamHits("n-1")-s.rcvdStart["n-1"] < 1 {
 		return fmt.Errorf("the paid first pick n-1 was never attempted")
 	}
@@ -549,7 +549,7 @@ func (s *eaState) planNotTrimmedToFree() error {
 
 // --- voice --------------------------------------------------------------------------------
 
-func (s *eaState) paidVoiceStation(name, model string) error {
+func (s *emailAcctState) paidVoiceStation(name, model string) error {
 	pub, priv, _ := ed25519.GenerateKey(nil)
 	id := name + "-" + s.nonce
 	s.b.nodes[id] = protocol.NodeRegistration{NodeID: id, PubKey: hex.EncodeToString(pub),
@@ -584,7 +584,7 @@ func (s *eaState) paidVoiceStation(name, model string) error {
 	return nil
 }
 
-func (s *eaState) requestsSpeech(model string) error {
+func (s *emailAcctState) requestsSpeech(model string) error {
 	body := []byte(fmt.Sprintf(`{"model":%q,"voice":%q,"input":"hello there","response_format":"mp3"}`, model, model))
 	req := httptest.NewRequest(http.MethodPost, "/v1/audio/speech", bytes.NewReader(body))
 	if s.key == nil {
@@ -601,14 +601,14 @@ func (s *eaState) requestsSpeech(model string) error {
 	return nil
 }
 
-func (s *eaState) response200() error {
+func (s *emailAcctState) response200() error {
 	if s.resp.Code != 200 {
 		return fmt.Errorf("status %d, want 200 (%s)", s.resp.Code, s.resp.Body.String())
 	}
 	return nil
 }
 
-func (s *eaState) no403Voice() error {
+func (s *emailAcctState) no403Voice() error {
 	if s.resp.Code == http.StatusForbidden || strings.Contains(s.resp.Body.String(), "sign in to use this voice model") {
 		return fmt.Errorf("got the voice sign-in refusal: %d %s", s.resp.Code, s.resp.Body.String())
 	}
@@ -617,9 +617,9 @@ func (s *eaState) no403Voice() error {
 
 // --- Tower parity -------------------------------------------------------------------------
 
-func (s *eaState) towerServesOnly(model, out string) error { return nil } // built in the Then (own tower broker)
+func (s *emailAcctState) towerServesOnly(model, out string) error { return nil } // built in the Then (own tower broker)
 
-func (s *eaState) bridgeBills(addr string) error {
+func (s *emailAcctState) bridgeBills(addr string) error {
 	tb, srv := towerTestBroker(s.t)
 	op := signedInOperator(s.t, tb, "tw-op-"+s.nonce)
 	tw := enrolledTower(s.t, tb, op.login)
@@ -648,7 +648,7 @@ func (s *eaState) bridgeBills(addr string) error {
 	return nil
 }
 
-func (s *eaState) directServesToo(model string) error {
+func (s *emailAcctState) directServesToo(model string) error {
 	if s.key == nil {
 		k, err := s.approveDevice(s.session)
 		if err != nil {
@@ -665,7 +665,7 @@ func (s *eaState) directServesToo(model string) error {
 
 // --- dashboards ---------------------------------------------------------------------------
 
-func (s *eaState) accountGETs(path string) error {
+func (s *emailAcctState) accountGETs(path string) error {
 	switch path {
 	case "/me":
 		s.getDash(s.b.me, path, s.session)
@@ -681,14 +681,14 @@ func (s *eaState) accountGETs(path string) error {
 	return nil
 }
 
-func (s *eaState) saysLoggedIn() error {
+func (s *emailAcctState) saysLoggedIn() error {
 	if v, _ := s.dashBody["logged_in"].(bool); !v {
 		return fmt.Errorf("logged_in is not true: %d %s", s.resp.Code, s.resp.Body.String())
 	}
 	return nil
 }
 
-func (s *eaState) showsBalance(amt string) error {
+func (s *emailAcctState) showsBalance(amt string) error {
 	want, _ := strconv.ParseFloat(amt, 64)
 	got, _ := s.dashBody["balance"].(float64)
 	if !approxF(got, want) {
@@ -697,12 +697,12 @@ func (s *eaState) showsBalance(amt string) error {
 	return nil
 }
 
-func (s *eaState) spentThisMonth(amt string) error {
+func (s *emailAcctState) spentThisMonth(amt string) error {
 	v, _ := strconv.ParseFloat(amt, 64)
 	return s.settleSpend(s.wallet, v)
 }
 
-func (s *eaState) usage200Spend(amt string) error {
+func (s *emailAcctState) usage200Spend(amt string) error {
 	if s.resp.Code != 200 {
 		return fmt.Errorf("/usage %d: %s", s.resp.Code, s.resp.Body.String())
 	}
@@ -720,7 +720,7 @@ func (s *eaState) usage200Spend(amt string) error {
 	return nil
 }
 
-func (s *eaState) madePaidRequest() error {
+func (s *emailAcctState) madePaidRequest() error {
 	rec := s.relayAccount("qwen3-32b", "n-1", false)
 	if rec.Code != 200 {
 		return fmt.Errorf("the paid request was not served: %d %s", rec.Code, rec.Body.String())
@@ -728,7 +728,7 @@ func (s *eaState) madePaidRequest() error {
 	return nil
 }
 
-func (s *eaState) consoleListsRequest() error {
+func (s *emailAcctState) consoleListsRequest() error {
 	if s.resp.Code != 200 {
 		return fmt.Errorf("/console %d: %s", s.resp.Code, s.resp.Body.String())
 	}
@@ -741,7 +741,7 @@ func (s *eaState) consoleListsRequest() error {
 
 // --- limits -------------------------------------------------------------------------------
 
-func (s *eaState) setsMonthlyLimit(amt string) error {
+func (s *emailAcctState) setsMonthlyLimit(amt string) error {
 	v, _ := strconv.ParseFloat(amt, 64)
 	body, _ := json.Marshal(map[string]any{"monthly_cap": v})
 	req := httptest.NewRequest(http.MethodPatch, "/account/limit", bytes.NewReader(body))
@@ -753,7 +753,7 @@ func (s *eaState) setsMonthlyLimit(amt string) error {
 	return nil
 }
 
-func (s *eaState) limitStoredFor(addr string) error {
+func (s *emailAcctState) limitStoredFor(addr string) error {
 	if s.resp.Code != 200 {
 		return fmt.Errorf("PATCH /account/limit = %d %s", s.resp.Code, s.resp.Body.String())
 	}
@@ -764,7 +764,7 @@ func (s *eaState) limitStoredFor(addr string) error {
 	return nil
 }
 
-func (s *eaState) spentAndRelays(amt string) error {
+func (s *emailAcctState) spentAndRelays(amt string) error {
 	v, _ := strconv.ParseFloat(amt, 64)
 	if err := s.settleSpend(s.wallet, v); err != nil {
 		return err
@@ -773,19 +773,19 @@ func (s *eaState) spentAndRelays(amt string) error {
 	return nil
 }
 
-func (s *eaState) response402Monthly() error {
+func (s *emailAcctState) response402Monthly() error {
 	if s.resp.Code != http.StatusPaymentRequired || !strings.Contains(s.resp.Body.String(), "monthly spend limit") {
 		return fmt.Errorf("status %d %s, want 402 naming the monthly spend limit", s.resp.Code, s.resp.Body.String())
 	}
 	return nil
 }
 
-func (s *eaState) perIdentityRateLimit(n, burst int) error {
+func (s *emailAcctState) perIdentityRateLimit(n, burst int) error {
 	s.b.rl = &rateLimiter{buckets: map[string]*tokenBucket{}, rpm: float64(n), burst: float64(burst)}
 	return nil
 }
 
-func (s *eaState) sessionThenKey(nSess, nKey int) error {
+func (s *emailAcctState) sessionThenKey(nSess, nKey int) error {
 	k, err := s.approveDevice(s.session)
 	if err != nil {
 		return err
@@ -800,7 +800,7 @@ func (s *eaState) sessionThenKey(nSess, nKey int) error {
 	return nil
 }
 
-func (s *eaState) thirdIs429() error {
+func (s *emailAcctState) thirdIs429() error {
 	if len(s.resps) < 3 {
 		return fmt.Errorf("only %d requests sent", len(s.resps))
 	}
@@ -811,7 +811,7 @@ func (s *eaState) thirdIs429() error {
 	return nil
 }
 
-func (s *eaState) keyCallsRCOwner() error {
+func (s *emailAcctState) keyCallsRCOwner() error {
 	k, err := s.approveDevice(s.session)
 	if err != nil {
 		return err
@@ -827,7 +827,7 @@ func (s *eaState) keyCallsRCOwner() error {
 	return nil
 }
 
-func (s *eaState) rcAcceptedFor(addr string) error {
+func (s *emailAcctState) rcAcceptedFor(addr string) error {
 	if s.topupWallet != walletForEmail(s.u(addr)) {
 		return fmt.Errorf("the remote-control owner resolver returned %q, want %s's account wallet", s.topupWallet, addr)
 	}
@@ -836,14 +836,14 @@ func (s *eaState) rcAcceptedFor(addr string) error {
 
 // --- money in, money out ------------------------------------------------------------------
 
-func (s *eaState) sessionReq() *http.Request {
+func (s *emailAcctState) sessionReq() *http.Request {
 	req := httptest.NewRequest(http.MethodPost, "/billing/checkout", nil)
 	req.Header.Set("Origin", testWebOrigin)
 	req.AddCookie(&http.Cookie{Name: sessionCookie, Value: s.session})
 	return req
 }
 
-func (s *eaState) completesTopup(amt string) error {
+func (s *emailAcctState) completesTopup(amt string) error {
 	v, _ := strconv.ParseFloat(amt, 64)
 	w, ok := s.b.checkoutWallet(s.sessionReq(), nil)
 	if !ok {
@@ -857,12 +857,12 @@ func (s *eaState) completesTopup(amt string) error {
 	return nil
 }
 
-func (s *eaState) balanceReads(amt string) error {
+func (s *emailAcctState) balanceReads(amt string) error {
 	s.getDash(s.b.balance, "/balance", s.session)
 	return s.showsBalance(amt)
 }
 
-func (s *eaState) paidServedDebited() error {
+func (s *emailAcctState) paidServedDebited() error {
 	before, _ := s.db.PeekBalance(s.topupWallet)
 	rec := s.relayAccount("qwen3-32b", "n-1", false)
 	if rec.Code != 200 {
@@ -875,7 +875,7 @@ func (s *eaState) paidServedDebited() error {
 	return nil
 }
 
-func (s *eaState) topupThenRelay() error {
+func (s *emailAcctState) topupThenRelay() error {
 	w, ok := s.b.checkoutWallet(s.sessionReq(), nil)
 	if !ok {
 		return fmt.Errorf("checkout resolved no wallet")
@@ -886,7 +886,7 @@ func (s *eaState) topupThenRelay() error {
 	return nil
 }
 
-func (s *eaState) sameWallet() error {
+func (s *emailAcctState) sameWallet() error {
 	if s.resp.Code != 200 {
 		return fmt.Errorf("the relay was not served: %d %s", s.resp.Code, s.resp.Body.String())
 	}
@@ -899,7 +899,7 @@ func (s *eaState) sameWallet() error {
 
 // --- the starter seed ---------------------------------------------------------------------
 
-func (s *eaState) brandNewEmail(addr string) error {
+func (s *emailAcctState) brandNewEmail(addr string) error {
 	addr = s.u(addr)
 	sess, err := s.signInByEmail(addr)
 	if err != nil {
@@ -909,12 +909,12 @@ func (s *eaState) brandNewEmail(addr string) error {
 	return nil
 }
 
-func (s *eaState) relaysUnderSeed() error {
+func (s *emailAcctState) relaysUnderSeed() error {
 	s.relayAs(s.newSession, nil, "qwen3-32b", "n-1", false, nil)
 	return nil
 }
 
-func (s *eaState) exactlyOneSeed() error {
+func (s *emailAcctState) exactlyOneSeed() error {
 	n, err := s.seedEntries(s.newWallet)
 	if err != nil {
 		return err
@@ -925,12 +925,12 @@ func (s *eaState) exactlyOneSeed() error {
 	return nil
 }
 
-func (s *eaState) relaysSecond() error {
+func (s *emailAcctState) relaysSecond() error {
 	s.relayAs(s.newSession, nil, "qwen3-32b", "n-1", false, nil)
 	return nil
 }
 
-func (s *eaState) ginaGitHubLinked(addr string) error {
+func (s *emailAcctState) ginaGitHubLinked(addr string) error {
 	addr = s.u(addr)
 	pub, _, _ := ed25519.GenerateKey(nil)
 	gid := eaGID()
@@ -950,7 +950,7 @@ func (s *eaState) ginaGitHubLinked(addr string) error {
 	return nil
 }
 
-func (s *eaState) accountRelaysPaid() error {
+func (s *emailAcctState) accountRelaysPaid() error {
 	sess := s.session
 	if s.ginaSession != "" {
 		sess = s.ginaSession
@@ -959,7 +959,7 @@ func (s *eaState) accountRelaysPaid() error {
 	return nil
 }
 
-func (s *eaState) githubIsPayer() error {
+func (s *emailAcctState) githubIsPayer() error {
 	if s.resp.Code != 200 {
 		return fmt.Errorf("status %d %s", s.resp.Code, s.resp.Body.String())
 	}
@@ -970,7 +970,7 @@ func (s *eaState) githubIsPayer() error {
 	return nil
 }
 
-func (s *eaState) emailNamespaceUnused() error {
+func (s *emailAcctState) emailNamespaceUnused() error {
 	rows, _ := s.db.LedgerOf(walletForEmail(s.u("gina@example.com")), nil, 100)
 	if len(rows) != 0 {
 		return fmt.Errorf("%d ledger rows on the email namespace wallet", len(rows))
@@ -980,12 +980,12 @@ func (s *eaState) emailNamespaceUnused() error {
 
 // --- nothing else becomes able to spend ---------------------------------------------------
 
-func (s *eaState) unboundKeypair() error {
+func (s *emailAcctState) unboundKeypair() error {
 	_, s.unboundKey, _ = ed25519.GenerateKey(nil)
 	return nil
 }
 
-func (s *eaState) itRelaysPinned(model, pin string) error {
+func (s *emailAcctState) itRelaysPinned(model, pin string) error {
 	k := s.unboundKey
 	if k == nil {
 		k = s.pendingKey
@@ -994,14 +994,14 @@ func (s *eaState) itRelaysPinned(model, pin string) error {
 	return nil
 }
 
-func (s *eaState) response401(msg string) error {
+func (s *emailAcctState) response401(msg string) error {
 	if s.resp.Code != http.StatusUnauthorized || !strings.Contains(s.resp.Body.String(), msg) {
 		return fmt.Errorf("status %d %s, want 401 %q", s.resp.Code, s.resp.Body.String(), msg)
 	}
 	return nil
 }
 
-func (s *eaState) claimsWallet(claimed, channel string) error {
+func (s *emailAcctState) claimsWallet(claimed, channel string) error {
 	if _, ok := s.stations["n-1"]; ok {
 		s.rcvdStart["n-1"] = s.upstreamHits("n-1")
 	}
@@ -1019,7 +1019,7 @@ func (s *eaState) claimsWallet(claimed, channel string) error {
 	return nil
 }
 
-func (s *eaState) notServedBy(name string) error {
+func (s *emailAcctState) notServedBy(name string) error {
 	if s.resp.Code == 200 {
 		return fmt.Errorf("served (200): %s", s.resp.Body.String())
 	}
@@ -1029,7 +1029,7 @@ func (s *eaState) notServedBy(name string) error {
 	return nil
 }
 
-func (s *eaState) noWalletDebited(w string) error {
+func (s *emailAcctState) noWalletDebited(w string) error {
 	rows, _ := s.db.LedgerOf(w, nil, 100)
 	for _, r := range rows {
 		if r.Amount < 0 {
@@ -1039,7 +1039,7 @@ func (s *eaState) noWalletDebited(w string) error {
 	return nil
 }
 
-func (s *eaState) pendingDeviceKey() error {
+func (s *emailAcctState) pendingDeviceKey() error {
 	_, priv, _ := ed25519.GenerateKey(nil)
 	body := []byte(`{}`)
 	req := httptest.NewRequest(http.MethodPost, "/auth/device/start", bytes.NewReader(body))
@@ -1053,7 +1053,7 @@ func (s *eaState) pendingDeviceKey() error {
 	return nil
 }
 
-func (s *eaState) balanceUnchanged(addr string) error {
+func (s *emailAcctState) balanceUnchanged(addr string) error {
 	bal, _ := s.db.PeekBalance(walletForEmail(s.u(addr)))
 	if !approxF(bal, s.balStart) {
 		return fmt.Errorf("%s's balance moved: $%.6f -> $%.6f", addr, s.balStart, bal)
@@ -1061,7 +1061,7 @@ func (s *eaState) balanceUnchanged(addr string) error {
 	return nil
 }
 
-func (s *eaState) deletedAndAnonymized(addr string) error {
+func (s *emailAcctState) deletedAndAnonymized(addr string) error {
 	if err := s.setBalance(walletForEmail(s.u(addr)), 0); err != nil {
 		return err
 	}
@@ -1080,13 +1080,13 @@ func (s *eaState) deletedAndAnonymized(addr string) error {
 	return nil
 }
 
-func (s *eaState) oldSessionRelays() error {
+func (s *emailAcctState) oldSessionRelays() error {
 	s.balStart, _ = s.db.PeekBalance(s.wallet)
 	s.relayAs(s.session, nil, "qwen3-32b", "n-1", false, nil)
 	return nil
 }
 
-func (s *eaState) notServedFromOldWallet() error {
+func (s *emailAcctState) notServedFromOldWallet() error {
 	if s.resp.Code == 200 {
 		return fmt.Errorf("served from the deleted account's wallet: %s", s.resp.Body.String())
 	}
@@ -1097,7 +1097,7 @@ func (s *eaState) notServedFromOldWallet() error {
 	return nil
 }
 
-func (s *eaState) unverifiedOwnerRow(addr string) error {
+func (s *emailAcctState) unverifiedOwnerRow(addr string) error {
 	pub, priv, _ := ed25519.GenerateKey(nil)
 	if err := s.db.BindOwner(store.Owner{Pubkey: hex.EncodeToString(pub), Email: s.u(addr)}); err != nil {
 		return err
@@ -1106,7 +1106,7 @@ func (s *eaState) unverifiedOwnerRow(addr string) error {
 	return nil
 }
 
-func (s *eaState) keyBoundRelaysPaid() error {
+func (s *emailAcctState) keyBoundRelaysPaid() error {
 	s.relayAs("", s.unboundKey, "qwen3-32b", "n-1", false, nil)
 	return nil
 }
@@ -1114,7 +1114,7 @@ func (s *eaState) keyBoundRelaysPaid() error {
 // --- runner -------------------------------------------------------------------------------
 
 func TestEmailAccountSpendingBDD(t *testing.T) {
-	st := &eaState{foState: &foState{t: t, logs: &utLog{}}}
+	st := &emailAcctState{foState: &foState{t: t, logs: &utLog{}}}
 	suite := godog.TestSuite{
 		ScenarioInitializer: func(sc *godog.ScenarioContext) {
 			sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) { return ctx, st.reset() })

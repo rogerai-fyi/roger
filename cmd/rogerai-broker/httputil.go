@@ -44,6 +44,18 @@ func jsonErr(w http.ResponseWriter, code int, msg string) {
 	writeJSON(w, code, map[string]any{"error": map[string]string{"message": msg}})
 }
 
+// sharedUnavailable refuses a request that cannot be served correctly while the shared
+// store is unreachable: 503 with error code "shared_store_unavailable", a Retry-After, and
+// X-RogerAI-Cost: 0 (nothing was held or charged).
+func sharedUnavailable(w http.ResponseWriter) {
+	w.Header().Set("Retry-After", "5")
+	w.Header().Set("X-RogerAI-Cost", "0")
+	writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": map[string]string{
+		"message": "the shared store is unavailable - retry shortly",
+		"code":    "shared_store_unavailable",
+	}})
+}
+
 // cors lets the public website (rogerai.fm) fetch read-only market data from a
 // browser. Applied only to public GET endpoints (/discover, /market).
 func cors(w http.ResponseWriter) {

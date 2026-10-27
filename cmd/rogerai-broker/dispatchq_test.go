@@ -11,9 +11,13 @@ import (
 	"crypto/ed25519"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -582,5 +586,117 @@ func TestQueueWriteFailureToAckingPollIsRedelivered(t *testing.T) {
 	}
 	if again := q.pop("n1"); again == nil {
 		t.Fatal("the re-delivered job is not back in the node's queue")
+	}
+}
+
+// A queue push the store definitely REFUSED (it answered with an error reply) cannot have
+// landed, so the relay fails fast instead of sitting out the queue wait for a job that is not
+// queued. An ambiguous push error (no reply) keeps the at-most-once wait: see
+// TestQueueAmbiguousPushWaitsOutTheQueue and the runtime-store-outage lost-reply scenario.
+func TestQueueRefusedPushFailsFast(t *testing.T) {
+	defer func(d time.Duration) { queueWaitChat = d }(queueWaitChat)
+	queueWaitChat = 3 * time.Second
+	mr := miniredis.RunT(t)
+	_, priv, _ := ed25519.GenerateKey(nil)
+	a := newQBroker(t, priv, store.NewMem(), mr, dispatchViaQueueOnly)
+	nodePub, _, _ := ed25519.GenerateKey(nil)
+	miRegisterNode(a, "n1", hex.EncodeToString(nodePub), "tok", []protocol.ModelOffer{{Model: "free-m"}})
+	// The node's list key holds a string: RPUSH answers WRONGTYPE, a definite refusal.
+	if err := mr.Set(dqListPrefix+"n1", "not-a-list"); err != nil {
+		t.Fatal(err)
+	}
+
+	_, userPriv, _ := ed25519.GenerateKey(nil)
+	w := httptest.NewRecorder()
+	var logs bytes.Buffer
+	log.SetOutput(&logs)
+	defer log.SetOutput(os.Stderr)
+	start := time.Now()
+	a.relay(w, miSignedRelayReq(t, userPriv, []byte(`{"model":"free-m","max_tokens":8}`), nil))
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("relay = %d %q, want 503", w.Code, w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), "handoff failed") {
+		t.Errorf("a refused push is not a lost handoff: %q", w.Body.String())
+	}
+	if el := time.Since(start); el > time.Second {
+		t.Errorf("answered after %s, want fast (well before the 3 s queue wait)", el)
+	}
+	// The store answered, so it is reachable: an error reply on one key never trips the
+	// shared-store outage path.
+	if strings.Contains(logs.String(), "in-memory fallback") {
+		t.Errorf("a refused push marked the shared store down: %s", logs.String())
+	}
+	if vs, ok := a.shared.(*valkeyStore); !ok || !vs.healthy() {
+		t.Errorf("after a refused push the shared store reads down (valkey=%v)", ok)
+	}
+}
+
+// An ambiguous push error (the push may have landed) is never failed fast: the job stays
+// dispatched for the queue wait so it is served at most once, then reported lost.
+func TestQueueAmbiguousPushWaitsOutTheQueue(t *testing.T) {
+	defer func(d time.Duration) { queueWaitChat = d }(queueWaitChat)
+	queueWaitChat = 300 * time.Millisecond
+	defer func() { dqPushReplyLostForTest = nil }()
+	dqPushReplyLostForTest = func(string) bool { return true }
+	mr := miniredis.RunT(t)
+	_, priv, _ := ed25519.GenerateKey(nil)
+	a := newQBroker(t, priv, store.NewMem(), mr, dispatchViaQueueOnly)
+	nodePub, _, _ := ed25519.GenerateKey(nil)
+	miRegisterNode(a, "n1", hex.EncodeToString(nodePub), "tok", []protocol.ModelOffer{{Model: "free-m"}})
+
+	_, userPriv, _ := ed25519.GenerateKey(nil)
+	w := httptest.NewRecorder()
+	start := time.Now()
+	a.relay(w, miSignedRelayReq(t, userPriv, []byte(`{"model":"free-m","max_tokens":8}`), nil))
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("relay = %d %q, want 503", w.Code, w.Body.String())
+	}
+	if el := time.Since(start); el < 250*time.Millisecond {
+		t.Errorf("answered after %s, want after the 300 ms queue wait (the push may have landed)", el)
+	}
+}
+
+// Only a refusal of one command on one key (WRONGTYPE) means "the store answered and is
+// fine"; every other error reply (out of memory, persistence failing, auth, loading, a
+// replica) can refuse every write, so it marks the store down as before.
+func TestNoteReplyMarksDownUnlessItIsAKeyRefusal(t *testing.T) {
+	for msg, up := range map[string]bool{
+		"WRONGTYPE Operation against a key holding the wrong kind of value": true,
+		"OOM command not allowed when used memory > 'maxmemory'.":           false,
+		"MISCONF Redis is configured to save RDB snapshots":                 false,
+		"NOAUTH Authentication required.":                                   false,
+		"NOPERM this user has no permissions to run the 'rpush' command":    false,
+		"WRONGPASS invalid username-password pair":                          false,
+		"LOADING Redis is loading the dataset in memory":                    false,
+		"READONLY You can't write against a read only replica.":             false,
+		"ERR max number of clients reached":                                 false,
+	} {
+		v := &valkeyStore{up: true}
+		v.noteReply("dq push", fmt.Errorf("dq push: %w", replyErr(msg)))
+		if v.healthy() != up || (up && v.downFor() != 0) {
+			t.Errorf("after %q: healthy=%v downFor=%s, want healthy=%v", msg, v.healthy(), v.downFor(), up)
+		}
+		if v.opErrors.Load() != 1 {
+			t.Errorf("after %q: counted %d op errors, want 1", msg, v.opErrors.Load())
+		}
+	}
+}
+
+// replyErr is an error reply from the server, as go-redis surfaces one (redis.Error).
+type replyErr string
+
+func (e replyErr) Error() string { return string(e) }
+func (replyErr) RedisError()     {}
+
+// A key refusal is judged on the server's reply, through any wrapping; an error that only
+// reads like one (not a reply) is not taken as proof the store answered.
+func TestKeyRefusalReadsTheServerReply(t *testing.T) {
+	wrongType := "WRONGTYPE Operation against a key holding the wrong kind of value"
+	if !keyRefusal(fmt.Errorf("dq push: %w", replyErr(wrongType))) {
+		t.Error("a wrapped WRONGTYPE reply is a key refusal")
+	}
+	if keyRefusal(errors.New(wrongType)) {
+		t.Error("an error that is not a server reply is not a key refusal")
 	}
 }

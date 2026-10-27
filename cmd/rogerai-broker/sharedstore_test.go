@@ -420,8 +420,8 @@ func TestValkeyGracefulDegradeOnClose(t *testing.T) {
 	}
 }
 
-// TestNewValkeyStoreBadURL proves a bad URL is reported (so openSharedStore logs and
-// returns nil -> the broker stays on the in-memory path) and never panics.
+// TestNewValkeyStoreBadURL proves a bad URL is reported (so bootShared logs it and stays not
+// ready, retrying) and never panics.
 func TestNewValkeyStoreBadURL(t *testing.T) {
 	if _, err := newValkeyStore("not-a-valid-url"); err == nil {
 		t.Error("newValkeyStore should reject an unparseable URL")
@@ -437,32 +437,55 @@ func TestNewValkeyStoreBadURL(t *testing.T) {
 	}
 }
 
-// TestOpenSharedStoreUnset proves the flag-OFF default: with ROGERAI_REDIS_URL unset,
-// openSharedStore returns nil (the broker uses its in-memory maps, zero change).
-func TestOpenSharedStoreUnset(t *testing.T) {
+// TestBootSharedUnset proves the flag-OFF default on the real boot path: with no shared-store
+// address and multi-instance off, bootShared wires nothing and the broker is ready (single
+// instance, unchanged).
+func TestBootSharedUnset(t *testing.T) {
 	t.Setenv("ROGERAI_REDIS_URL", "")
-	if s := openSharedStore(); s != nil {
-		t.Errorf("unset ROGERAI_REDIS_URL must yield a nil shared store, got %T", s)
+	t.Setenv("ROGERAI_MULTI_INSTANCE", "")
+	b := relayBroker(store.NewMem())
+	asMainBuilds(b)
+	b.bootShared()
+	t.Cleanup(b.stopSharedRetry)
+	if b.shared != nil {
+		t.Errorf("no shared-store address must leave b.shared nil, got %T", b.shared)
+	}
+	if b.sharedLive() != nil || b.sharedPhase.Load() == sharedConnecting || b.sharedPhase.Load() == sharedNotConfigured {
+		t.Errorf("an unconfigured single instance must be ready, phase %d", b.sharedPhase.Load())
 	}
 }
 
-// TestOpenSharedStoreBadURLDegrades proves a SET-but-broken flag degrades gracefully:
-// openSharedStore returns nil (logged warning) instead of crashing, so the broker
-// boots on the in-memory path.
-func TestOpenSharedStoreBadURLDegrades(t *testing.T) {
+// TestBootSharedBadURLIsNotReady proves a SET-but-unreachable store never degrades to
+// per-instance state: the broker is NOT READY (connecting) and keeps retrying.
+func TestBootSharedBadURLIsNotReady(t *testing.T) {
 	t.Setenv("ROGERAI_REDIS_URL", "redis://127.0.0.1:1") // nothing listens
-	if s := openSharedStore(); s != nil {
-		t.Errorf("a broken ROGERAI_REDIS_URL must degrade to a nil store, got %T", s)
+	saved := sharedRetrySleep
+	sharedRetrySleep = func(time.Duration) { time.Sleep(time.Millisecond) }
+	t.Cleanup(func() { sharedRetrySleep = saved })
+	b := relayBroker(store.NewMem())
+	asMainBuilds(b)
+	b.bootShared()
+	t.Cleanup(b.stopSharedRetry)
+	if b.sharedPhase.Load() != sharedConnecting || b.sharedLive() != nil {
+		t.Fatalf("an unreachable configured store must leave the broker connecting (not ready), phase %d", b.sharedPhase.Load())
 	}
 }
 
-// TestOpenSharedStoreConnects proves the flag-ON happy path wires a live valkeyStore.
-func TestOpenSharedStoreConnects(t *testing.T) {
+// TestBootSharedConnects proves the flag-ON happy path wires a live, healthy store.
+func TestBootSharedConnects(t *testing.T) {
 	mr := miniredis.RunT(t)
 	t.Setenv("ROGERAI_REDIS_URL", "redis://"+mr.Addr())
-	s := openSharedStore()
+	t.Setenv("ROGERAI_MULTI_INSTANCE", "")
+	b := relayBroker(store.NewMem())
+	asMainBuilds(b)
+	if b.grantRL == nil {
+		b.grantRL = loadRateLimiter()
+	}
+	b.bootShared()
+	t.Cleanup(b.stopSharedRetry)
+	s := b.sharedLive()
 	if s == nil {
-		t.Fatal("openSharedStore should connect when ROGERAI_REDIS_URL points at a live server")
+		t.Fatal("bootShared should connect when ROGERAI_REDIS_URL points at a live server")
 	}
 	defer s.Close()
 	if !s.healthy() {

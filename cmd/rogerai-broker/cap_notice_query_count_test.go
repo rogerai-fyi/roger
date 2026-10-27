@@ -46,7 +46,7 @@ func (c *capNoticeCountingStore) OwnerByAppleSub(s string) (store.Owner, bool, e
 
 func newCapNoticeHarness(t *testing.T) *cnState {
 	t.Helper()
-	st := &cnState{eaState: &eaState{foState: &foState{t: t, logs: &utLog{}}}}
+	st := &cnState{emailAcctState: &emailAcctState{foState: &foState{t: t, logs: &utLog{}}}}
 	if err := st.reset(); err != nil {
 		t.Fatal(err)
 	}

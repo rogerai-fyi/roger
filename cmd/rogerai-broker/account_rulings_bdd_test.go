@@ -21,7 +21,7 @@ import (
 	"rogerai.fm/roger/v6/internal/store"
 )
 
-func (s *eaState) registerDeviceRulingSteps(sc *godog.ScenarioContext) {
+func (s *emailAcctState) registerDeviceRulingSteps(sc *godog.ScenarioContext) {
 	sc.Step(`^"([^"]+)" approves (\d+) devices$`, s.approvesN)
 	sc.Step(`^every approval succeeds$`, s.everyApprovalSucceeds)
 	sc.Step(`^both approvals succeed$`, s.everyApprovalSucceeds)
@@ -36,7 +36,7 @@ func (s *eaState) registerDeviceRulingSteps(sc *godog.ScenarioContext) {
 	sc.Step(`^the link succeeds$`, s.linkSucceeds)
 }
 
-func (s *eaState) approvesN(addr string, n int) error {
+func (s *emailAcctState) approvesN(addr string, n int) error {
 	if s.u(addr) != s.addr {
 		return fmt.Errorf("%s is not the signed-in account", addr)
 	}
@@ -48,7 +48,7 @@ func (s *eaState) approvesN(addr string, n int) error {
 	return nil
 }
 
-func (s *eaState) approvesSameTwice(addr string) error {
+func (s *emailAcctState) approvesSameTwice(addr string) error {
 	if s.u(addr) != s.addr {
 		return fmt.Errorf("%s is not the signed-in account", addr)
 	}
@@ -58,7 +58,7 @@ func (s *eaState) approvesSameTwice(addr string) error {
 	return nil
 }
 
-func (s *eaState) everyApprovalSucceeds() error {
+func (s *emailAcctState) everyApprovalSucceeds() error {
 	if len(s.approveErrs) == 0 {
 		return fmt.Errorf("no approval was made")
 	}
@@ -70,7 +70,7 @@ func (s *eaState) everyApprovalSucceeds() error {
 	return nil
 }
 
-func (s *eaState) eachDeviceServedFrom(addr string) error {
+func (s *emailAcctState) eachDeviceServedFrom(addr string) error {
 	wallet := walletForEmail(s.u(addr))
 	for i, k := range s.devKeys {
 		if k == nil {
@@ -94,7 +94,7 @@ func (s *eaState) eachDeviceServedFrom(addr string) error {
 }
 
 // provider makes a provider-linked owner row bound to a fresh device key.
-func (s *eaState) provider(kind, tag string) (store.Owner, error) {
+func (s *emailAcctState) provider(kind, tag string) (store.Owner, error) {
 	pub, _, _ := ed25519.GenerateKey(nil)
 	o := store.Owner{Pubkey: hex.EncodeToString(pub)}
 	switch kind {
@@ -110,11 +110,11 @@ func (s *eaState) provider(kind, tag string) (store.Owner, error) {
 
 // link proves addr onto the provider owner through the real approve path: a session that holds
 // the address approving the owner's existing key binds the verified address to that row.
-func (s *eaState) link(o store.Owner, addr string) error {
+func (s *emailAcctState) link(o store.Owner, addr string) error {
 	return s.b.bindApprovedDevice(o.Pubkey, addr, 0, "", walletForEmail(addr))
 }
 
-func (s *eaState) providerHolds(kind, addr string) error {
+func (s *emailAcctState) providerHolds(kind, addr string) error {
 	s.sharedAddr = s.u(addr)
 	o, err := s.provider(kind, "a")
 	if err != nil {
@@ -127,7 +127,7 @@ func (s *eaState) providerHolds(kind, addr string) error {
 	return nil
 }
 
-func (s *eaState) differentProves(kind, addr string) error {
+func (s *emailAcctState) differentProves(kind, addr string) error {
 	if s.u(addr) != s.sharedAddr {
 		return fmt.Errorf("address mismatch")
 	}
@@ -140,7 +140,7 @@ func (s *eaState) differentProves(kind, addr string) error {
 	return nil
 }
 
-func (s *eaState) secondLinkRefused() error {
+func (s *emailAcctState) secondLinkRefused() error {
 	if s.linkErr == nil {
 		return fmt.Errorf("the second provider account was linked to %s, want refused", s.sharedAddr)
 	}
@@ -150,7 +150,7 @@ func (s *eaState) secondLinkRefused() error {
 	return nil
 }
 
-func (s *eaState) stillResolvesToFirst(addr, kind string) error {
+func (s *emailAcctState) stillResolvesToFirst(addr, kind string) error {
 	o, ok, err := s.db.OwnerByVerifiedEmail(s.u(addr))
 	if err != nil || !ok {
 		return fmt.Errorf("%s resolves no account (%v)", addr, err)
@@ -161,7 +161,7 @@ func (s *eaState) stillResolvesToFirst(addr, kind string) error {
 	return nil
 }
 
-func (s *eaState) firstDeleted() error {
+func (s *emailAcctState) firstDeleted() error {
 	ok, err := s.db.DeleteAccount(s.provA.Login)
 	if err != nil || !ok {
 		return fmt.Errorf("delete %s: ok=%v err=%v", s.provA.Login, ok, err)
@@ -169,7 +169,7 @@ func (s *eaState) firstDeleted() error {
 	return nil
 }
 
-func (s *eaState) linkSucceeds() error {
+func (s *emailAcctState) linkSucceeds() error {
 	if s.linkErr != nil {
 		return fmt.Errorf("the link was refused: %v", s.linkErr)
 	}

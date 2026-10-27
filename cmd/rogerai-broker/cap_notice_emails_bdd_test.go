@@ -38,7 +38,7 @@ import (
 )
 
 type cnState struct {
-	*eaState
+	*emailAcctState
 
 	acctWallet  string
 	acctAddr    string
@@ -70,7 +70,7 @@ type cnState struct {
 type cnMail struct{ to, subject, text string }
 
 func (s *cnState) reset() error {
-	if err := s.eaState.reset(); err != nil {
+	if err := s.emailAcctState.reset(); err != nil {
 		return err
 	}
 	s.acctWallet, s.acctAddr, s.acctKey, s.acctSess = "", "", nil, ""
@@ -602,7 +602,7 @@ func (s *cnState) servedWithNearHeader() error {
 	return nil
 }
 
-func (s *cnState) unboundKeypair() error { return s.eaState.unboundKeypair() }
+func (s *cnState) unboundKeypair() error { return s.emailAcctState.unboundKeypair() }
 
 func (s *cnState) relaysToFree() error {
 	if _, ok := s.stations["n-free"]; !ok {
@@ -786,7 +786,7 @@ func (s *cnState) addrNotLogged(addr string) error {
 }
 
 func TestCapNoticeEmailsBDD(t *testing.T) {
-	st := &cnState{eaState: &eaState{foState: &foState{t: t, logs: &utLog{}}}}
+	st := &cnState{emailAcctState: &emailAcctState{foState: &foState{t: t, logs: &utLog{}}}}
 	suite := godog.TestSuite{
 		ScenarioInitializer: func(sc *godog.ScenarioContext) {
 			sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) { return ctx, st.reset() })

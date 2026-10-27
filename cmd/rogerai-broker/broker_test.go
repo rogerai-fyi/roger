@@ -212,7 +212,6 @@ func TestRelayAnonPaidRejected(t *testing.T) {
 		success:      map[string]float64{},
 		trust:        map[string]trustState{},
 		streams:      map[string]*streamSink{},
-		quotes:       map[string]priceQuote{},
 		pubOfUser:    map[string]string{},
 		seedFunds:    100,
 		lockWin:      time.Hour,
@@ -284,7 +283,6 @@ func TestRelayModerationBlocks(t *testing.T) {
 		success:      map[string]float64{},
 		trust:        map[string]trustState{},
 		streams:      map[string]*streamSink{},
-		quotes:       map[string]priceQuote{},
 		pubOfUser:    map[string]string{},
 		seedFunds:    100,
 		lockWin:      time.Hour,
@@ -308,27 +306,37 @@ func TestRelayModerationBlocks(t *testing.T) {
 }
 
 func TestLockedPrice(t *testing.T) {
-	b := &broker{quotes: map[string]priceQuote{}, lockWin: time.Hour}
+	b := &broker{db: store.NewMem(), lockWin: time.Hour}
+	price := func(user string, in, out float64) (float64, float64) {
+		t.Helper()
+		gin, gout, _, err := b.lockedPrice(user, "n", "m", in, out)
+		if err != nil {
+			t.Fatalf("lockedPrice: %v", err)
+		}
+		return gin, gout
+	}
 
 	// first use → quote + lock at current price
-	if in, out, _ := b.lockedPrice("u", "n", "m", 0.20, 0.30); in != 0.20 || out != 0.30 {
+	if in, out := price("u", 0.20, 0.30); in != 0.20 || out != 0.30 {
 		t.Fatalf("first quote = %v/%v, want 0.20/0.30", in, out)
 	}
 	// owner RAISES → user still billed the locked price (protection)
-	if in, out, _ := b.lockedPrice("u", "n", "m", 0.50, 0.80); in != 0.20 || out != 0.30 {
+	if in, out := price("u", 0.50, 0.80); in != 0.20 || out != 0.30 {
 		t.Errorf("raise not protected: %v/%v, want 0.20/0.30", in, out)
 	}
 	// owner CUTS → user gets the lower price (min)
-	if in, out, _ := b.lockedPrice("u", "n", "m", 0.05, 0.05); in != 0.05 || out != 0.05 {
+	if in, out := price("u", 0.05, 0.05); in != 0.05 || out != 0.05 {
 		t.Errorf("cut not passed through: %v/%v, want 0.05/0.05", in, out)
 	}
 	// a different user is quoted independently at the current price
-	if in, _, _ := b.lockedPrice("other", "n", "m", 0.50, 0.80); in != 0.50 {
+	if in, _ := price("other", 0.50, 0.80); in != 0.50 {
 		t.Errorf("other user quote = %v, want 0.50", in)
 	}
-	// after the window expires → re-quote at current
-	b.quotes["u|n|m"] = priceQuote{in: 0.20, out: 0.30, until: time.Now().Add(-time.Minute)}
-	if in, _, _ := b.lockedPrice("u", "n", "m", 0.40, 0.40); in != 0.40 {
+	// after the window expires → re-quote at current (a quote minted 2h ago for 1h)
+	if _, err := b.db.QuotePrice("old", "n", "m", 0.20, 0.30, time.Now().Add(-2*time.Hour), time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if in, _ := price("old", 0.40, 0.40); in != 0.40 {
 		t.Errorf("post-expiry re-quote = %v, want 0.40", in)
 	}
 }

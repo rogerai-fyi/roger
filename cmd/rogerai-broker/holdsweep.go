@@ -93,4 +93,24 @@ func (b *broker) releaseStaleHoldsSweepOnce(cutoff time.Time) {
 	} else if n > 0 {
 		log.Printf("hold-backstop: reclaimed %d stale relay hold(s) older than %s (relay killed mid-flight) - consumer credits restored in full", n, b.holdTTL)
 	}
+	b.pruneExpiredPriceQuotes(time.Now())
+}
+
+// priceQuotePruneBatch bounds one delete statement; pruneExpiredPriceQuotes runs a few
+// batches per sweep so a backlog drains without one long-running delete.
+const priceQuotePruneBatch = 500
+
+// pruneExpiredPriceQuotes deletes expired price quotes (rogerai.price_quotes would otherwise
+// grow by one row per consumer, station and model forever). Best-effort and bounded.
+func (b *broker) pruneExpiredPriceQuotes(now time.Time) {
+	for i := 0; i < 20; i++ {
+		n, err := b.db.PruneExpiredPriceQuotes(now, priceQuotePruneBatch)
+		if err != nil {
+			log.Printf("price-quotes: prune failed: %v", err)
+			return
+		}
+		if n < priceQuotePruneBatch {
+			return
+		}
+	}
 }

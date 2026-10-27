@@ -122,6 +122,13 @@ func (s *dqState) cleanup() {
 		_ = s.origin.shared.(*valkeyStore).Close()
 		s.origin = nil
 	}
+	// Release the scenario's Postgres pool (xiStore opens a fresh one per scenario, up to 8
+	// connections). Leaving it open leaked a pool per scenario for the rest of the test binary,
+	// which under the gate's parallel run pushed the shared server past max_connections.
+	if c, ok := s.db.(interface{ Close() error }); ok {
+		_ = c.Close()
+	}
+	s.db = nil
 }
 
 func (s *dqState) releaseServes() { s.relOnce.Do(func() { close(s.release) }) }

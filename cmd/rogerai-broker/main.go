@@ -18,7 +18,6 @@ import (
 	"crypto/sha256"
 	_ "embed"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -85,9 +84,13 @@ type broker struct {
 	// OFFLINE on the peer (the residual multi-instance /discover flicker after the registry
 	// union). Guarded by b.mu. See enrichOffersForNode + features/multinode/discover_liveness.
 	localPollAt map[string]time.Time
-	attest      *attestRegistry    // TEE attestation policy + backends + nonce store
-	tps         map[string]float64 // EWMA output tokens/sec per node (measured)
-	quotes      map[string]priceQuote
+	// localJobs marks the jobs THIS instance handed to a local poller because the shared store
+	// was down, so their result and stream chunks are read back in memory rather than routed
+	// through the store (storeoutage.go). Per-request and per-instance by nature: the job never
+	// left this process. job id -> struct{}; the zero value is ready to use.
+	localJobs sync.Map
+	attest    *attestRegistry    // TEE attestation policy + backends + nonce store
+	tps       map[string]float64 // EWMA output tokens/sec per node (measured)
 	// refPrices is the synced same-model external reference OUT-price ($/1M) by NORMALIZED
 	// model name — the preferred price-tier baseline (see refprices.go / pricetier.go).
 	// Best-effort refreshed; guarded by its own refMu (independent of mu/metricsMu) so a
@@ -133,8 +136,14 @@ type broker struct {
 	// reserves a real station for the grant's lifetime, so without a cap one account can hold
 	// the whole routable fleet at maximum apparent load for the price of nothing. Guarded by
 	// metricsMu; keyed by the consumer's account wallet, the same identity the hold is placed
-	// against. See maxOpenEdgeAttemptsPerAccount.
+	// against. See maxOpenEdgeAttemptsPerAccount. This is the single-instance path only:
+	// with a shared store configured the count is the shared set (edgeAccountReserveErr).
 	edgeOpenByAccount map[string]int
+	// edgeSlotTokens is NOT a count: it pairs a shared-set reservation with the attempt this
+	// instance's request turns it into (account -> reservation ids this process placed and has
+	// not yet promoted or dropped). Losing it (a restart) only lets those reservations lapse
+	// at edgeReserveTTL. Guarded by metricsMu.
+	edgeSlotTokens map[string][]string
 	// edgeCanary is what the TOWER canaries found out about each STATION, keyed by station id
 	// and guarded by metricsMu. It is deliberately not folded into trust below: that map is the
 	// classic fabric's record, and a Tower operator who black-holed traffic could otherwise
@@ -281,6 +290,16 @@ type broker struct {
 	// Finalize are unchanged (already durable/shared) - the bus only carries the
 	// transient handoff, and a bus error fails the request cleanly (never double-charge).
 	multiInstance bool
+	// sharedPhase is the shared-store readiness phase (bootShared); sharedQuit stops a boot
+	// retry loop that is still running.
+	sharedPhase    atomic.Int32
+	sharedQuit     chan struct{}
+	sharedQuitOnce sync.Once
+	// sharedUp is closed by wireShared once the store and everything wired through it is
+	// published (nil when bootShared never entered the retry path). Background loops that
+	// read shared state start only after it (startWhenShared).
+	sharedUp     chan struct{}
+	sharedUpOnce sync.Once
 	// dispatchMode is the multi-instance dispatch rollout switch (ROGERAI_DISPATCH, see
 	// dispatchq.go); dq is this instance's end of the dispatch plane, started on first use.
 	dispatchMode dispatchMode
@@ -506,7 +525,9 @@ type broker struct {
 	// Station COOLDOWN (cooling.go; features/routing/upstream_failover.feature) - routing
 	// state, never trust: cooling is node -> expiry (this instance's own 429s + the merged
 	// shared set), coolModel the band it was cooling on, coolEvents the last hour's
-	// cooldowns for the founder alert. All guarded by metricsMu (pickFor reads cooling on
+	// cooldowns for the founder alert - a cache of the shared per-station record when a
+	// shared store is wired (the alert counts every instance), the record itself only when
+	// none is or it is unreachable (the alert fails open). All guarded by metricsMu (pickFor reads cooling on
 	// the hot path). coolFallbackOnce logs a shared-store failure exactly once.
 	cooling          map[string]time.Time
 	coolModel        map[string]string
@@ -521,13 +542,6 @@ func (b *broker) now() time.Time {
 		return b.nowFn()
 	}
 	return time.Now()
-}
-
-// priceQuote pins the price a user first saw for a (node, model) so an owner's
-// later price change can't surprise them mid-engagement. See lockedPrice.
-type priceQuote struct {
-	in, out float64
-	until   time.Time
 }
 
 func main() {
@@ -607,21 +621,26 @@ func runServe(ln net.Listener, fee, seed float64, lock time.Duration, stop <-cha
 	b := buildBroker(db, priv, fee, seed, lock)
 	mux := b.routes()
 
-	if b.probe.enabled() {
-		go b.proberLoop(stop)
-	}
-	go b.reattestSweep(stop)          // drop verified-confidential status that has lapsed its re-attest cadence
-	go b.recountHoldSweep(stop)       // auto-expire recount holds past the review window (operator recourse)
-	go b.nodeBanSweep(stop)           // auto-lift report-origin node suspensions past the review window (reversible bans)
-	go b.reportRetentionSweep(stop)   // bound rogerai.reports: an UNAUTHENTICATED public write endpoint onto durable storage that nothing ever deleted from
-	go b.towerInviteSweep(stop)       // delete expired unredeemed Station invitations (consumed ones answer retries)
-	go b.towerCanarySweep(stop)       // probe each Tower with a data plane; a Tower serving nothing is caught here
-	go b.reversalRetrySweep(stop)     // re-attempt failed Stripe transfer-reversals (silent-money-leak guard)
-	go b.pruneStaleNodesSweep(stop)   // remove long-dead node registrations (old hostname ids that never re-register)
-	go b.refPriceSync(stop)           // refresh same-model external reference prices for the buyer-facing $-tier
-	go b.releaseStaleHoldsSweep(stop) // reclaim relay pre-auth holds stranded by a SIGKILLed redeploy (deploy-orphan backstop)
-	go b.alertCheckerLoop(stop)       // page the founder (ADMIN_EMAIL) on state-derived ops conditions (0-providers, db/valkey down, CSAM SLA); no-op when ADMIN_EMAIL is unset
-	b.scr.start(b.scr.cfg.workers)    // off-path content screening workers (async mode only; a no-op in sync/off)
+	// Loops that read shared state start once the shared store is published (at once when
+	// the broker is not waiting on one). The alert checker starts now: it must page through
+	// a boot outage, and it reads the shared store only through sharedLive.
+	b.startWhenShared(stop, func() {
+		if b.probe.enabled() {
+			go b.proberLoop(stop)
+		}
+		go b.reattestSweep(stop)          // drop verified-confidential status that has lapsed its re-attest cadence
+		go b.recountHoldSweep(stop)       // auto-expire recount holds past the review window (operator recourse)
+		go b.nodeBanSweep(stop)           // auto-lift report-origin node suspensions past the review window (reversible bans)
+		go b.reportRetentionSweep(stop)   // bound rogerai.reports: an UNAUTHENTICATED public write endpoint onto durable storage that nothing ever deleted from
+		go b.towerInviteSweep(stop)       // delete expired unredeemed Station invitations (consumed ones answer retries)
+		go b.towerCanarySweep(stop)       // probe each Tower with a data plane; a Tower serving nothing is caught here
+		go b.reversalRetrySweep(stop)     // re-attempt failed Stripe transfer-reversals (silent-money-leak guard)
+		go b.pruneStaleNodesSweep(stop)   // remove long-dead node registrations (old hostname ids that never re-register)
+		go b.refPriceSync(stop)           // refresh same-model external reference prices for the buyer-facing $-tier
+		go b.releaseStaleHoldsSweep(stop) // reclaim relay pre-auth holds stranded by a SIGKILLed redeploy (deploy-orphan backstop)
+	})
+	go b.alertCheckerLoop(stop)    // page the founder (ADMIN_EMAIL) on state-derived ops conditions (0-providers, db/valkey down, CSAM SLA); no-op when ADMIN_EMAIL is unset
+	b.scr.start(b.scr.cfg.workers) // off-path content screening workers (async mode only; a no-op in sync/off)
 
 	log.Printf("rogerai-broker %s: addr=%s fee=%.0f%% (node-dials-out long-poll tunnel)", version, ln.Addr(), fee*100)
 
@@ -669,6 +688,7 @@ func runServe(ln net.Listener, fee, seed float64, lock time.Duration, stop <-cha
 		case <-stop: // test seam (nil in production -> never fires)
 		case <-sig: // production: SIGTERM/SIGINT from a rolling redeploy
 		}
+		b.stopSharedRetry() // a not-ready boot retry never outlives the server
 		ctx, cancel := context.WithTimeout(context.Background(), shutdownGrace)
 		defer cancel()
 		log.Printf("shutdown: draining in-flight relays (grace %s) so no consumer hold is orphaned", shutdownGrace)
@@ -706,7 +726,7 @@ func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, loc
 		lastSeen: map[string]time.Time{}, confidential: map[string]bool{},
 		private: map[string]bool{}, bandOf: map[string]string{}, tps: map[string]float64{},
 		attestedAt: map[string]time.Time{}, localRegAt: map[string]time.Time{}, localPollAt: map[string]time.Time{}, attest: loadAttestRegistry(),
-		quotes: map[string]priceQuote{}, streams: map[string]*streamSink{}, db: db,
+		streams: map[string]*streamSink{}, db: db,
 		capsules:  newCapsuleStore(),
 		pubOfUser: map[string]string{},
 		inflight:  map[string]int{}, success: map[string]float64{}, trust: map[string]trustState{},
@@ -786,12 +806,13 @@ func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, loc
 	b.recount = loadRecount()
 	b.probe = loadProbe()
 	b.concierge = loadConcierge()
-	// PRE-SCALE Stage 1: wire the optional shared-state layer. UNSET ROGERAI_REDIS_URL
-	// => b.shared stays nil and everything below is a no-op (in-memory, unchanged). A
-	// connect failure already degraded to nil inside openSharedStore (logged warning,
-	// no crash). When set, ALL request limiters get the shared bucket (anon + concierge +
-	// the per-identity b.rl + the per-grant b.grantRL) so one limit is enforced across
-	// instances, not 2x. Liveness sharing is handled by markSeen + syncLiveness.
+	// PRE-SCALE Stage 1: the optional shared-state layer is wired by bootShared (called from
+	// runServe). UNSET ROGERAI_REDIS_URL (and multi-instance off) => b.shared stays nil and the
+	// broker is single-instance, unchanged. A configured store that does not answer at boot
+	// leaves the broker NOT READY while it retries (never a per-instance fallback). Once wired,
+	// ALL request limiters get the shared bucket (anon + concierge + the per-identity b.rl +
+	// the per-grant b.grantRL) so one limit is enforced across instances, not 2x. Liveness
+	// sharing is handled by markSeen + syncLiveness.
 	// Joined-Tower admission, wired only when it can be durable. Nil disables the routes
 	// rather than issuing credentials that a redeploy would invalidate - but a deployment
 	// that CONFIGURED Towers and could not start them fails here rather than coming up
@@ -802,12 +823,113 @@ func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, loc
 	}
 	b.tower = tower
 
-	b.shared = openSharedStore()
+	b.bootShared()
+	// Bind the concierge's serving paths to this broker (grant dogfood, then a free
+	// station, then Groq). Stored as fields so tests can stub each branch
+	// independently. grantDogfoodFn stays nil (path disabled) unless CONCIERGE_GRANT_KEY
+	// is set, so the handler skips it cleanly when there is no grant key.
+	if b.concierge.grantKey != "" {
+		b.concierge.grantDogfoodFn = b.dogfoodGrantRelay
+	}
+	b.concierge.dogfoodFn = b.dogfoodRelay
+	b.concierge.groqFn = b.groqCall
+	log.Printf("price-lock: quoted prices honored for %s per user+node+model", lock)
+	return b
+}
+
+// Shared-store readiness phases (features/ops/shared_store_readiness.feature). The zero value
+// is "not configured to share": ready, unchanged single-instance behavior.
+const (
+	sharedUnconfigured  int32 = iota
+	sharedConnecting          // configured, not answering yet: not ready, retrying
+	sharedNotConfigured       // ROGERAI_MULTI_INSTANCE=1 with no shared-store address
+	sharedConnected           // wired; later outages keep today's degraded behavior
+)
+
+// sharedRetrySleep is the boot retry's clock seam (time.Sleep in production).
+var sharedRetrySleep = time.Sleep
+
+// sharedRetryBackoff is the wait before the next connect attempt: within 1 s first, then
+// doubling, capped at 30 s.
+func sharedRetryBackoff(prev time.Duration) time.Duration {
+	if prev <= 0 {
+		return 500 * time.Millisecond
+	}
+	return min(2*prev, 30*time.Second)
+}
+
+// bootShared is main's shared-store boot. A broker configured to share state (a shared-store
+// address, or ROGERAI_MULTI_INSTANCE=1) that cannot reach the store is NOT READY: /ready says
+// "connecting", every other endpoint answers 503 shared_store_unavailable (readinessGate), and
+// it retries with capped backoff for as long as it runs, wiring the shared state the moment
+// the store answers. With no sharing configured nothing changes.
+func (b *broker) bootShared() {
+	tp, topo := valkeyTopologyFromEnv()
+	if !topo {
+		if multiInstanceEnabled() {
+			b.sharedPhase.Store(sharedNotConfigured)
+			log.Printf("multi-instance: ROGERAI_MULTI_INSTANCE set but no shared-store address (ROGERAI_REDIS_URL / _RING / _CLUSTER) - NOT READY until one is configured")
+		}
+		return
+	}
+	vs, err := newValkeyStoreTopology(tp)
+	if err == nil {
+		log.Printf("shared-state: valkey connected (keys namespaced under %q) - sharing anon/concierge rate limits + node liveness across instances", keyPrefix)
+		b.wireShared(vs)
+		return
+	}
+	if vs != nil {
+		_ = vs.Close()
+	}
+	log.Printf("shared-state: configured but not answering (%v) - NOT READY, retrying with backoff until it answers", err)
+	b.sharedPhase.Store(sharedConnecting)
+	b.sharedQuit = make(chan struct{})
+	b.sharedUp = make(chan struct{})
+	go b.retryShared(tp, sharedRetrySleep, b.sharedQuit)
+}
+
+// retryShared connects with capped backoff until the store answers or quit closes. It logs
+// nothing per attempt: the outage was logged once at boot.
+func (b *broker) retryShared(tp valkeyTopology, sleep func(time.Duration), quit <-chan struct{}) {
+	for d := time.Duration(0); ; {
+		d = sharedRetryBackoff(d)
+		sleep(d)
+		select {
+		case <-quit:
+			return
+		default:
+		}
+		vs, err := newValkeyStoreTopology(tp)
+		if err == nil {
+			b.wireShared(vs)
+			log.Printf("shared-state: valkey answering - READY")
+			return
+		}
+		if vs != nil {
+			_ = vs.Close()
+		}
+	}
+}
+
+// stopSharedRetry ends a boot retry loop that is still running (called at shutdown; tests).
+func (b *broker) stopSharedRetry() {
+	b.sharedQuitOnce.Do(func() {
+		if b.sharedQuit != nil {
+			close(b.sharedQuit)
+		}
+	})
+}
+
+// wireShared attaches a connected shared store and everything that shares through it. It
+// runs once: a later outage does not undo it. The phase flips to connected LAST, so the
+// readiness gate never lets a request see half the wiring.
+func (b *broker) wireShared(ss sharedStore) {
+	b.shared = ss
 	// A pending device login is authoritative state, not an accelerator: the CLI polls one
 	// instance while the human approves on another, so the record has to live outside both
 	// or the flow cannot complete at all. Rebuild the flow over the shared store now that
-	// it exists - buildBroker ran before openSharedStore, so the flow it made is in-process
-	// only, and no login can have been issued yet.
+	// it exists - buildBroker made it before the shared store was reachable, so it is in-process
+	// only, and no login can have been issued yet (requests are refused until now).
 	if ds := newValkeyDeviceStore(b.shared); ds != nil {
 		b.devices = newDeviceFlowWithStore(ds)
 		log.Printf("device login: pending logins are shared across instances")
@@ -821,71 +943,105 @@ func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, loc
 		b.emailLinks = newLinkFlowWithStore(es) // same shared store, own namespace
 		log.Printf("email login: outstanding codes and their budgets are shared across instances")
 	}
-	if b.shared != nil {
-		// name each shared limiter so limiters keyed on the same value get DISTINCT Valkey
-		// buckets (rogerai:rl:<name>:<key>) rather than colliding on one key with mismatched
-		// rpm/burst. ALL request limiters get the shared bucket: anon + concierge (per-IP),
-		// AND the per-identity (b.rl) + per-grant (b.grantRL) limiters — otherwise a signed
-		// user / grant key gets ~2x its configured RPM at the 2-instance cap (each instance
-		// enforced its own private bucket). rateAllow degrades to the local bucket on any
-		// Valkey error, so a cache outage never blocks a request.
-		b.anonRL.name, b.anonRL.shared = "anon", b.shared
+	// name each shared limiter so limiters keyed on the same value get DISTINCT Valkey
+	// buckets (rogerai:rl:<name>:<key>) rather than colliding on one key with mismatched
+	// rpm/burst. ALL request limiters get the shared bucket: anon + concierge (per-IP),
+	// AND the per-identity (b.rl) + per-grant (b.grantRL) limiters — otherwise a signed
+	// user / grant key gets ~2x its configured RPM at the 2-instance cap (each instance
+	// enforced its own private bucket). rateAllow degrades to the local bucket on any
+	// Valkey error, so a cache outage never blocks a request.
+	b.anonRL.name, b.anonRL.shared = "anon", b.shared
+	if b.concierge != nil && b.concierge.rl != nil {
 		b.concierge.rl.name, b.concierge.rl.shared = "concierge", b.shared
-		b.rl.name, b.rl.shared = "id", b.shared
-		b.grantRL.name, b.grantRL.shared = "grant", b.shared
-		go b.syncLiveness(nil)
-		// PRE-SCALE Stage 2: the cross-instance rendezvous bus is OPT-IN on top of the
-		// shared backend. ROGERAI_MULTI_INSTANCE=1 turns it on; it HARD-REQUIRES a wired
-		// Valkey backend (the only place jobs/results/chunks can rendezvous across
-		// instances), so it is only ever enabled when b.shared is non-nil. Unset = the
-		// in-memory single-instance fast-path, byte-for-byte unchanged. PROD runs it ON
-		// (.do/app.yaml: instance_count:2 + ROGERAI_MULTI_INSTANCE=1, reconciled in P1-4).
-		if multiInstanceEnabled() {
-			b.multiInstance = true
-			b.dispatchMode = dispatchModeFromEnv()
-			if vs, ok := b.shared.(*valkeyStore); ok && b.dispatchMode != dispatchViaBus {
-				vs.livenessHashOnly.Store(true) // every instance runs code that writes the fleet hash
-			}
-			b.instanceID = newInstanceID()
-			b.peerInflight = map[string]int{}
-			b.peerEdgeLoad = map[string]int{}
-			// Announce this instance's presence immediately so the ops panel counts the full
-			// live fleet from the first read (before the first sync tick refreshes it).
-			// Best-effort: a shared-store hiccup just defers presence to the next tick.
-			_ = b.shared.markInstance(b.instanceID, time.Now())
-			// Tag EVERY log line with this instance's id so logs from the 2+ instances
-			// (interleaved in the aggregated DO log stream) are attributable at a glance -
-			// the team no longer has to guess which instance emitted a relay/bus line. This
-			// is gated on multi-instance, so the single-instance log format is unchanged.
-			log.SetPrefix("[" + b.instanceID + "] ")
-			go b.syncInflight(nil) // merge peer inflight on the same cadence as liveness
-			log.Printf("multi-instance: ON (ROGERAI_MULTI_INSTANCE, instance %s, ROGERAI_DISPATCH=%s) - job/result/stream rendezvous over the Valkey bus across instances", b.instanceID, [...]string{"bus", "queue", "queue-only"}[b.dispatchMode])
-		} else {
-			// The registry mirror + lazy-learn run whenever the shared backend is wired
-			// (task #52: registration state travels with liveness state under both flag
-			// values, so a second process can never 404 a live node into a re-register
-			// storm). Only job/result/stream DISPATCH needs the bus flag - say so, so the
-			// posture is legible during an incident.
-			log.Printf("shared-state: node-registry mirror ON (bus OFF - relay dispatch stays local; set ROGERAI_MULTI_INSTANCE=1 before running more than one instance)")
+	}
+	b.rl.name, b.rl.shared = "id", b.shared
+	b.grantRL.name, b.grantRL.shared = "grant", b.shared
+	go b.syncLiveness(nil)
+	// PRE-SCALE Stage 2: the cross-instance rendezvous bus is OPT-IN on top of the
+	// shared backend. ROGERAI_MULTI_INSTANCE=1 turns it on; it HARD-REQUIRES a wired
+	// Valkey backend (the only place jobs/results/chunks can rendezvous across
+	// instances), so it is only ever enabled when b.shared is non-nil. Unset = the
+	// in-memory single-instance fast-path, byte-for-byte unchanged. PROD runs it ON
+	// (.do/app.yaml: instance_count:2 + ROGERAI_MULTI_INSTANCE=1, reconciled in P1-4).
+	if multiInstanceEnabled() {
+		b.multiInstance = true
+		b.dispatchMode = dispatchModeFromEnv()
+		if vs, ok := b.shared.(*valkeyStore); ok && b.dispatchMode != dispatchViaBus {
+			vs.livenessHashOnly.Store(true) // every instance runs code that writes the fleet hash
 		}
-	} else if multiInstanceEnabled() {
-		// Fail SAFE, not closed: the flag was set but there is no shared backend to
-		// rendezvous over, so we CANNOT do cross-instance handoff. Stay single-instance
-		// in-memory (the correct behavior for one instance) and warn loudly rather than
-		// half-enabling a broken bus. This keeps a misconfig from silently dropping jobs.
-		log.Printf("multi-instance: ROGERAI_MULTI_INSTANCE set but ROGERAI_REDIS_URL is not wired - staying single-instance in-memory (set ROGERAI_REDIS_URL to enable the cross-instance bus)")
+		b.instanceID = newInstanceID()
+		b.peerInflight = map[string]int{}
+		b.peerEdgeLoad = map[string]int{}
+		// Announce this instance's presence immediately so the ops panel counts the full
+		// live fleet from the first read (before the first sync tick refreshes it).
+		// Best-effort: a shared-store hiccup just defers presence to the next tick.
+		_ = b.shared.markInstance(b.instanceID, time.Now())
+		// Tag EVERY log line with this instance's id so logs from the 2+ instances
+		// (interleaved in the aggregated DO log stream) are attributable at a glance -
+		// the team no longer has to guess which instance emitted a relay/bus line. This
+		// is gated on multi-instance, so the single-instance log format is unchanged.
+		log.SetPrefix("[" + b.instanceID + "] ")
+		go b.syncInflight(nil) // merge peer inflight on the same cadence as liveness
+		log.Printf("multi-instance: ON (ROGERAI_MULTI_INSTANCE, instance %s, ROGERAI_DISPATCH=%s) - job/result/stream rendezvous over the Valkey bus across instances", b.instanceID, [...]string{"bus", "queue", "queue-only"}[b.dispatchMode])
+	} else {
+		// The registry mirror + lazy-learn run whenever the shared backend is wired
+		// (task #52: registration state travels with liveness state under both flag
+		// values, so a second process can never 404 a live node into a re-register
+		// storm). Only job/result/stream DISPATCH needs the bus flag - say so, so the
+		// posture is legible during an incident.
+		log.Printf("shared-state: node-registry mirror ON (bus OFF - relay dispatch stays local; set ROGERAI_MULTI_INSTANCE=1 before running more than one instance)")
 	}
-	// Bind the concierge's serving paths to this broker (grant dogfood, then a free
-	// station, then Groq). Stored as fields so tests can stub each branch
-	// independently. grantDogfoodFn stays nil (path disabled) unless CONCIERGE_GRANT_KEY
-	// is set, so the handler skips it cleanly when there is no grant key.
-	if b.concierge.grantKey != "" {
-		b.concierge.grantDogfoodFn = b.dogfoodGrantRelay
+	b.sharedPhase.Store(sharedConnected)
+	b.sharedUpOnce.Do(func() {
+		if b.sharedUp != nil {
+			close(b.sharedUp)
+		}
+	})
+}
+
+// sharedLive is the shared store as seen from a goroutine that may have started before the
+// boot retry wired it (the alert checker runs through an outage). wireShared writes every
+// field it wires BEFORE the atomic phase store, so a goroutine that loads "connected" here
+// sees all of it; before then it gets nil and never touches the field the retry is writing.
+func (b *broker) sharedLive() sharedStore {
+	switch b.sharedPhase.Load() {
+	case sharedConnecting, sharedNotConfigured:
+		return nil
 	}
-	b.concierge.dogfoodFn = b.dogfoodRelay
-	b.concierge.groqFn = b.groqCall
-	log.Printf("price-lock: quoted prices honored for %s per user+node+model", lock)
-	return b
+	return b.shared
+}
+
+// startWhenShared runs start once the shared store is published, or at once when the
+// broker is not waiting on one (single-instance, or already connected at boot). Loops that
+// read shared state must not start while the boot retry may still be writing it. A broker
+// stopped before the store answers never starts them.
+func (b *broker) startWhenShared(stop <-chan struct{}, start func()) {
+	if b.sharedUp == nil {
+		start()
+		return
+	}
+	go func() {
+		select {
+		case <-b.sharedUp:
+			start()
+		case <-stop:
+		}
+	}()
+}
+
+// readinessGate refuses everything but the probes while a broker configured to share state
+// is not connected, so it never serves on per-instance state (R4).
+func (b *broker) readinessGate(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch b.sharedPhase.Load() {
+		case sharedConnecting, sharedNotConfigured:
+			if r.URL.Path != "/ready" && r.URL.Path != "/health" {
+				sharedUnavailable(w)
+				return
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // routes builds the broker's HTTP mux. Split out of main() so the full route table is
@@ -981,7 +1137,9 @@ func (b *broker) routes() *http.ServeMux {
 		_, _ = w.Write([]byte(openapiSpec))
 	})
 	mux.HandleFunc("/", b.root) // service descriptor - the broker is API-only (no website)
-	return mux
+	gated := http.NewServeMux()
+	gated.Handle("/", b.readinessGate(mux))
+	return gated
 }
 
 // streamRoutes are the paths that MUST keep a long-lived response open and therefore
@@ -1058,73 +1216,23 @@ func isStreamRoute(p string) bool {
 // Within that window an owner cannot charge MORE than the quoted price; if they
 // LOWER it, the user gets the lower price (we bill min(quoted, current)). Fair to
 // both: stable/predictable for users, and owners can always cut prices to compete.
-func (b *broker) lockedPrice(user, node, model string, curIn, curOut float64) (in, out float64, until time.Time) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	key := user + "|" + node + "|" + model
-	now := time.Now()
-
-	// MULTI-INSTANCE (Stage 2): the 24h price-lock must be honored on ANY instance, so
-	// the quote is shared in Valkey. Read the SHARED quote first (a quote locked on a
-	// peer instance must win here); fall back to the local in-memory quote on a miss or
-	// any bus error (graceful degrade to per-instance locking - never blocks the
-	// request). The in-memory b.quotes stays the authoritative path when the flag is off
-	// (b.shared==nil), so the single-instance behavior is byte-for-byte unchanged.
-	if b.multiInstance && b.shared != nil {
-		if sq, ok := b.sharedQuoteGet(key); ok && now.Before(sq.until) {
-			b.quotes[key] = sq // mirror locally so a later bus outage still honors it
-			return min(sq.in, curIn), min(sq.out, curOut), sq.until
-		}
+//
+// The quote is DURABLE and decided once (store.QuotePrice: insert-if-absent in Postgres),
+// so every broker instance honors it, it survives restarts and shared-store flushes, and
+// racing first requests bill under one quote. The store round trip runs WITHOUT the broker
+// mutex. An error means the lock could not be read: the caller must not bill (an unlocked
+// current price could be a hike) and takes its settle-failure path instead.
+func (b *broker) lockedPrice(user, node, model string, curIn, curOut float64) (in, out float64, until time.Time, err error) {
+	if curIn == 0 && curOut == 0 {
+		// A 0/0 base price is free: billed as-is and never locked, like a free window (a $0
+		// lock would also hold this consumer at $0 for 24h after the operator starts charging).
+		return 0, 0, time.Time{}, nil
 	}
-
-	q, ok := b.quotes[key]
-	if !ok || now.After(q.until) {
-		q = priceQuote{in: curIn, out: curOut, until: now.Add(b.lockWin)}
-		b.quotes[key] = q
-		// Write the new lock through to the shared store so peers honor it. Best-effort:
-		// a failure just means a peer mints its own (equal) quote until the next write.
-		if b.multiInstance && b.shared != nil {
-			b.sharedQuoteSet(key, q)
-		}
+	q, err := b.db.QuotePrice(user, node, model, curIn, curOut, time.Now(), b.lockWin)
+	if err != nil {
+		return 0, 0, time.Time{}, err
 	}
-	return min(q.in, curIn), min(q.out, curOut), q.until
-}
-
-// sharedQuoteKey namespaces a shared price-lock under the cache keyspace (distinct from
-// the market/metrics cache via the "quote:" infix). The quote is small + JSON-encoded.
-func sharedQuoteKey(key string) string { return "quote:" + key }
-
-// sharedQuoteGet reads a cross-instance price-lock. Any miss/bus error returns ok=false
-// so the caller falls back to the local quote (never fails the request).
-func (b *broker) sharedQuoteGet(key string) (priceQuote, bool) {
-	val, found, err := b.shared.cacheGet(sharedQuoteKey(key))
-	if err != nil || !found {
-		return priceQuote{}, false
-	}
-	var w struct {
-		In, Out float64
-		Until   int64
-	}
-	if json.Unmarshal(val, &w) != nil {
-		return priceQuote{}, false
-	}
-	return priceQuote{in: w.In, out: w.Out, until: time.Unix(w.Until, 0)}, true
-}
-
-// sharedQuoteSet write-throughs a price-lock with a TTL == the remaining lock window, so
-// the shared entry expires exactly when the lock would. Best-effort (non-fatal).
-func (b *broker) sharedQuoteSet(key string, q priceQuote) {
-	ttl := time.Until(q.until)
-	if ttl <= 0 {
-		return
-	}
-	w := struct {
-		In, Out float64
-		Until   int64
-	}{q.in, q.out, q.until.Unix()}
-	if body, err := json.Marshal(w); err == nil {
-		_ = b.shared.cacheSet(sharedQuoteKey(key), body, ttl)
-	}
+	return min(q.In, curIn), min(q.Out, curOut), q.Until, nil
 }
 
 // requireBrokerKey mirrors requireLive (see billing.go): when set on the live broker

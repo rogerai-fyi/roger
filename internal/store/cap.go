@@ -96,3 +96,92 @@ func (m *Mem) MonthSpendOf(holder string, now time.Time) (float64, error) {
 	}
 	return sum, nil
 }
+
+// CappedHold is the outcome of HoldForCapped.
+type CappedHold struct {
+	OK      bool    // the hold landed
+	OverCap bool    // the monthly cap refused it (nothing reserved)
+	Spend   float64 // month-to-date captured spend the decision read
+	Pending float64 // the wallet's open pending holds the decision read (before this hold)
+}
+
+// CapEpsilon absorbs float noise so a request that exactly fits the cap is allowed
+// ($0.90 + $0.10 against $1.00) while any real excess ($0.9000001 + $0.10) is refused.
+const CapEpsilon = 1e-9
+
+// overCap reports whether spend + pending + amount exceeds a positive cap.
+func overCap(spend, pending, amount, cap float64) bool {
+	return cap > 0 && spend+pending+amount > cap+CapEpsilon
+}
+
+// HoldForCapped is HoldFor under the monthly cap, decided under m.mu: the month spend and
+// the open pending holds are read and the hold placed in the same critical section, so two
+// concurrent requests can never both fit a cap that has room for one. See the Store interface.
+func (m *Mem) HoldForCapped(user, requestID string, amount, monthlyCap float64, now time.Time) (CappedHold, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var res CappedHold
+	if monthlyCap > 0 {
+		start, end := monthRange(now)
+		for _, r := range m.ledger {
+			if r.Holder == user && r.Kind == KindSpend && r.State != StateReversed && r.TS >= start && r.TS < end {
+				res.Spend += -r.Amount
+			}
+		}
+		for _, h := range m.pendingHolds {
+			if h.user == user {
+				res.Pending += h.amount
+			}
+		}
+		if overCap(res.Spend, res.Pending, amount, monthlyCap) {
+			res.OverCap = true
+			return res, nil
+		}
+	}
+	if !m.holdLocked(user, amount) {
+		return res, nil
+	}
+	m.pendingHolds[requestID] = pendingHold{user: user, amount: amount, placedAt: time.Now().Unix()}
+	res.OK = true
+	return res, nil
+}
+
+// PriceQuote is a durable 24 h price lock (see Store.QuotePrice).
+type PriceQuote struct {
+	In, Out float64
+	Until   time.Time
+}
+
+// QuotePrice is the in-memory model of the price_quotes table: insert-if-absent under m.mu,
+// an expired quote replaced. See the Store interface.
+func (m *Mem) QuotePrice(user, node, model string, in, out float64, now time.Time, window time.Duration) (PriceQuote, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.priceQuotes == nil {
+		m.priceQuotes = map[string]PriceQuote{}
+	}
+	key := user + "|" + node + "|" + model
+	if q, ok := m.priceQuotes[key]; ok && now.Before(q.Until) {
+		return q, nil
+	}
+	q := PriceQuote{In: in, Out: out, Until: now.Add(window)}
+	m.priceQuotes[key] = q
+	return q, nil
+}
+
+// PruneExpiredPriceQuotes is the in-memory model of the bounded expired-quote delete.
+func (m *Mem) PruneExpiredPriceQuotes(now time.Time, limit int) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	n := 0
+	for k, q := range m.priceQuotes {
+		if n >= limit {
+			break
+		}
+		if !now.Before(q.Until) {
+			delete(m.priceQuotes, k)
+			n++
+		}
+	}
+	return n, nil
+}
