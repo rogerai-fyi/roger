@@ -1058,8 +1058,12 @@ func relayWithFailover(ctx context.Context, w http.ResponseWriter, opts ProxyOpt
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	// RUNG 1 outside LAN mode: what this machine serves itself (`roger use` sets LANSelf when
-	// the own serve is on the air; features/serving/edge_device_runtime.feature §3).
+	// RUNG 1 outside LAN mode: what this machine serves itself (`roger use` and the front-end
+	// ladder set LANSelf; features/serving/edge_device_runtime.feature §3). A private band is a
+	// request for THAT band's stations, so the own serve stands aside, as `roger use --freq` does.
+	if opts.Freq != "" {
+		opts.LANSelf = nil
+	}
 	if served, failed := relaySelfFirst(ctx, w, opts, lanBand(crit.Model), body, onServed); served {
 		return
 	} else if failed != "" {

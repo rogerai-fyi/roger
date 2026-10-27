@@ -291,11 +291,9 @@ func (h Home) digestLater(m Model, s Serving) {
 
 // lockServing serialises the two writers that read a serve record before changing it: the
 // background digest and Release. It is one advisory OS lock on a dedicated file, released on
-// exit, crashed or not.
+// exit, crashed or not. It creates no directory: a home that does not exist has no record to
+// guard, and the caller goes on without the lock.
 func (h Home) lockServing() (func(), error) {
-	if err := os.MkdirAll(h.Dir, 0o700); err != nil {
-		return nil, err
-	}
 	f, err := os.OpenFile(filepath.Join(h.Dir, "serving.lock"), os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return nil, err

@@ -25,8 +25,13 @@ import (
 // A band nothing here serves goes on to the market as before.
 func TestTheBoothTakesTheOwnServeFirstOutsideLANMode(t *testing.T) {
 	useTempConfig(t)
+	var mu sync.Mutex
+	var ownHits int
 	own := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "Bearer serve-key", r.Header.Get("Authorization"), "the own serve is asked with its runtime key")
+		mu.Lock()
+		ownHits++
+		mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		io.WriteString(w, `{"id":"x","object":"chat.completion","model":"wave-nano-1p45b","choices":[{"index":0,"message":{"role":"assistant","content":"hello from this machine"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":4,"total_tokens":5}}`)
 	}))
@@ -37,7 +42,6 @@ func TestTheBoothTakesTheOwnServeFirstOutsideLANMode(t *testing.T) {
 		Band: "wave-nano-1p45b", ID: "wave-nano-1p45b-Q4_K_M", File: "wave-nano-1p45b-Q4_K_M.gguf", Quant: "Q4_K_M", Started: time.Now()})
 	require.NoError(t, os.WriteFile(filepath.Join(h.Dir, "serving-43167.json"), rec, 0o600))
 
-	var mu sync.Mutex
 	var asked []string
 	broker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
@@ -52,8 +56,8 @@ func TestTheBoothTakesTheOwnServeFirstOutsideLANMode(t *testing.T) {
 	t.Cleanup(broker.Close)
 	cfg := config{Broker: broker.URL, User: "u"} // not LAN mode, not enrolled, no Edge preference
 
-	turn := func(band string) (*http.Response, string) {
-		opts := client.ProxyOptions{Broker: cfg.Broker, User: cfg.User, Model: band, SessionKey: "k"}
+	turn := func(band, freq string) (*http.Response, string) {
+		opts := client.ProxyOptions{Broker: cfg.Broker, User: cfg.User, Model: band, SessionKey: "k", Freq: freq}
 		frontEndLadder(cfg)(&opts) // what liveProxyOpts does for the tuned band
 		srv := httptest.NewServer(client.ProxyHandler(opts))
 		t.Cleanup(srv.Close)
@@ -68,7 +72,7 @@ func TestTheBoothTakesTheOwnServeFirstOutsideLANMode(t *testing.T) {
 		return resp, string(b)
 	}
 
-	resp, body := turn("wave-nano-1p45b")
+	resp, body := turn("wave-nano-1p45b", "")
 	require.Equal(t, http.StatusOK, resp.StatusCode, body)
 	require.Contains(t, body, "hello from this machine")
 	require.Equal(t, "0", resp.Header.Get("X-RogerAI-Cost"), "a turn on this machine is free and says so")
@@ -77,9 +81,19 @@ func TestTheBoothTakesTheOwnServeFirstOutsideLANMode(t *testing.T) {
 	mu.Unlock()
 
 	// A band nothing here serves: the ladder goes on to the market, as before.
-	resp, _ = turn("some-other-model")
+	resp, _ = turn("some-other-model", "")
 	require.NotEqual(t, http.StatusOK, resp.StatusCode)
 	mu.Lock()
 	require.NotEmpty(t, asked, "the market is still the rung for what this machine does not serve")
+	asked = nil
+	mu.Unlock()
+
+	// A booth tuned to a PRIVATE band is asking for that band's stations, by name or not: the
+	// own serve stands aside, as it does for `roger use --freq`.
+	resp, _ = turn("wave-nano-1p45b", "7.7")
+	require.NotEqual(t, http.StatusOK, resp.StatusCode, "the own serve did not answer a private-band turn")
+	mu.Lock()
+	require.NotEmpty(t, asked, "a private band is the market's to answer")
+	require.Equal(t, 1, ownHits, "the own serve answered the open-band turn only")
 	mu.Unlock()
 }

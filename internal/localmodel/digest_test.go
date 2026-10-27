@@ -146,14 +146,16 @@ func TestAFileReplacedUnderTheSameNameForgetsTheOldDigest(t *testing.T) {
 	require.Equal(t, hex.EncodeToString(sum[:]), second.Digest)
 
 	// The same size, different bytes, written later: the modification time gives it away.
-	put(t, p, "the THIRD copy, which is longer") // same length as the second
+	const thirdCopy = "the third copy, same size as two"
+	require.Len(t, thirdCopy, len("the second copy, which is longer"), "the step must turn on the time, not the size")
+	put(t, p, thirdCopy)
 	require.NoError(t, os.Chtimes(p, time.Now(), time.Now().Add(time.Minute)))
 	third, err := FromPath(p)
 	require.NoError(t, err)
 	require.Empty(t, third.Digest, "a same-size replacement is still a different file")
 
 	// A record written before modification times were kept is trusted while the size matches.
-	put(t, p+recordExt, `{"id":"wave-nano-1p45b-Q4_K_M","file":"wave-nano-1p45b-Q4_K_M.gguf","bytes":31,"digest":"old","band":"wave-nano-1p45b"}`)
+	put(t, p+recordExt, `{"id":"wave-nano-1p45b-Q4_K_M","file":"wave-nano-1p45b-Q4_K_M.gguf","bytes":32,"digest":"old","band":"wave-nano-1p45b"}`)
 	old, err := FromPath(p)
 	require.NoError(t, err)
 	require.Equal(t, "old", old.Digest)
