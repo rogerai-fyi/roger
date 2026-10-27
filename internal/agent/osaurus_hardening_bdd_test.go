@@ -15,6 +15,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -236,7 +237,7 @@ func TestOsaurusHardeningBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("relay/osaurus_hardening behavior scenarios failed (see godog output above)")
 	}
 }

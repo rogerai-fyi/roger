@@ -9,6 +9,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"encoding/hex"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"testing"
 	"time"
 
@@ -156,7 +157,7 @@ func TestRelayAuthBDD(t *testing.T) {
 			Strict:   true, // undefined/pending steps FAIL: every step must be wired
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("relay/auth behavior scenarios failed (see godog output above)")
 	}
 }

@@ -9,16 +9,16 @@ package admit
 
 import (
 	"database/sql"
-	"os"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"rogerai.fm/roger/v6/internal/pgtest"
 )
 
 func pgHandle(t *testing.T) *sql.DB {
 	t.Helper()
-	dsn := os.Getenv("ROGERAI_TEST_DATABASE_URL")
+	dsn := pgtest.DSN(t)
 	if dsn == "" {
 		t.Skip("ROGERAI_TEST_DATABASE_URL not set; skipping the durable enrollment tests")
 	}
@@ -156,7 +156,7 @@ func TestTheDurableCAAndEnrollmentTablesReportOutages(t *testing.T) {
 	// Every one of these paths decides whether the caller believes something is stored. A
 	// swallowed failure here means a root, a revocation, or a committed enrollment that we
 	// think exists and does not.
-	dsn := os.Getenv("ROGERAI_TEST_DATABASE_URL")
+	dsn := pgtest.DSN(t)
 	if dsn == "" {
 		t.Skip("ROGERAI_TEST_DATABASE_URL not set")
 	}
@@ -185,7 +185,7 @@ func TestTheDurableCAAndEnrollmentTablesReportOutages(t *testing.T) {
 }
 
 func TestBuildingTheDurableStoresRefusesAClosedHandle(t *testing.T) {
-	dsn := os.Getenv("ROGERAI_TEST_DATABASE_URL")
+	dsn := pgtest.DSN(t)
 	if dsn == "" {
 		t.Skip("ROGERAI_TEST_DATABASE_URL not set")
 	}

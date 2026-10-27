@@ -17,10 +17,10 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"reflect"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -70,15 +70,31 @@ type Limit struct {
 	MinTPS float64 `json:"min_tps,omitempty"`
 	// Quants is the operator's accepted compression labels for this band (empty = any).
 	// Persisted like the price caps because it is the same kind of statement: what this
-	// operator is willing to be routed to.
+	// operator is willing to be routed to. On the wire it is provider.quantizations plus
+	// "unknown" (a standing RULE lets an unlabeled station pass; client.RuleQuantizations).
 	Quants []string `json:"quants,omitempty"`
+	// Pref is the routing profile the broker scores with (cheap / balanced / fast /
+	// reliable; empty = balanced). Sent as roger.pref; a scoring knob, never a filter.
+	Pref string `json:"pref,omitempty"`
+	// The rest of the routing body object a limit may hold (roger config set-limit; contract
+	// §10): each maps to one body key, exactly as the matching `roger use` flag does.
+	Require    []string  `json:"require,omitempty"`     // roger.require
+	ParamsB    []float64 `json:"params_b,omitempty"`    // roger.params_b [min, max]
+	MinCtx     int       `json:"min_ctx,omitempty"`     // roger.min_ctx
+	MaxTTFTMs  int       `json:"max_ttft_ms,omitempty"` // roger.max_ttft_ms
+	TrustMin   string    `json:"trust_min,omitempty"`   // roger.trust_min
+	SelfHosted bool      `json:"self_hosted,omitempty"` // roger.self_hosted_only
+	Region     []string  `json:"region,omitempty"`      // roger.region
+	MaxCost    float64   `json:"max_cost,omitempty"`    // provider.max_price.request
 }
 
 // unset reports whether nothing at all is configured. It replaces a `== Limit{}` compare,
 // which stopped compiling once the struct held a slice - and a hand-written check is the
 // honest fix, because equality on a slice field was never going to mean what it read like.
 func (l Limit) unset() bool {
-	return l.MaxIn == 0 && l.MaxOut == 0 && l.MinTPS == 0 && len(l.Quants) == 0
+	return l.MaxIn == 0 && l.MaxOut == 0 && l.MinTPS == 0 && len(l.Quants) == 0 && l.Pref == "" &&
+		len(l.Require) == 0 && len(l.ParamsB) == 0 && l.MinCtx == 0 && l.MaxTTFTMs == 0 && l.TrustMin == "" &&
+		!l.SelfHosted && len(l.Region) == 0 && l.MaxCost == 0
 }
 
 // Limits is the optional, backward-compatible spend-limits section of the config:
@@ -105,6 +121,9 @@ type config struct {
 	Palette         string                `json:"palette,omitempty"`           // TUI color layer: ""/"full" = the lamp board (default), "mono" = the mono+red escape hatch. ROGER_PALETTE overrides per-run. (design overhaul increment 0)
 	Deck            string                `json:"deck,omitempty"`              // the painted deck ground behind the whole TUI: ""/"on" = the RogerAI faceplate (default), "off" = inherit the terminal's own background. ROGER_DECK overrides per-run.
 	LastSeenVersion string                `json:"last_seen_version,omitempty"` // the Version last launched; the tube warm-up boot plays only when this differs (first run + after an upgrade). (design overhaul increment 10)
+	// UseKey is an account key (`rog-key_...`) `roger use` relays with instead of the device
+	// signature. Written ONLY by `roger use --key ... --save-key`; never stored otherwise.
+	UseKey string `json:"use_key,omitempty"`
 	// Station is this install's friendly, NON-SENSITIVE broadcast callsign (e.g.
 	// `brave-otter-37`). It is the public-facing identity in /discover - NOT the
 	// hostname - so it never leaks the machine name. Auto-generated once and persisted
@@ -213,18 +232,67 @@ func (c config) shareMaxOnAir() int {
 	return defaultShareMaxOnAir
 }
 
-// resolve returns the effective limit for model m: the per-model limit if set,
-// else the Default. typicalOut is the configured reply size, or 800.
+// resolve returns the effective limit for model m: the Default with each field the per-model
+// limit sets laid over it (a shallow merge per key, contract §10). typicalOut is the
+// configured reply size, or 800.
 func (c config) resolve(m string) (Limit, int) {
 	typ := c.Limits.TypicalOutTok
 	if typ <= 0 {
 		typ = 800
 	}
-	if l, ok := c.Limits.Models[m]; ok {
-		return l, typ
+	l := c.Limits.Default
+	if o, ok := c.Limits.Models[m]; ok {
+		l = overLimit(l, o)
 	}
-	return c.Limits.Default, typ
+	return l, typ
 }
+
+// overLimit lays every field o sets over base, by the one rule the booth uses too
+// (tui.MergeLimit), so `roger use` and the TUI can never resolve a band differently.
+func overLimit(base, o Limit) Limit {
+	return fromTUILimit(tui.MergeLimit(toTUILimit(base), toTUILimit(o)))
+}
+
+// prefFlag is the --pref flag value: one of client.RoutingPrefs, refused at parse time with
+// a message naming the four accepted values (before any request is made).
+type prefFlag struct{ v string }
+
+func (p *prefFlag) String() string { return p.v }
+func (p *prefFlag) Set(v string) error {
+	v = strings.ToLower(strings.TrimSpace(v))
+	if !client.ValidPref(v) {
+		return fmt.Errorf("%q is not a routing pref: use one of %s", v, strings.Join(client.RoutingPrefs, ", "))
+	}
+	p.v = v
+	return nil
+}
+
+// maxOutFlag is the --max-out flag value: a $/1M output price (0 = the default $10/1M cap,
+// which the relay applies when no cap is set) or the word "unlimited" (= the network's
+// register ceiling, above which nothing is offered). set tells "passed at all" apart from
+// "passed 0", replacing the old -1 sentinel that made a negative price unrefusable.
+type maxOutFlag struct {
+	v   float64
+	set bool
+}
+
+func (m *maxOutFlag) String() string { return fmt.Sprintf("%g", m.v) }
+func (m *maxOutFlag) Set(raw string) error {
+	t := strings.ToLower(strings.TrimSpace(raw))
+	if t == "unlimited" {
+		m.v, m.set = client.ConsumerCeilingMaxOut, true
+		return nil
+	}
+	f, err := strconv.ParseFloat(t, 64)
+	if err != nil || math.IsNaN(f) || math.IsInf(f, 0) || f < 0 {
+		return fmt.Errorf("%q is not a $/1M price or the word unlimited", raw)
+	}
+	m.v, m.set = f, true
+	return nil
+}
+
+// maxOutHelp is the one description both `roger use` and `roger config set-limit` print.
+const maxOutHelp = "skip stations above this $/1M OUTPUT price (the headline cap); 0 = the default $10/1M consumer cap; unlimited = the network ceiling"
 
 func configPath() string {
 	d, _ := os.UserConfigDir()
@@ -275,8 +343,33 @@ func loadConfig() config {
 //   - C5 unchanged for the common single-writer path: it writes the struct in canonical field
 //     order, byte-identical to before, taking the merge path only when it is actually needed.
 func saveConfig(c config) error {
+	// The same lock profile edits take (editConfigRaw), so this merge never reads a file a
+	// concurrent `roger profile set` is about to replace.
+	release, err := acquireConfigLock()
+	if err != nil {
+		return err
+	}
+	defer release()
+	return saveConfigLocked(c)
+}
+
+// acquireConfigLock takes the config.json lock (the one every writer takes). A writer that
+// reads, edits and writes holds it across all three (load, then saveConfigLocked), so a
+// concurrent writer's edit is never read stale and overwritten.
+func acquireConfigLock() (func(), error) {
+	if err := os.MkdirAll(filepath.Dir(configPath()), 0o700); err != nil {
+		return nil, err
+	}
+	return lockConfig(configPath() + ".lock")
+}
+
+// saveConfigLocked is saveConfig for a caller already holding acquireConfigLock.
+func saveConfigLocked(c config) error {
 	mine := toRawConfig(c)
-	theirs := readRawConfig(configPath())
+	theirs, rerr := readRawConfigErr(configPath()) // read under the lock: this is the file replaced
+	if rerr != nil {
+		return fmt.Errorf("%s could not be read (%v); not overwriting it - fix it first", configPath(), rerr)
+	}
 	if !configNeedsMerge(mine, theirs) {
 		// Fast path: nothing unknown on disk and no concurrent change to a field we left alone,
 		// so our canonical struct bytes are authoritative (C5 byte-identical).
@@ -345,14 +438,23 @@ func toRawConfig(c config) map[string]json.RawMessage {
 	return m
 }
 
-// readRawConfig reads the on-disk config as a per-key raw-JSON map; a missing or corrupt file
-// yields an empty map (best-effort: the corrupt case is handled by loadConfig's C4 backup).
-func readRawConfig(path string) map[string]json.RawMessage {
+// readRawConfigErr reads the on-disk config as a per-key raw-JSON map. A missing file is
+// empty; a file it cannot read or parse is an error, and saveConfig then refuses to replace it.
+// (A file already corrupt at load is renamed aside by loadConfig first, C4, so this catches one
+// that became unreadable or corrupt after load.)
+func readRawConfigErr(path string) (map[string]json.RawMessage, error) {
 	m := map[string]json.RawMessage{}
-	if b, err := os.ReadFile(path); err == nil {
-		_ = json.Unmarshal(b, &m)
+	b, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return m, nil
+		}
+		return m, err
 	}
-	return m
+	if err := json.Unmarshal(b, &m); err != nil {
+		return m, fmt.Errorf("not valid JSON: %w", err)
+	}
+	return m, nil
 }
 
 // knownConfigKeys is the set of JSON keys the `config` struct owns (including omitempty fields,
@@ -495,31 +597,96 @@ func agentSlugStation(s string) string { return agent.SlugStation(s) }
 
 // tuiLimits builds the TUI spend-limit store from the config, with a Save
 // callback that persists edits back to config.json (the TUI owns no I/O).
+
+// toTUILimit / fromTUILimit carry EVERY key of a limit across the TUI boundary: a key left
+// out here is erased from config.json by the next [3] CONFIG edit.
+func toTUILimit(l Limit) tui.Limit {
+	return tui.Limit{MaxIn: l.MaxIn, MaxOut: l.MaxOut, MinTPS: l.MinTPS, Quants: l.Quants, Pref: l.Pref,
+		MaxCost: l.MaxCost, Require: l.Require, ParamsB: l.ParamsB, MinCtx: l.MinCtx, MaxTTFTMs: l.MaxTTFTMs,
+		TrustMin: l.TrustMin, SelfHosted: l.SelfHosted, Region: l.Region}
+}
+
+func fromTUILimit(l tui.Limit) Limit {
+	return Limit{MaxIn: l.MaxIn, MaxOut: l.MaxOut, MinTPS: l.MinTPS, Quants: l.Quants, Pref: l.Pref,
+		MaxCost: l.MaxCost, Require: l.Require, ParamsB: l.ParamsB, MinCtx: l.MinCtx, MaxTTFTMs: l.MaxTTFTMs,
+		TrustMin: l.TrustMin, SelfHosted: l.SelfHosted, Region: l.Region}
+}
+
+// mergeLimitFields applies to fresh (the row as config.json holds it now) only the fields the
+// booth changed since base, so a concurrent roger set-limit on another field of the same row
+// is kept.
+func mergeLimitFields(fresh, base, booth tui.Limit) tui.Limit {
+	f, b, n := reflect.ValueOf(&fresh).Elem(), reflect.ValueOf(base), reflect.ValueOf(booth)
+	for i := 0; i < n.NumField(); i++ {
+		if !reflect.DeepEqual(b.Field(i).Interface(), n.Field(i).Interface()) {
+			f.Field(i).Set(n.Field(i))
+		}
+	}
+	return fresh
+}
+
 func tuiLimits(cfg config) *tui.LimitStore {
 	models := map[string]tui.Limit{}
 	for m, l := range cfg.Limits.Models {
-		models[m] = tui.Limit{MaxIn: l.MaxIn, MaxOut: l.MaxOut, MinTPS: l.MinTPS, Quants: l.Quants}
+		models[m] = toTUILimit(l)
 	}
 	typ := cfg.Limits.TypicalOutTok
 	if typ <= 0 {
 		typ = 800
 	}
-	return &tui.LimitStore{
+	ls := &tui.LimitStore{
 		Models:     models,
-		Default:    tui.Limit{MaxIn: cfg.Limits.Default.MaxIn, MaxOut: cfg.Limits.Default.MaxOut, MinTPS: cfg.Limits.Default.MinTPS},
+		Default:    toTUILimit(cfg.Limits.Default),
 		TypicalOut: typ,
-		Save: func(tm map[string]tui.Limit, def tui.Limit) {
-			c := loadConfig()
-			c.Limits.Models = map[string]Limit{}
-			for m, l := range tm {
-				c.Limits.Models[m] = Limit{MaxIn: l.MaxIn, MaxOut: l.MaxOut, MinTPS: l.MinTPS, Quants: l.Quants}
-			}
-			// Quants carried too: a default rule that survived a save without its quant
-			// list would silently stop binding on the next launch.
-			c.Limits.Default = Limit{MaxIn: def.MaxIn, MaxOut: def.MaxOut, MinTPS: def.MinTPS, Quants: def.Quants}
-			_ = saveConfig(c)
-		},
+		Profiles:   client.NewProfileStore(""), // config.json's profiles, re-read on change
 	}
+	// The booth writes only what it changed since its last save (against this baseline), onto
+	// the config read under the lock: a limit another roger process set meanwhile, on any
+	// other model or the default, is kept rather than overwritten by the booth's older copy.
+	baseModels := map[string]tui.Limit{}
+	for m, l := range models {
+		baseModels[m] = l
+	}
+	baseDef := toTUILimit(cfg.Limits.Default)
+	ls.Save = func(tm map[string]tui.Limit, def tui.Limit) { // runs with ls's lock held
+		release, err := acquireConfigLock() // held across load, edit and save
+		if err != nil {
+			ls.ReportSaveErr(err)
+			return
+		}
+		defer release()
+		c := loadConfig()
+		if c.Limits.Models == nil {
+			c.Limits.Models = map[string]Limit{}
+		}
+		for m, l := range tm { // added or changed in the booth: only the changed fields
+			if b, had := baseModels[m]; !had || !reflect.DeepEqual(b, l) {
+				merged := mergeLimitFields(toTUILimit(c.Limits.Models[m]), baseModels[m], l)
+				c.Limits.Models[m] = fromTUILimit(merged)
+				tm[m] = merged // the booth routes on what was saved
+			}
+		}
+		for m := range baseModels { // cleared in the booth
+			if _, still := tm[m]; !still {
+				delete(c.Limits.Models, m)
+			}
+		}
+		if !reflect.DeepEqual(def, baseDef) {
+			def = mergeLimitFields(toTUILimit(c.Limits.Default), baseDef, def)
+			c.Limits.Default = fromTUILimit(def)
+			ls.Default = def
+		}
+		if err := saveConfigLocked(c); err != nil {
+			ls.ReportSaveErr(err) // the booth says so on its next tick
+			return
+		}
+		baseModels = map[string]tui.Limit{}
+		for m, l := range tm {
+			baseModels[m] = l
+		}
+		baseDef = def
+	}
+	return ls
 }
 
 // tuiHooks supplies the host bits the TUI can't compute (the broadcast station, HW,
@@ -915,6 +1082,8 @@ func dispatch(cfg config, args []string) error {
 		return cmdPerms(cfg, args[1:])
 	case "limits":
 		return cmdConfig(append([]string{"limits"}, args[1:]...))
+	case "profile", "profiles":
+		return cmdProfile(args[1:])
 	case "limit":
 		return cmdLimit(cfg, args[1:])
 	case "payout", "payouts", "cashout":
@@ -927,6 +1096,8 @@ func dispatch(cfg config, args []string) error {
 		return cmdWebui(cfg, args[1:])
 	case "grant":
 		return cmdGrant(cfg, args[1:])
+	case "keys":
+		return cmdKeys(cfg, args[1:])
 	case "context":
 		return cmdContext(cfg, args[1:])
 	case "onboard", "setup":
@@ -991,59 +1162,17 @@ func cmdSupport() error {
 	return nil
 }
 
-func cmdUse(cfg config, args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: roger use <model> [--max-out $] [--advanced]")
+// useKeyNote is the connect plate's KEY line for the account key a session relays with: its
+// hint (never the key) and where it came from.
+func useKeyNote(useKey, saved string, fromFlag bool) string {
+	hint := "..." + useKey[len(useKey)-4:]
+	switch {
+	case useKey == saved:
+		return "saved key " + hint + " in use (roger use --forget-key to clear)"
+	case fromFlag:
+		return "account key " + hint + " from --key"
 	}
-	// The model is the first positional; flags follow it. (Go's flag package stops
-	// at the first non-flag arg, so we pull the model out before parsing.)
-	model := args[0]
-	fs := flag.NewFlagSet("use", flag.ExitOnError)
-	// The headline cap, in everyone's face.
-	maxOut := fs.Float64("max-out", -1, "cap: skip stations above this $/1M OUTPUT price (the headline cap); 0 = no cap")
-	// Advanced - defaulted and tucked away (CLI-SIMPLICITY-AUDIT C7). --port 0 =
-	// auto-pick a free port; --max-in is the rare input-heavy cap (C1 drops the
-	// --max-price alias entirely).
-	advanced := fs.Bool("advanced", false, "show advanced flags (--port --max-in --min-tps --confidential --yes --raw)")
-	port := fs.Int("port", 0, "local endpoint port (0 = auto-pick a free one)")
-	confidential := fs.Bool("confidential", false, "route only to confidential (TEE-attested) nodes")
-	maxIn := fs.Float64("max-in", -1, "cap: skip stations above this $/1M INPUT price; 0 = no cap")
-	minTPS := fs.Float64("min-tps", -1, "require at least this measured throughput (tok/s); 0 = no floor")
-	yes := fs.Bool("yes", false, "skip the connect-time confirm (for scripts / Hermes / bots)")
-	freq := fs.String("freq", "", "tune in to a PRIVATE band by its frequency code, e.g. \"147.520 MHz 8F3K-9M2Q\" (the code is what matters; cosmetic part optional)")
-	// --raw disables the reasoning->content fallback for this session (raw provider body).
-	// Default off = fallback ON (an empty-content reasoning reply is surfaced as content).
-	// ROGERAI_REASONING_RAW=1 does the same via the environment (client.Use ORs them).
-	raw := fs.Bool("raw", false, "raw passthrough: disable the reasoning->content fallback for this session")
-	fs.Parse(args[1:])
-	if *advanced {
-		fmt.Println("advanced flags: --port --max-in --min-tps --confidential --yes --raw")
-	}
-	// Start from the resolved per-model limit (or Default), then let flags override
-	// it for this session. -1 sentinel = flag not passed (keep the stored limit).
-	lim, typical := cfg.resolve(model)
-	if *maxIn >= 0 {
-		lim.MaxIn = *maxIn
-	}
-	if *maxOut >= 0 {
-		lim.MaxOut = *maxOut
-	}
-	if *minTPS >= 0 {
-		lim.MinTPS = *minTPS
-	}
-	useport := *port
-	if useport == 0 {
-		p, err := freePort(4141) // auto-pick + the endpoint line prints the chosen port
-		if err != nil {
-			return err
-		}
-		useport = p
-	}
-	return client.Use(cfg.Broker, cfg.User, model, client.UseOptions{
-		Port: useport, Confidential: *confidential,
-		MaxIn: lim.MaxIn, MaxOut: lim.MaxOut, MinTPS: lim.MinTPS,
-		TypicalOut: typical, Yes: *yes, Freq: strings.TrimSpace(*freq), Raw: *raw,
-	})
+	return "account key " + hint + " from ROGER_KEY"
 }
 
 // shareModelArg pulls an optional LEADING positional model token out of `share`'s
@@ -2222,15 +2351,24 @@ func cmdConfig(args []string) error {
 		return nil
 	case "set-limit":
 		return cmdSetLimit(args[1:])
+	case "show":
+		return cmdConfigShow(args[1:])
 	case "clear-limit":
 		if len(args) < 2 {
-			return fmt.Errorf("usage: roger config clear-limit <model>")
+			return fmt.Errorf("usage: roger config clear-limit <model|default>")
 		}
+		release, err := acquireConfigLock() // held across load, edit and save
+		if err != nil {
+			return err
+		}
+		defer release()
 		c := loadConfig()
-		if c.Limits.Models != nil {
+		if args[1] == "default" { // limits.default, the rule every band inherits
+			c.Limits.Default = Limit{}
+		} else if c.Limits.Models != nil {
 			delete(c.Limits.Models, args[1])
 		}
-		if err := saveConfig(c); err != nil {
+		if err := saveConfigLocked(c); err != nil {
 			return err
 		}
 		fmt.Printf("cleared limit for %s\n", args[1])
@@ -2311,93 +2449,6 @@ func cmdConfig(args []string) error {
 	return nil
 }
 
-// cmdSetLimit handles `roger config set-limit <model> [--max-in P] [--max-out P]
-// [--min-tps N]`. Use "default" as the model to set the fallback limit. Only the
-// flags passed are changed (the rest of that model's limit is preserved).
-func cmdSetLimit(args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: roger config set-limit <model|default> [--max-in P] [--max-out P] [--min-tps N]")
-	}
-	// The model is the first positional; flags follow it. (Go's flag package stops
-	// at the first non-flag arg, so we pull the model out before parsing.)
-	model := args[0]
-	fs := flag.NewFlagSet("set-limit", flag.ExitOnError)
-	maxIn := fs.Float64("max-in", -1, "$/1M input price cap (0 = no cap)")
-	maxOut := fs.Float64("max-out", -1, "$/1M output price cap (the headline cap; 0 = no cap)")
-	minTPS := fs.Float64("min-tps", -1, "min throughput floor in tok/s (0 = no floor)")
-	fs.Parse(args[1:])
-	c := loadConfig()
-	var cur Limit
-	if model == "default" {
-		cur = c.Limits.Default
-	} else if c.Limits.Models != nil {
-		cur = c.Limits.Models[model]
-	}
-	if *maxIn >= 0 {
-		cur.MaxIn = *maxIn
-	}
-	if *maxOut >= 0 {
-		cur.MaxOut = *maxOut
-	}
-	if *minTPS >= 0 {
-		cur.MinTPS = *minTPS
-	}
-	if model == "default" {
-		c.Limits.Default = cur
-	} else {
-		if c.Limits.Models == nil {
-			c.Limits.Models = map[string]Limit{}
-		}
-		c.Limits.Models[model] = cur
-	}
-	if err := saveConfig(c); err != nil {
-		return err
-	}
-	fmt.Printf("set limit for %s: %s\n", model, limitStr(cur))
-	return nil
-}
-
-// limitStr renders a Limit as a compact human line.
-func limitStr(l Limit) string {
-	parts := []string{}
-	if l.MaxOut > 0 {
-		parts = append(parts, fmt.Sprintf("max-out=%g", l.MaxOut))
-	}
-	if l.MaxIn > 0 {
-		parts = append(parts, fmt.Sprintf("max-in=%g", l.MaxIn))
-	}
-	if l.MinTPS > 0 {
-		parts = append(parts, fmt.Sprintf("min-tps=%g", l.MinTPS))
-	}
-	if len(parts) == 0 {
-		return "no caps"
-	}
-	return strings.Join(parts, "  ")
-}
-
-// printLimits shows the spend-limits section (the static 3.4 view) on the CLI.
-func printLimits(c config) {
-	d := c.Limits.Default
-	typ := c.Limits.TypicalOutTok
-	if typ <= 0 {
-		typ = 800
-	}
-	fmt.Printf("limits (typical reply ~%d out tokens):\n", typ)
-	if len(c.Limits.Models) == 0 && d.unset() {
-		fmt.Println("  (none set - no caps; `roger config set-limit <model> --max-out P`)")
-		return
-	}
-	models := make([]string, 0, len(c.Limits.Models))
-	for m := range c.Limits.Models {
-		models = append(models, m)
-	}
-	sort.Strings(models)
-	for _, m := range models {
-		fmt.Printf("  %-22s %s\n", m, limitStr(c.Limits.Models[m]))
-	}
-	fmt.Printf("  %-22s %s\n", "· default (any other)", limitStr(d))
-}
-
 // sameEndpoint reports whether two upstream URLs point at the same server, comparing
 // their normalized chat-completions form so a base / /v1 / full-chat spelling of the
 // SAME endpoint matches. Used to decide when a saved upstream key may be reused (only
@@ -2476,6 +2527,7 @@ func usage() {
   roger balance               your wallet balance
   roger topup <amt>           add funds to your wallet
   roger limit --monthly $X    cap your spend per calendar month  (0/off = no cap)
+  roger keys                  account API keys for scripts and CI: list · mint · set · rm
   roger perms <mode>          agent tool approvals default: confirm | edits | all
   roger --perms <m> / --yolo  same, for THIS run only (yolo = all)
   roger remote                your private remote sessions: list · attach <code> · off · link

@@ -17,6 +17,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"testing"
 	"time"
 
@@ -326,7 +327,7 @@ func TestTrustVerifiedServingBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("trust/verified_serving behavior scenarios failed (see godog output above)")
 	}
 }

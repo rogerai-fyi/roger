@@ -14,6 +14,7 @@ import (
 	"log"
 	"net/http"
 	"net/http/httptest"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"sync"
 	"testing"
 	"time"
@@ -357,7 +358,7 @@ func TestBrokerRendezvousBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("broker rendezvous scenarios failed (see godog output above)")
 	}
 }

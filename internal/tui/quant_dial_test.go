@@ -69,47 +69,34 @@ func TestTheRowShowsItsQuantEvenWhenNarrow(t *testing.T) {
 }
 
 // TUNING A ROW MUST BIND. The broker groups by model alone, so without this the dial's
-// promise is decoration: a Q4_K_M row could still route to the bf16 station.
+// promise is decoration: a Q4_K_M row could still route to the bf16 station. The row
+// travels as its ONE label, so every station of the chosen quant stays available for
+// failover and no other quant - stated or unstated - is admitted.
 func TestTuningAQuantRowExcludesTheOtherQuants(t *testing.T) {
 	m := browseSeed(100)
 	m.bands = groupBands(quantOffers(), nil)
-	var q4 band
-	for _, b := range m.bands {
-		if b.quant == "Q4_K_M" {
-			q4 = b
+	got := m.quantList("qwen3.8-27b", "Q4_K_M")
+	if strings.Join(got, ",") != "Q4_K_M" {
+		t.Errorf("a tuned Q4_K_M row must travel as exactly its label: %v", got)
+	}
+	// "unknown" is NOT appended: the operator picked known weights, and "unknown" is not
+	// those weights.
+	for _, q := range got {
+		if q == "unknown" {
+			t.Errorf("a tuned row admitted unstated-quant stations: %v", got)
 		}
-	}
-	skip := m.quantExcludes(q4)
-	joined := strings.Join(skip, ",")
-	if !strings.Contains(joined, "c-qwen") {
-		t.Errorf("the bf16 station was not excluded: %v", skip)
-	}
-	for _, keep := range []string{"a-qwen", "b-qwen"} {
-		if strings.Contains(joined, keep) {
-			t.Errorf("%s runs the CHOSEN quant and must stay available for failover: %v", keep, skip)
-		}
-	}
-	// The unstated stations are a different row, so they are excluded too - the operator
-	// picked known weights, and "unknown" is not those weights.
-	if !strings.Contains(joined, "d-qwen") {
-		t.Errorf("an unstated-quant station was not excluded from a stated-quant row: %v", skip)
 	}
 }
 
-// A band with NO stated quant excludes NOTHING. Absence of information is not a
-// preference: narrowing routing on the strength of missing metadata would turn "I do not
-// know what this is" into "I insist on not knowing".
+// A band with NO stated quant and no standing rule binds NOTHING. Absence of information
+// is not a preference: narrowing routing on the strength of missing metadata would turn
+// "I do not know what this is" into "I insist on not knowing".
 func TestAnUnstatedBandBindsNothing(t *testing.T) {
 	m := browseSeed(100)
 	m.bands = groupBands(quantOffers(), nil)
-	var blank band
-	for _, b := range m.bands {
-		if b.quant == "" {
-			blank = b
-		}
-	}
-	if skip := m.quantExcludes(blank); len(skip) != 0 {
-		t.Errorf("a band with no stated quant excluded %v", skip)
+	m.limits = &LimitStore{Models: map[string]Limit{}}
+	if got := m.quantList("qwen3.8-27b", ""); len(got) != 0 {
+		t.Errorf("a band with no stated quant sent a quant filter %v", got)
 	}
 }
 
@@ -175,14 +162,15 @@ func TestAnAcceptedQuantSetBindsRouting(t *testing.T) {
 	m.limits = &LimitStore{Models: map[string]Limit{
 		"qwen3.8-27b": {Quants: []string{"Q4_K_M"}},
 	}}
-	skip := strings.Join(m.prefExcludes("qwen3.8-27b"), ",")
-	if !strings.Contains(skip, "c-qwen") {
-		t.Errorf("the bf16 station was not excluded by the rule: %q", skip)
+	// No row tuned: the RULE travels, plus "unknown" so a station that stated no label
+	// keeps passing it exactly as Limit.acceptsQuant reads absence.
+	got := strings.Join(m.quantList("qwen3.8-27b", ""), ",")
+	if got != "Q4_K_M,unknown" {
+		t.Errorf("the standing rule must travel as its labels plus unknown: %q", got)
 	}
-	for _, keep := range []string{"a-qwen", "b-qwen"} {
-		if strings.Contains(skip, keep) {
-			t.Errorf("%s runs the accepted quant and must stay available: %q", keep, skip)
-		}
+	// The rule reaches every in-booth path through the routing object.
+	if rt := m.routing("qwen3.8-27b", ""); strings.Join(rt.Quantizations, ",") != got {
+		t.Errorf("routing() dropped the quant rule: %v", rt.Quantizations)
 	}
 }
 
@@ -215,23 +203,18 @@ func TestTheRowAndTheRuleAreUnioned(t *testing.T) {
 	m.limits = &LimitStore{Models: map[string]Limit{
 		"qwen3.8-27b": {Quants: []string{"Q4_K_M", "BF16"}},
 	}}
-	var q4 band
-	for _, b := range m.bands {
-		if b.quant == "Q4_K_M" {
-			q4 = b
-		}
+	// A tuned row INSIDE the rule travels as the row alone (the intersection): BF16 and the
+	// unstated stations are out because the row chose Q4_K_M, not because of the rule.
+	if got := strings.Join(m.quantList("qwen3.8-27b", "Q4_K_M"), ","); got != "Q4_K_M" {
+		t.Errorf("row inside the rule must travel as the row: %q", got)
 	}
-	skip := strings.Join(m.routeExcludes(q4), ",")
-	// The row excludes BF16; the rule excludes the unstated stations. Both must appear.
-	if !strings.Contains(skip, "c-qwen") {
-		t.Errorf("the row's constraint was dropped: %q", skip)
+	if why := m.quantRuleRefusal("qwen3.8-27b", "Q4_K_M"); why != "" {
+		t.Errorf("a row inside the rule was refused: %q", why)
 	}
-	if !strings.Contains(skip, "d-qwen") {
-		t.Errorf("the unstated stations were not excluded by the row: %q", skip)
-	}
-	// And no duplicates, or the header repeats a station.
-	if strings.Count(skip, "c-qwen") != 1 {
-		t.Errorf("a station is named twice: %q", skip)
+	// A tuned row OUTSIDE the rule contradicts it and is refused before any request.
+	why := m.quantRuleRefusal("qwen3.8-27b", "IQ4_XS")
+	if !strings.Contains(why, "quant rule") || !strings.Contains(why, "IQ4_XS") {
+		t.Errorf("a row outside the rule must be refused naming the rule: %q", why)
 	}
 }
 
@@ -412,20 +395,18 @@ func TestTheQuantRuleInputAcceptsTyping(t *testing.T) {
 	}
 }
 
-// routeExcludes must not repeat a station named by BOTH the row and the rule, and must
-// return nothing when neither constrains anything.
-func TestRouteExcludesIsEmptyWithNoConstraint(t *testing.T) {
+// An unconstrained turn sends NO routing object at all: no pref, no filter, no key.
+func TestRoutingIsEmptyWithNoConstraint(t *testing.T) {
 	m := browseSeed(100)
 	m.bands = groupBands(quantOffers(), nil)
 	m.limits = &LimitStore{Models: map[string]Limit{}}
-	var blank band
-	for _, b := range m.bands {
-		if b.quant == "" {
-			blank = b
-		}
+	rt := m.routing("qwen3.8-27b", "")
+	if rt.Pref != "" || rt.SelfHostedOnly || rt.Confidential || len(rt.Quantizations) != 0 {
+		t.Errorf("an unconstrained turn carried a routing object: %+v", rt)
 	}
-	if got := m.routeExcludes(blank); len(got) != 0 {
-		t.Errorf("an unconstrained turn excluded %v", got)
+	body, _ := rt.Apply([]byte(`{"model":"m"}`))
+	if string(body) != `{"model":"m"}` {
+		t.Errorf("a zero routing object changed the body: %s", body)
 	}
 }
 
@@ -493,21 +474,18 @@ func TestChatExcludesFollowTheConnectedBandNotTheLastQuote(t *testing.T) {
 	m.connected = &offer{Model: q4.model, NodeID: "a-qwen", Quant: "Q4_K_M"}
 	m.q.b = bf16
 
-	got := strings.Join(m.chatExcludes(), ",")
-	if !strings.Contains(got, "c-qwen") {
-		t.Errorf("the BF16 station must be excluded from a Q4 chat: %v", got)
-	}
-	if strings.Contains(got, "a-qwen") {
-		t.Errorf("the connected station itself was excluded - exclusions came from the stale quote: %v", got)
+	got := strings.Join(m.quantList(m.connected.Model, m.tunedQuant(m.connected.Model)), ",")
+	if got != "Q4_K_M" {
+		t.Errorf("a Q4 chat must travel as the Q4 row, not the stale BF16 quote: %q", got)
 	}
 }
 
-// Nothing connected means nothing to exclude, and no panic.
-func TestChatExcludesIsEmptyWhenNotConnected(t *testing.T) {
+// Nothing connected means no tuned quant, and no panic.
+func TestTunedQuantIsEmptyWhenNotConnected(t *testing.T) {
 	m := browseSeed(100)
 	m.connected = nil
-	if got := m.chatExcludes(); len(got) != 0 {
-		t.Errorf("excluded %v with no connection", got)
+	if got := m.tunedQuant("qwen3.8-27b"); got != "" {
+		t.Errorf("a tuned quant %q with no connection", got)
 	}
 }
 
@@ -515,15 +493,16 @@ func TestChatExcludesIsEmptyWhenNotConnected(t *testing.T) {
 func TestAbsenceIsReadDifferentlyByRowAndRule(t *testing.T) {
 	m := browseSeed(100)
 	m.bands = groupBands(quantOffers(), nil)
-	var q4 band
-	for _, b := range m.bands {
-		if b.quant == "Q4_K_M" {
-			q4 = b
-		}
+	// The ROW does not admit the unstated stations: chosen weights are not unknown weights,
+	// so its wire form carries no "unknown".
+	if row := strings.Join(m.quantList("qwen3.8-27b", "Q4_K_M"), ","); row != "Q4_K_M" {
+		t.Errorf("a tuned Q4 row must travel as its label alone: %q", row)
 	}
-	// The ROW excludes the unstated stations: chosen weights are not unknown weights.
-	if skip := strings.Join(m.quantExcludes(q4), ","); !strings.Contains(skip, "d-qwen") {
-		t.Errorf("a tuned Q4 row must exclude an unstated-quant station: %v", skip)
+	// The RULE's wire form carries "unknown", which is how the acceptance below reaches the
+	// broker.
+	m.limits = &LimitStore{Models: map[string]Limit{"qwen3.8-27b": {Quants: []string{"Q4_K_M"}}}}
+	if rule := strings.Join(m.quantList("qwen3.8-27b", ""), ","); rule != "Q4_K_M,unknown" {
+		t.Errorf("a standing rule must travel with unknown: %q", rule)
 	}
 	// The RULE accepts an unstated one: a preference must not blacklist every station
 	// that omitted a label.

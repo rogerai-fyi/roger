@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"testing"
 	"time"
 
@@ -217,7 +218,7 @@ func TestMultinodePrivateBandsBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("multinode/private_bands behavior scenarios failed (see godog output above)")
 	}
 }

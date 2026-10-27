@@ -1,7 +1,10 @@
 package client
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -182,7 +185,7 @@ func TestProxyFailoverEndToEnd(t *testing.T) {
 				{"node_id":"good","model":"m","price_in":0.2,"online":true,"tps":100}
 			]}`))
 		case "/v1/chat/completions":
-			pin := r.Header.Get("X-Roger-Node")
+			pin := preferredNode(r)
 			mu.Lock()
 			hits = append(hits, pin)
 			mu.Unlock()
@@ -381,7 +384,7 @@ func TestRelayFailoverExcludesFailedProvider(t *testing.T) {
 				{"node_id":"good","model":"m","price_in":0.2,"online":true,"tps":100}
 			]}`))
 		case "/v1/chat/completions":
-			pin := r.Header.Get("X-Roger-Node")
+			pin := preferredNode(r)
 			mu.Lock()
 			hits = append(hits, pin)
 			mu.Unlock()
@@ -429,7 +432,7 @@ func TestRelayRecoveryAlertFires(t *testing.T) {
 				{"node_id":"good","model":"m","price_in":0.2,"online":true,"tps":100}
 			]}`))
 		case "/v1/chat/completions":
-			if r.Header.Get("X-Roger-Node") == "good" {
+			if preferredNode(r) == "good" {
 				w.Header().Set("X-RogerAI-Provider", "good")
 				w.Write([]byte(`{"ok":true}`))
 				return
@@ -484,4 +487,43 @@ func TestDiscoverRetriesSignedOn401(t *testing.T) {
 	if len(offers) != 1 || offers[0].Model != "llama-8b" {
 		t.Fatalf("expected the standalone Tower's one offer, got %+v", offers)
 	}
+}
+
+// preferredNode is what a stand-in broker reads as "the station the proxy asked for": the
+// body's provider.order[0] (the approved carrier, regression_pins.feature defect 8) or, for
+// an old-broker session, the X-Roger-Node header. The body is restored for later readers.
+func preferredNode(r *http.Request) string {
+	if pin := r.Header.Get("X-Roger-Node"); pin != "" {
+		return pin
+	}
+	b, _ := io.ReadAll(r.Body)
+	r.Body = io.NopCloser(bytes.NewReader(b))
+	var m struct {
+		Provider struct {
+			Order  []string `json:"order"`
+			Ignore []string `json:"ignore"`
+		} `json:"provider"`
+	}
+	_ = json.Unmarshal(b, &m)
+	if len(m.Provider.Order) > 0 {
+		return m.Provider.Order[0]
+	}
+	return ""
+}
+
+// ignoredNodes is the stand-in's read of the proxy's deny list: provider.ignore in the body,
+// or X-Roger-Exclude-Nodes for an old-broker session (comma-joined either way).
+func ignoredNodes(r *http.Request) string {
+	if ex := r.Header.Get("X-Roger-Exclude-Nodes"); ex != "" {
+		return ex
+	}
+	b, _ := io.ReadAll(r.Body)
+	r.Body = io.NopCloser(bytes.NewReader(b))
+	var m struct {
+		Provider struct {
+			Ignore []string `json:"ignore"`
+		} `json:"provider"`
+	}
+	_ = json.Unmarshal(b, &m)
+	return strings.Join(m.Provider.Ignore, ",")
 }

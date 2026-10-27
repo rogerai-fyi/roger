@@ -28,13 +28,18 @@ func (m model) compactHeader(w int) string {
 	hint := stDim.Render("m:expand")
 
 	var mid string
+	var narrower []string // shorter connected strips, tried in order before a hard cut
 	if m.connected != nil {
 		// Channel context: the load-bearing "what am I on + price + balance".
 		o := m.connected
+		// The active pref as ONE glyph after the band name; balanced (unset) shows none, so
+		// the strip is byte-identical to the approved one.
+		band := stKey.Render(o.Model) + prefGlyph(m.limits.resolve(o.Model).Pref)
+		price := stEmber.Render(dollars(o.PriceOut)+"/1M") + priceTierSuffix(o.PriceTier, o.PriceOut)
 		// "♪ now playing" framing: the tuned-in model reads like a track on a deck.
 		mid = stLive.Render("♪ ") + stGold.Render(channelGlyph(o)) + stLive.Render(" on ") + stSelText.Render("@"+o.NodeID) +
-			sep + stKey.Render(o.Model) +
-			sep + stEmber.Render(dollars(o.PriceOut)+"/1M") + priceTierSuffix(o.PriceTier, o.PriceOut)
+			sep + band + sep + price
+		narrower = []string{band + sep + price, band}
 	} else {
 		// Browsing: the section + how many LLM bands are on air. Counts LLM (chat) bands only so
 		// the figure matches the windowshade deck (which renders voice-excluded visibleBands);
@@ -83,12 +88,32 @@ func (m model) compactHeader(w int) string {
 		return left + strings.Repeat(" ", gap) + hint + "\n" + rule
 	}
 	// Too narrow for the gap: trim the left strip to fit "… m:expand" on one line so it
-	// never overflows. truncVisible cuts on display width, ANSI-safe.
+	// never overflows. truncVisible cuts on display width, ANSI-safe. A connected strip first
+	// sheds the station, then the price and wallet, so the band (and its pref glyph) stays.
 	budget := w - hintVis - 1
 	if budget < 0 {
 		budget = 0
 	}
+	for i, short := range narrower {
+		cand := dot + " " + brand + sep + short
+		if i == 0 {
+			cand += sep + acct
+		}
+		if lipgloss.Width(cand) <= budget {
+			left = cand
+			break
+		}
+	}
 	return truncVisible(left, budget) + " " + hint + "\n" + rule
+}
+
+// prefGlyph is the windowshade's one-glyph pref mark: $ cheap, » fast, ◆ reliable.
+func prefGlyph(pref string) string {
+	g := map[string]string{"cheap": "$", "fast": "»", "reliable": "◆"}[pref]
+	if g == "" {
+		return ""
+	}
+	return " " + stDim.Render(g)
 }
 
 // compactBandList renders the COMPACT windowshade band deck: ON-AIR bands only, packed two per

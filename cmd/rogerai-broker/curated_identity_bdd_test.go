@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"strings"
 	"testing"
 	"time"
@@ -272,7 +273,7 @@ func TestCuratedIdentityFeature(t *testing.T) {
 			Paths: []string{"../../features/curated/curated_identity.feature"},
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("curated identity scenarios failed")
 	}
 }

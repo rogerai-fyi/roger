@@ -8,6 +8,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -168,7 +169,7 @@ func TestRCConfirmBDD(t *testing.T) {
 		},
 		Options: &godog.Options{Format: "pretty", Paths: []string{"../../features/remote/rc_confirm.feature"}, TestingT: t, Strict: true},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("rc_confirm scenarios failed (see godog output above)")
 	}
 }

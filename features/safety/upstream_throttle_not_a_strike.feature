@@ -90,6 +90,8 @@ Feature: An upstream HTTP 429 voids the request for the consumer but never strik
     Then the request is voided
     And NO owner_strikes row exists for "op1"
 
+  # superseded 2026-10-04 by contract §14 (founder-approved): the 400/401/404 rows moved to the
+  # outline below; an upstream 4xx refusing the request itself is consumer-caused and never strikes.
   Scenario Outline: only 429 is exempt - every other no-output status still strikes exactly as today
     Given the upstream is scripted to return <status> with <body>
     When a funded consumer relays a prompt
@@ -98,14 +100,24 @@ Feature: An upstream HTTP 429 voids the request for the consumer but never strik
 
     Examples:
       | status | body                              |
-      | 400    | {"error":"bad request"}           |
-      | 401    | {"error":"upstream key rejected"} |
-      | 404    | {"error":"model not found"}       |
       | 500    | {"error":"internal"}              |
       | 502    | {"error":"upstream unreachable"}  |
       | 503    | {"error":"overloaded"}            |
       | 504    | {"error":"upstream timeout"}      |
       | 200    | {"choices":[]}                    |
+
+  # superseded 2026-10-04 by contract §14 (founder-approved): formerly rows of the outline above
+  Scenario Outline: a consumer-caused upstream 4xx is voided at $0 and never strikes
+    Given the upstream is scripted to return <status> with <body>
+    When a funded consumer relays a prompt
+    Then the request is voided and the consumer is charged 0.000000 credits
+    And NO owner_strikes row exists for "op1"
+
+    Examples:
+      | status | body                              |
+      | 400    | {"error":"bad request"}           |
+      | 401    | {"error":"upstream key rejected"} |
+      | 404    | {"error":"model not found"}       |
 
   Scenario: a 429 that somehow carries completion text is STILL voided (the void gate is unchanged)
     Given the upstream is scripted to return 429 with a body containing choices[0].message.content "hello"

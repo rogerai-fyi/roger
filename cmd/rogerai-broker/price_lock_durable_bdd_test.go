@@ -299,6 +299,15 @@ func (q quoteFaultStore) QuotePrice(user, node, model string, in, out float64, n
 	return q.Store.QuotePrice(user, node, model, in, out, now, window)
 }
 
+// LockPrice is the read the broker's lock goes through (quotedPrice): the same fault applies.
+func (q quoteFaultStore) LockPrice(user, node, model string, in, out float64, now time.Time, window time.Duration, o store.LockOpts) (store.PriceQuote, bool, error) {
+	if q.fail {
+		return store.PriceQuote{}, false, fmt.Errorf("price lock store unreachable")
+	}
+	time.Sleep(q.delay)
+	return q.Store.LockPrice(user, node, model, in, out, now, window, o)
+}
+
 func (s *plState) slowDurable() error {
 	a := s.instPL("A")
 	a.db = quoteFaultStore{Store: a.db, delay: 500 * time.Millisecond}

@@ -14,6 +14,7 @@ import (
 	"crypto/ed25519"
 	"fmt"
 	"math"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"strings"
 	"testing"
 	"time"
@@ -340,7 +341,7 @@ func TestPriceFloorBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("price-floor scenarios failed (see godog output above)")
 	}
 }

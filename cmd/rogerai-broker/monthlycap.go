@@ -147,6 +147,17 @@ func (b *broker) holdUnderCap(w http.ResponseWriter, holder, requestID string, a
 	return res.OK, 0, "", nil
 }
 
+// monthlyCapFits PREDICTS whether amount fits under holder's monthly cap, for a read that
+// must change nothing (a route-explain dry run). It is never the money decision: the hold
+// transaction (store.HoldGuarded) decides, with the open holds counted too.
+func (b *broker) monthlyCapFits(holder string, amount float64, now time.Time) bool {
+	cap, _ := b.db.MonthlyCapOf(holder)
+	if cap <= 0 {
+		return true
+	}
+	return b.monthSpend(holder, now)+amount <= cap+store.CapEpsilon
+}
+
 // capRefusal sets the at-limit headers, X-RogerAI-Cost: 0 and the 100% notice, and returns
 // the approved 402 for a request the monthly cap refuses. pending is the wallet's open holds
 // the decision counted: when this request (amount) would fit on captured spend alone, the

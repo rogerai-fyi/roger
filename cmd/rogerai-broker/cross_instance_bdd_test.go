@@ -31,6 +31,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"strconv"
 	"strings"
 	"sync"
@@ -40,6 +41,7 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/cucumber/godog"
 	"github.com/redis/go-redis/v9"
+	"rogerai.fm/roger/v6/internal/pgtest"
 	"rogerai.fm/roger/v6/internal/protocol"
 	"rogerai.fm/roger/v6/internal/store"
 )
@@ -77,7 +79,7 @@ func xiRedisURL(t *testing.T) string {
 // ROGERAI_TEST_DATABASE_URL is set, else the in-memory reference.
 func xiStore(t *testing.T) store.Store {
 	t.Helper()
-	if dsn := os.Getenv("ROGERAI_TEST_DATABASE_URL"); dsn != "" {
+	if dsn := pgtest.DSN(t); dsn != "" {
 		pg, err := store.NewPostgres(dsn)
 		if err != nil {
 			t.Fatalf("postgres: %v", err)
@@ -123,15 +125,20 @@ type xiNode struct {
 
 	hc *http.Client
 
-	mu       sync.Mutex
-	beats    []int
-	reregs   int
-	pollWG   sync.WaitGroup
-	pollErr  error
-	polled   *protocol.Job // the job the poller received (nil = none)
-	pollCode int
-	resCode  int // the /agent/result POST status (0 = not posted)
-	strmCode int // the /agent/stream POST status (0 = not posted)
+	mu     sync.Mutex
+	beats  []int
+	reregs int
+	pollWG sync.WaitGroup
+	// pollCtx is cancelled at scenario cleanup so an idle long-poll hangs up instead of
+	// holding teardown for the broker's full 25 s poll hold (the broker frees the handler
+	// the moment the node hangs up).
+	pollCtx    context.Context
+	pollCancel context.CancelFunc
+	pollErr    error
+	polled     *protocol.Job // the job the poller received (nil = none)
+	pollCode   int
+	resCode    int // the /agent/result POST status (0 = not posted)
+	strmCode   int // the /agent/stream POST status (0 = not posted)
 }
 
 // register signs and POSTs the node's registration to inst; ownerSigned adds the
@@ -203,19 +210,37 @@ func brokerForgotXI(status int) bool {
 // signed result to resInst. Runs in the background; join with pollWG.Wait().
 func (n *xiNode) pollServe(t *testing.T, pollInst, resInst, strmInst *xiInst, delay time.Duration, chunks []string, completion string) {
 	t.Helper()
+	n.mu.Lock()
+	if n.pollCtx == nil {
+		n.pollCtx, n.pollCancel = context.WithCancel(context.Background())
+	}
+	ctx := n.pollCtx
+	n.mu.Unlock()
 	n.pollWG.Add(1)
 	go func() {
 		defer n.pollWG.Done()
-		req, _ := http.NewRequest(http.MethodGet, pollInst.url()+"/agent/poll?node="+n.id, nil)
-		req.Header.Set("Authorization", "Bearer "+n.token)
 		hc := &http.Client{Timeout: 35 * time.Second}
-		resp, err := hc.Do(req)
-		if err != nil {
-			n.pollErr = err
-			return
+		// Like a real node: an idle poll answered 204 (the hold expired with no job) is
+		// re-polled until a job arrives or the scenario ends (ctx cancelled at cleanup).
+		var resp *http.Response
+		var body []byte
+		for {
+			req, _ := http.NewRequestWithContext(ctx, http.MethodGet, pollInst.url()+"/agent/poll?node="+n.id, nil)
+			req.Header.Set("Authorization", "Bearer "+n.token)
+			r, err := hc.Do(req)
+			if err != nil {
+				if ctx.Err() == nil {
+					n.pollErr = err
+				}
+				return
+			}
+			body, _ = io.ReadAll(r.Body)
+			r.Body.Close()
+			resp = r
+			if r.StatusCode != http.StatusNoContent || ctx.Err() != nil {
+				break
+			}
 		}
-		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
 		n.mu.Lock()
 		n.pollCode = resp.StatusCode
 		n.mu.Unlock()
@@ -309,6 +334,7 @@ type xiState struct {
 	relayDone    chan struct{}
 
 	prevRelayWait time.Duration
+	prevPollHold  time.Duration
 
 	// vsClose releases the scenario's per-instance Valkey clients in cleanup, before the
 	// scenario's miniredis goes away (the suite-end t.Cleanup is only a backstop).
@@ -337,10 +363,20 @@ func (s *xiState) reset(t *testing.T) {
 	// every completing scenario finishes far inside it. Restored in the After hook.
 	s.prevRelayWait = nonStreamRelayWait
 	nonStreamRelayWait = 5 * time.Second
+	// An idle poll re-polls after 2 s instead of 25 s: no scenario waits on the hold
+	// itself, and a teardown that races a node's re-poll then waits at most this long.
+	s.prevPollHold = agentPollHold
+	agentPollHold = 2 * time.Second
 }
 
 func (s *xiState) cleanup() {
 	if s.node != nil {
+		s.node.mu.Lock()
+		cancel := s.node.pollCancel
+		s.node.mu.Unlock()
+		if cancel != nil {
+			cancel() // an idle long-poll hangs up now; a delivered job has already been handled
+		}
 		s.node.pollWG.Wait()
 	}
 	for _, i := range s.inst {
@@ -359,6 +395,7 @@ func (s *xiState) cleanup() {
 		_ = c.Close()
 	}
 	nonStreamRelayWait = s.prevRelayWait
+	agentPollHold = s.prevPollHold
 }
 
 // newInstance builds one broker instance on the shared db + valkey, running the full
@@ -1125,13 +1162,26 @@ func (s *xiState) operatorEarnedNothing() error {
 	return nil
 }
 
+// sweepFindsNoOrphan runs the real stale-hold sweep and fails if it credited anything back
+// to this scenario's payer. It judges by the payer's balance, not the released count, so
+// holds other suites left in a shared Postgres can't fail it.
 func (s *xiState) sweepFindsNoOrphan() error {
-	n, err := s.db.ReleaseStaleHolds(time.Now().Add(time.Minute))
+	if s.consumerWallet == "" {
+		return fmt.Errorf("no scenario payer to check the sweep against")
+	}
+	before, err := s.db.BalanceOf(s.consumerWallet, 0)
 	if err != nil {
 		return err
 	}
-	if n != 0 {
-		return fmt.Errorf("the stale-hold sweep released %d hold(s) - the relay's own give-up path left an orphan", n)
+	if _, err := s.db.ReleaseStaleHolds(time.Now().Add(time.Minute)); err != nil {
+		return err
+	}
+	after, err := s.db.BalanceOf(s.consumerWallet, 0)
+	if err != nil {
+		return err
+	}
+	if after != before {
+		return fmt.Errorf("the stale-hold sweep credited %v back to the consumer - the relay's own give-up path left an orphan hold", after-before)
 	}
 	return nil
 }
@@ -1296,7 +1346,7 @@ func TestLivenessChurnBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("multinode/liveness_churn scenarios failed (see godog output above)")
 	}
 }
@@ -1319,7 +1369,7 @@ func TestFlagOffRelayBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("multinode/flag_off_relay scenarios failed (see godog output above)")
 	}
 }
@@ -1338,7 +1388,7 @@ func TestCrossInstanceRelayBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("multinode/cross_instance_relay scenarios failed (see godog output above)")
 	}
 }

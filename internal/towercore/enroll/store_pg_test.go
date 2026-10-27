@@ -8,18 +8,18 @@ package enroll
 
 import (
 	"database/sql"
-	"os"
 	"testing"
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/stretchr/testify/require"
+	"rogerai.fm/roger/v6/internal/pgtest"
 	"rogerai.fm/roger/v6/internal/towercore/admit"
 )
 
 func durableStore(t *testing.T) Store {
 	t.Helper()
-	dsn := os.Getenv("ROGERAI_TEST_DATABASE_URL")
+	dsn := pgtest.DSN(t)
 	if dsn == "" {
 		t.Skip("ROGERAI_TEST_DATABASE_URL not set; skipping the durable enrollment tests")
 	}
@@ -92,7 +92,7 @@ func TestTheDurableStoreRefusesToBeBuiltWithoutItsTables(t *testing.T) {
 func TestAStorageFailureIsUnavailableNotARejection(t *testing.T) {
 	// The distinction an operator feels: "your enrollment is invalid" sends them looking for
 	// a problem with their machine; "temporarily unavailable" tells them to retry.
-	dsn := os.Getenv("ROGERAI_TEST_DATABASE_URL")
+	dsn := pgtest.DSN(t)
 	if dsn == "" {
 		t.Skip("ROGERAI_TEST_DATABASE_URL not set")
 	}

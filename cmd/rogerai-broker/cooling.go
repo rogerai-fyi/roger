@@ -11,6 +11,10 @@ package main
 // with a Retry-After, and the Retry-After travels end to end. Probes never consult the filter.
 
 import (
+	"crypto/ed25519"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"math"
@@ -91,13 +95,39 @@ func failoverable(status int) bool {
 	return status == http.StatusTooManyRequests || status >= 500 || status < 400
 }
 
-// attemptID names attempt n of a request: the request id itself for the first, "<id>-n" for a
-// failover attempt, so every attempt's receipt is its own row and the lineage is readable.
-func attemptID(requestID string, n int) string {
-	if n <= 1 {
-		return requestID
+// attemptID names attempt n of a request as the station sees it (contract §14.B7 #13):
+// "att_" + 24 hex of HMAC-SHA256(key, "<request id>:<n>"). Every attempt's receipt is its own
+// row, the same (request, attempt) always derives the same id on every instance, and neither
+// the request id nor a sibling attempt's id can be recovered from it without the key.
+func (b *broker) attemptID(requestID string, n int) string {
+	if n < 1 {
+		n = 1
 	}
-	return fmt.Sprintf("%s-%d", requestID, n)
+	mac := hmac.New(sha256.New, b.attemptKey())
+	fmt.Fprintf(mac, "%s:%d", requestID, n)
+	return "att_" + hex.EncodeToString(mac.Sum(nil))[:24]
+}
+
+// attemptKey is the attempt-id secret (see deriveSecret).
+func (b *broker) attemptKey() []byte { return b.deriveSecret("rogerai attempt-id v1") }
+
+// deriveSecret is a secret derived from the broker signing key under its own label, so every
+// instance of one broker agrees on it with no extra configuration, and one label's secret says
+// nothing about another's. Cached per label. A broker built without a key (some unit fixtures)
+// derives the same shape, unkeyed.
+func (b *broker) deriveSecret(label string) []byte {
+	if v, ok := b.secrets.Load(label); ok {
+		return v.([]byte)
+	}
+	var seed []byte
+	if len(b.priv) == ed25519.PrivateKeySize {
+		seed = b.priv.Seed()
+	}
+	mac := hmac.New(sha256.New, seed)
+	mac.Write([]byte(label))
+	k := mac.Sum(nil)
+	b.secrets.Store(label, k)
+	return k
 }
 
 // attemptCand is one station the relay may try for a request, with its billing plan and its
@@ -108,6 +138,19 @@ type attemptCand struct {
 	t       *nodeTunnel
 	pricing pricingPlan
 	maxCost float64 // this candidate's hold ceiling (0 = free plan: no hold)
+	// The (model, station) pair: with a model list the plan spans models, so each candidate
+	// names the BARE model it is dispatched for and carries the body sent to it (the
+	// consumer's body with `model` set to that id, and max_tokens lowered when a per-request
+	// cap buys less at this station's prices). Nothing else in the body differs.
+	model string
+	body  []byte
+	// edge is set when the candidate is a Tower routable row (contract §6): the attempt is
+	// bridged through the Tower's sealed hub instead of dispatched to a tunnel (t is nil, and
+	// node carries only the Tower id so the plan's bookkeeping names it).
+	edge *edgeCand
+	// promptTokens and outTokens are the measured prompt and the output limit body carries,
+	// for the estimated request cost a strict price sort ranks on (never a re-parse).
+	promptTokens, outTokens int
 }
 
 // holdCostFor is the upper-bound cost of a request on one candidate, at the price the
@@ -116,22 +159,57 @@ type attemptCand struct {
 // C1), with an ESTIMATED context window clamped so a display sentinel can't inflate the
 // pre-auth. A free plan holds nothing.
 func holdCostFor(p pricingPlan, offer protocol.ModelOffer, body []byte, now time.Time) float64 {
-	if p.free {
+	return holdCostSized(p, offer, len(body), statedOutputTokens(body), now)
+}
+
+// holdCostSized is holdCostFor from the body's length and stated output limit, so the relay
+// sizes every candidate's hold without parsing its body again.
+func holdCostSized(p pricingPlan, offer protocol.ModelOffer, bodyLen, stated int, now time.Time) float64 {
+	holdIn, holdOut, free := billedPrices(p, offer, now)
+	if free {
 		return 0
 	}
-	holdIn, holdOut := p.in, p.out
-	if !p.fixed {
-		ain, aout, afree, _ := offer.ActivePrice(now)
-		holdIn, holdOut = ain, aout
-		if afree {
-			holdIn, holdOut = 0, 0
-		}
+	return estimateMaxCostSized(bodyLen, stated, holdIn, holdOut, holdWindow(offer))
+}
+
+// holdWindow is the context window the hold (and the default output budget) assumes for an
+// offer: its declared window, an estimated one capped at 32768.
+func holdWindow(offer protocol.ModelOffer) int {
+	if offer.CtxEstimated && offer.Ctx > 32768 {
+		return 32768
 	}
-	holdCtx := offer.Ctx
-	if offer.CtxEstimated && holdCtx > 32768 {
-		holdCtx = 32768
+	return offer.Ctx
+}
+
+// holdCostWithOutput is the hold for a body the broker gave a default max_tokens (§14.11): the
+// prompt estimate of the consumer's own body plus exactly the outTokens the station is sent,
+// so the hold covers what the station may generate and nothing the broker itself added.
+func holdCostWithOutput(p pricingPlan, offer protocol.ModelOffer, consumerBodyLen, outTokens int, now time.Time) float64 {
+	holdIn, holdOut, free := billedPrices(p, offer, now)
+	if free {
+		return 0
 	}
-	return estimateMaxCost(body, holdIn, holdOut, holdCtx)
+	c := (float64(consumerBodyLen/4+1)*holdIn + float64(outTokens)*holdOut) / 1e6
+	if c < 1e-6 {
+		c = 1e-6 // the same floor estimateMaxCost places
+	}
+	return c
+}
+
+// billedPrices is the per-1M price a pair bills at: $0 for a free plan (free reports it), the
+// plan's fixed price (a grant, a lock), else the offer's active price ($0 in a free window).
+func billedPrices(p pricingPlan, offer protocol.ModelOffer, now time.Time) (in, out float64, free bool) {
+	if p.free {
+		return 0, 0, true
+	}
+	if p.fixed {
+		return p.in, p.out, false
+	}
+	ain, aout, afree, _ := offer.ActivePrice(now)
+	if afree {
+		return 0, 0, false
+	}
+	return ain, aout, false
 }
 
 // anonCannotPay mirrors the relay's login gate for a failover candidate: a signed but
@@ -156,6 +234,39 @@ func planCeiling(plan []attemptCand) float64 {
 	return c
 }
 
+// planCeilings lists the distinct hold sizes ABOVE the first pick's that would make more of
+// the plan tryable, priciest first. The hold is attempted at each in turn (balance and
+// monthly cap permitting), so a pair the wallet cannot cover is trimmed while a cheaper later
+// pair stays in the plan; the first pick's own cost is the fallback the caller holds last.
+func planCeilings(plan []attemptCand) []float64 {
+	var out []float64
+	for _, a := range plan[1:] {
+		if a.maxCost > plan[0].maxCost {
+			out = append(out, a.maxCost)
+		}
+	}
+	sort.Sort(sort.Reverse(sort.Float64Slice(out)))
+	n := 0
+	for i, v := range out {
+		if i == 0 || v != out[n-1] {
+			out[n] = v
+			n++
+		}
+	}
+	return out[:n]
+}
+
+// towerFreePlan is the plan without its Tower pairs, in order (§14.11).
+func towerFreePlan(plan []attemptCand) []attemptCand {
+	var out []attemptCand
+	for _, a := range plan {
+		if a.edge == nil {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
 // trimPlan drops the candidates the placed hold cannot cover (their attempt would settle
 // above the reservation). The first candidate is the one the hold was placed for and stays.
 func trimPlan(plan []attemptCand, held float64) []attemptCand {
@@ -175,11 +286,30 @@ func trimPlan(plan []attemptCand, held float64) []attemptCand {
 // air during attempt 1 still has its tunnel in the plan; dispatching into it would only burn
 // the deadline on a channel nobody drains).
 func (b *broker) nextAttempt(plan []attemptCand, i, status int, deadline time.Time) int {
-	if !failoverable(status) || (!deadline.IsZero() && time.Until(deadline) < relayMinAttemptBudget) {
+	if !failoverable(status) {
+		return -1
+	}
+	return b.nextLive(plan, i, "", deadline)
+}
+
+// nextModelAttempt is nextAttempt for a CONTEXT-WINDOW refusal: the prompt does not fit the
+// model, so the remaining stations of that model are passed over and the request moves on to
+// the first live candidate of a LATER model in the list (-1 when there is none).
+func (b *broker) nextModelAttempt(plan []attemptCand, i int, deadline time.Time) int {
+	return b.nextLive(plan, i, plan[i].model, deadline)
+}
+
+// nextLive is the first candidate after i that can still be tried: enough of the deadline
+// left, not cooling, its tunnel still the one planned, and not of skipModel.
+func (b *broker) nextLive(plan []attemptCand, i int, skipModel string, deadline time.Time) int {
+	if !deadline.IsZero() && time.Until(deadline) < relayMinAttemptBudget {
 		return -1
 	}
 	for j := i + 1; j < len(plan); j++ {
 		c := plan[j]
+		if skipModel != "" && c.model == skipModel {
+			continue
+		}
 		if _, cooling := b.coolingUntil(c.node.NodeID); cooling {
 			continue
 		}
@@ -342,7 +472,7 @@ func (b *broker) applyCooling(shared map[string]sharedCooling) {
 // no-provider band). Caller holds b.mu.
 func (b *broker) soonestCoolingExpiry(model string, confidentialOnly bool, minTPS, maxPriceIn, maxPriceOut float64, pin string, exclude, allow, privateAllow map[string]bool, req pickReq) (time.Time, bool) {
 	b.metricsMu.Lock()
-	none := len(b.cooling) == 0
+	none := len(b.cooling) == 0 && len(req.pairCool) == 0
 	b.metricsMu.Unlock()
 	if none {
 		return time.Time{}, false
@@ -360,29 +490,31 @@ func (b *broker) soonestCoolingExpiry(model string, confidentialOnly bool, minTP
 			break
 		}
 		seen[n.NodeID] = true
-		if until, cooling := b.coolingUntil(n.NodeID); cooling && (!found || until.Before(soonest)) {
+		until, cooling := b.coolingUntil(n.NodeID)
+		if pu, ok := pairUntil(req.pairCool, n.NodeID, model); ok && b.now().Before(pu) {
+			// The caller's own pair cooldown (§14.2): available again once both have lapsed.
+			if !cooling || pu.After(until) {
+				until = pu
+			}
+			cooling = true
+		}
+		if cooling && (!found || until.Before(soonest)) {
 			soonest, found = until, true
 		}
 	}
 	return soonest, found
 }
 
-// refuseBandCooling answers a request whose every eligible station is cooling: a fast, honest
-// 503 with Retry-After = the soonest expiry - no hold, no receipt, no upstream call. Caller
-// holds b.mu. Returns false when the band is not a cooling-only band.
-func (b *broker) refuseBandCooling(w http.ResponseWriter, model string, confidentialOnly bool, minTPS, maxPriceIn, maxPriceOut float64, pin string, exclude, allow, privateAllow map[string]bool, req pickReq) bool {
-	until, ok := b.soonestCoolingExpiry(model, confidentialOnly, minTPS, maxPriceIn, maxPriceOut, pin, exclude, allow, privateAllow, req)
-	if !ok {
-		return false
-	}
+// answerBandCooling writes the band-cooling 503 for a model whose soonest cooldown expiry is
+// until (with a model list: the soonest across the list, and the model it belongs to).
+func (b *broker) answerBandCooling(w http.ResponseWriter, model string, until time.Time) {
 	secs := int(math.Ceil(until.Sub(b.now()).Seconds()))
 	if secs < 1 {
 		secs = 1
 	}
 	b.stats.bandCooling503.Add(1)
 	w.Header().Set("Retry-After", strconv.Itoa(secs))
-	jsonErr(w, http.StatusServiceUnavailable, fmt.Sprintf("band cooling - the station serving %s was rate limited upstream, retry after %ds", model, secs))
-	return true
+	jsonErrCode(w, http.StatusServiceUnavailable, "band_cooling", fmt.Sprintf("band cooling - the station serving %s was rate limited upstream, retry after %ds", model, secs))
 }
 
 // retryAfterHint is the Retry-After the consumer sees on a final upstream 429/503: the
@@ -405,6 +537,8 @@ func (b *broker) setRetryAfter(h http.Header, res protocol.JobResult) {
 // stations cooling right now.
 func (b *broker) routingLive() map[string]any {
 	now := b.now()
+	b.mu.Lock() // b.nodes (the capacity prior below); same order as every pick: b.mu, then metricsMu
+	defer b.mu.Unlock()
 	b.metricsMu.Lock()
 	stations := make([]map[string]any, 0, len(b.cooling))
 	for node, until := range b.cooling {
@@ -412,14 +546,40 @@ func (b *broker) routingLive() map[string]any {
 			stations = append(stations, map[string]any{"node": node, "model": b.coolModel[node], "cooling_until": until.Unix()})
 		}
 	}
+	// The capacity-aware load factor of every station carrying traffic right now (the same
+	// 1/(1+inflight/capacity) the score applies): a strict order can pile onto one station by
+	// the consumer's choice, and this is where that shows.
+	loaded := make([]map[string]any, 0)
+	for node, n := range b.inflight {
+		if n <= 0 {
+			continue
+		}
+		capacity := capacityOf(b.concurrentTPS[node], b.nodes[node].HW)
+		loaded = append(loaded, map[string]any{"node": node, "inflight": n, "capacity": capacity, "load_factor": loadFactor(n, capacity)})
+	}
 	b.metricsMu.Unlock()
 	sort.Slice(stations, func(i, j int) bool { return stations[i]["node"].(string) < stations[j]["node"].(string) })
-	return map[string]any{
-		"relay_failovers":   b.stats.relayFailovers.Load(),
-		"station_cooldowns": b.stats.stationCooldowns.Load(),
-		"band_cooling_503":  b.stats.bandCooling503.Load(),
-		"stations":          stations,
+	sort.Slice(loaded, func(i, j int) bool { return loaded[i]["node"].(string) < loaded[j]["node"].(string) })
+	out := map[string]any{
+		"relay_failovers":      b.stats.relayFailovers.Load(),
+		"model_fallbacks":      b.stats.modelFallbacks.Load(),
+		"station_cooldowns":    b.stats.stationCooldowns.Load(),
+		"band_cooling_503":     b.stats.bandCooling503.Load(),
+		"stations":             stations,
+		"loaded":               loaded,
+		"edge_bridge_declined": b.stats.edgeDeclinedSnapshot(),
 	}
+	// An id that names both a direct node and a Tower is matched in its own namespace on each
+	// side (contract §5); the operator is told once, here, which ids those are.
+	if ids := b.stats.collisionsSnapshot(); len(ids) > 0 {
+		out["namespace_warning"] = fmt.Sprintf("id collision: %v name both a direct node and a Tower; each is matched in its own namespace", ids)
+	}
+	// A declared params_b the model id contradicts leaves the offer ineligible under a
+	// params_b filter (contract §5); the operator sees which nodes until they correct it.
+	if ids := b.stats.paramsMismatchSnapshot(); len(ids) > 0 {
+		out["params_mismatch"] = ids
+	}
+	return out
 }
 
 // checkCoolingAlerts pages the founder ONCE when a station has been cooling for more than
@@ -476,7 +636,7 @@ func (b *broker) checkCoolingAlerts(now time.Time) {
 		b.alertClear("station_cooling:" + node)
 	}
 	for _, r := range rows {
-		if r.total <= coolingAlertThreshold {
+		if r.total < coolingAlertThreshold { // reaching the threshold pages (five 120 s cooldowns = 10 min, fairness_and_abuse.feature, founder-approved 2026-10-04)
 			continue
 		}
 		b.adminAlert("station_cooling:"+r.node, "station "+r.node+" keeps cooling on band "+r.model,

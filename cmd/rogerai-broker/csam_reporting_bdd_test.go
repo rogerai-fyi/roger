@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"strings"
 	"testing"
 	"time"
@@ -318,7 +319,7 @@ func TestCSAMReportingFeature(t *testing.T) {
 			TestingT: t, Strict: true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("csam_reporting.feature: scenarios failed")
 	}
 }

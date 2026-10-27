@@ -19,6 +19,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"strings"
 	"testing"
 	"time"
@@ -275,7 +276,7 @@ func TestCuratedTowerStandaloneFeature(t *testing.T) {
 			Paths: []string{"../../features/curated/curated_tower.feature"},
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("the @standalone curated tower scenarios failed")
 	}
 }

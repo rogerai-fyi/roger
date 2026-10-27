@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"strings"
 	"testing"
 
@@ -288,7 +289,7 @@ func TestClaudeGuestBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("claude guest scenarios failed (see godog output above)")
 	}
 }

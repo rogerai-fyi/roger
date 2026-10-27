@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"testing"
 	"time"
 
@@ -321,7 +322,7 @@ func TestRefundsBDD(t *testing.T) {
 			TestingT: t, Strict: true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("refunds.feature: scenarios failed")
 	}
 }

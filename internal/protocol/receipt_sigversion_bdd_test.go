@@ -9,6 +9,7 @@ import (
 	"crypto/ed25519"
 	"fmt"
 	"os"
+	"rogerai.fm/roger/v6/internal/bddtest"
 	"strconv"
 	"testing"
 
@@ -181,7 +182,7 @@ func TestReceiptSignatureVersionsBDD(t *testing.T) {
 			Output:   os.Stdout,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddtest.Run(t, &suite) != 0 {
 		t.Fatal("receipt signature-version scenarios failed (see godog output above)")
 	}
 }
