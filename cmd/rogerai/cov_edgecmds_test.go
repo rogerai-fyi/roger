@@ -174,3 +174,18 @@ func TestApproveCannotMoveAServingMemberOntoTheClaimPath(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, local.ClaimGranted(id), "no claim was granted for the pi")
 }
+
+// Review (2026-10-27): an enrolled Pi that is offline with nothing advertising is told to wait or
+// readmit, as before - "forget it first" is only for a discovered entry trying to take it onto the
+// claim path.
+func TestApproveOfAnOfflineServingMemberWithNoAdvertSaysItReadmitsOnRePing(t *testing.T) {
+	newFacedAuthority(t, "desk")
+	id := enrollServingNode(t, "pi")
+	edgeSeed(t, store.EdgeNode{ID: id, Name: "pi", Kind: "board", Pin: strings.Repeat("ab", 32), Presence: string(edge.PresenceDark)})
+	local, _, err := edgeauth.OpenLocal(edgeAuthDir())
+	require.NoError(t, err)
+	require.True(t, local.JoinedByEnrollment(id), "the authority recorded the pi as enrolled")
+	said, err := edgeAdoptWant("pi")
+	require.NoError(t, err)
+	require.Contains(t, said, "pi is on this Edge but offline and not on the network right now")
+}

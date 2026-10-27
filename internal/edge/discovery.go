@@ -116,8 +116,9 @@ type Report struct {
 	// Warnings are the lines an owner must actually see - one per refusal.
 	Warnings []string
 	Refusals []Refusal
-	// Seen / Dropped / Dials bound the cost of a pass: how many records arrived, how
-	// many were refused storage at the ceiling, and how many dials that turned into.
+	// Seen / Dropped / Dials bound the cost of a pass: how many other devices' records
+	// arrived (this machine's own advert, heard back, is not counted), how many were
+	// refused storage at the ceiling, and how many dials that turned into.
 	Seen    int
 	Dropped int
 	Dials   int

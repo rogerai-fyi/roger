@@ -1619,7 +1619,9 @@ func edgeAdoptWant(want string) (string, error) {
 		serves := edgeServesItsCert(n.ID)
 		reAdmitByClaim := cok && c.Pin == "" && !serves && edge.Presence(n.Presence) != edge.PresenceVerified
 		if !reAdmitByClaim {
-			if edge.Presence(n.Presence) != edge.PresenceVerified && !serves {
+			// Only a discovered entry trying to take a serving member onto the claim path is told to
+			// forget first; a member that is simply offline is told it comes back on its own.
+			if edge.Presence(n.Presence) != edge.PresenceVerified && !(cok && serves) {
 				return fmt.Sprintf("%s is on this Edge but offline and not on the network right now - it re-admits when it re-pings, or run `roger edge readmit %s`.", n.Name, want), nil
 			}
 			return fmt.Sprintf("%s is already a member of this Edge - nothing to do (forget it first to re-adopt).", n.Name), nil
