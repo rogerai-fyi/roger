@@ -1,0 +1,29 @@
+{
+  "name": "rogerai-web-next",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Phase 0 spike: two pages of the RogerAI site on SvelteKit (prerendered, adapter-static)",
+  "scripts": {
+    "dev": "vite dev",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "e2e": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.1",
+    "@sveltejs/adapter-static": "4.0.0",
+    "@sveltejs/kit": "3.1.0",
+    "@sveltejs/vite-plugin-svelte": "7.3.1",
+    "@testing-library/svelte": "5.4.2",
+    "jsdom": "30.1.3",
+    "mdsvex": "0.12.8",
+    "svelte": "5.57.3",
+    "vite": "8.3.5",
+    "vitest": "5.0.5"
+  },
+  "imports": {
+    "#lib/*": "./src/lib/*"
+  }
+}
