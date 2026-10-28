@@ -92,7 +92,7 @@ func (h Home) LiveAll() []Serving {
 		if json.Unmarshal(b, &s) != nil || s.Supervisor <= 0 || !alive(s.Supervisor) || !sameProcess(s) {
 			continue
 		}
-		out = append(out, s)
+		out = append(out, h.withDigest(s))
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Started.Before(out[j].Started) })
 	return out
@@ -127,6 +127,7 @@ func (h Home) Release(s Serving) {
 		}
 	}
 	_ = os.Remove(h.keyPath(s.Port))
+	_ = os.Remove(h.digestPath(s.Port))
 }
 
 func (h Home) keyPath(port int) string {
@@ -273,8 +274,7 @@ func (h Home) digestLater(m Model, s Serving) {
 		_ = h.record(m)
 	}
 	if cur, ok := h.readServing(s.Port); ok && cur.Supervisor == s.Supervisor && cur.Started.Equal(s.Started) {
-		cur.SHA256 = sum
-		_ = h.writeServing(cur)
+		_ = h.recordDigest(cur, sum)
 	}
 }
 
@@ -288,7 +288,7 @@ func (h Home) readServing(port int) (Serving, bool) {
 	if json.Unmarshal(b, &s) != nil {
 		return Serving{}, false
 	}
-	return s, true
+	return h.withDigest(s), true
 }
 
 // digestDone is signalled after each background digest; tests wait on it.
@@ -389,4 +389,44 @@ func (h Home) ServingModel(m Model) (Serving, bool) {
 		}
 	}
 	return Serving{}, false
+}
+
+// digestPath is one serve's digest, beside its record. The record itself is written once and never
+// replaced while the serve is live: a directory listing taken while a file is atomically replaced
+// can miss it, and a serve that is missed is a serve a switch does not replace (review 2026-10-27).
+func (h Home) digestPath(port int) string {
+	return filepath.Join(h.Dir, "serving-"+strconv.Itoa(port)+".sha256")
+}
+
+// servingDigest is a serve's digest as recorded beside it, bound to the serve it was taken for.
+type servingDigest struct {
+	Supervisor int       `json:"supervisor"`
+	Started    time.Time `json:"started"`
+	SHA256     string    `json:"sha256"`
+}
+
+// recordDigest records a serve's digest once it is known, beside the serve's record.
+func (h Home) recordDigest(s Serving, sum string) error {
+	b, err := json.Marshal(servingDigest{Supervisor: s.Supervisor, Started: s.Started, SHA256: sum})
+	if err != nil {
+		return err
+	}
+	return writeFileAtomic(h, h.digestPath(s.Port), b)
+}
+
+// withDigest fills a serve's digest from beside its record, when that digest was taken for this
+// very serve (a digest an earlier serve on the same port left is not this one's).
+func (h Home) withDigest(s Serving) Serving {
+	if s.SHA256 != "" {
+		return s
+	}
+	b, err := os.ReadFile(h.digestPath(s.Port))
+	if err != nil {
+		return s
+	}
+	var d servingDigest
+	if json.Unmarshal(b, &d) == nil && d.Supervisor == s.Supervisor && d.Started.Equal(s.Started) {
+		s.SHA256 = d.SHA256
+	}
+	return s
 }

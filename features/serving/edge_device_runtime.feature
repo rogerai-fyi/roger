@@ -62,6 +62,10 @@ Feature: A Wave model on an edge device, from the RogerAI channel, on a runtime 
     When the owner runs "roger model serve" on it
     Then roger computes the file's sha256 in the background and records it beside the file
     And a later "roger model status" shows the digest instead of "-"
+    # Review 2026-10-27, TestALiveServeIsSeenWhileItsRecordIsRewritten: the digest is written beside
+    # the serve's record, never by replacing it, so the serve is never missing from the list while it
+    # is recorded (a missed serve is one a switch would not replace); a digest left by an earlier
+    # serve on the same port is never read as this serve's.
 
   # NOT BUILT: needs the catalog to mark RogerAI-channel entries
   Scenario: a Wave name that is not on this machine is not looked up on the hub
