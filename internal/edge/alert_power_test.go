@@ -156,8 +156,7 @@ func TestAPowerCallClosesWhenAHeardNodeStopsReportingIt(t *testing.T) {
 
 // Review 2026-10-27: the close for a reading that is no longer reported reads the same on every
 // surface - the sinks (Discord, Telegram, a webhook) and the events timeline - and never as a value
-// that went back under its line. And only a WHOLE power report that is gone or stale closes a call:
-// a beat that leaves one field out is not a reason to page a close and then a re-fire.
+// that went back under its line.
 func TestAnUnreportedCloseReadsTheSameEverywhere(t *testing.T) {
 	a := Alert{At: time.Now(), RuleID: "on_battery", NodeID: "n_pi", Node: "pi", Metric: MetricOnBattery,
 		Op: OpGT, Threshold: 0, Unreported: true}
@@ -333,4 +332,42 @@ func TestAnUnreportedCloseNamesTheReadingThatWent(t *testing.T) {
 		require.Contains(t, AlertWords(a), want, m)
 		require.Contains(t, alertEventDetail(a), want, m)
 	}
+}
+
+// Re-review 2026-10-27: charging and source are one reading. A report that names either is not
+// mixed with the other carried from an earlier report, or a node plugged in would still be called on
+// battery, and one unplugged at 5% would read as charging and never be called low. And a time left
+// is not carried: an old estimate is not one.
+func TestChargingAndSourceAreCarriedTogetherOrNotAtAll(t *testing.T) {
+	t0 := time.Now()
+	clock := t0
+	f := NewFleet(store.NewMem(), "acct-1")
+	f.SetClock(func() time.Time { return clock })
+	rules := RuleSet(DefaultRules())
+	var st AlertState
+	beat := func(p *store.EdgePower) []Alert {
+		p.ReadAt = clock.Unix()
+		_, err := f.Observe("n_pi", Observation{Name: "pi", Kind: "host", Addr: "192.168.1.9:1", Fingerprint: "ab", Power: p})
+		require.NoError(t, err)
+		hs, err := FleetHealth(f, clock)
+		require.NoError(t, err)
+		var alerts []Alert
+		st, alerts = Evaluate(rules, hs, st, clock)
+		return alerts
+	}
+	yes, no, pct50, pct5, left := true, false, 50, 5, 90
+	beat(&store.EdgePower{BatteryPct: &pct50, Charging: &no, Source: "battery", MinutesLeft: &left})
+	require.True(t, st.Firing("on_battery", "n_pi"))
+	clock = clock.Add(30 * time.Second)
+	beat(&store.EdgePower{BatteryPct: &pct50, Charging: &yes}) // plugged in; the OS names no source
+	require.False(t, st.Firing("on_battery", "n_pi"), "a charging battery is on external power, whatever source was said before")
+	hs, err := FleetHealth(f, clock)
+	require.NoError(t, err)
+	require.Nil(t, hs[0].Power.MinutesLeft, "an old estimate of time left is not carried")
+
+	clock = clock.Add(30 * time.Second)
+	beat(&store.EdgePower{BatteryPct: &pct50, Charging: &yes, Source: "ac"})
+	clock = clock.Add(30 * time.Second)
+	beat(&store.EdgePower{BatteryPct: &pct5, Source: "battery"}) // unplugged; charging state unknown
+	require.True(t, st.Firing("battery", "n_pi"), "5% on battery is low, not 'charging' carried from before")
 }

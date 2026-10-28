@@ -778,18 +778,21 @@ func carryPower(prev, next *store.EdgePower, now int64) *store.EdgePower {
 	if prev.BatteryPct != nil {
 		carry("battery_pct", next.BatteryPct != nil, func() { out.BatteryPct = prev.BatteryPct })
 	}
-	if prev.Charging != nil {
-		carry("charging", next.Charging != nil, func() { out.Charging = prev.Charging })
-	}
-	if prev.Source != "" {
-		carry("source", next.Source != "", func() { out.Source = prev.Source })
+	// Charging and source are ONE reading (alert.go reads them together): a report that names either
+	// carries neither from before, or a node plugged in would still read as on battery, and one
+	// unplugged at 5% would read as charging and never be called low.
+	if next.Charging == nil && next.Source == "" {
+		if prev.Charging != nil {
+			carry("charging", false, func() { out.Charging = prev.Charging })
+		}
+		if prev.Source != "" {
+			carry("source", false, func() { out.Source = prev.Source })
+		}
 	}
 	if prev.LowPower != nil {
 		carry("low_power", next.LowPower != nil, func() { out.LowPower = prev.LowPower })
 	}
-	if prev.MinutesLeft != nil {
-		carry("minutes_left", next.MinutesLeft != nil, func() { out.MinutesLeft = prev.MinutesLeft })
-	}
+	// A time left is never carried: an old estimate is not one.
 	return &out
 }
 

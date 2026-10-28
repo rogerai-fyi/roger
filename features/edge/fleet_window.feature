@@ -390,8 +390,8 @@ Feature: From the authority, every unit can be seen, judged and acted on without
   @edge
   Scenario: a power call closes when a node that is heard no longer reports that reading
     Given "pi" has the call "battery" standing
-    When "pi" is heard within the liveness window, with no power report, a stale one, or a fresh one
-      without the battery reading (its battery was taken out)
+    When "pi" is heard within the liveness window, with no power report, a stale one, or reports that
+      have left the battery reading out for longer than the liveness window (its battery was taken out)
     Then the call is closed with a line saying "pi no longer reports its battery level", in those words on
       every surface (the alert log, the sinks, the webhook, the events timeline, the trouble feed),
       never as a value
@@ -405,6 +405,14 @@ Feature: From the authority, every unit can be seen, judged and acted on without
     When its battery level is missing from every other report
     Then nothing is paged and the call stands
     And once the battery level has been missing for longer than the liveness window, the call closes once
+
+  # Re-review 2026-10-27: charging and source are one reading, and a time left is not carried.
+  @edge
+  Scenario: a carried reading is never mixed with a fresh one it contradicts
+    Given "pi" last reported not charging, on battery, with 90 minutes left
+    When it reports charging and names no source
+    Then it is on external power, and no time left is shown
+    And when it later reports 5% on battery with no charging state, it is called low
 
   @edge
   Scenario: a charging battery with no source named is on external power
