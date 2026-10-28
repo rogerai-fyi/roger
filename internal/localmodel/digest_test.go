@@ -111,3 +111,83 @@ func TestADigestForAServeThatLeftTheAirWritesNoServeRecord(t *testing.T) {
 	_, err = os.Stat(usb + recordExt)
 	require.True(t, os.IsNotExist(err), "nothing is written beside a file outside the models directory")
 }
+
+// A record beside a file describes THAT file. When the owner copies a different file in under the
+// same name (a new quant, a re-export), the old digest must not be said of it: the record is
+// trusted only while the file's size and modification time are the ones it remembers. A record
+// from before modification times were kept is trusted on its size alone.
+func TestAFileReplacedUnderTheSameNameForgetsTheOldDigest(t *testing.T) {
+	h := Home{Dir: t.TempDir()}
+	p := filepath.Join(h.Models(), "wave-nano-1p45b-Q4_K_M.gguf")
+	put(t, p, "the first copy")
+	m, err := FromPath(p)
+	require.NoError(t, err)
+	h.digestLater(m, Serving{Supervisor: os.Getpid(), Port: 3997, Started: time.Now()})
+	first, err := FromPath(p)
+	require.NoError(t, err)
+	require.NotEmpty(t, first.Digest)
+
+	// A longer file under the same name: the size gives it away.
+	put(t, p, "the second copy, which is longer")
+	again, err := FromPath(p)
+	require.NoError(t, err)
+	require.Empty(t, again.Digest, "the digest of the first copy is not said of the second")
+	require.Empty(t, again.Sum())
+	all, err := h.List()
+	require.NoError(t, err)
+	require.Len(t, all, 1)
+	require.Empty(t, all[0].Digest, "the list forgets it too")
+
+	// The second copy is digested in its turn, and that digest is remembered.
+	h.digestLater(again, Serving{Supervisor: os.Getpid(), Port: 3997, Started: time.Now()})
+	sum := sha256.Sum256([]byte("the second copy, which is longer"))
+	second, err := FromPath(p)
+	require.NoError(t, err)
+	require.Equal(t, hex.EncodeToString(sum[:]), second.Digest)
+
+	// The same size, different bytes, written later: the modification time gives it away.
+	const thirdCopy = "the third copy, same size as two"
+	require.Len(t, thirdCopy, len("the second copy, which is longer"), "the step must turn on the time, not the size")
+	put(t, p, thirdCopy)
+	require.NoError(t, os.Chtimes(p, time.Now(), time.Now().Add(time.Minute)))
+	third, err := FromPath(p)
+	require.NoError(t, err)
+	require.Empty(t, third.Digest, "a same-size replacement is still a different file")
+
+	// A record written before modification times were kept is trusted while the size matches.
+	put(t, p+recordExt, `{"id":"wave-nano-1p45b-Q4_K_M","file":"wave-nano-1p45b-Q4_K_M.gguf","bytes":32,"digest":"old","band":"wave-nano-1p45b"}`)
+	old, err := FromPath(p)
+	require.NoError(t, err)
+	require.Equal(t, "old", old.Digest)
+}
+
+// The digest finishes after the owner stopped the serve: the serve's record, already cleared by
+// Release, must not come back. The write is serialised with Release so that whichever runs
+// second sees the other's work.
+func TestADigestNeverBringsBackTheRecordOfAServeThatStopped(t *testing.T) {
+	h := Home{Dir: t.TempDir()}
+	p := filepath.Join(h.Models(), "by-hand-Q4_K_M.gguf")
+	put(t, p, "bytes")
+	m, err := FromPath(p)
+	require.NoError(t, err)
+	s := Serving{Supervisor: os.Getpid(), Port: 3996, Band: m.Band, ID: m.ID, Started: time.Now()}
+	require.NoError(t, h.writeServing(s))
+
+	released := make(chan struct{})
+	prev := digestHold
+	digestHold = func() { // the owner's stop lands between the digest's read and its write
+		go func() { h.Release(s); close(released) }()
+		time.Sleep(150 * time.Millisecond)
+	}
+	t.Cleanup(func() { digestHold = prev })
+	h.digestLater(m, s)
+	select {
+	case <-released:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Release never finished")
+	}
+	_, err = os.Stat(h.recordPath(3996))
+	require.True(t, os.IsNotExist(err), "the stopped serve's record came back")
+	_, ok := h.Live()
+	require.False(t, ok)
+}

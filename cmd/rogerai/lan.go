@@ -760,9 +760,11 @@ func applyLAN(cfg config, o *client.ProxyOptions) {
 }
 
 // frontEndLadder is the dispatch hook every front-end that tunes a band installs (the TUI,
-// `roger webui`, `roger resume`): the Edge ladder, and in LAN mode the LAN ladder over it.
+// `roger webui`, `roger resume`): this machine's own serve first (a rung that stands aside when
+// nothing here serves the band; features/serving/edge_device_runtime.feature §3), the Edge
+// ladder, and in LAN mode the LAN ladder over it.
 func frontEndLadder(cfg config) func(*client.ProxyOptions) {
-	return func(o *client.ProxyOptions) { applyEdgeLadder(cfg, o); applyLAN(cfg, o) }
+	return func(o *client.ProxyOptions) { applyEdgeLadder(cfg, o); o.LANSelf = lanSelfServe; applyLAN(cfg, o) }
 }
 
 func init() {

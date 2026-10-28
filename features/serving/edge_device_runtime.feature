@@ -67,6 +67,21 @@ Feature: A Wave model on an edge device, from the RogerAI channel, on a runtime 
     # is recorded (a missed serve is one a switch would not replace); a digest left by an earlier
     # serve on the same port is never read as this serve's.
 
+  # BUILT 2026-10-27 (pre-push audit note): TestAFileReplacedUnderTheSameNameForgetsTheOldDigest
+  Scenario: a different file copied in under the same name does not inherit the old digest
+    Given a hand-placed file whose digest roger recorded beside it
+    When the owner copies a different file over it under the same name
+    Then the record is trusted only while the file's size and modification time are the ones it remembers
+    And "roger model status" and the list show no digest until the new file is digested in its turn
+    And a record written before modification times were kept is trusted while the size matches
+
+  # BUILT 2026-10-27 (pre-push audit note): TestADigestNeverBringsBackTheRecordOfAServeThatStopped
+  Scenario: a digest that finishes after the serve stopped brings no record back
+    Given a hand-placed file on the air whose digest is still computing
+    When the owner stops the serve before the digest is known
+    Then the serve's record stays cleared, because the digest's write and the stop are serialised by one lock
+    And the file's own record is still written, since the digest is true of the file
+
   # NOT BUILT: needs the catalog to mark RogerAI-channel entries
   Scenario: a Wave name that is not on this machine is not looked up on the hub
     Given no file for "wave-nano-1.45b" is on this machine
@@ -129,8 +144,9 @@ Feature: A Wave model on an edge device, from the RogerAI channel, on a runtime 
   # LAN mode already lists the own serve as a band (cmd/rogerai/lan.go). Outside LAN mode roger use
   # asked the market first. An owner who just ran "roger model serve" and then "roger use" of the
   # same name should not be sent to the market for the model under their hands. BUILT for `roger
-  # use` (the session and the relay's first rung); the TUI chat, the console and the agent outside
-  # LAN mode still take the Edge-then-market ladder and are a later slice.
+  # use` (the session and the relay's first rung) 2026-10-24, and 2026-10-27 for every front end
+  # that tunes a band (the TUI chat and agent, `roger webui`, `roger resume`): the front-end ladder
+  # carries the own serve as its first rung (TestTheBoothTakesTheOwnServeFirstOutsideLANMode).
 
   # BUILT 2026-10-24: TestRogerUsePrefersWhatThisMachineServes (cmd/rogerai), verified live
   Scenario: roger use prefers the model this machine serves
