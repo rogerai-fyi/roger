@@ -15,5 +15,5 @@ func TestAnotherUserIsRefused(t *testing.T) {
 	t.Cleanup(func() { peerUID = prev })
 	_, err := Client{Dir: dir}.JoinFingerprint()
 	require.Error(t, err, "a peer that is not the serving user gets no answer")
-	require.Contains(t, strings.Join(*logged, "\n"), "refused a connection")
+	require.Contains(t, strings.Join(logged(), "\n"), "refused a connection")
 }

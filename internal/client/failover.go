@@ -2,6 +2,7 @@ package client
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -383,6 +384,34 @@ func BandRangeFor(broker, model string) (BandRange, bool) {
 		return BandRange{Model: model}, false
 	}
 	return bandRange(offers, model)
+}
+
+// routedStation is the station a session's routing (--node / --order, --only, --exclude) has the
+// router try first for model, and how the preview says why; ok=false when the routing pins nothing
+// on air, so the preview names the cheapest station as before. An --order station is tried first
+// when it is on air, allowed and within the out-price cap (maxOut, 0 = none); otherwise the router
+// falls back to the cheapest it allows.
+func routedStation(offers []Offer, model string, maxOut float64, opt UseOptions) (Offer, string, bool) {
+	if len(opt.Prefer) == 0 && len(opt.Only) == 0 && len(opt.ExcludeNodes) == 0 {
+		return Offer{}, "", false
+	}
+	var allowed []Offer
+	for _, o := range offers {
+		if o.Online && o.Model == model && (maxOut <= 0 || o.PriceOut <= maxOut) && (len(opt.Only) == 0 || slices.Contains(opt.Only, o.NodeID)) &&
+			!slices.Contains(opt.ExcludeNodes, o.NodeID) {
+			allowed = append(allowed, o)
+		}
+	}
+	for _, n := range opt.Prefer {
+		if i := slices.IndexFunc(allowed, func(o Offer) bool { return o.NodeID == n }); i >= 0 {
+			return allowed[i], "pinned by your routing", true
+		}
+	}
+	if len(allowed) == 0 {
+		return Offer{}, "", false
+	}
+	cheapest := slices.MinFunc(allowed, func(a, b Offer) int { return cmp.Compare(a.PriceOut, b.PriceOut) })
+	return cheapest, "the cheapest your routing allows", true
 }
 
 // estReplyCost is the credits one typical reply costs at out-price `priceOut`,

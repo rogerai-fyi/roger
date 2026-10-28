@@ -10,6 +10,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -17,6 +18,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -130,7 +132,7 @@ func (s *joinInviteBDD) join(in joininvite.Invite) error {
 
 // stationJoin runs `roger join <station invite> <name>` on a station machine serving s.stationM.
 // The join starts the station's share; it runs until the LAN share's context ends (shortly).
-func (s *joinInviteBDD) stationJoin(name string) error {
+func (s *joinInviteBDD) stationJoin(name ...string) error {
 	if live := s.st.LiveInvitations(); len(live) > 0 {
 		s.stationInvID = live[len(live)-1].ID
 	}
@@ -140,7 +142,7 @@ func (s *joinInviteBDD) stationJoin(name string) error {
 		return context.WithTimeout(context.Background(), 1500*time.Millisecond)
 	}
 	defer func() { detectFull, lanShareContext = prev, prevCtx }()
-	s.out = captureStdout(s.t, func() { s.err = cmdJoin(loadConfig(), []string{s.inv.String(), name}) })
+	s.out = captureStdout(s.t, func() { s.err = cmdJoin(loadConfig(), append([]string{s.inv.String()}, name...)) })
 	return nil
 }
 
@@ -782,6 +784,129 @@ func TestJoinInviteBDD(t *testing.T) {
 				return nil
 			})
 
+			// --- a named invite, run as printed (live E2E 2026-10-28) ---------------------------
+			// joinAs runs the join line with the given extra args: through the station seams for a
+			// station invite, as a client otherwise.
+			joinAs := func(in joininvite.Invite, name ...string) {
+				if in.Kind == joininvite.TowerStation {
+					if len(s.stationM) == 0 {
+						s.stationM = []string{"qwen3-8b"}
+					}
+					saved := s.inv
+					s.inv = in
+					_ = s.stationJoin(name...)
+					s.inv = saved
+					return
+				}
+				s.out = captureStdout(s.t, func() { s.err = cmdJoin(loadConfig(), append([]string{in.String()}, name...)) })
+			}
+			joinedAs := func(name string) error {
+				if s.err != nil {
+					return fmt.Errorf("the join failed: %v\n%s", s.err, s.out)
+				}
+				if s.inv.Kind == joininvite.TowerStation {
+					sts, err := s.st.Stations()
+					if err != nil {
+						return err
+					}
+					for _, st := range sts {
+						if st.ID == name {
+							return nil
+						}
+					}
+					return fmt.Errorf("no station named %q on the Tower (stations %+v):\n%s", name, sts, s.out)
+				}
+				pub := hex.EncodeToString(client.LoadOrCreateUserKey().Public().(ed25519.PublicKey))
+				if got := s.st.ClientName(protocol.UserIDFromPubkey(pub)); !s.admitted() || got != name {
+					return fmt.Errorf("admitted %v under the name %q, want %q:\n%s", s.admitted(), got, name, s.out)
+				}
+				return nil
+			}
+			sc.Step(`^the owner ran "roger tower invite((?: --station)? --for [a-z-]+)?"$`, func(flags string) error {
+				return s.mint(strings.Fields(flags)...)
+			})
+			sc.Step(`^the client runs the printed join line, adding no name$`, func() error { joinAs(s.inv); return nil })
+			sc.Step(`^a station runs the printed join line, adding no name$`, func() error { joinAs(s.inv); return nil })
+			var otherName string
+			sc.Step(`^the (?:client|joiner) runs "roger join <invite> ([^"]+)"$`, func(name string) error {
+				otherName = name
+				joinAs(s.inv, name)
+				return nil
+			})
+			sc.Step(`^the Tower admits the client under the name "([^"]+)"$`, joinedAs)
+			sc.Step(`^the Tower attaches the station under the name "([^"]+)"$`, joinedAs)
+			sc.Step(`^the Tower admits the client under this machine's hostname$`, func() error {
+				h, err := os.Hostname()
+				if err != nil {
+					return err
+				}
+				return joinedAs(h)
+			})
+			sc.Step(`^the invite is spent$`, func() error {
+				if live := s.st.LiveInvitations(); len(live) != 0 {
+					return fmt.Errorf("the invite is still live after the join: %+v", live)
+				}
+				return nil
+			})
+			sc.Step(`^it is refused with "(this invite is for "[^"]+".*)"$`, func(want string) error {
+				if s.err == nil || s.err.Error() != want {
+					return fmt.Errorf("refusal %v, want exactly %q\n%s", s.err, want, s.out)
+				}
+				return nil
+			})
+			sc.Step(`^nothing was sent to the Tower$`, func() error {
+				// The same join, addressed at a listener that counts connections: a refusal made
+				// before anything is sent never opens one.
+				ln, err := net.Listen("tcp", "127.0.0.1:0")
+				if err != nil {
+					return err
+				}
+				defer ln.Close()
+				var conns atomic.Int32
+				go func() {
+					for {
+						c, err := ln.Accept()
+						if err != nil {
+							return
+						}
+						conns.Add(1)
+						c.Close()
+					}
+				}()
+				in := s.inv
+				in.Addrs = []string{ln.Addr().String()}
+				var err2 error
+				captureStdout(s.t, func() { err2 = cmdJoin(loadConfig(), []string{in.String(), otherName}) })
+				time.Sleep(50 * time.Millisecond)
+				if n := conns.Load(); n != 0 || err2 == nil || !strings.HasPrefix(err2.Error(), "this invite is for ") {
+					return fmt.Errorf("a refused name opened %d connection(s) to the Tower (%v)", n, err2)
+				}
+				if g := s.st.JoinGuesses(); g != 0 {
+					return fmt.Errorf("the refusal spent %d guess(es) at the Tower", g)
+				}
+				return nil
+			})
+			sc.Step(`^the invite is not spent, and the line run as printed still joins as "([^"]+)"$`, func(name string) error {
+				if len(s.st.LiveInvitations()) == 0 {
+					return fmt.Errorf("the refusal spent the invite")
+				}
+				joinAs(s.inv)
+				return joinedAs(name)
+			})
+			sc.Step(`^a joiner holding the invite's code presents it straight to the Tower under the name "([^"]+)"$`, func(name string) error {
+				key := client.LoadOrCreateUserKey()
+				pubHex := hex.EncodeToString(key.Public().(ed25519.PublicKey))
+				_, s.refused = joinPost(key, pubHex, s.addr, s.inv, "client", name, nil)
+				return nil
+			})
+			sc.Step(`^the Tower refuses it$`, func() error {
+				var r *joinRefusal
+				if !errors.As(s.refused, &r) || s.admitted() {
+					return fmt.Errorf("the Tower let a joiner use a named invite under another name (%v)", s.refused)
+				}
+				return nil
+			})
+
 			// --- the owner sees the join as it happens --------------------------------------------
 			var waiting *liveBuf
 			var waitDone chan struct{}
@@ -934,7 +1059,10 @@ func TestJoinInviteBDD(t *testing.T) {
 				joinInviteFeature + ":155", joinInviteFeature + ":162", joinInviteFeature + ":172", joinInviteFeature + ":181", joinInviteFeature + ":186", joinInviteFeature + ":192",
 				joinInviteFeature + ":196", joinInviteFeature + ":208", joinInviteFeature + ":236",
 				joinInviteFeature + ":54", joinInviteFeature + ":65", joinInviteFeature + ":80", joinInviteFeature + ":114", joinInviteFeature + ":138",
-				joinInviteFeature + ":218", joinInviteFeature + ":223"}},
+				joinInviteFeature + ":218", joinInviteFeature + ":223",
+				// A named invite, run as printed (live E2E 2026-10-28).
+				joinInviteFeature + ":398", joinInviteFeature + ":405", joinInviteFeature + ":411", joinInviteFeature + ":417",
+				joinInviteFeature + ":431", joinInviteFeature + ":437"}},
 	}
 	if bddrun.Run(suite) != 0 {
 		t.Fatal("features/join/invite.feature failed")

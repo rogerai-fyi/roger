@@ -4,7 +4,9 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -21,17 +23,21 @@ func shortDir(t *testing.T) string {
 	return filepath.Join(d, "lab")
 }
 
-func serving(t *testing.T) (*tower.State, string, *[]string) {
+// serving starts a serve on a fresh Tower; logged returns what it has logged so far.
+func serving(t *testing.T) (st *tower.State, dir string, logged func() []string) {
 	t.Helper()
-	dir := shortDir(t)
+	dir = shortDir(t)
 	st, err := tower.Init(dir, tower.ModeStandalone)
 	require.NoError(t, err)
 	ln, err := Listen(dir)
 	require.NoError(t, err)
-	var logged []string
-	go func() { _ = Serve(ln, st, func(f string, a ...any) { logged = append(logged, f) }) }()
+	var mu sync.Mutex
+	var lines []string
+	go func() {
+		_ = Serve(ln, st, func(f string, a ...any) { mu.Lock(); lines = append(lines, f); mu.Unlock() })
+	}()
 	t.Cleanup(func() { _ = ln.Close(); Remove(dir) })
-	return st, dir, &logged
+	return st, dir, func() []string { mu.Lock(); defer mu.Unlock(); return slices.Clone(lines) }
 }
 
 func TestTheSocketIsOwnerOnlyAndAnswers(t *testing.T) {
@@ -81,7 +87,7 @@ func TestAnUnknownRequestIsRefusedAndTheSocketStaysUp(t *testing.T) {
 	_ = conn.Close()
 	time.Sleep(50 * time.Millisecond)
 	require.True(t, Running(dir), "the socket stays up")
-	require.GreaterOrEqual(t, len(*logged), 2)
+	require.Equal(t, []string{"admin socket: refused the unknown request %q", "admin socket: refused an unreadable request"}, logged())
 }
 
 // A socket left by a crashed serve is replaced; a live one is not taken over.

@@ -36,19 +36,16 @@ import (
 const joinTimeout = 10 * time.Second
 
 func joinTower(cfg config, in joininvite.Invite, pos, flags []string) ([]string, error) {
-	key := client.LoadOrCreateUserKey()
-	name := ""
-	if len(pos) > 0 {
-		name = pos[0]
-	} else if h, herr := os.Hostname(); herr == nil {
-		name = h
+	name, err := joinName(in, pos, os.Hostname)
+	if err != nil {
+		return nil, err
 	}
+	key := client.LoadOrCreateUserKey()
 	kind := "client"
 	var models []string
 	if in.Kind == joininvite.TowerStation {
 		kind = "station"
 		explicit, _ := parseModelsFlag(flags)
-		var err error
 		if models, err = joinStationModels(explicit); err != nil {
 			return nil, err
 		}
@@ -72,7 +69,25 @@ func joinTower(cfg config, in joininvite.Invite, pos, flags []string) ([]string,
 	return nil, fmt.Errorf("can't reach %s (%v)\nis roger tower serve running there? Check this machine is on its network", strings.Join(in.Addrs, " or "), lastErr)
 }
 
-// joinRefusal is the Tower's own answer refusing the join.
+// joinName is the name a Tower join sends: the one given, else the name the invite carries, else
+// this machine's. A named invite is only good under its own name (the Tower checks it too), so
+// another name is refused here, before anything is sent and with the invite still good.
+func joinName(in joininvite.Invite, pos []string, hostname func() (string, error)) (string, error) {
+	if len(pos) > 0 {
+		if in.For != "" && pos[0] != in.For {
+			return "", &joinRefusal{msg: fmt.Sprintf("this invite is for %q; run the line as printed, or ask the owner for an invite for your name: roger tower invite --for <your name>", in.For)}
+		}
+		return pos[0], nil
+	}
+	if in.For != "" {
+		return in.For, nil
+	}
+	h, _ := hostname()
+	return h, nil
+}
+
+// joinRefusal is a final refusal of the join, the Tower's answer or this machine's own check: no
+// other address is tried.
 type joinRefusal struct{ msg string }
 
 func (e *joinRefusal) Error() string { return e.msg }
