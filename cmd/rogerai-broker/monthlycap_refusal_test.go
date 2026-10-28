@@ -24,7 +24,7 @@ func capRefusalNotices(t *testing.T, spend, pending, amount, cap float64) ([]str
 	t.Cleanup(func() { capNoticeHookForTest = nil })
 	b := &broker{db: store.NewMem()}
 	w := httptest.NewRecorder()
-	b.capRefusal(w, "acct", spend, pending, amount, cap, time.Now())
+	b.capRefusal(w, nil, "acct", spend, pending, amount, cap, time.Now())
 	mu.Lock()
 	defer mu.Unlock()
 	return append([]string(nil), got...), w

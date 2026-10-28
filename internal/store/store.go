@@ -287,6 +287,18 @@ type Store interface {
 	// reaching a GitHub account by name collision (features/security/apple_session_isolation).
 	// An anonymized (deleted) account never resolves.
 	OwnerByAppleSub(sub string) (Owner, bool, error)
+	// ReconcileProviderEmail runs at a GitHub or Apple sign-in with the address the provider
+	// reports (founder ruling 2026-10-04, audit fix 2026-10-05). It records that provider's
+	// report on every live row of the identity, then judges each row whose address was NOT
+	// proven with an emailed code against the last report of EVERY provider the row is linked
+	// to: mailable when it matches any of them (case-insensitively); unproven when every linked
+	// provider has reported and none matches; left as it was while a linked provider has not
+	// reported yet. A code-proven address is never touched. verified lists every address the
+	// provider marks verified (GitHub's /user/emails): a row whose stored address matches one
+	// of them records that address as the report instead (founder ruling 2026-10-05), so a
+	// verified secondary address stays mailable. A row with nothing to record (an empty report
+	// and no matching verified address) is left exactly as it was, on both stores.
+	ReconcileProviderEmail(githubID int64, appleSub, reported string, verified ...string) error
 	// ClaimWelcome atomically stamps the owner's WelcomedAt (now) IFF it is unset,
 	// returning whether THIS call claimed it. It is the once-only guard for the welcome
 	// email: a true result means the caller (and only the caller) should send it.
@@ -927,11 +939,21 @@ type Owner struct {
 	// can type an address into their profile claim the account that address belongs to -
 	// including one holding a wallet balance. Only a verified address is an identity, and
 	// only a verified address may auto-link to an account a provider created.
-	EmailVerifiedAt int64  `json:"email_verified_at,omitempty"`
-	ConnectID       string `json:"stripe_connect_id,omitempty"`
-	ConnectStatus   string `json:"connect_status,omitempty"` // none|onboarding|active|restricted
-	DeletedAt       int64  `json:"deleted_at,omitempty"`
-	Anonymized      bool   `json:"anonymized,omitempty"`
+	EmailVerifiedAt int64 `json:"email_verified_at,omitempty"`
+	// EmailUnproven marks an address the account TYPED into its profile (PATCH /account): not
+	// proven by a code and not reported by the identity provider. Cap notices skip it until it
+	// is proven (founder ruling 2026-10-04).
+	EmailUnproven bool `json:"email_unproven,omitempty"`
+	// GitHubReportedEmail / AppleReportedEmail are the addresses each provider reported at
+	// its last sign-in (empty = not reported since tracking began). Kept per provider so an
+	// account linked to both is judged against BOTH: Apple's Hide My Email relay address must
+	// never withdraw the address GitHub reports. Internal bookkeeping, never serialized.
+	GitHubReportedEmail string `json:"-"`
+	AppleReportedEmail  string `json:"-"`
+	ConnectID           string `json:"stripe_connect_id,omitempty"`
+	ConnectStatus       string `json:"connect_status,omitempty"` // none|onboarding|active|restricted
+	DeletedAt           int64  `json:"deleted_at,omitempty"`
+	Anonymized          bool   `json:"anonymized,omitempty"`
 }
 
 // NodeRecord is a persisted node registration - the durable copy of the broker's
@@ -1878,6 +1900,8 @@ func (m *Mem) BindOwner(o Owner) error {
 		if o.EmailVerifiedAt == 0 {
 			o.EmailVerifiedAt = existing.EmailVerifiedAt
 		}
+		// A typed, unproven address stays unproven until a proof lands on the row.
+		o.EmailUnproven = existing.EmailUnproven && !(existing.EmailVerifiedAt == 0 && o.EmailVerifiedAt != 0)
 		// Name: same fill-if-empty so a once-captured display name is stable across
 		// logins (and a later GitHub name change doesn't silently overwrite it).
 		if existing.Name != "" {
@@ -1885,12 +1909,40 @@ func (m *Mem) BindOwner(o Owner) error {
 		}
 		// preserve account-hub state a fresh GitHub login wouldn't carry
 		o.WelcomedAt = existing.WelcomedAt // durable: the welcome fires exactly once, ever
+		o.GitHubReportedEmail = existing.GitHubReportedEmail
+		o.AppleReportedEmail = existing.AppleReportedEmail
 		o.ConnectID = existing.ConnectID
 		o.ConnectStatus = existing.ConnectStatus
 		o.DeletedAt = existing.DeletedAt
 		o.Anonymized = existing.Anonymized
 	}
+	if err := m.verifiedProviderEmailTakenLocked(o); err != nil {
+		return err
+	}
 	m.owners[o.Pubkey] = o
+	return nil
+}
+
+// ErrVerifiedEmailTaken is the in-memory store's form of the Postgres partial unique index
+// owners_verified_provider_email_uniq: one verified address belongs to at most one live
+// PROVIDER-linked owner row. Provider-less rows (an email account's devices) are exempt, exactly
+// as the index's WHERE clause exempts them, so a gap between the stores cannot hide again.
+var ErrVerifiedEmailTaken = errors.New("store: this verified address already belongs to another account")
+
+func providerLinked(o Owner) bool { return o.GitHubID != 0 || o.AppleSub != "" }
+
+func (m *Mem) verifiedProviderEmailTakenLocked(o Owner) error {
+	if o.EmailVerifiedAt == 0 || o.Anonymized || o.Email == "" || !providerLinked(o) {
+		return nil
+	}
+	for pk, other := range m.owners {
+		if pk == o.Pubkey || other.EmailVerifiedAt == 0 || other.Anonymized || !providerLinked(other) {
+			continue
+		}
+		if strings.EqualFold(other.Email, o.Email) {
+			return ErrVerifiedEmailTaken
+		}
+	}
 	return nil
 }
 
@@ -1940,12 +1992,15 @@ func (m *Mem) LinkVerifiedEmail(pubkey, email string, at int64) error {
 	if !ok || o.Anonymized {
 		return ErrNoOwner
 	}
+	// The same partial rule as owners_verified_provider_email_uniq: only between provider-linked
+	// rows (an email account's devices may share their verified address).
 	for pk, other := range m.owners {
-		if pk != pubkey && !other.Anonymized && other.EmailVerifiedAt != 0 && strings.EqualFold(other.Email, email) {
+		if pk != pubkey && providerLinked(o) && providerLinked(other) && !other.Anonymized &&
+			other.EmailVerifiedAt != 0 && strings.EqualFold(other.Email, email) {
 			return ErrEmailTaken
 		}
 	}
-	o.Email, o.EmailVerifiedAt = email, at
+	o.Email, o.EmailVerifiedAt, o.EmailUnproven = email, at, false // proven now
 	m.owners[pubkey] = o
 	return nil
 }
@@ -1969,15 +2024,75 @@ func (m *Mem) OwnerByAppleSub(sub string) (Owner, bool, error) {
 	})
 }
 
+// judgeProviderEmail is the reconcile rule for one row (both stores encode it; Postgres in
+// SQL): mailable when the stored address matches any linked provider's last report, unproven
+// when every linked provider has reported and none matches, unchanged otherwise.
+func judgeProviderEmail(o Owner) bool {
+	if (o.GitHubReportedEmail != "" && strings.EqualFold(o.Email, o.GitHubReportedEmail)) ||
+		(o.AppleReportedEmail != "" && strings.EqualFold(o.Email, o.AppleReportedEmail)) {
+		return false
+	}
+	ghKnown := o.GitHubID == 0 || o.GitHubReportedEmail != ""
+	apKnown := o.AppleSub == "" || o.AppleReportedEmail != ""
+	if ghKnown && apKnown {
+		return true
+	}
+	return o.EmailUnproven
+}
+
+func (m *Mem) ReconcileProviderEmail(githubID int64, appleSub, reported string, verified ...string) error {
+	if (reported == "" && len(verified) == 0) || (githubID == 0 && appleSub == "") {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for pk, o := range m.owners {
+		if o.Anonymized {
+			continue
+		}
+		ghMatch := githubID != 0 && o.GitHubID == githubID
+		apMatch := appleSub != "" && o.AppleSub == appleSub
+		if !ghMatch && !apMatch {
+			continue
+		}
+		rep := reported
+		for _, v := range verified {
+			if o.Email != "" && strings.EqualFold(o.Email, v) {
+				rep = v
+				break
+			}
+		}
+		if rep == "" {
+			continue // only unmatched verified addresses and no primary: nothing to record
+		}
+		if ghMatch {
+			o.GitHubReportedEmail = rep
+		}
+		if apMatch {
+			o.AppleReportedEmail = rep
+		}
+		// The report is recorded on every live row (as Postgres does); only an address that was
+		// not proven by code is re-judged.
+		if o.EmailVerifiedAt == 0 && o.Email != "" {
+			o.EmailUnproven = judgeProviderEmail(o)
+		}
+		m.owners[pk] = o
+	}
+	return nil
+}
+
 func (m *Mem) UpdateAccount(login, email string) (Owner, bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for pk, o := range m.owners {
 		if o.Login == login && !o.Anonymized {
-			if !strings.EqualFold(o.Email, email) { // the proof was for the old address
+			// Mirrors Postgres.UpdateAccount: a typed address is unproven and withdraws the
+			// previous address's proof; re-typing the same address (any case) changes nothing.
+			if !strings.EqualFold(o.Email, email) {
+				o.Email = email
 				o.EmailVerifiedAt = 0
+				o.EmailUnproven = email != ""
 			}
-			o.Email = email
 			m.owners[pk] = o
 			return o, true, nil
 		}
@@ -2026,6 +2141,9 @@ func (m *Mem) DeleteAccount(login string) (bool, error) {
 			// nothing downstream misses them.
 			o.Email = ""
 			o.EmailVerifiedAt = 0
+			o.EmailUnproven = false
+			o.GitHubReportedEmail = ""
+			o.AppleReportedEmail = ""
 			o.Name = ""
 			o.GitHubID = 0
 			o.AppleSub = ""

@@ -1,10 +1,13 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"net/http"
 	"time"
 
+	"rogerai.fm/roger/v6/internal/protocol"
 	"rogerai.fm/roger/v6/internal/store"
 )
 
@@ -54,9 +57,24 @@ func capStateFrom(cap, spend float64) capState {
 // monthly limit" without a second round-trip. Caller only invokes this on a paid
 // (maxCost>0) request, so free/self spend is never blocked.
 func (b *broker) monthlyCapCheck(w http.ResponseWriter, holder string, maxCost float64, now time.Time) (int, string) {
+	return b.monthlyCapCheckFor(w, nil, holder, maxCost, now)
+}
+
+// monthlyCapCheckFor is monthlyCapCheck for a request whose authenticated identity names the
+// account to notify: the relay and the voice relay pass it so a threshold notice reaches the
+// account's verified address (features/ops/cap_notice_emails.feature). A nil request checks
+// the cap and sets the headers but mails nobody.
+func (b *broker) monthlyCapCheckFor(w http.ResponseWriter, r *http.Request, holder string, maxCost float64, now time.Time) (int, string) {
+	st, msg, _ := b.monthlyCapCheckCap(w, r, holder, maxCost, now)
+	return st, msg
+}
+
+// monthlyCapCheckCap is monthlyCapCheckFor that also returns the cap it read (0 = no cap), so
+// the settle-time notice can reuse it instead of reading the cap a second time.
+func (b *broker) monthlyCapCheckCap(w http.ResponseWriter, r *http.Request, holder string, maxCost float64, now time.Time) (int, string, float64) {
 	cap, _ := b.db.MonthlyCapOf(holder)
 	if cap <= 0 {
-		return 0, "" // unlimited (opt-in feature; default off)
+		return 0, "", 0 // unlimited (opt-in feature; default off)
 	}
 	spend := b.monthSpend(holder, now)
 	// Reject when even this request's worst-case (the hold amount) would exceed the cap.
@@ -79,7 +97,8 @@ func (b *broker) monthlyCapCheck(w http.ResponseWriter, holder string, maxCost f
 	if spend+maxCost > cap+store.CapEpsilon {
 		// Surface the at-limit headers on the rejection too, so a client shows the same
 		// "$X of $Y" line whether it was warned or hard-stopped.
-		return b.capRefusal(w, holder, spend, 0, maxCost, cap, now)
+		st, msg := b.capRefusal(w, r, holder, spend, 0, maxCost, cap, now)
+		return st, msg, cap
 	}
 	// Allowed: emit the near/at notice headers from the cap + spend we ALREADY read
 	// (W2a) - monthlyCapState would re-query both, doubling the work; capStateFrom
@@ -89,9 +108,9 @@ func (b *broker) monthlyCapCheck(w http.ResponseWriter, holder string, maxCost f
 	// Flag-gated transactional notice on crossing the 80% near-threshold (async,
 	// de-duped per holder/month). No-op when RESEND_API_KEY is unset or no email.
 	if cs.near {
-		b.emailCapNotice(holder, "80", spend, cap, now)
+		b.capNotify(r, holder, "80", spend, cap, now)
 	}
-	return 0, ""
+	return 0, "", cap
 }
 
 // setCapHeaders writes the monthly-budget notice headers. They are always safe to send
@@ -128,7 +147,7 @@ var capHoldGapForTest func()
 // A floor-only hold is exempt. On a cap refusal it writes nothing itself and returns the
 // same 402 status and message as monthlyCapCheck, having set the at-limit headers,
 // X-RogerAI-Cost: 0 and the 100% notice; the caller answers with them.
-func (b *broker) holdUnderCap(w http.ResponseWriter, holder, requestID string, amount float64, now time.Time) (held bool, status int, msg string, err error) {
+func (b *broker) holdUnderCap(w http.ResponseWriter, r *http.Request, holder, requestID string, amount float64, now time.Time) (held bool, status int, msg string, err error) {
 	cap := 0.0
 	if amount > freeFloorHold {
 		cap, _ = b.db.MonthlyCapOf(holder)
@@ -141,7 +160,7 @@ func (b *broker) holdUnderCap(w http.ResponseWriter, holder, requestID string, a
 		return false, 0, "", err
 	}
 	if res.OverCap {
-		status, msg = b.capRefusal(w, holder, res.Spend, res.Pending, amount, cap, now)
+		status, msg = b.capRefusal(w, r, holder, res.Spend, res.Pending, amount, cap, now)
 		return false, status, msg, nil
 	}
 	return res.OK, 0, "", nil
@@ -167,7 +186,7 @@ func (b *broker) monthlyCapFits(holder string, amount float64, now time.Time) bo
 // below the cap too (founder ruling 2026-10-05); the mailer sends that notice once a month,
 // so the later real crossing does not repeat it. The fit check compares with the store's
 // tolerance (store.CapEpsilon), the one HoldForCapped decided with.
-func (b *broker) capRefusal(w http.ResponseWriter, holder string, spend, pending, amount, cap float64, now time.Time) (int, string) {
+func (b *broker) capRefusal(w http.ResponseWriter, r *http.Request, holder string, spend, pending, amount, cap float64, now time.Time) (int, string) {
 	setCapHeaders(w, capState{cap: cap, spend: spend, pct: spend / cap, atLimit: true})
 	w.Header().Set("X-RogerAI-Cost", "0")
 	if pending > 0 && spend+amount <= cap+store.CapEpsilon {
@@ -176,8 +195,181 @@ func (b *broker) capRefusal(w http.ResponseWriter, holder string, spend, pending
 			"monthly spend limit reached: $%.2f spent and $%.2f held by requests still in progress, of $%.2f this month - retry when they finish, raise it with `roger limit --monthly` (or [3] CONFIG), or wait until next month",
 			round6(spend), round6(pending), round6(cap))
 	}
-	b.emailCapNotice(holder, "100", spend, cap, now)
+	b.capNotify(r, holder, "100", spend, cap, now)
 	return http.StatusPaymentRequired, fmt.Sprintf(
 		"monthly spend limit reached: $%.2f of $%.2f this month - raise it with `roger limit --monthly` (or [3] CONFIG), or wait until next month",
 		round6(spend), round6(cap))
+}
+
+// capNoticeAfterSettle runs after a PAID settle: when this request's spend carried the account
+// across 80% (or to 100%) of its monthly cap, the account is notified now rather than on its next
+// request, and - when the response has not been committed (w non-nil, non-stream) - the near/at
+// headers report the spend AFTER this request. Only reads when a cap is set.
+//
+// knownCap is the cap the request's pre-hold check already read (0 = the account has no cap);
+// capUnknown makes this read it.
+func (b *broker) capNoticeAfterSettle(w http.ResponseWriter, r *http.Request, holder string, knownCap float64, now time.Time) {
+	if b.db == nil || holder == "" {
+		return
+	}
+	cap := knownCap
+	if cap == capUnknown {
+		cap, _ = b.db.MonthlyCapOf(holder)
+	}
+	if cap <= 0 {
+		return
+	}
+	cs := capStateFrom(cap, b.monthSpend(holder, now))
+	if w != nil {
+		setCapHeaders(w, cs)
+	}
+	switch {
+	case cs.atLimit:
+		b.capNotify(r, holder, "100", cs.spend, cap, now)
+	case cs.near:
+		b.capNotify(r, holder, "80", cs.spend, cap, now)
+	}
+}
+
+// capUnknown marks a cap the caller has not read yet (capNoticeAfterSettle reads it).
+const capUnknown = -1.0
+
+// capNotify sends the threshold notice, doing the cheapest checks first so a request above an
+// already-notified threshold costs no lookups: the mailer is enabled, then this month's
+// claim for the threshold is not already taken, then no recent lookup found the account
+// without a mailable address, then the account's address is resolved, and only then is the
+// claim taken (emailCapNotice), so an account with no address on file never spends its
+// once-a-month claim.
+func (b *broker) capNotify(r *http.Request, holder, threshold string, spend, cap float64, now time.Time) {
+	if capNoticeHookForTest != nil {
+		capNoticeHookForTest(holder, threshold) // the decision to notify, before mail or address checks
+	}
+	if !b.mail.enabled() || b.capNoticeClaimed(holder, threshold, now) {
+		return
+	}
+	noAddr := "capnoaddr:" + holder + "|" + threshold
+	if b.shared != nil {
+		if _, found, err := b.shared.counterGet(noAddr); err == nil && found {
+			return
+		}
+	}
+	addr := b.capNoticeAddress(r, holder)
+	if addr == "" {
+		// Remembered in the shared store (every instance skips the lookup) for a short while, so
+		// an address the account gains later is still mailed once this lapses. Best effort: with
+		// the shared store unreachable the lookup simply runs again next time.
+		if b.shared != nil {
+			_, _ = b.shared.setIfAbsent(noAddr, "1", capNoAddrTTL)
+		}
+		return
+	}
+	b.emailCapNotice(addr, holder, threshold, spend, cap, now)
+}
+
+// capNoAddrTTL is how long a "no mailable address" answer is remembered for a threshold.
+const capNoAddrTTL = 10 * time.Minute
+
+// capNoticeAddress resolves the verified address of the account that owns `holder` from the
+// request's AUTHENTICATED identity: a signed CLI key (its bound owner row) or the web session
+// (GitHub login, Apple sub, or the code-proven email address). The account wallet alone cannot
+// be reversed (Apple and email wallet ids are one-way hashes), and the identity must resolve to
+// the SAME account wallet that is being charged, so a request can never direct another
+// account's notice. "" = no verified address on file (nothing is sent).
+func (b *broker) capNoticeAddress(r *http.Request, holder string) string {
+	if r == nil || b.db == nil || holder == "" {
+		return ""
+	}
+	// A sponsored grant bills its OWNER's wallet: the notice goes to the grant's owner, never to
+	// the grantee (a bot holding only the secret has no address).
+	if tok := grantTokenFromHeader(r); tok != "" {
+		sum := sha256.Sum256([]byte(tok))
+		if g, found, err := b.db.GrantBySecretHash(hex.EncodeToString(sum[:])); err == nil && found && !g.Revoked {
+			if o, ok, _ := b.db.OwnerByPubkey(g.Owner); ok {
+				return capNoticeMailable(o, holder)
+			}
+		}
+		return ""
+	}
+	if pub := r.Header.Get(protocol.HeaderPubkey); pub != "" {
+		if o, ok, _ := b.db.OwnerByPubkey(pub); ok {
+			return capNoticeMailable(o, holder)
+		}
+		return ""
+	}
+	c, err := r.Cookie(sessionCookie)
+	if err != nil || c.Value == "" {
+		return ""
+	}
+	login, _, wallet, appleSub, ok := b.verifySessionFull(c.Value)
+	if !ok || wallet != holder {
+		return ""
+	}
+	switch {
+	case appleSub != "":
+		if o, found, _ := b.db.OwnerByAppleSub(appleSub); found {
+			return capNoticeMailable(o, holder)
+		}
+	case isEmailWallet(wallet):
+		if o, found, _ := b.db.OwnerByVerifiedEmail(login); found {
+			return capNoticeMailable(o, holder)
+		}
+		return login // the session was minted by accepting a code mailed to this address
+	default:
+		if o, found, _ := b.db.OwnerByLogin(login); found {
+			return capNoticeMailable(o, holder)
+		}
+		if o, found, _ := b.db.OwnerByVerifiedEmail(login); found {
+			return capNoticeMailable(o, holder)
+		}
+	}
+	return ""
+}
+
+// capNoticeMailable returns the owner's notice address when the owner is a live account that
+// resolves to `holder` and its address on file is proven: by an emailed code (EmailVerifiedAt),
+// or reported by the identity provider the account signed in with. An address the account typed
+// into its profile (EmailUnproven) is never mailed until it is proven (founder ruling
+// 2026-10-04).
+func capNoticeMailable(o store.Owner, holder string) string {
+	if o.Anonymized || o.Email == "" {
+		return ""
+	}
+	if w, ok := accountWalletForOwner(o); !ok || w != holder {
+		return ""
+	}
+	if o.EmailVerifiedAt != 0 || ((o.GitHubID != 0 || o.AppleSub != "") && !o.EmailUnproven) {
+		return o.Email
+	}
+	return ""
+}
+
+// capNoticeClaimed reports whether this month's notice for the threshold was already claimed,
+// without taking the claim. It reads the same shared key capNoticeClaim sets (falling back to
+// this instance's record when the shared store is unreachable), so the hot path can skip the
+// address lookup once the notice has gone out.
+func (b *broker) capNoticeClaimed(holder, threshold string, now time.Time) bool {
+	key := capNoticeKey(holder, threshold, now)
+	if b.shared != nil {
+		if _, found, err := b.shared.counterGet(key); err == nil {
+			return found
+		}
+	}
+	return b.mail.capNoticeSeen(holder, threshold, now)
+}
+
+func capNoticeKey(holder, threshold string, now time.Time) string {
+	return "capnotice:" + holder + "|" + threshold + "|" + now.UTC().Format("2006-01")
+}
+
+// capNoticeClaim claims the once-per-(holder, threshold, month UTC) notice. The claim lives in the
+// shared store so two instances, or one after a restart, never send it twice; when the shared
+// store is unreachable it falls back to this instance's memory (at most once per instance).
+func (b *broker) capNoticeClaim(holder, threshold string, now time.Time) bool {
+	key := capNoticeKey(holder, threshold, now)
+	if b.shared != nil {
+		if set, err := b.shared.setIfAbsent(key, "1", 40*24*time.Hour); err == nil {
+			return set
+		}
+	}
+	return b.mail.capNoticeOnce(holder, threshold, now)
 }

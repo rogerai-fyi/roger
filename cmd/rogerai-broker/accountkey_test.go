@@ -17,18 +17,21 @@ import (
 // pubkeys in creation order.
 func twoDevices(t *testing.T, b *broker, login string, githubID int64) (first, second string) {
 	t.Helper()
-	mk := func(created int64) string {
+	// The address is verified on the first device only: one verified address belongs to one
+	// provider-linked row (owners_verified_provider_email_uniq on Postgres; the same rule in the
+	// mem store since 2026-10-04), so a fixture with both rows verified could not exist in prod.
+	mk := func(created, verified int64) string {
 		pub, _, err := ed25519.GenerateKey(rand.Reader)
 		require.NoError(t, err)
 		hexPub := hexOf(pub)
 		require.NoError(t, b.db.BindOwner(store.Owner{
 			Pubkey: hexPub, Login: login, GitHubID: githubID,
-			Email: login + "@x.test", EmailVerifiedAt: created, CreatedAt: created,
+			Email: login + "@x.test", EmailVerifiedAt: verified, CreatedAt: created,
 		}))
 		return hexPub
 	}
-	first = mk(1000)
-	second = mk(2000)
+	first = mk(1000, 1000)
+	second = mk(2000, 0)
 	return first, second
 }
 
