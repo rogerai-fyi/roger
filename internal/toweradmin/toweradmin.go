@@ -171,6 +171,9 @@ func handle(c net.Conn, st *tower.State, pr Pairer, logf func(string, ...any)) {
 	}
 	var req Request
 	if err := json.NewDecoder(io.LimitReader(c, maxRequest)).Decode(&req); err != nil {
+		if errors.Is(err, io.EOF) {
+			return // nothing was sent: a probe (Running), not a request
+		}
 		logf("admin socket: refused an unreadable request")
 		_ = json.NewEncoder(c).Encode(Response{Error: "not an administration request"})
 		return

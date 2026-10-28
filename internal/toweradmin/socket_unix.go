@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"syscall"
 	"time"
 )
 
@@ -30,6 +31,9 @@ func listen(path string) (net.Listener, error) {
 		if err := os.Remove(path); err != nil {
 			return nil, err
 		}
+	}
+	if limit := len(syscall.RawSockaddrUnix{}.Path) - 1; len(path) > limit {
+		return nil, fmt.Errorf("the admin socket path %s is too long for a socket here (%d bytes, at most %d); use a shorter --dir", path, len(path), limit)
 	}
 	ln, err := net.Listen("unix", path)
 	if err != nil {

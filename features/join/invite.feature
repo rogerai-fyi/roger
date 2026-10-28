@@ -383,3 +383,58 @@ Feature: One invite, one paste, for Towers and Edge devices
     When another device, whose key this Edge allows, presents that node id with a node key of its own
     Then it is refused before any invite is tried
     And the invite is untouched for the device it is for
+
+  # =====================================================================================
+  # A NAMED INVITE, RUN AS PRINTED (live E2E 2026-10-28; fix approved by the founder 2026-10-28)
+  # =====================================================================================
+  # "roger tower invite --for NAME" printed a line that failed when run exactly as printed: the join
+  # named itself after the machine, not the invite, and the Tower's refusal read as "expired, used,
+  # voided or not this Tower's", which was false. The approved behavior: with no name given, the join
+  # uses the name the invite carries; a different name is refused on this machine, clearly, before
+  # anything is sent, and the invite stays good. The Tower's own check is unchanged, so a named
+  # invite still cannot be used under another name.
+
+  @security
+  Scenario: A named client invite works when its line is run exactly as printed
+    Given the owner ran "roger tower invite --for laptop-x"
+    When the client runs the printed join line, adding no name
+    Then the Tower admits the client under the name "laptop-x"
+    And the invite is spent
+
+  @security
+  Scenario: A named station invite works when its line is run exactly as printed
+    Given the owner ran "roger tower invite --station --for shelf-gpu"
+    When a station runs the printed join line, adding no name
+    Then the Tower attaches the station under the name "shelf-gpu"
+
+  @security
+  Scenario: Naming yourself what the invite already names is the same as naming nobody
+    Given the owner ran "roger tower invite --for laptop-x"
+    When the client runs "roger join <invite> laptop-x"
+    Then the Tower admits the client under the name "laptop-x"
+
+  @security
+  Scenario Outline: A named invite run under another name is refused clearly, before anything is sent
+    Given the owner ran "roger tower invite <flags>"
+    When the joiner runs "roger join <invite> <other>"
+    Then it is refused with "this invite is for "<named>"; run the line as printed, or ask the owner for an invite for your name: roger tower invite --for <your name>"
+    And nothing was sent to the Tower
+    And the invite is not spent, and the line run as printed still joins as "<named>"
+
+    Examples:
+      | flags                     | other     | named     |
+      | --for laptop-x            | laptop-y  | laptop-x  |
+      | --for laptop-x            | LAPTOP-X  | laptop-x  |
+      | --station --for shelf-gpu | kitchen   | shelf-gpu |
+
+  @security
+  Scenario: A named invite still cannot be used under another name by a joiner that skips the check
+    Given the owner ran "roger tower invite --for laptop-x"
+    When a joiner holding the invite's code presents it straight to the Tower under the name "laptop-y"
+    Then the Tower refuses it
+    And the invite is not spent, and the line run as printed still joins as "laptop-x"
+
+  Scenario: An invite that names nobody still joins under this machine's name
+    Given the owner ran "roger tower invite"
+    When the client runs the printed join line, adding no name
+    Then the Tower admits the client under this machine's hostname
