@@ -138,7 +138,8 @@ func TestEdgeHostStatusReportsTheEngineNotTheKnob(t *testing.T) {
 	// Armed but not browsing: a machine outside an Edge that nobody has asked to scan
 	// (scan_on_request.feature) is not scanning, and does not claim to be.
 	h.mu.Lock()
-	h.armed, h.every, h.lastPass, h.lastFound = true, 30*time.Second, time.Now().Add(-12*time.Second), edge.PassSummary(0, 0)
+	passAt := time.Now()
+	h.armed, h.every, h.lastPass, h.lastFound = true, 30*time.Second, passAt.Add(-12*time.Second), edge.PassSummary(0, 0)
 	h.mu.Unlock()
 	now = now.Add(edgeStatusTTL)
 	st = h.status()
@@ -152,7 +153,7 @@ func TestEdgeHostStatusReportsTheEngineNotTheKnob(t *testing.T) {
 	require.Equal(t, edge.DiscoveryScanning, st.Discovery)
 	require.False(t, st.ScansOnRequest, "browsing as a member, not on request")
 	require.EqualValues(t, 30, st.IntervalS)
-	require.Contains(t, st.DiscoveryLine(time.Now()), "last pass 12s ago, nothing answered")
+	require.Contains(t, st.DiscoveryLine(passAt), "last pass 12s ago, nothing answered") // one clock, not two reads of the wall
 }
 
 func TestEdgeHostStatusIsCachedUnderAPollingViewer(t *testing.T) {

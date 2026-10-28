@@ -27,7 +27,7 @@ var edgeRunHealthScreen = func(ctx context.Context, src fleetview.HealthSource) 
 // edgeHealthSource is the screen's read: the same judged fleet read as the table, plus the
 // rules in force as `roger edge alert` lists them.
 func edgeHealthSource() (fleetview.HealthSnapshot, error) {
-	now := time.Now()
+	now := edgeRenderNow()
 	hs, firing, err := edgeReadHealth(now)
 	if err != nil {
 		return fleetview.HealthSnapshot{}, err
@@ -70,7 +70,7 @@ func cmdEdgeHealth(cfg config, args []string) error {
 	if argv.has("live") {
 		return edgeRunHealthScreen(context.Background(), edgeHealthSource)
 	}
-	now := time.Now()
+	now := edgeRenderNow()
 	hs, firing, err := edgeReadHealth(now) // every health read evaluates the rules
 	if err != nil {
 		return err

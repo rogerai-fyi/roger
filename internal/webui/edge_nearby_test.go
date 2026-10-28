@@ -52,12 +52,13 @@ func nearbyCall(t *testing.T, ts *httptest.Server, tok, method, path, body strin
 }
 
 func TestNearbyEndpointsRefuse(t *testing.T) {
-	phone := store.EdgeNode{ID: "n_phone", Name: "gentle-ibex-14", Kind: "mobile", LastSeen: time.Now().Add(-20 * time.Minute).Unix()}
+	now := time.Date(2026, 10, 12, 12, 0, 0, 0, time.UTC) // the console's clock, pinned: an age is never a wall-clock race
+	phone := store.EdgeNode{ID: "n_phone", Name: "gentle-ibex-14", Kind: "mobile", LastSeen: now.Add(-20 * time.Minute).Unix()}
 	desk := store.EdgeNode{ID: "n_desk", Name: "deskside", Kind: "host", Pin: strings.Repeat("ab", 32)}
 	cands := func() []store.EdgeNode { return []store.EdgeNode{phone, desk} }
 
 	// No hooks wired: Invite and Approve say so, and the snapshot says neither button works.
-	ts, tok := nearbyServer(t, EdgeHooks{Candidates: cands}, nil)
+	ts, tok := nearbyServer(t, EdgeHooks{Candidates: cands, Now: func() time.Time { return now }}, nil)
 	code, body := nearbyCall(t, ts, tok, "POST", "/api/edge/nearby/invite", `{"id":"n_phone"}`)
 	require.Equal(t, http.StatusNotImplemented, code, body)
 	code, body = nearbyCall(t, ts, tok, "POST", "/api/edge/nearby/approve", `{"id":"n_phone"}`)

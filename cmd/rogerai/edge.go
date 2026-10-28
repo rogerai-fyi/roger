@@ -855,6 +855,10 @@ func edgeBrokerAddr(broker string) string {
 
 // --- rendering ------------------------------------------------------------
 
+// edgeRenderNow is the "now" every printed age is measured from. A seam so a test pins it: a
+// spec that says "seen 12s ago" cannot hold against a wall clock on a slow runner.
+var edgeRenderNow = time.Now
+
 // edgeAge says how long ago something was, in seconds where seconds matter. A fleet
 // heartbeat is a matter of seconds, so "now" would hide exactly the difference an owner
 // is looking for.
@@ -862,7 +866,7 @@ func edgeAge(unix int64) string {
 	if unix <= 0 {
 		return "never"
 	}
-	d := time.Since(time.Unix(unix, 0))
+	d := edgeRenderNow().Sub(time.Unix(unix, 0))
 	if d < 0 {
 		d = 0
 	}

@@ -141,7 +141,7 @@ func TestOnlyTheAuthorityJudgesOnItsPass(t *testing.T) {
 func TestEdgeAlertNamesThePhoneAsTheSinkAndSendsATestCall(t *testing.T) {
 	useTempConfig(t)
 	edgeWriteAuth(t, "owner")
-	now := time.Now()
+	now := pinEdgeRenderNow(t)
 	edgeSeed(t, store.EdgeNode{ID: "n_ibex", Name: "gentle-ibex-14", Kind: "mobile", Presence: string(edge.PresenceVerified), LastSeen: now.Unix()})
 	out, _ := edgeRun(t, "edge", "alert")
 	require.Contains(t, out, "none configured", "before any phone has read the feed")

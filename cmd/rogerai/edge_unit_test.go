@@ -131,8 +131,20 @@ func TestEdgeBrokerAddr(t *testing.T) {
 	}
 }
 
+// pinEdgeRenderNow fixes the "now" printed ages are measured from, for one test, and returns it. It
+// is the real time to the second, so anything else that reads the wall clock still agrees with it;
+// a slow runner then cannot turn "12s ago" into "13s ago".
+func pinEdgeRenderNow(t *testing.T) time.Time {
+	t.Helper()
+	at := time.Now().Truncate(time.Second)
+	prev := edgeRenderNow
+	edgeRenderNow = func() time.Time { return at }
+	t.Cleanup(func() { edgeRenderNow = prev })
+	return at
+}
+
 func TestEdgeAgeSaysSecondsWhereSecondsMatter(t *testing.T) {
-	now := time.Now()
+	now := pinEdgeRenderNow(t)
 	require.Equal(t, "never", edgeAge(0))
 	require.Equal(t, "5s ago", edgeAge(now.Add(-5*time.Second).Unix()))
 	require.Equal(t, "5m ago", edgeAge(now.Add(-5*time.Minute).Unix()))

@@ -27,7 +27,7 @@ func cmdEdgeNearby(cfg config, args []string) error {
 		return nil
 	}
 	fmt.Println(look.NearbyCLIHead)
-	now := time.Now()
+	now := edgeRenderNow()
 	for _, c := range st.candidates {
 		label, short := look.NearbyKey(c.Pin, c.ID)
 		facts := c.Kind

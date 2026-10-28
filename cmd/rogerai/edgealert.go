@@ -106,7 +106,7 @@ func edgeAlertList(l edge.AlertLog) error {
 	if err != nil {
 		return err
 	}
-	now := time.Now()
+	now := edgeRenderNow()
 	hs, firing, err := edgeReadHealth(now)
 	if err != nil {
 		return err

@@ -35,10 +35,12 @@ type nearbyCLI struct {
 	ids  map[string]string
 	// adoptOut is what `roger edge adopt` printed, kept past the approve run that is compared to it.
 	adoptOut string
+	now      time.Time // the pinned clock printed ages are measured from
 }
 
 func (n *nearbyCLI) reset(t *testing.T, cli *edgeCLIBDD) {
 	n.cli, n.t, n.keys, n.ids, n.adoptOut = cli, t, map[string]ed25519.PublicKey{}, map[string]string{}, ""
+	n.now = pinEdgeRenderNow(t) // "seen 12s ago" is measured from this, not from a wall clock that moves
 }
 
 func (n *nearbyCLI) id(label string) string {
@@ -60,7 +62,7 @@ func (n *nearbyCLI) sees(label, name string) error {
 		return err
 	}
 	st.candidates = append(st.candidates, store.EdgeNode{ID: n.id(label), Name: name, Kind: "mobile",
-		Presence: string(edge.PresenceCandidate), LastSeen: time.Now().Add(-12 * time.Second).Unix()})
+		Presence: string(edge.PresenceCandidate), LastSeen: n.now.Add(-12 * time.Second).Unix()})
 	return st.save()
 }
 
