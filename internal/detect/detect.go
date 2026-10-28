@@ -375,9 +375,10 @@ func brandOsaurus(f *Found) {
 type probeResult int
 
 const (
-	probeMiss probeResult = iota // unreachable / not OpenAI-compatible
-	probeOK                      // 200: models parsed (usedKey is the key that worked, "" if none needed)
-	probeAuth                    // 401/403: server present but no supplied key worked
+	probeMiss    probeResult = iota // unreachable / not OpenAI-compatible
+	probeOK                         // 200: models parsed (usedKey is the key that worked, "" if none needed)
+	probeAuth                       // 401/403: server present but no supplied key worked
+	probeRogerAI                    // a RogerAI broker or roger use endpoint: never a local server, voice or chat
 )
 
 // probeModels does GET base/models, first with no auth, and - only when the server
@@ -387,6 +388,8 @@ const (
 func probeModels(base string, keys []string) (models []string, ctx map[string]int, usedKey string, res probeResult) {
 	models, ctx, code := getModels(base, "")
 	switch {
+	case code == statusRogerAI:
+		return nil, nil, "", probeRogerAI
 	case code == 200:
 		return models, ctx, "", probeOK
 	case code == 401 || code == 403:
@@ -394,7 +397,11 @@ func probeModels(base string, keys []string) (models []string, ctx map[string]in
 			if k == "" {
 				continue
 			}
-			if m, c, code2 := getModels(base, k); code2 == 200 {
+			m, c, code2 := getModels(base, k)
+			if code2 == statusRogerAI {
+				return nil, nil, "", probeRogerAI
+			}
+			if code2 == 200 {
 				return m, c, k, probeOK
 			}
 		}
