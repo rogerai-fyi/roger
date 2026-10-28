@@ -51,7 +51,7 @@ func cmdEdgeActuate(cfg config, args []string) error {
 			who = "somebody"
 		}
 		fmt.Printf("%s is already confirmed to actuate - %s said yes %s ago.\n",
-			edgeNodeLabel(n), who, edge.Age(time.Since(time.Unix(cap.ConfirmedAt, 0))))
+			edgeNodeLabel(n), who, edge.Age(edgeRenderNow().Sub(time.Unix(cap.ConfirmedAt, 0))))
 		return nil
 	}
 	if !argv.has("yes") {

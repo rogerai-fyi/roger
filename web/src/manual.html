@@ -679,7 +679,8 @@
             <h2>Put your GPU on the air</h2>
             <p class="man-lead">Point RogerAI at a local backend you already run. It
               auto-detects Ollama, LM Studio, llama.cpp, vLLM, LiteLLM, and anything that
-              serves <code>/v1/models</code> - including a model on a custom port. Then it
+              serves <code>/v1/models</code> on its default port (any other port is one
+              <code>--upstream</code> away). Then it
               bridges <b>only that model port</b> over an outbound long-poll: no inbound
               ports, no shell, no files, no context.</p>
             <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">$</span> roger share                 <span class="code-block__comment"># FREE by default, no login - auto-detects your model</span>
@@ -1734,8 +1735,8 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre></div>
 
             <h3>"no local LLM detected" on share</h3>
             <p>RogerAI tries Ollama, LM Studio, llama.cpp, vLLM, and LiteLLM on their
-              default ports, reads common env vars, and enumerates real listening ports -
-              no brute scan. If your server is on a custom port and not found, point at it:
+              default ports and reads common env vars. It never scans this machine's other
+              ports, so a server on a custom port is one you point at:
               <code>roger share --upstream http://127.0.0.1:8081/v1</code>. Confirm it
               serves <code>GET /v1/models</code>.</p>
 

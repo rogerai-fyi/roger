@@ -12,7 +12,9 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"sort"
@@ -203,6 +205,20 @@ func cacheRAMMiB(b Budget) int64 {
 
 // Serve starts the runtime on a model and records it. The caller owns the returned server and
 // must Stop it and Release the record; the kernel ends the runtime if the caller dies first.
+//
+// suggestPort is netbind.SuggestPort behind a seam, so a test can hand out a port that is already taken.
+var suggestPort = netbind.SuggestPort
+
+// portTaken reports whether something else holds port on loopback now.
+func portTaken(port int) bool {
+	ln, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+	if err != nil {
+		return true
+	}
+	_ = ln.Close()
+	return false
+}
+
 func (h Home) Serve(ctx context.Context, o ServeOpts) (*runtime.Server, Serving, error) {
 	if o.Ctx <= 0 {
 		o.Ctx = DefaultCtx
@@ -216,32 +232,48 @@ func (h Home) Serve(ctx context.Context, o ServeOpts) (*runtime.Server, Serving,
 		return nil, Serving{}, err
 	}
 	// A free port is only free until someone binds it, so the port is claimed exclusively: a second
-	// serve that picked the same one tries another rather than sharing it.
-	port := o.Port
-	var release func()
-	for try := 0; release == nil; try++ {
-		if o.Port == 0 {
-			if port, err = netbind.SuggestPort(0); err != nil { // the runtime binds it; claimPort guards a race
+	// serve that picked the same one tries another rather than sharing it. Another PROGRAM can still
+	// take it before the runtime binds it; the runtime then exits at once, and a port roger chose is
+	// swapped for another, once. A port the caller named is theirs, and a runtime that exits while its
+	// port is still free failed on its own, so neither is started twice.
+	var (
+		port    int
+		release func()
+		srv     *runtime.Server
+	)
+	for swapped := false; ; swapped = true {
+		port = o.Port
+		release = nil
+		for try := 0; release == nil; try++ {
+			if o.Port == 0 {
+				if port, err = suggestPort(0); err != nil { // the runtime binds it; claimPort guards a race
+					return nil, Serving{}, err
+				}
+			}
+			if release, err = h.claimPort(port, o.Model); err != nil && (o.Port != 0 || try == 2) {
 				return nil, Serving{}, err
 			}
 		}
-		if release, err = h.claimPort(port, o.Model); err != nil && (o.Port != 0 || try == 2) {
+		keyFile := h.keyPath(port)
+		if err := os.WriteFile(keyFile, []byte(key+"\n"), 0o600); err != nil {
+			release()
+			return nil, Serving{}, err
+		}
+		srv, err = runtime.Start(ctx, runtime.Spec{
+			Exe: o.Exe, Model: o.Model.Path, Band: o.Band(), Ctx: o.Ctx, Port: port, Key: key,
+			Args: Args(o, port, keyFile), Env: o.Env, ReadyWithin: o.ReadyWithin,
+		})
+		if err == nil {
+			break
+		}
+		_ = os.Remove(keyFile)
+		release()
+		if swapped || o.Port != 0 || !errors.Is(err, runtime.ErrExited) || !portTaken(port) {
 			return nil, Serving{}, err
 		}
 	}
 	defer release()
 	keyFile := h.keyPath(port)
-	if err := os.WriteFile(keyFile, []byte(key+"\n"), 0o600); err != nil {
-		return nil, Serving{}, err
-	}
-	srv, err := runtime.Start(ctx, runtime.Spec{
-		Exe: o.Exe, Model: o.Model.Path, Band: o.Band(), Ctx: o.Ctx, Port: port, Key: key,
-		Args: Args(o, port, keyFile), Env: o.Env, ReadyWithin: o.ReadyWithin,
-	})
-	if err != nil {
-		_ = os.Remove(keyFile)
-		return nil, Serving{}, err
-	}
 	s := Serving{
 		Supervisor: me, RuntimePID: srv.PID, BaseURL: srv.BaseURL, Port: port, Key: key, Band: o.Band(),
 		ID: o.Model.ID, File: o.Model.File, SHA256: o.Model.Sum(), Quant: o.Model.Quant, Ctx: o.Ctx,

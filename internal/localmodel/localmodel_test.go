@@ -34,6 +34,11 @@ func TestMain(m *testing.M) {
 }
 
 func fakeLlama(args []string) {
+	if f := os.Getenv("FAKE_EXIT_AT_ONCE"); f != "" { // a runtime that fails on its own: counts its starts and exits
+		b, _ := os.ReadFile(f)
+		_ = os.WriteFile(f, append(b, 'x'), 0o600)
+		return
+	}
 	flag := map[string]string{}
 	for i := 0; i+1 < len(args); i++ {
 		if strings.HasPrefix(args[i], "-") {

@@ -4225,7 +4225,16 @@ type lazySSE struct {
 }
 
 func (l *lazySSE) Header() http.Header { return l.w.Header() }
-func (l *lazySSE) WriteHeader(int)     {} // the status is owned by commit/fail
+
+// editHeader changes the response headers under the writer's lock. The grace timer and a bridged
+// attempt's keepalive commit them from their own goroutines, so an unlocked edit races that commit
+// on one map (and two writers on one map end the process).
+func (l *lazySSE) editHeader(f func(http.Header)) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	f(l.w.Header())
+}
+func (l *lazySSE) WriteHeader(int) {} // the status is owned by commit/fail
 
 // begin starts an attempt: the provider named on commit, and an empty pre-commit buffer (a
 // failed attempt's bytes are discarded with it).
@@ -4444,8 +4453,9 @@ func (l *lazySSE) commitLocked() {
 // attempt answers whole, and an idle connection must not look dead meanwhile. A comment is not
 // content: it commits headers but never counts as output for failover.
 func (l *lazySSE) keepalive(every time.Duration) (stop func()) {
-	done := make(chan struct{})
+	done, exited := make(chan struct{}), make(chan struct{})
 	go func() {
+		defer close(exited)
 		t := time.NewTicker(every)
 		defer t.Stop()
 		for {
@@ -4469,8 +4479,13 @@ func (l *lazySSE) keepalive(every time.Duration) (stop func()) {
 			}
 		}
 	}()
+	// stop returns once the goroutine has: a tick that took the lock before done closed would
+	// otherwise still be committing while the caller goes on to edit the headers.
 	var once sync.Once
-	return func() { once.Do(func() { close(done) }) }
+	return func() {
+		once.Do(func() { close(done) })
+		<-exited
+	}
 }
 
 // bridgeKeepalive is ROGERAI_BRIDGE_KEEPALIVE (a Go duration, default 10s).
@@ -4586,14 +4601,14 @@ func (b *broker) relayStream(w http.ResponseWriter, plan []attemptCand, bill str
 			// cut-off, never no deadline), and while the hub works the consumer gets a keepalive
 			// comment every bridgeKeepalive once headers are out. The Tower is named up front so a
 			// header committed by a keepalive or the grace timer already says who is answering.
-			lw.Header().Set("X-RogerAI-Relay", c.edge.row.TowerID)
+			lw.editHeader(func(h http.Header) { h.Set("X-RogerAI-Relay", c.edge.row.TowerID) })
 			stopKA := lw.keepalive(bridgeKeepalive())
 			log.Printf("bridge stream attempt request=%s tower=%s window_s=%d", requestID, c.edge.row.TowerID, int(b.streamIdle().Seconds()))
 			edgeStart := time.Now()
 			answer, g, out := b.planEdgeAttempt(bill.req, c, bill.user, &holdKey, maxCost, false, time.Now().Add(b.streamIdle()), requestID)
 			stopKA()
 			if len(answer) == 0 {
-				lw.Header().Del("X-RogerAI-Relay")
+				lw.editHeader(func(h http.Header) { h.Del("X-RogerAI-Relay") })
 			}
 			if len(answer) > 0 {
 				rec, cost := b.bridgedReceipt(g, c.edge.row, c.edge.pubHex, answer)
@@ -4603,7 +4618,7 @@ func (b *broker) relayStream(w http.ResponseWriter, plan []attemptCand, bill str
 				b.genServe(requestID, i+1, genServed{Node: g.RelayName, Model: g.Model, Relay: g.TowerID}, cost, rec.PromptTokens, rec.CompletionTokens, 0, protocol.EncodeReceipt(rec))
 				lw.begin(g.RelayName)
 				lw.setModel(g.Model)
-				setBridgedHeaders(lw.Header(), g, rec, cost)
+				lw.editHeader(func(h http.Header) { setBridgedHeaders(h, g, rec, cost) })
 				_, _ = lw.Write([]byte("data: " + string(bridgedDeltaChunk(answer, rec)) + "\n\n"))
 				lw.complete() // the whole answer is out: no station [DONE] is owed
 				lw.finish(bridgedUsageChunk(g, rec, cost), "rogerai-cost="+fmtCostHeader(cost))
@@ -4687,7 +4702,7 @@ func (b *broker) relayStream(w http.ResponseWriter, plan []attemptCand, bill str
 			if bill.privateBand {
 				station = ""
 			}
-			res.Body = consumerRejectedBody(lw.Header(), res.Status, station, res.Body)
+			lw.editHeader(func(h http.Header) { res.Body = consumerRejectedBody(h, res.Status, station, res.Body) })
 		}
 		lw.fail(res.Status, res.Body, hint, built)
 		return
@@ -4710,8 +4725,8 @@ func (b *broker) streamAttempt(lw *lazySSE, c attemptCand, bill streamBill, requ
 	resCh, unreg := t.await(jobID)
 	defer unreg()
 	lw.begin(node.NodeID)
-	lw.Header().Set("X-RogerAI-Attempt-Id", jobID) // the attempt the receipt names (§14.B7 #13)
-	lw.setModel(model)                             // X-RogerAI-Model on commit names the model of THIS attempt
+	lw.editHeader(func(h http.Header) { h.Set("X-RogerAI-Attempt-Id", jobID) }) // the attempt the receipt names (§14.B7 #13)
+	lw.setModel(model)                                                          // X-RogerAI-Model on commit names the model of THIS attempt
 	b.genAttemptStart(requestID, n, node.NodeID, model)
 	// X-RogerAI-Price is known before dispatch, so it rides the committed headers (a peek:
 	// the lock itself is minted only when the stream settles).
@@ -4732,7 +4747,8 @@ func (b *broker) streamAttempt(lw *lazySSE, c attemptCand, bill streamBill, requ
 		if !until.IsZero() {
 			lockedAt = until.Unix()
 		}
-		lw.Header().Set("X-RogerAI-Price", fmt.Sprintf("in=%.4f;out=%.4f;locked_until=%d", pin, pout, lockedAt))
+		price := fmt.Sprintf("in=%.4f;out=%.4f;locked_until=%d", pin, pout, lockedAt)
+		lw.editHeader(func(h http.Header) { h.Set("X-RogerAI-Price", price) })
 	}
 	start := time.Now()
 	sink := &streamSink{w: lw, flush: lw.flush, nodeID: node.NodeID, start: start, activity: make(chan struct{}, 1),

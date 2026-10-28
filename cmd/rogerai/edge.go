@@ -677,8 +677,8 @@ func (s *edgeState) save() error {
 	// A state loaded under one account must not write once this machine belongs to another: a roger
 	// left running while the machine joined an Edge from another terminal would otherwise put its old
 	// account on the new Edge's file, and every reader discards that as somebody else's cache.
-	if s.account != edgeAccount() {
-		return errEdgeAccountMoved
+	if err := s.stillThisMachines(); err != nil {
+		return err
 	}
 	unlock, err := edge.FileLock(edgeStatePath())
 	if err != nil {
@@ -722,6 +722,15 @@ func (s *edgeState) save() error {
 // errEdgeAccountMoved is a save refused because this machine now belongs to a different account than
 // the state was loaded under. The running roger picks the new Edge up itself (adoptEnrollment).
 var errEdgeAccountMoved = errors.New("this machine joined another Edge since this view was loaded, so it was not saved")
+
+// stillThisMachines refuses a state loaded under an account this machine no longer belongs to. A caller
+// about to do something irreversible ahead of a save checks it first.
+func (s *edgeState) stillThisMachines() error {
+	if s.account != edgeAccount() {
+		return errEdgeAccountMoved
+	}
+	return nil
+}
 
 // snapshotOnDisk is the file as it stands now, and whether there was one to read for this account.
 // Called under the lock on the write path, so what it returns cannot change before the write.
@@ -1009,7 +1018,7 @@ func cmdEdgeList(cfg config, args []string) error {
 			fmt.Println("  " + look.EmptyEdgeSay)
 			fmt.Printf("  %-36s%s\n", look.EmptyEdgeStart+":", look.EmptyEdgeCLIStart)
 			fmt.Printf("  %-36s%s\n", look.EmptyEdgeJoin+":", look.EmptyEdgeCLIJoin)
-			fmt.Printf("  %-14s%s\n", "DISCOVERY", self.DiscoveryLine(time.Now()))
+			fmt.Printf("  %-14s%s\n", "DISCOVERY", self.DiscoveryLine(edgeRenderNow()))
 			return nil
 		}
 		fmt.Println("your Edge: this machine is the only node.")
@@ -1028,7 +1037,7 @@ func cmdEdgeList(cfg config, args []string) error {
 		} else {
 			fact("THIS MACHINE", self.MachineLine())
 			fact("AUTHORITY", self.AuthorityLines()...)
-			fact("DISCOVERY", self.DiscoveryLine(time.Now()))
+			fact("DISCOVERY", self.DiscoveryLine(edgeRenderNow()))
 		}
 		fmt.Println("  find the others on this network:  roger edge scan")
 		fmt.Println("  then take one into the fleet:     roger edge adopt <node>")
@@ -2475,7 +2484,7 @@ func cmdEdgeDescribeInstance(addr string) error {
 		fmt.Printf("  serving       nothing on air\n")
 	}
 	if found.Started > 0 {
-		fmt.Printf("  started       %s ago\n", edge.Age(time.Since(time.Unix(found.Started, 0))))
+		fmt.Printf("  started       %s ago\n", edge.Age(edgeRenderNow().Sub(time.Unix(found.Started, 0))))
 	}
 	if r := found.Resources; r != nil {
 		if r.GPU != "" {

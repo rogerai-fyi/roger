@@ -105,6 +105,7 @@ type edgeHost struct {
 	lastNearby  int // other roger machines the last pass saw
 	lastInEdge  int // of those, in an Edge
 	unavailable bool
+	movedSaid   bool // the account-moved refusal was logged (runPass, once)
 	armed       bool // the engine exists (ROGERAI_EDGE_DISCOVERY was not 0)
 	// browsing is whether the engine's browse is running now; onRequest, that it runs only
 	// because an on-request scope is open on a machine outside an Edge (scan_on_request.feature).
@@ -332,6 +333,10 @@ func (h *edgeHost) unitName(n store.EdgeNode) string {
 func (h *edgeHost) adopt(id, name string) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	// A claim granted from a view under an account this machine has left lands in the Edge it joined.
+	if err := h.st.stillThisMachines(); err != nil {
+		return err
+	}
 	// MEMBERSHIP IS CHECKED FIRST, before the candidate list is even consulted. A LIVE member is not
 	// on offer and is dropped from the bench, so asking "is it a candidate?" first answered a
 	// re-adopt with "no candidate was seen", which is true and useless: the reason it is not on offer
@@ -627,6 +632,11 @@ func (h *edgeHost) forgetNode(id string) error {
 		return err
 	} else if !ok {
 		return fmt.Errorf("no such node on this Edge")
+	}
+	// Before anything that cannot be undone: a view under an account this machine has left would
+	// record and revoke, then have its save refused.
+	if err := h.st.stillThisMachines(); err != nil {
+		return err
 	}
 	// The short record that it left, first (features/edge/node_identity.feature, RE-ADMITTING).
 	if err := edgeRecordDeparted(n); err != nil {
@@ -1100,7 +1110,15 @@ func (h *edgeHost) runPass(ctx context.Context) edge.Report {
 	h.lastInEdge = len(rep.Verified) + rep.Foreign
 	err := h.st.save()
 	h.mu.Unlock()
-	if err != nil && !errors.Is(err, errEdgeAccountMoved) { // a moved account is adoptEnrollment's to say
+	if errors.Is(err, errEdgeAccountMoved) {
+		// Said once: every later pass is refused for the same reason, and an enrollment that moved
+		// it is reloaded by adoptEnrollment, which says so itself. A changed Core login is not.
+		if !h.movedSaid {
+			h.movedSaid = true
+			log.Printf("edge: this machine's account is now %q, not %q as when this view was loaded, so the "+
+				"Edge here is no longer saved - it shows the new account from the next launch", edgeAccount(), h.st.account)
+		}
+	} else if err != nil {
 		log.Println("edge: could not write the last-known Edge:", err)
 	}
 	// A VERIFIED sighting is a node this instance really heard from, over its own
