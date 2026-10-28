@@ -745,7 +745,7 @@ func modelWebFetchNearby(cfg config) func(p modelview.NearbyPick) (string, error
 				return "", fmt.Errorf("%s will not fit here; nothing was fetched", r.mapLine())
 			}
 			r.c.File.SHA256 = mp.File.SHA256
-			if err := modelHome().StartFetch(modelHub(), provision.Fetcher{}, mp.File.Repo, r.c.File, modelLicense(ctx, mp.File.Repo), nil); err != nil {
+			if err := modelHome().StartFetch(modelHub(), modelBackgroundFetcher(), mp.File.Repo, r.c.File, modelLicense(ctx, mp.File.Repo), nil); err != nil {
 				return "", err
 			}
 			return "fetching " + r.c.File.Path + " - it keeps going if you leave this screen", nil

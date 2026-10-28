@@ -138,6 +138,39 @@ func TestAPlatformWithoutSystemdSaysSo(t *testing.T) {
 // A roger kept in a non-default place (XDG_CONFIG_HOME) is started by the service against that same
 // place, or it would boot as a machine on no Edge.
 func TestTheServiceRunsAgainstTheSameConfig(t *testing.T) {
-	require.Contains(t, edgeServiceUnitFor("/usr/local/bin/roger", "pi", "/srv/roger-config"), "Environment=XDG_CONFIG_HOME=/srv/roger-config\n")
-	require.NotContains(t, edgeServiceUnitFor("/usr/local/bin/roger", "pi", ""), "XDG_CONFIG_HOME", "the default needs nothing")
+	unit, err := edgeServiceUnitFor("/usr/local/bin/roger", "pi", "/srv/roger-config")
+	require.NoError(t, err)
+	require.Contains(t, unit, "Environment=XDG_CONFIG_HOME=/srv/roger-config\n")
+	unit, err = edgeServiceUnitFor("/usr/local/bin/roger", "pi", "")
+	require.NoError(t, err)
+	require.NotContains(t, unit, "XDG_CONFIG_HOME", "the default needs nothing")
+}
+
+// Pre-push audit (2026-10-26): an empty User= is root to systemd, and a value with a newline in it
+// writes lines of its own into the unit. The unit is refused rather than written.
+func TestAUnitThatWouldNotSayWhatItMeansIsRefused(t *testing.T) {
+	for name, c := range map[string][3]string{
+		"no user":              {"/usr/local/bin/roger", "", ""},
+		"a user with a line":   {"/usr/local/bin/roger", "pi\nExecStartPre=/bin/sh", ""},
+		"a spaced user":        {"/usr/local/bin/roger", "p i", ""},
+		"a path with a line":   {"/usr/local/bin/roger\nUser=root", "pi", ""},
+		"a config with a line": {"/usr/local/bin/roger", "pi", "/srv\nUser=root"},
+	} {
+		_, err := edgeServiceUnitFor(c[0], c[1], c[2])
+		require.Error(t, err, name)
+	}
+}
+
+// Pre-push audit (2026-10-26): under sudo, roger read root's config and said "not on an Edge yet",
+// while the unit named the sudo caller as its user. The service's user is the one whose config was
+// read; under sudo, roger says to run it as that user instead.
+func TestUnderSudoTheServiceSaysToRunWithoutIt(t *testing.T) {
+	offline(t)
+	r := newServiceRig(t)
+	r.euid = 0
+	t.Setenv("SUDO_USER", "pi")
+	out, code := edgeRun(t, "edge", "service", "install")
+	require.NotEqual(t, 0, code)
+	require.Contains(t, out, "without sudo")
+	require.Contains(t, out, "as pi")
 }

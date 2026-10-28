@@ -38,16 +38,36 @@ func Unpack(archive, dest string) error {
 	if err != nil {
 		return err
 	}
+	// Every write goes through an os.Root over dest: the kernel follows links inside it and refuses
+	// any path that leaves it, however the links chain. The checks below catch the obvious cases with
+	// a clear message; the Root is what holds.
+	r, err := os.OpenRoot(root)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
 	switch {
 	case strings.HasSuffix(archive, ".tar.gz"), strings.HasSuffix(archive, ".tgz"):
-		return untarGz(archive, root)
+		return confined(untarGz(archive, root, r))
 	case strings.HasSuffix(archive, ".zip"):
-		return unzip(archive, root)
+		return confined(unzip(archive, root, r))
 	}
 	return fmt.Errorf("%s is not an archive this knows how to unpack", filepath.Base(archive))
 }
 
-// inside resolves name under root and refuses anything that climbs out.
+// confined names an os.Root refusal for what it is: the archive tried to leave its folder. Go (1.25,
+// 1.26) exports no sentinel for it, so the message is matched; TestAChainOfLinksCannotWriteOutsideTheFolder
+// fails if a Go upgrade changes it.
+func confined(err error) error {
+	var pe *os.PathError
+	if errors.As(err, &pe) && pe.Err != nil && pe.Err.Error() == "path escapes from parent" {
+		return fmt.Errorf("%w: %q", ErrUnsafeArchive, pe.Path)
+	}
+	return err
+}
+
+// inside resolves name under root and refuses anything that climbs out. It returns the path relative
+// to root, for the os.Root the entry is written through.
 func inside(root, name string) (string, error) {
 	if filepath.IsAbs(name) || strings.HasPrefix(name, "/") || strings.HasPrefix(name, `\`) {
 		return "", fmt.Errorf("%w: %q is an absolute path", ErrUnsafeArchive, name)
@@ -56,10 +76,10 @@ func inside(root, name string) (string, error) {
 	if p != root && !strings.HasPrefix(p, root+string(filepath.Separator)) {
 		return "", fmt.Errorf("%w: %q", ErrUnsafeArchive, name)
 	}
-	return p, nil
+	return filepath.Rel(root, p)
 }
 
-func untarGz(archive, root string) error {
+func untarGz(archive, root string, r *os.Root) error {
 	f, err := os.Open(archive)
 	if err != nil {
 		return err
@@ -85,11 +105,11 @@ func untarGz(archive, root string) error {
 		}
 		switch h.Typeflag {
 		case tar.TypeDir:
-			if err := os.MkdirAll(p, 0o755); err != nil {
+			if err := r.MkdirAll(p, 0o755); err != nil {
 				return err
 			}
 		case tar.TypeReg:
-			if err := writeFile(p, tr, os.FileMode(h.Mode)&0o777); err != nil {
+			if err := writeFile(r, p, tr, os.FileMode(h.Mode)&0o777); err != nil {
 				return err
 			}
 		case tar.TypeSymlink:
@@ -101,11 +121,11 @@ func untarGz(archive, root string) error {
 			if _, err := inside(root, filepath.Join(filepath.Dir(h.Name), h.Linkname)); err != nil {
 				return fmt.Errorf("%w: %q links out of the tree", ErrUnsafeArchive, h.Name)
 			}
-			if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			if err := r.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 				return err
 			}
-			_ = os.Remove(p)
-			if err := os.Symlink(h.Linkname, p); err != nil {
+			_ = r.Remove(p)
+			if err := r.Symlink(h.Linkname, p); err != nil {
 				return err
 			}
 		default:
@@ -115,7 +135,7 @@ func untarGz(archive, root string) error {
 	}
 }
 
-func unzip(archive, root string) error {
+func unzip(archive, root string, r *os.Root) error {
 	zr, err := zip.OpenReader(archive)
 	if err != nil {
 		return fmt.Errorf("not a zip archive: %w", err)
@@ -127,7 +147,7 @@ func unzip(archive, root string) error {
 			return err
 		}
 		if zf.FileInfo().IsDir() {
-			if err := os.MkdirAll(p, 0o755); err != nil {
+			if err := r.MkdirAll(p, 0o755); err != nil {
 				return err
 			}
 			continue
@@ -143,7 +163,7 @@ func unzip(archive, root string) error {
 		if mode == 0 {
 			mode = 0o755 // zips made on Windows often carry no mode; an .exe must still run
 		}
-		err = writeFile(p, rc, mode)
+		err = writeFile(r, p, rc, mode)
 		rc.Close()
 		if err != nil {
 			return err
@@ -152,11 +172,16 @@ func unzip(archive, root string) error {
 	return nil
 }
 
-func writeFile(p string, r io.Reader, mode os.FileMode) error {
-	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-		return err
+func writeFile(root *os.Root, p string, r io.Reader, mode os.FileMode) error {
+	// Open first, so a parent that is a link out of the folder is refused as the escape it is; make
+	// the parent only when it does not exist yet.
+	out, err := root.OpenFile(p, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode|0o200)
+	if errors.Is(err, os.ErrNotExist) {
+		if err := root.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			return err
+		}
+		out, err = root.OpenFile(p, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode|0o200)
 	}
-	out, err := os.OpenFile(p, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode|0o200)
 	if err != nil {
 		return err
 	}

@@ -338,7 +338,7 @@ func TestAClaimToAnAuthorityThatIsNotThereIsAnError(t *testing.T) {
 	require.Error(t, err)
 	_, err = enrollhttp.Claim(context.Background(), "://not a url", edgeauth.ClaimRequest{})
 	require.Error(t, err)
-	_, err = enrollhttp.Revocations(context.Background(), "://not a url")
+	_, err = enrollhttp.SignedRevocations(context.Background(), "://not a url")
 	require.Error(t, err)
 }
 

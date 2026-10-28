@@ -116,8 +116,9 @@ type Report struct {
 	// Warnings are the lines an owner must actually see - one per refusal.
 	Warnings []string
 	Refusals []Refusal
-	// Seen / Dropped / Dials bound the cost of a pass: how many records arrived, how
-	// many were refused storage at the ceiling, and how many dials that turned into.
+	// Seen / Dropped / Dials bound the cost of a pass: how many other devices' records
+	// arrived (this machine's own advert, heard back, is not counted), how many were
+	// refused storage at the ceiling, and how many dials that turned into.
 	Seen    int
 	Dropped int
 	Dials   int
@@ -382,7 +383,8 @@ func (d *Discovery) RunOnce(ctx context.Context) Report {
 	peers := 0
 	for _, ad := range res.Adverts {
 		if ad.NodeID == d.opts.Self.NodeID {
-			continue // ourselves, heard back off the group
+			rep.Seen-- // ourselves, heard back off the group: not a device seen
+			continue
 		}
 		peers++
 		d.consider(ctx, ad, &rep)

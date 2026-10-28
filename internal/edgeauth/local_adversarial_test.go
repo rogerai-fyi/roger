@@ -11,8 +11,10 @@ package edgeauth_test
 import (
 	"crypto/ed25519"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -659,4 +661,56 @@ func TestTheAuthorityRemembersTheNameAMachineEnrolledUnder(t *testing.T) {
 	require.Error(t, err)
 	require.Empty(t, local.EnrolledName(refused.NodeID), "a refused enrollment names nothing")
 	require.Empty(t, local.EnrolledName("n_nobody"))
+}
+
+// Pre-push audit (2026-10-26): SaveTrust reads the file first to keep the last signing time; an
+// unreadable file must still be overwritten, as it always was, not fail every refresh after it.
+func TestSaveTrustOverwritesAnUnreadableTrustFile(t *testing.T) {
+	dir := t.TempDir()
+	st := edgeauth.Store{Dir: dir}
+	require.NoError(t, os.WriteFile(filepath.Join(dir, edgeauth.TrustFile), []byte("{not json"), 0o600))
+	now := time.Now()
+	require.NoError(t, st.SaveTrust([]string{"0a0a"}, now))
+	tr, err := st.LoadTrust()
+	require.NoError(t, err)
+	require.Equal(t, []string{"0a0a"}, tr.Revoked)
+	require.Equal(t, now.Unix(), tr.RefreshedAt)
+}
+
+// Pre-push audit (2026-10-26, minor): the authority's claim handler revokes into this machine's trust
+// list while its paced refresh rewrites the same file; both read, change and write it. Concurrent
+// changes must all land, none overwritten by another.
+func TestConcurrentRevocationsAllLand(t *testing.T) {
+	st := edgeauth.Store{Dir: t.TempDir()}
+	var wg sync.WaitGroup
+	errs := make(chan error, 40)
+	for i := 0; i < 40; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			errs <- st.Revoke(fmt.Sprintf("%04x", i), time.Now())
+		}(i)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		require.NoError(t, err)
+	}
+	tr, err := st.LoadTrust()
+	require.NoError(t, err)
+	require.Len(t, tr.Revoked, 40, "every revocation landed")
+}
+
+// Revoking a serial already on the list writes nothing.
+func TestRevokingAListedSerialWritesNothing(t *testing.T) {
+	dir := t.TempDir()
+	st := edgeauth.Store{Dir: dir}
+	require.NoError(t, st.Revoke("0a0a", time.Now()))
+	p := filepath.Join(dir, edgeauth.TrustFile)
+	old := time.Now().Add(-time.Hour)
+	require.NoError(t, os.Chtimes(p, old, old))
+	require.NoError(t, st.Revoke("0a0a", time.Now()))
+	fi, err := os.Stat(p)
+	require.NoError(t, err)
+	require.True(t, fi.ModTime().Equal(old), "the file was not rewritten")
 }

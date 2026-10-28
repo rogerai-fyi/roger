@@ -185,3 +185,19 @@ func TestAZipWithAnAbsoluteEntryIsRefused(t *testing.T) {
 	require.NoError(t, os.WriteFile(archive, buf.Bytes(), 0o644))
 	require.ErrorIs(t, runtime.Unpack(archive, t.TempDir()), runtime.ErrUnsafeArchive)
 }
+
+// local_models.feature (2026-10-26): "a runtime archive cannot write outside its folder, even through
+// a chain of links". Each link here looks inside the tree on its own; followed one through another,
+// t is the folder's parent, so t/pwned would land outside it.
+func TestAChainOfLinksCannotWriteOutsideTheFolder(t *testing.T) {
+	parent := t.TempDir()
+	dest := filepath.Join(parent, "rt")
+	err := runtime.Unpack(tarGz(t, []entry{
+		{name: "s", link: "."},
+		{name: "t", link: "s/.."},
+		{name: "t/pwned", body: "escaped"},
+	}), dest)
+	require.ErrorIs(t, err, runtime.ErrUnsafeArchive)
+	_, statErr := os.Lstat(filepath.Join(parent, "pwned"))
+	require.True(t, os.IsNotExist(statErr), "nothing was written outside the runtime's folder")
+}

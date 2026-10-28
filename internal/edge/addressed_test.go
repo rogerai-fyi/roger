@@ -115,3 +115,28 @@ func TestServingPeerResolvesAndRefuses(t *testing.T) {
 		require.ErrorIs(t, err, ErrNoSuchInstance)
 	})
 }
+
+// Pre-push audit (2026-10-26): every surface prints a unit by UnitName - an unnamed board reads "Pi 5",
+// or "Pi 5 ab12" beside another - but ServingPeer matched only the raw name or the id, so the name on
+// the screen could not be typed back.
+func TestServingPeerTakesTheNameTheScreenShows(t *testing.T) {
+	pi := func(id string) store.EdgeNode {
+		in := serveInst("serve", "qwen3-0.6b")
+		in.Software = &store.EdgeSoftware{Machine: "Raspberry Pi 5 Model B Rev 1.0"}
+		return store.EdgeNode{ID: id, Name: id, Kind: "host", Presence: string(PresenceVerified),
+			Transports: lanT("192.168.1.20:8443"), Instances: []Instance{in}}
+	}
+	one := "n_ab12" + "00000000000000000000000000000000000000000000"
+	f := seedFleet(t, pi(one))
+	loc, _, err := f.ServingPeer("Pi 5", "")
+	require.NoError(t, err)
+	require.Equal(t, one, loc.Node.ID)
+
+	two := "n_cd34" + "00000000000000000000000000000000000000000000"
+	f = seedFleet(t, pi(one), pi(two))
+	loc, _, err = f.ServingPeer("Pi 5 cd34", "")
+	require.NoError(t, err)
+	require.Equal(t, two, loc.Node.ID)
+	_, _, err = f.ServingPeer("Pi 5", "")
+	require.ErrorIs(t, err, ErrNoSuchNode, "two read \"Pi 5 ...\" now; the bare word is neither")
+}

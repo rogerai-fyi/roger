@@ -85,7 +85,7 @@ func TestEdgeAdoptWantByName(t *testing.T) {
 
 	said, err = edgeAdoptWant("back")
 	require.NoError(t, err)
-	require.Contains(t, said, "re-admitted back - its previous certificate is revoked")
+	require.Contains(t, said, "re-admitted back - its previous certificate is revoked when it claims a fresh one")
 
 	st, err = loadEdgeState()
 	require.NoError(t, err)
@@ -154,4 +154,38 @@ func TestEdgeAgentRuntimeRefusesAnUnreadableEdge(t *testing.T) {
 	require.NoError(t, os.MkdirAll(edgeStatePath(), 0o700)) // edge.json is a directory: unreadable
 	err := runEdgeAgentCtx(context.Background(), loadConfig())
 	require.ErrorContains(t, err, "the Edge agent could not start")
+}
+
+// claim.feature (2026-10-26): "an advert cannot move a member that serves a certificate onto the claim
+// path", on the approve and fleet-screen surface too (edgeAdoptWant), not only the screen's adopt.
+func TestApproveCannotMoveAServingMemberOntoTheClaimPath(t *testing.T) {
+	newFacedAuthority(t, "desk")
+	id := enrollServingNode(t, "pi")
+	edgeSeed(t, store.EdgeNode{ID: id, Name: "pi", Kind: "board", Pin: strings.Repeat("ab", 32), Presence: string(edge.PresenceDark)})
+	st, err := loadEdgeState()
+	require.NoError(t, err)
+	st.candidates = []store.EdgeNode{{ID: id, Name: "pi", Kind: "board"}} // advertises no certificate
+	require.NoError(t, st.save())
+
+	said, err := edgeAdoptWant("pi")
+	require.NoError(t, err)
+	require.Equal(t, "pi is already a member of this Edge - nothing to do (forget it first to re-adopt).", said)
+	local, _, err := edgeauth.OpenLocal(edgeAuthDir())
+	require.NoError(t, err)
+	require.False(t, local.ClaimGranted(id), "no claim was granted for the pi")
+}
+
+// Review (2026-10-27): an enrolled Pi that is offline with nothing advertising is told to wait or
+// readmit, as before - "forget it first" is only for a discovered entry trying to take it onto the
+// claim path.
+func TestApproveOfAnOfflineServingMemberWithNoAdvertSaysItReadmitsOnRePing(t *testing.T) {
+	newFacedAuthority(t, "desk")
+	id := enrollServingNode(t, "pi")
+	edgeSeed(t, store.EdgeNode{ID: id, Name: "pi", Kind: "board", Pin: strings.Repeat("ab", 32), Presence: string(edge.PresenceDark)})
+	local, _, err := edgeauth.OpenLocal(edgeAuthDir())
+	require.NoError(t, err)
+	require.True(t, local.JoinedByEnrollment(id), "the authority recorded the pi as enrolled")
+	said, err := edgeAdoptWant("pi")
+	require.NoError(t, err)
+	require.Contains(t, said, "pi is on this Edge but offline and not on the network right now")
 }

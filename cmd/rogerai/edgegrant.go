@@ -31,7 +31,7 @@ type edgeGrantSpec struct {
 	caller     string // node id allowed to invoke; "" = any of the owner's own instances
 	callee     string // node id the grant addresses
 	capability string // operate | sense | actuate | ...
-	expiresAt  int64  // unix; 0 = never (but the CLI always sets one)
+	expiresAt  int64  // unix; always in the future (edgeIssueGrant refuses anything else)
 	maxHops    int    // onward-delegation bound (0 = none)
 }
 
@@ -79,8 +79,10 @@ func edgeIssueGrant(st *edge.GrantStore, owner string, key crypto.Signer, spec e
 	if strings.TrimSpace(spec.callee) == "" {
 		return store.Grant{}, fmt.Errorf("a grant needs a callee - the node it authorizes acting on")
 	}
-	if spec.expiresAt != 0 && spec.expiresAt <= now.Unix() {
-		return store.Grant{}, fmt.Errorf("that grant would already be expired - give --for a future duration like 7d")
+	// Every grant expires: another machine lets go of a revoked grant only at its expiry, so a grant
+	// that never expired could never be taken back there. 0 is not "never"; it is the epoch.
+	if spec.expiresAt <= now.Unix() {
+		return store.Grant{}, fmt.Errorf("that grant would already be expired, or would never expire - give --for a future duration like 7d")
 	}
 	g := store.Grant{
 		ID:        edgeNewGrantID(),

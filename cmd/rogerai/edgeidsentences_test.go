@@ -6,6 +6,8 @@ package main
 // own id (grant_...) and a rule's id stay: those are identifiers, not names.
 
 import (
+	"crypto/ed25519"
+	"encoding/hex"
 	"strings"
 	"testing"
 	"time"
@@ -122,4 +124,82 @@ func TestTheScreensAdoptRefusalNamesAnUnnamedMember(t *testing.T) {
 	require.Contains(t, err.Error(), "is already a member of this Edge")
 	require.NotContains(t, err.Error(), "n_7c7c", "never the id")
 	require.Contains(t, err.Error(), "board")
+}
+
+// claim.feature (2026-10-26): "an advert cannot move a member that serves a certificate onto the
+// claim path". The gate read the advert's own word that it served no certificate; a forged advert
+// carrying an offline Pi's id took the claim path, which revoked the Pi from one keypress.
+func TestAnAdvertCannotMoveAServingMemberOntoTheClaimPath(t *testing.T) {
+	newFacedAuthority(t, "desk")
+	id := enrollServingNode(t, "pi")
+	edgeSeed(t, store.EdgeNode{ID: id, Name: "pi", Kind: "board", Pin: strings.Repeat("ab", 32), Presence: string(edge.PresenceDark)})
+	h, err := newEdgeHost("roger-desk")
+	require.NoError(t, err)
+	h.st.candidates = append(h.st.candidates, store.EdgeNode{ID: id, Name: "pi", Presence: string(edge.PresenceCandidate)}) // no Pin
+	err = h.adopt(id, "")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "pi is already a member of this Edge - forget it first")
+	local, _, err := edgeauth.OpenLocal(edgeAuthDir())
+	require.NoError(t, err)
+	require.False(t, local.ClaimGranted(id), "no claim was granted for the pi")
+}
+
+// enrollServingNode enrolls a machine through this authority the way `roger edge enroll` does, and
+// returns its node id.
+func enrollServingNode(t *testing.T, name string) string {
+	t.Helper()
+	local, _, err := edgeauth.OpenLocal(edgeAuthDir())
+	require.NoError(t, err)
+	userPub, userPriv, _ := ed25519.GenerateKey(nil)
+	nodePub, _, _ := ed25519.GenerateKey(nil)
+	require.NoError(t, local.Allow(hex.EncodeToString(userPub)))
+	r := edgeauth.NewRequest(edgeauth.LocalAccount, name, "host", nodePub, time.Now())
+	r.Sign(userPriv)
+	resp, err := local.Issue(r)
+	require.NoError(t, err)
+	return resp.NodeID
+}
+
+// claimedPhone adopts and claims a certificate for a fresh phone key, then records it in the fleet
+// the way a presence does: verified once, with its certificate's fingerprint as its Pin, now offline.
+func claimedPhone(t *testing.T, name string) string {
+	t.Helper()
+	local, _, err := edgeauth.OpenLocal(edgeAuthDir())
+	require.NoError(t, err)
+	pub, priv, _ := ed25519.GenerateKey(nil)
+	id := edgeauth.NodeID(pub)
+	require.NoError(t, local.GrantClaim(id, name))
+	cl := edgeauth.NewClaimRequest(name, "mobile", pub, time.Now())
+	cl.Sign(priv)
+	resp, err := local.Claim(cl, time.Now())
+	require.NoError(t, err)
+	leaf, err := edgeauth.DecodeCert(resp.Cert)
+	require.NoError(t, err)
+	edgeSeed(t, store.EdgeNode{ID: id, Name: name, Kind: "mobile", Pin: edge.Fingerprint(leaf.Raw), Presence: string(edge.PresenceDark)})
+	return id
+}
+
+// Pre-push audit (2026-10-26): a phone that has checked in carries its certificate's fingerprint as
+// its Pin, the same field a serving member has. Its routine re-admit must still go through, on the
+// screen's adopt and on approve.
+func TestAPhoneThatHasCheckedInIsStillReAdmittedByAdopt(t *testing.T) {
+	newFacedAuthority(t, "desk")
+	id := claimedPhone(t, "pocket")
+	h, err := newEdgeHost("roger-desk")
+	require.NoError(t, err)
+	h.st.candidates = append(h.st.candidates, store.EdgeNode{ID: id, Name: "pocket", Kind: "mobile", Presence: string(edge.PresenceCandidate)})
+	require.NoError(t, h.adopt(id, ""))
+	local, _, err := edgeauth.OpenLocal(edgeAuthDir())
+	require.NoError(t, err)
+	require.True(t, local.ClaimGranted(id), "the phone is re-admitted: a claim stands")
+
+	other := claimedPhone(t, "tablet")
+	st, err := loadEdgeState()
+	require.NoError(t, err)
+	st.candidates = []store.EdgeNode{{ID: other, Name: "tablet", Kind: "mobile"}}
+	require.NoError(t, st.save())
+	said, err := edgeAdoptWant("tablet")
+	require.NoError(t, err)
+	require.Contains(t, said, "re-admitted tablet")
+	require.True(t, local.ClaimGranted(other))
 }

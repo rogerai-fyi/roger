@@ -18,8 +18,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
+	"rogerai.fm/roger/v7/internal/filelock"
 	"rogerai.fm/roger/v7/internal/towercore/cert"
 )
 
@@ -329,6 +331,9 @@ func (s Store) forgetIdentityFiles() {
 type Trust struct {
 	Revoked     []string `json:"revoked,omitempty"`
 	RefreshedAt int64    `json:"refreshed_at,omitempty"`
+	// SignedAt is when the last signed list this member took was signed: a list signed earlier is a
+	// replay (features/edge/revocation.feature).
+	SignedAt int64 `json:"signed_at,omitempty"`
 }
 
 // Age is how long since this machine last refreshed the list.
@@ -365,35 +370,74 @@ func (s Store) LoadTrust() (Trust, error) {
 	return t, nil
 }
 
-// SaveTrust records the revocation list and when it was refreshed.
-func (s Store) SaveTrust(revoked []string, at time.Time) error {
+// trustMu queues goroutines on the trust file; the file lock beside it queues processes (a CLI
+// forget beside a running roger). Every change to the file is one locked read-change-write.
+var trustMu sync.Mutex
+
+const trustLockFile = "trust.lock"
+
+// UpdateTrust reads the revocation list, lets change rewrite it, and writes the result, with no other
+// change landing in between. The write is atomic, so a reader never sees half a file. change is told
+// when the stored list could not be read: adding to a list it cannot see must refuse, while a whole
+// replacement may overwrite it.
+func (s Store) UpdateTrust(change func(cur Trust, readErr error) (Trust, error)) error {
+	trustMu.Lock()
+	defer trustMu.Unlock()
 	if err := os.MkdirAll(s.Dir, 0o700); err != nil {
 		return err
 	}
-	b, err := json.MarshalIndent(Trust{Revoked: revoked, RefreshedAt: at.Unix()}, "", "  ")
+	f, err := os.OpenFile(s.path(trustLockFile), os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(s.path(TrustFile), b, 0o600)
+	defer f.Close()
+	if err := filelock.Lock(f); err != nil {
+		return err
+	}
+	defer func() { _ = filelock.Unlock(f) }()
+	cur, readErr := s.LoadTrust()
+	next, err := change(cur, readErr)
+	if errors.Is(err, errTrustUnchanged) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	b, err := json.MarshalIndent(next, "", "  ")
+	if err != nil {
+		return err
+	}
+	return atomicWriteFile(s.path(TrustFile), b, 0o600)
+}
+
+// errTrustUnchanged is what a change returns when there is nothing to write.
+var errTrustUnchanged = errors.New("unchanged")
+
+// SaveTrust records the revocation list and when it was refreshed, keeping when the last signed list
+// was signed.
+func (s Store) SaveTrust(revoked []string, at time.Time) error {
+	// A whole replacement: an unreadable file has nothing worth keeping and is overwritten.
+	return s.UpdateTrust(func(t Trust, _ error) (Trust, error) {
+		return Trust{Revoked: revoked, RefreshedAt: at.Unix(), SignedAt: t.SignedAt}, nil
+	})
 }
 
 // Revoke adds one serial to this machine's revocation list. It deliberately does NOT touch the
 // RefreshedAt timestamp: adding a local revocation is not a refresh from the authority, so it must
 // not make a stale or never-synced list look freshly refreshed. The time parameter is unused.
 func (s Store) Revoke(serial string, _ time.Time) error {
-	t, err := s.LoadTrust()
-	if err != nil {
-		return err
-	}
-	// Adding a local revocation is NOT a refresh from the authority, so it must not touch the
-	// staleness clock at all - keep the prior RefreshedAt exactly, including 0 (never refreshed), so
-	// a never-synced list is not made to look fresh by a local revoke.
-	for _, got := range t.Revoked {
-		if got == serial {
-			return nil // already revoked here; nothing to change
+	return s.UpdateTrust(func(t Trust, readErr error) (Trust, error) {
+		if readErr != nil {
+			return t, readErr // never append to a list that could not be read: that would drop it
 		}
-	}
-	return s.SaveTrust(append(t.Revoked, serial), time.Unix(t.RefreshedAt, 0))
+		for _, got := range t.Revoked {
+			if got == serial {
+				return t, errTrustUnchanged // already revoked here; nothing to write
+			}
+		}
+		t.Revoked = append(t.Revoked, serial)
+		return t, nil
+	})
 }
 
 // Trust returns the VERIFY-ONLY authority this machine checks its peers with, and what

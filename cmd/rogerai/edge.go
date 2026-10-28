@@ -1254,6 +1254,18 @@ func edgeResolve(nodes []store.EdgeNode, want string) (store.EdgeNode, bool, err
 	if len(nameHits) > 1 {
 		return store.EdgeNode{}, false, edgeAmbiguous(want, nameHits)
 	}
+	// The name every screen shows ("Pi 5", "Pi 5 ab12" for an unnamed board) is taken back too.
+	for _, n := range nodes {
+		if edge.UnitName(n, nodes) == want {
+			nameHits = append(nameHits, n)
+		}
+	}
+	if len(nameHits) == 1 {
+		return nameHits[0], true, nil
+	}
+	if len(nameHits) > 1 {
+		return store.EdgeNode{}, false, edgeAmbiguous(want, nameHits)
+	}
 	var hits []store.EdgeNode
 	for _, n := range nodes {
 		if want != "" && strings.HasPrefix(n.ID, want) {
@@ -1580,6 +1592,14 @@ func cmdEdgeAdopt(cfg config, args []string) error {
 	return cmdEdgeApprove(cfg, args)
 }
 
+// edgeServesItsCert reports whether this authority enrolled the node as a machine that serves its own
+// certificate, rather than a device that claimed one. A phone that has checked in carries a Pin too, so
+// the Pin cannot tell them apart; the authority's record of how it joined can, and no advert changes it.
+func edgeServesItsCert(nodeID string) bool {
+	local, ok, err := edgeauth.OpenLocal(edgeAuthDir())
+	return err == nil && ok && local.JoinedByEnrollment(nodeID)
+}
+
 // edgeAdoptWant adopts the candidate the owner named and returns the line that says what
 // happened - shared by the CLI and the fleet screen, so both do exactly the same thing.
 func edgeAdoptWant(want string) (string, error) {
@@ -1593,10 +1613,15 @@ func edgeAdoptWant(want string) (string, error) {
 		// re-pin from an unauthenticated advert - an identity-takeover risk), is refused here. Whether
 		// this is a claim re-admit is known only once the candidate is resolved, so gate precisely: if
 		// there is a matching non-serving candidate and the member is not live, fall through; else stop.
+		// Whether the member serves a certificate is read from how this authority recorded it joining,
+		// as well as from the advert, which can claim to serve nothing (claim.feature, 2026-10-26).
 		c, cok, _ := edgeResolve(st.candidates, want)
-		reAdmitByClaim := cok && c.Pin == "" && edge.Presence(n.Presence) != edge.PresenceVerified
+		serves := edgeServesItsCert(n.ID)
+		reAdmitByClaim := cok && c.Pin == "" && !serves && edge.Presence(n.Presence) != edge.PresenceVerified
 		if !reAdmitByClaim {
-			if edge.Presence(n.Presence) != edge.PresenceVerified {
+			// Only a discovered entry trying to take a serving member onto the claim path is told to
+			// forget first; a member that is simply offline is told it comes back on its own.
+			if edge.Presence(n.Presence) != edge.PresenceVerified && !(cok && serves) {
 				return fmt.Sprintf("%s is on this Edge but offline and not on the network right now - it re-admits when it re-pings, or run `roger edge readmit %s`.", n.Name, want), nil
 			}
 			return fmt.Sprintf("%s is already a member of this Edge - nothing to do (forget it first to re-adopt).", n.Name), nil
@@ -1623,8 +1648,8 @@ func edgeAdoptWant(want string) (string, error) {
 		st.candidates = edgeFilter(st.candidates, func(x store.EdgeNode) bool { return x.ID != c.ID })
 		_ = st.save()
 		name := edge.UnitName(c, append(append([]store.EdgeNode(nil), st.candidates...), c)) // what it is, never its id
-		if ok {                                                                              // it was already on this Edge (offline) - this is a RE-ADMIT, which revokes its old cert
-			return fmt.Sprintf("re-admitted %s - its previous certificate is revoked; it claims a fresh one and reappears as a member when it checks in.\n%s", name, edgeReadmitCodeLine(c.ID, name)), nil
+		if ok {                                                                              // it was already on this Edge (offline): a RE-ADMIT; its old cert goes when it claims
+			return fmt.Sprintf("re-admitted %s - its previous certificate is revoked when it claims a fresh one; it reappears as a member when it checks in.\n%s", name, edgeReadmitCodeLine(c.ID, name)), nil
 		}
 		return fmt.Sprintf("adopted %s - it can now claim its certificate; it appears as a member when it checks in.\n%s", name, edgeNodeCodeLine(c.ID, name)), nil
 	}
@@ -1716,7 +1741,8 @@ func cmdEdgeReadmit(cfg config, args []string) error {
 	id, name, question, done := "", "", "", ""
 	consequence := "its previous certificate is revoked and it may claim a fresh one to rejoin"
 	after := "its old certificate is revoked; it can claim a fresh one and rejoin."
-	named := func(n store.EdgeNode) {
+	// named fills in what is asked about n, and reports whether it is a device this Edge forgot.
+	named := func(n store.EdgeNode) bool {
 		id, name = n.ID, ""
 		if !edge.LooksLikeID(n.Name) {
 			name = n.Name
@@ -1727,10 +1753,11 @@ func cmdEdgeReadmit(cfg config, args []string) error {
 				name = d.Name
 			}
 			question, done = edge.ReAdmitQuestion(d, time.Now()), edgeDepartedSaid(d)
-			return
+			return true
 		}
 		said := edge.UnitName(n, nil)
 		question, done = "re-admit "+said+"?", said
+		return false
 	}
 	var c store.EdgeNode
 	cok := false
@@ -1745,7 +1772,11 @@ func cmdEdgeReadmit(cfg config, args []string) error {
 		id, name = gone.ID, gone.Name
 		question, done = edge.ReAdmitQuestion(gone, now), edgeDepartedSaid(gone)
 	} else if cok {
-		named(c)
+		if forgot := named(c); !forgot && !strings.HasPrefix(c.ID, want) {
+			// Matched only by what a device on the network says it is called (its name, or the name a
+			// screen shows for it): said as such.
+			question = fmt.Sprintf("nothing this Edge forgot is called %s, but a device on this network calls itself %s. re-admit it?", want, want)
+		}
 	} else if nodes, lerr := st.list(); lerr == nil {
 		n, nok, nerr := edgeResolve(nodes, want)
 		if nerr != nil {
@@ -1936,9 +1967,11 @@ func edgeResolveNotInFleet(want string) (map[string]string, string, error) {
 // edgeAdoptByClaim adopts a device that joins by CLAIM (a phone: no servable face). A device this
 // authority has NEVER issued a certificate to is granted a fresh claim. A device it HAS issued one to
 // before - one that left the Edge, or that the owner forgot and is re-pinging - is RE-ADMITTED
-// instead: its old certificate is revoked (a stolen or abandoned copy stays refused by every peer,
-// offline, after a restart), its issued history is cleared so those revoked serials do not block the
-// fresh claim, and a new claim is granted. Only the machine that roots this Edge can do it.
+// instead: a new claim is granted, and when the device claims it with its node key, its old
+// certificate is revoked (a stolen or abandoned copy stays refused by every peer, offline, after a
+// restart) and its issued history cleared, in the same step that issues the new one. Nothing is
+// revoked at the adopt itself, which a forged advert can trigger (claim.feature, 2026-10-26). Only the
+// machine that roots this Edge can do it.
 func edgeAdoptByClaim(nodeID, name string) error {
 	local, hasRoot, err := edgeauth.OpenLocal(edgeAuthDir())
 	if err != nil {

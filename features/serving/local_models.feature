@@ -277,6 +277,14 @@ Feature: Roger can find, judge, fetch and serve a model from the wider world, on
     And a hash that does not match is never executed, and the owner is told
 
   @runtime
+  # APPROVED 2026-10-26 (pre-push audit of wt/edge-limoni): the archive check compared paths as text,
+  # so a link pointing through an earlier link could still write outside the runtime's folder. The
+  # pinned digest limits this to a bad release, but the unpack must hold on its own.
+  Scenario: a runtime archive cannot write outside its folder, even through a chain of links
+    Given a runtime archive whose links, followed one through another, lead out of its folder
+    When roger unpacks it
+    Then nothing is written outside the runtime's folder, the unpack is refused, and nothing half-unpacked is kept
+
   Scenario: a runtime is never taken from an address that arrived from outside
     Given any input naming a runtime URL, path or command
     Then it is refused

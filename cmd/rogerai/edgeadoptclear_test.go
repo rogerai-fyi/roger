@@ -318,8 +318,8 @@ func TestOfflineMemberIsOfferedAndReAdmitted(t *testing.T) {
 	require.NotEmpty(t, edgeDropMembers(h.st.candidates, h.st.fleet),
 		"an offline member re-advertising is offered so the owner can re-admit it")
 
-	// Adopting it RE-ADMITS it (it has issued history and was not revoked): a fresh claim now stands,
-	// and its old certificate is revoked.
+	// Adopting it RE-ADMITS it (it has issued history and was not revoked): a fresh claim now stands.
+	// Its old certificate goes only when the device claims with its key (claim.feature, 2026-10-26).
 	require.NoError(t, hooks.EdgeAdopt(pid, "gentle-ibex-14"),
 		"re-adopting an offline device re-admits it instead of refusing")
 	reopened, ok, err := edgeauth.OpenLocal(edgeAuthDir())
@@ -329,12 +329,15 @@ func TestOfflineMemberIsOfferedAndReAdmitted(t *testing.T) {
 		"re-admit leaves a fresh claim so the device rejoins when it claims again")
 	revs, err := reopened.Revocations()
 	require.NoError(t, err)
-	require.Contains(t, revs, oldCert.SerialNumber.String(), "re-admit revokes the device's old certificate")
-	// The fresh claim now succeeds with a NEW serial (the revoked old serial no longer blocks it).
+	require.NotContains(t, revs, oldCert.SerialNumber.String(), "the adopt alone revokes nothing")
+	// The fresh claim succeeds with a NEW serial, and revokes the old one in the same step.
 	cl2 := edgeauth.NewClaimRequest("gentle-ibex-14", "mobile", pub, time.Now())
 	cl2.Sign(priv)
 	respB, err := reopened.Claim(cl2, time.Now())
 	require.NoError(t, err, "after re-admit the device claims a fresh certificate")
+	revs, err = reopened.Revocations()
+	require.NoError(t, err)
+	require.Contains(t, revs, oldCert.SerialNumber.String(), "the claim revokes the device's old certificate")
 	newCert, err := edgeauth.DecodeCert(respB.Cert)
 	require.NoError(t, err)
 	require.NotEqual(t, oldCert.SerialNumber.String(), newCert.SerialNumber.String())

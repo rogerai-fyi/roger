@@ -368,3 +368,42 @@ func TestEdgeAdoptFromTheScreenRefusesWhatWasNotSeen(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, members, "nothing was added by a refusal")
 }
+
+// Pre-push audit (2026-10-26): scheduled runs ran inside the host pass, one after another, each with
+// minutes of invoke budget, while the same pass must beat this roger's own registration well inside
+// edge.InstanceLife. One stalled target made this roger read dark to itself. The pass now hands the
+// schedule off and goes on.
+func TestAStalledScheduledRunDoesNotHoldUpTheHostPass(t *testing.T) {
+	newFacedAuthority(t, "desk")
+	h, err := newEdgeHost("roger-desk")
+	require.NoError(t, err)
+	off := edge.ConfigFromEnv(func(k string) string {
+		if k == edge.EnvDiscovery {
+			return "0"
+		}
+		return ""
+	})
+	h.disc = edge.New(edge.Options{Fleet: h.st.fleet, Config: off}) // the pass goes on past the schedule
+	release := make(chan struct{})
+	started := make(chan struct{}, 1)
+	prev := edgeRunScheduleFn
+	t.Cleanup(func() { edgeRunScheduleFn = prev })
+	edgeRunScheduleFn = func(config, time.Time, func(string, string, string)) {
+		started <- struct{}{}
+		<-release // a target that never answers
+	}
+	defer close(release)
+
+	done := make(chan struct{})
+	go func() { h.runPass(context.Background()); close(done) }()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the schedule never ran")
+	}
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the host pass waited on a stalled scheduled run")
+	}
+}

@@ -221,3 +221,19 @@ func PhoneLine(p *store.EdgePhone) string {
 	}
 	return strings.Join(parts, " · ")
 }
+
+// ShellWord is s as one word a shell takes back unchanged, for a unit's name printed inside a command
+// the owner may paste: plain names stay as they are, anything else is single-quoted.
+func ShellWord(s string) string {
+	plain := s != ""
+	for _, r := range s {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("-_.:@+/", r)) {
+			plain = false
+			break
+		}
+	}
+	if plain {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}

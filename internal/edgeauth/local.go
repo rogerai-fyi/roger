@@ -53,6 +53,9 @@ type Local struct {
 	mu sync.Mutex
 	// heard bounds the notes a refused claim may write (joiners.go). Guarded by mu.
 	heard joinerBudget
+	// OnRevoked, when set, is told the serials a claim revoked, so the running authority's own list
+	// takes them at once rather than at its next refresh.
+	OnRevoked func(serials []string)
 }
 
 // Designate generates this Edge's root, here, once.
@@ -291,6 +294,9 @@ func (l *Local) Issue(r Request) (Response, error) {
 		if err := l.recordIssued(r2.NodeID, leaf.SerialNumber.String()); err != nil {
 			return fmt.Errorf("that certificate could not be recorded, so it has NOT been issued: %w", err)
 		}
+		if err := l.recordJoined(r2.NodeID, "enroll"); err != nil {
+			return fmt.Errorf("that certificate could not be recorded, so it has NOT been issued: %w", err)
+		}
 		// Remember the NAME it enrolled under: the request is signed by a key this authority allowed,
 		// so it is the owner's choice, and the fleet calls the member by it when it first sees it
 		// (enrollment.feature). A name it cannot remember does not undo the certificate.
@@ -391,6 +397,9 @@ type ClaimGrant struct {
 	NodeID string `json:"node_id"`
 	Name   string `json:"name,omitempty"`
 	At     int64  `json:"at,omitempty"`
+	// Readmit marks a routine re-admit: the node's old certificates are revoked when it claims with
+	// its key, never at the adopt, which an unauthenticated advert can trigger (claim.feature).
+	Readmit bool `json:"readmit,omitempty"`
 }
 
 // GrantClaim records that the owner has ADOPTED a node, so it may claim a certificate
@@ -400,12 +409,12 @@ func (l *Local) GrantClaim(nodeID, name string) error {
 	if strings.TrimSpace(nodeID) == "" {
 		return nil
 	}
-	return l.withLock(func() error { return l.grantClaimLocked(nodeID, name) })
+	return l.withLock(func() error { return l.grantClaimLocked(nodeID, name, false) })
 }
 
 // grantClaimLocked adds or renews a claim grant; the caller holds the authority lock. Shared by
 // GrantClaim and ReAdmit so a re-admit grants under the same lock as its revoke + clear.
-func (l *Local) grantClaimLocked(nodeID, name string) error {
+func (l *Local) grantClaimLocked(nodeID, name string, readmit bool) error {
 	got, err := l.readClaims()
 	if err != nil {
 		return err
@@ -415,13 +424,14 @@ func (l *Local) grantClaimLocked(nodeID, name string) error {
 			// A re-adopt renews the grant: it refreshes the clock (so an expired grant becomes
 			// live again rather than a silent no-op) and fills in a name it did not have.
 			got[i].At = time.Now().Unix()
+			got[i].Readmit = got[i].Readmit || readmit
 			if name != "" {
 				got[i].Name = name
 			}
 			return l.writeJSON(ClaimsFile, got)
 		}
 	}
-	return l.writeJSON(ClaimsFile, append(got, ClaimGrant{NodeID: nodeID, Name: name, At: time.Now().Unix()}))
+	return l.writeJSON(ClaimsFile, append(got, ClaimGrant{NodeID: nodeID, Name: name, At: time.Now().Unix(), Readmit: readmit}))
 }
 
 // ReAdmit deliberately re-admits a node the owner had removed, or that left the Edge and wants back.
@@ -452,8 +462,10 @@ func (l *Local) ReAdmit(nodeID, name string) ([]string, error) {
 var ErrRevokedNeedsReadmit = errors.New("device was revoked; needs an explicit re-admit")
 
 // ReAdmitRoutine re-admits a device ONLY if its certificate is not currently revoked - the routine
-// rejoin of a device that merely LEFT. The revoked-check and the re-admit run under ONE lock, so a
+// rejoin of a device that merely LEFT. The revoked-check and the grant run under ONE lock, so a
 // revoke/forget landing between them cannot be silently lifted (it returns ErrRevokedNeedsReadmit).
+// It revokes nothing itself: the grant is marked Readmit, and Claim revokes the old certificates once
+// the device proves its key. The returned list is always empty; it keeps ReAdmit's shape.
 func (l *Local) ReAdmitRoutine(nodeID, name string) ([]string, error) {
 	if strings.TrimSpace(nodeID) == "" {
 		return nil, nil
@@ -473,8 +485,8 @@ func (l *Local) ReAdmitRoutine(nodeID, name string) ([]string, error) {
 				return ErrRevokedNeedsReadmit
 			}
 		}
-		revoked, err = l.reAdmitLocked(nodeID, name)
-		return err
+		// Nothing is revoked here: the old certificates go when the device claims with its key.
+		return l.grantClaimLocked(nodeID, name, true)
 	})
 	return revoked, err
 }
@@ -501,7 +513,7 @@ func (l *Local) reAdmitLocked(nodeID, name string) ([]string, error) {
 	if err := l.clearIssued(nodeID); err != nil {
 		return revoked, err
 	}
-	return revoked, l.grantClaimLocked(nodeID, name)
+	return revoked, l.grantClaimLocked(nodeID, name, false)
 }
 
 // clearIssued drops a node's issued-serial records (issued.json + issued_history.json). The serials
@@ -613,6 +625,7 @@ func (l *Local) Claim(c ClaimRequest, now time.Time) (Response, error) {
 	// The whole take-grant -> issue -> record -> consume runs under the authority lock (in-process
 	// AND cross-process) so two racing claims for one adopt cannot both mint a certificate.
 	var resp Response
+	var revokedNow []string
 	err := l.withLock(func() error {
 		grant, ok := l.grantFor(c.NodeID)
 		if !ok {
@@ -653,11 +666,31 @@ func (l *Local) Claim(c ClaimRequest, now time.Time) (Response, error) {
 		if _, err := l.readCodes(); err != nil {
 			return err
 		}
+		// A routine re-admit: the device has now proved its key, so its old certificates go in this
+		// same locked step as the new one is issued.
+		if grant.Readmit {
+			for _, s := range serials {
+				n, ok := parseSerial(s)
+				if !ok {
+					return fmt.Errorf("%q is not a certificate serial", s)
+				}
+				if err := l.auth.Revoke(n); err != nil {
+					return err
+				}
+				revokedNow = append(revokedNow, s)
+			}
+			if err := l.clearIssued(c.NodeID); err != nil {
+				return err
+			}
+		}
 		leaf, err := l.auth.Issue(c.NodeID, pub)
 		if err != nil {
 			return fmt.Errorf("that certificate could not be issued: %w", err)
 		}
 		if err := l.recordIssued(c.NodeID, leaf.SerialNumber.String()); err != nil {
+			return fmt.Errorf("that certificate could not be recorded, so it has NOT been issued: %w", err)
+		}
+		if err := l.recordJoined(c.NodeID, "claim"); err != nil {
 			return fmt.Errorf("that certificate could not be recorded, so it has NOT been issued: %w", err)
 		}
 		// Consume the grant only AFTER the certificate is safely recorded, so a write failure does
@@ -676,6 +709,9 @@ func (l *Local) Claim(c ClaimRequest, now time.Time) (Response, error) {
 		// The adopt's code is spent with the grant, in this same locked step.
 		return l.prove(&resp, nodeJoin(c.NodeID), c.Nonce)
 	})
+	if len(revokedNow) > 0 && l.OnRevoked != nil {
+		l.OnRevoked(revokedNow)
+	}
 	if err != nil {
 		return Response{}, err
 	}
@@ -1158,4 +1194,31 @@ func (l *Local) EnrolledName(nodeID string) string {
 		return ""
 	}
 	return m[nodeID]
+}
+
+// joinedFile is how each node joined this authority: "enroll" (a machine enrolled with a request this
+// authority allowed, which serves its certificate) or "claim" (a device that claimed one, like a phone).
+// It is the authority's own record, so an unauthenticated advert cannot change what it says.
+const joinedFile = "joined.json"
+
+func (l *Local) recordJoined(nodeID, how string) error {
+	m := map[string]string{}
+	if err := l.readJSON(joinedFile, &m); err != nil {
+		return err
+	}
+	if m[nodeID] == how {
+		return nil
+	}
+	m[nodeID] = how
+	return l.writeJSON(joinedFile, m)
+}
+
+// JoinedByEnrollment reports whether this authority recorded the node as enrolled rather than
+// claimed. A node from before the record existed reads false.
+func (l *Local) JoinedByEnrollment(nodeID string) bool {
+	m := map[string]string{}
+	if err := l.readJSON(joinedFile, &m); err != nil {
+		return false
+	}
+	return m[nodeID] == "enroll"
 }

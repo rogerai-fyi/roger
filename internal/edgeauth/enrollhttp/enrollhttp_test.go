@@ -66,15 +66,15 @@ func TestOneEndpointShapeCarriesAWholeEnrollment(t *testing.T) {
 	_, err = enrollhttp.Root(ctx, url+"/")
 	require.NoError(t, err)
 
-	rev, err := enrollhttp.Revocations(ctx, url)
+	rev, err := enrollhttp.SignedRevocations(ctx, url)
 	require.NoError(t, err)
-	require.Empty(t, rev)
+	require.Empty(t, rev.Revoked)
 	serials, err := local.Revoke(resp.NodeID)
 	require.NoError(t, err)
 	require.Equal(t, []string{leaf.SerialNumber.String()}, serials)
-	rev, err = enrollhttp.Revocations(ctx, url)
+	rev, err = enrollhttp.SignedRevocations(ctx, url)
 	require.NoError(t, err)
-	require.Equal(t, []string{leaf.SerialNumber.String()}, rev)
+	require.Equal(t, []string{leaf.SerialNumber.String()}, rev.Revoked)
 }
 
 func TestARefusalComesBackAsARefusalAndNothingElse(t *testing.T) {
@@ -117,8 +117,8 @@ func TestAnAuthorityThatPublishesNeitherSaysSo(t *testing.T) {
 
 	_, err := enrollhttp.Root(ctx, srv.URL)
 	require.Error(t, err)
-	_, err = enrollhttp.Revocations(ctx, srv.URL)
-	require.Error(t, err)
+	_, err = enrollhttp.SignedRevocations(ctx, srv.URL)
+	require.ErrorIs(t, err, enrollhttp.ErrNotSigned)
 }
 
 // oddIssuer answers 200 with something that is not a Response at all.
@@ -137,7 +137,7 @@ func TestAnAnswerThatCannotBeReadIsMalformed(t *testing.T) {
 
 	_, err := enrollhttp.Enroll(ctx, truncating.URL, edgeauth.Request{})
 	require.ErrorIs(t, err, edgeauth.ErrMalformed)
-	_, err = enrollhttp.Revocations(ctx, truncating.URL)
+	_, err = enrollhttp.SignedRevocations(ctx, truncating.URL)
 	require.ErrorIs(t, err, edgeauth.ErrMalformed)
 }
 

@@ -46,6 +46,13 @@ func (f *Fleet) ServingPeer(addr, model string) (Located, string, error) {
 			nodes = append(nodes, n)
 		}
 	}
+	if len(nodes) == 0 { // the name the screens show for a unit nobody named
+		for _, n := range list {
+			if UnitName(n, list) == nodeName {
+				nodes = append(nodes, n)
+			}
+		}
+	}
 	if len(nodes) == 0 {
 		return Located{}, "", fmt.Errorf("%w: %s", ErrNoSuchNode, addr)
 	}

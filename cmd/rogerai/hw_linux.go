@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -154,23 +155,51 @@ func runHW(name string, args ...string) (string, bool) {
 	return string(out), true
 }
 
-// hwMemoryLimitMiB is this process's cgroup memory limit (v2, then v1), when there is one. "max" and
-// v1's near-2^63 "unlimited" are no limit.
+// hwMemoryLimitMiB is this process's cgroup memory limit, when there is one: the tightest memory.max
+// on the way from its own cgroup (/proc/self/cgroup) up to the mount's root, so a boot service's
+// MemoryMax= or a limited slice above it counts; then cgroup v1's. "max" and v1's near-2^63
+// "unlimited" are no limit.
 func hwMemoryLimitMiB() (int, bool) {
-	for _, p := range []string{"/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes"} {
-		b, err := hwReadFile(p)
-		if err != nil {
-			continue
+	const mount = "/sys/fs/cgroup"
+	best := int64(0)
+	if b, err := hwReadFile("/proc/self/cgroup"); err == nil {
+		for _, ln := range strings.Split(string(b), "\n") {
+			if rel, ok := strings.CutPrefix(ln, "0::"); ok {
+				// Clean against "/" first, so the path can never climb above the mount.
+				for dir := filepath.Join(mount, filepath.Clean("/"+rel)); ; dir = filepath.Dir(dir) {
+					if n, ok := hwLimitAt(filepath.Join(dir, "memory.max")); ok && (best == 0 || n < best) {
+						best = n
+					}
+					if dir == mount {
+						break
+					}
+				}
+			}
 		}
-		v := strings.TrimSpace(string(b))
-		if v == "max" {
-			return 0, false
-		}
-		n, err := strconv.ParseInt(v, 10, 64)
-		if err != nil || n <= 0 || n >= 1<<60 {
-			return 0, false
-		}
-		return int(n >> 20), true
 	}
-	return 0, false
+	if best == 0 {
+		for _, p := range []string{mount + "/memory.max", mount + "/memory/memory.limit_in_bytes"} {
+			if n, ok := hwLimitAt(p); ok {
+				best = n
+				break
+			}
+		}
+	}
+	if best == 0 {
+		return 0, false
+	}
+	return int(best >> 20), true
+}
+
+// hwLimitAt reads one cgroup memory limit file: a number of bytes, or no limit.
+func hwLimitAt(p string) (int64, bool) {
+	b, err := hwReadFile(p)
+	if err != nil {
+		return 0, false
+	}
+	n, err := strconv.ParseInt(strings.TrimSpace(string(b)), 10, 64)
+	if err != nil || n <= 0 || n >= 1<<60 {
+		return 0, false // "max", unreadable, or v1's "unlimited"
+	}
+	return n, true
 }

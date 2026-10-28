@@ -132,6 +132,9 @@ func lastRunsOf(j edge.Job, n int) []edge.JobRun {
 // the pass that comes round again while it is still going.
 var edgeScheduleRunning sync.Mutex
 
+// edgeRunScheduleFn is the schedule run the host pass makes, as a seam for a test to stall.
+var edgeRunScheduleFn = edgeRunSchedule
+
 // edgeRunSchedule runs whatever is due, once. It is called from the host's ordinary pass, so a machine
 // that is not running a roger runs nothing - which is correct: the schedule belongs to the machine that
 // holds the grant, and a machine that is off is not holding anything.

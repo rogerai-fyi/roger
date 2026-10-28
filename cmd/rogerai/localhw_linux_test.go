@@ -208,3 +208,38 @@ func TestAContainersMemoryLimitIsTheRAMAModelCanUse(t *testing.T) {
 	delete(files, "/sys/fs/cgroup/memory/memory.limit_in_bytes")
 	require.Equal(t, 128000, detectLocalHW().RAMTotalMiB)
 }
+
+// Pre-push audit (2026-10-26): the limit was read only at the cgroup mount's root, which is the limit
+// inside a container but not on a host, where roger runs in its own cgroup - a boot service with
+// MemoryMax= set, or a slice above it with a limit of its own. The limit is the tightest one on the
+// way from roger's own cgroup to the root.
+func TestTheMemoryLimitIsReadFromRogersOwnCgroupAndItsParents(t *testing.T) {
+	files := map[string]string{}
+	origRun, origRead, origDisk := hwRun, hwReadFile, hwDiskFreeMiB
+	t.Cleanup(func() { hwRun, hwReadFile, hwDiskFreeMiB = origRun, origRead, origDisk })
+	hwRun = noTools
+	hwDiskFreeMiB = func(string) (int, bool) { return 100000, true }
+	hwReadFile = func(p string) ([]byte, error) {
+		if v, ok := files[p]; ok {
+			return []byte(v), nil
+		}
+		return nil, os.ErrNotExist
+	}
+	files["/proc/meminfo"] = "MemTotal: 131072000 kB\n"
+	files["/proc/self/cgroup"] = "0::/system.slice/roger-edge.service\n"
+	files["/sys/fs/cgroup/system.slice/roger-edge.service/memory.max"] = "2147483648\n" // MemoryMax=2G
+	files["/sys/fs/cgroup/system.slice/memory.max"] = "max\n"
+	require.Equal(t, 2048, detectLocalHW().RAMTotalMiB, "a boot service's own limit")
+
+	files["/sys/fs/cgroup/system.slice/roger-edge.service/memory.max"] = "max\n"
+	files["/sys/fs/cgroup/system.slice/memory.max"] = "4294967296\n"
+	require.Equal(t, 4096, detectLocalHW().RAMTotalMiB, "a limit on a parent holds the child too")
+
+	files["/sys/fs/cgroup/system.slice/roger-edge.service/memory.max"] = "3221225472\n"
+	require.Equal(t, 3072, detectLocalHW().RAMTotalMiB, "the tightest limit on the way up")
+
+	files["/proc/self/cgroup"] = "0::/../../etc\n"
+	delete(files, "/sys/fs/cgroup/system.slice/roger-edge.service/memory.max")
+	delete(files, "/sys/fs/cgroup/system.slice/memory.max")
+	require.Equal(t, 128000, detectLocalHW().RAMTotalMiB, "a path that climbs out is not followed")
+}

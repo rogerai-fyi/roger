@@ -65,7 +65,7 @@ func TestEdgeIssueGrantRefusesAnEmptyCallee(t *testing.T) {
 func TestEdgeIssueGrantEmptyCallerIsASelfGrant(t *testing.T) {
 	st, local := grantIssueFixture(t)
 	g, err := edgeIssueGrant(st, local.Account(), local.Authority().RootKey(),
-		edgeGrantSpec{caller: "", callee: "n_b", capability: "operate"}, time.Now())
+		edgeGrantSpec{caller: "", callee: "n_b", capability: "operate", expiresAt: time.Now().Add(time.Hour).Unix()}, time.Now())
 	require.NoError(t, err)
 	require.True(t, g.Self, "an owner-to-own-instances grant is a Self grant (always $0)")
 	require.NoError(t, edge.VerifyGrant(g, local.Authority().Root()))
@@ -141,4 +141,23 @@ func TestEdgeIssueGrantRefusesAnAlreadyExpiredGrant(t *testing.T) {
 
 	got, _ := st.List()
 	require.Empty(t, got, "an already-expired grant is never stored")
+}
+
+// Pre-push audit (2026-10-26): an expiry of 0 meant "never", and another machine drops a revoked grant
+// only at its expiry, so a grant with none could never be taken back there. `--for 1970-01-01` parsed
+// to exactly 0 and slipped past the already-expired check. Every grant now carries a future expiry.
+func TestEdgeIssueGrantRefusesAGrantThatWouldNeverExpire(t *testing.T) {
+	st, local := grantIssueFixture(t)
+	_, err := edgeIssueGrant(st, local.Account(), local.Authority().RootKey(),
+		edgeGrantSpec{caller: "n_a", callee: "n_b", capability: "operate", expiresAt: 0}, time.Now())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "--for")
+	got, _ := st.List()
+	require.Empty(t, got, "nothing is stored")
+
+	at, err := parseExpires("1970-01-01")
+	require.NoError(t, err)
+	_, err = edgeIssueGrant(st, local.Account(), local.Authority().RootKey(),
+		edgeGrantSpec{caller: "n_a", callee: "n_b", capability: "operate", expiresAt: at}, time.Now())
+	require.Error(t, err, "the epoch is a date in the past, not never")
 }

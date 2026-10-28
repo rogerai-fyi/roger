@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/stretchr/testify/require"
 
 	"rogerai.fm/roger/v7/internal/modelview"
 )
@@ -150,4 +151,29 @@ func TestNothingDetectedStillOffersRogersOwnRowsAndTheWizardLeadsWithIt(t *testi
 	if len(none.shareExtras()) != 0 {
 		t.Errorf("a build without models draws roger's rows")
 	}
+}
+
+// Pre-push audit (2026-10-26): every message re-syncs the SHARE cache first, and the sync clamped the
+// cursor to the detected rows, so the 160ms tick threw it back to the top the moment it reached one of
+// roger's own rows, and Enter acted on the wrong row. Tests that called the key handler directly never
+// saw the tick.
+func TestRogersOwnShareRowsStayUnderTheCursorAcrossATick(t *testing.T) {
+	f := &modelsFake{view: baseView()}
+	var tm tea.Model = NewWithHooks("http://b", "t", nil, Hooks{Models: f.hooks()})
+	tm, _ = tm.Update(tea.WindowSizeMsg{Width: 130, Height: 44})
+	m := tm.(model)
+	m.mode = modeShare
+	m.setShareRows([]shareRow{{model: "gpt-oss-20b", upstream: "http://127.0.0.1:11434/v1/chat/completions"}})
+	m = feed(t, m, m.modelsLoad())
+	require.Greater(t, m.shareRowCount(), len(m.shareRows), "roger's own rows follow the detected ones")
+	m.shareCursor = len(m.shareRows) + 1
+	want, ok := m.shareExtraAt(m.shareCursor)
+	require.True(t, ok)
+
+	tm, _ = m.Update(tickMsg{})
+	m = tm.(model)
+	require.Equal(t, len(m.shareRows)+1, m.shareCursor, "the tick leaves the cursor where it was")
+	got, ok := m.shareExtraAt(m.shareCursor)
+	require.True(t, ok)
+	require.Equal(t, want.kind, got.kind)
 }

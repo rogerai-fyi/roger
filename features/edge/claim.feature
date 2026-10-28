@@ -77,3 +77,23 @@ Feature: The owner adopts a candidate from the authority, and the candidate clai
     When it presents with that certificate
     Then it is recorded as a verified member, drawn like any other node
     And the whole join needed no address typed on the phone and no manual allow, only the adopt code
+
+  # APPROVED 2026-10-26 (pre-push audit of wt/edge-limoni): adopting a DISCOVERED entry for a member
+  # that is offline put it on the claim path, and the claim path revoked the member's live certificate
+  # at once. Discovery adverts are not authenticated, so a forged advert carrying an offline Pi's id
+  # was enough to revoke that Pi from one keypress.
+  Scenario: re-adopting a member that joins by claim revokes its old certificate only when the device proves its key
+    Given "phone" is a member that joins by claim, and is offline
+    When the owner adopts a discovered entry carrying the phone's node id
+    Then the phone's certificate is not revoked, and a claim and a fresh code are granted
+    When a device claims with the phone's node key and the fresh code
+    Then the old certificate is revoked and the new one issued, in one step
+    When no device claims before the code expires
+    Then the phone's certificate still stands, and nothing about the phone has changed
+
+  # APPROVED 2026-10-26
+  Scenario: an advert cannot move a member that serves a certificate onto the claim path
+    Given "pi" is a member that serves a certificate, and is offline
+    When a discovered entry carrying the pi's node id advertises no certificate
+    Then adopting it is refused: the pi is already a member, and forget comes first
+    And the pi's certificate stands
