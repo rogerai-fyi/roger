@@ -416,6 +416,12 @@ func getModels(base, key string) (models []string, ctx map[string]int, status in
 	if resp.StatusCode != 200 {
 		return nil, nil, resp.StatusCode
 	}
+	// A RogerAI broker, or a `roger use` endpoint in front of one, lists the MARKET's models: it is
+	// never a local server to share through (a turn sent there is a market request, not this
+	// machine's model). Its answers carry the cost header; its listing names rogerai as the owner.
+	if resp.Header.Get("X-Rogerai-Cost") != "" {
+		return nil, nil, statusRogerAI
+	}
 	// Many OpenAI-compatible servers (vLLM, llama.cpp, LM Studio, TGI) report a
 	// per-model context length on /v1/models under one of these common keys.
 	//
@@ -428,6 +434,7 @@ func getModels(base, key string) (models []string, ctx map[string]int, status in
 	var d struct {
 		Data *[]struct {
 			ID         string `json:"id"`
+			OwnedBy    string `json:"owned_by"`
 			MaxLen     int    `json:"max_model_len"`  // vLLM
 			CtxLen     int    `json:"context_length"` // some gateways
 			NCtx       int    `json:"n_ctx"`          // llama.cpp
@@ -444,6 +451,9 @@ func getModels(base, key string) (models []string, ctx map[string]int, status in
 	}
 	ctx = map[string]int{}
 	for _, m := range *d.Data {
+		if m.OwnedBy == "rogerai" {
+			return nil, nil, statusRogerAI
+		}
 		if m.ID == "" {
 			continue
 		}
@@ -454,6 +464,9 @@ func getModels(base, key string) (models []string, ctx map[string]int, status in
 	}
 	return models, ctx, 200
 }
+
+// statusRogerAI marks a RogerAI broker or `roger use` endpoint: an OpenAI listing, of the market.
+const statusRogerAI = -2
 
 // statusNotOpenAI marks "answered, but the body was not an OpenAI /v1/models listing".
 // Negative so it can never collide with a real HTTP status code.

@@ -361,6 +361,13 @@ Feature: One invite, one paste, for Towers and Edge devices
     When the clock is corrected and a device presents it
     Then it is not an invite this Edge holds, and it never outlives its fifteen minutes
 
+  # Live E2E 2026-10-27: --models named a model a RogerAI broker on the same machine lists.
+  @security
+  Scenario: A station never takes a RogerAI broker or a roger use endpoint as its upstream
+    Given a RogerAI broker, or a roger use endpoint, is running on the station's machine
+    When the station joins with --models naming a model that broker lists
+    Then the broker is not a local model server, so the model is served from a real local server or not at all
+
   # Live E2E 2026-10-27: two machines that both default to the same hostname.
   @security
   Scenario: A station joining under a name another station holds is told the name is taken
