@@ -336,6 +336,12 @@ func (h *phoneConsume) admit(w http.ResponseWriter, r *http.Request, action stri
 	if id, err := trust.Authenticate(leaf); err != nil || id != p.NodeID || h.Member == nil || !h.Member(id) {
 		return refuse(http.StatusForbidden, errNotVerified)
 	}
+	// 4a. A replay of a request already served is refused BEFORE it takes a slot, so replays (a face
+	//     that relayed a turn holds its bytes) can never crowd the member's own turns out. Checked,
+	//     not spent: the nonce is spent below, after the slot, so a busy answer can be retried.
+	if h.seen.spent(p.NodeID, p.Nonce, now.Unix()) {
+		return refuse(http.StatusForbidden, "that request was already seen")
+	}
 	// 4. A slot: two per member, eight in all. Released on every path out, a panic included, unless
 	//    it is handed to the caller. Taken BEFORE the nonce is spent, so the busy answer's "try again
 	//    shortly" is true for the very same signed request.

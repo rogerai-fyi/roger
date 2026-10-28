@@ -55,6 +55,15 @@ func newNonceCache() *nonceCache {
 	return &nonceCache{seen: map[string]int64{}, byOwner: map[string]int{}}
 }
 
+// spent reports whether owner already spent nonce and it is still live, without spending it. It lets a
+// caller refuse a replay before it takes any shared resource (a phone turn's slot).
+func (n *nonceCache) spent(owner, nonce string, nowUnix int64) bool {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	exp, ok := n.seen[owner+"|"+nonce]
+	return ok && exp >= nowUnix
+}
+
 // admit returns true the FIRST time owner spends nonce, and false on a repeat, on a nonce that is not
 // exactly 16 random bytes as 32 lowercase hex characters (what every client sends: the CLI, the agent
 // and the Roger app), and when owner or the whole cache is at its bound with nonces still live (fail

@@ -61,8 +61,8 @@
 # spiffe://rogerai.fm/tower/<authority node id>, an IP SAN equal to the address dialed). What follows
 # is what plain HTTP left open, and is now closed for a phone that speaks TLS.
 #
-# KNOWN LIMITATIONS OF PLAIN HTTP (restated after the 2026-10-13 audit). The authority listener
-# is plain HTTP, so until the fix below:
+# HISTORY: WHAT PLAIN HTTP LEFT OPEN (the 2026-10-13 audit, before the TLS ruling). While the
+# authority listener was plain HTTP:
 #   - Confidentiality: a prompt and its answer cross the LAN between the phone and the authority in the
 #     clear; anyone on that network can read them.
 #   - Reply integrity: nothing authenticates the REPLY. A device in the path can rewrite an answer, a
@@ -76,10 +76,9 @@
 #     five minutes, to an authority that restarted and so forgot the nonce.
 #   - X-Roger-Request is not signed, so the authority does not forward it: the face names the turn and
 #     that name is what the receipt carries.
-# The fix, pending the founder's ruling: docs/edge-authority-https.md (an HTTPS authority listener
-# whose server certificate is a P-256 leaf under the Edge root, pinned by the phone to that root).
-# Until it is built, the app should say on its ask screen that a turn on this Edge is readable, and its
-# answer changeable, by others on the local network.
+# The fix, ruled 2026-10-13 and built: docs/edge-authority-https.md (an HTTPS authority listener whose
+# server certificate is a P-256 leaf under the Edge root, pinned by the phone to that root). The
+# phone's paths are served on it only; the plain listener refuses them whether or not TLS is up.
 
 Feature: a phone uses the Edge's models through its authority
 
@@ -131,6 +130,20 @@ Feature: a phone uses the Edge's models through its authority
     Given "pocket" has two turns streaming
     When it asks for a third
     Then it is told to try again shortly, and every other member is still served
+
+  # Adversarial review 2026-10-27: checked BEFORE a slot is taken, spent only after.
+  @ios @security
+  Scenario: a replay takes none of its member's slots
+    Given "pocket" sent a turn that was served, and a face that relayed it kept its bytes
+    When those bytes are sent again, many times, while "pocket" is busy and while it is not
+    Then each is refused as already seen before it takes a slot, never told "busy"
+    And "pocket"'s own fresh turns are served as if no replay had been sent
+
+  @ios @security
+  Scenario: a phone's turn is refused on plain HTTP when this authority has no TLS listener
+    Given the authority has no node identity of its own, or its TLS bind failed
+    When the phone sends any /edge/phone/* request to the plain listener
+    Then it is refused with 503, saying a phone's requests are served only over TLS, and nothing is relayed
 
   @ios @security
   Scenario: a turn refused for being busy can be sent again as it was
