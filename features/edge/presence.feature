@@ -113,8 +113,15 @@ Feature: A node can present itself to the authority by dialing out, and be recor
   # uppercase hex) is refused in words that say what is wrong with it, not as a replay.
   @security
   Scenario: a malformed nonce is refused as malformed, not as already seen
-    When a presence or an invocation carries a UUID or uppercase hex as its nonce
+    When a presence, an invocation or a phone's turn carries a UUID or uppercase hex as its nonce
     Then it is refused with "malformed nonce", and nothing about a replay
+
+  # Adversarial review 2026-10-27: a full quota is not a replay either.
+  @security
+  Scenario: a node at its quota of live nonces is told to slow down
+    Given a node has spent its 600 nonces within the last five minutes
+    When it sends one more request with a fresh nonce
+    Then it is refused as sending too many requests, and told to wait, not that it was already seen
 
   @security
   Scenario: power outside the version that signs it is refused

@@ -251,7 +251,7 @@ func (s *Server) onBehalf(r *http.Request, action string, body []byte, relayer s
 		return "", http.StatusForbidden, errNotVerified
 	}
 	if !s.phoneSeen.admit(p.NodeID, p.Nonce, time.Unix(p.TS, 0).Add(presenceFreshness).Unix(), s.now().Unix()) {
-		return "", http.StatusForbidden, "that request was already seen"
+		return "", http.StatusForbidden, orReplay(s.phoneSeen.refusal(p.NodeID, p.Nonce, s.now().Unix()), "that request was already seen")
 	}
 	return p.NodeID, 0, ""
 }
@@ -321,8 +321,12 @@ func (h *phoneConsume) admit(w http.ResponseWriter, r *http.Request, action stri
 	}
 	// 2. Signed, by the key its certificate names, over what its headers declare - nothing about the
 	//    caller's standing is consulted before this, so every failure here and below reads the same.
+	// A nonce's shape is said as such: it tells a caller nothing about who is enrolled here.
+	if !isLowerHex(p.Nonce, 32) {
+		return refuse(http.StatusForbidden, malformedNonce)
+	}
 	leaf, pub, okLeaf := p.leaf()
-	if !okLeaf || !isLowerHex(p.Nonce, 32) || !isLowerHex(p.BodySHA, 64) || !p.signedOver(pub, action, p.BodySHA) {
+	if !okLeaf || !isLowerHex(p.BodySHA, 64) || !p.signedOver(pub, action, p.BodySHA) {
 		return refuse(http.StatusForbidden, errNotVerified)
 	}
 	// 3. A member: under this root, not revoked, in this fleet.
@@ -359,7 +363,7 @@ func (h *phoneConsume) admit(w http.ResponseWriter, r *http.Request, action stri
 	// 5. Not a replay. Only the holder of the key gets this far, and a replay only ever holds one of
 	//    its own member's slots for this check.
 	if !h.seen.admit(p.NodeID, p.Nonce, time.Unix(p.TS, 0).Add(presenceFreshness).Unix(), now.Unix()) {
-		return refuse(http.StatusForbidden, "that request was already seen")
+		return refuse(http.StatusForbidden, orReplay(h.seen.refusal(p.NodeID, p.Nonce, now.Unix()), "that request was already seen"))
 	}
 	// 6. The body, bounded in size and in time, and held to the hash that was signed.
 	rc := http.NewResponseController(w)

@@ -298,7 +298,7 @@ func PresenceHandlerFunc(fleet *Fleet, trust func() *cert.Authority, now func() 
 			return
 		}
 		if !seen.admit(req.NodeID, req.Nonce, time.Unix(req.TS, 0).Add(presenceFreshness).Unix(), now().Unix()) {
-			refusePresence(w, "that presence was already seen")
+			refusePresence(w, orReplay(seen.refusal(req.NodeID, req.Nonce, now().Unix()), "that presence was already seen"))
 			return
 		}
 

@@ -55,6 +55,35 @@ func newNonceCache() *nonceCache {
 	return &nonceCache{seen: map[string]int64{}, byOwner: map[string]int{}}
 }
 
+// nonceQuotaFull is the refusal for a node whose live nonces fill its quota: it is sending faster than
+// the window lets the cache forget, which is not a replay.
+const nonceQuotaFull = "too many requests from this node in five minutes; wait and try again"
+
+// refusal words why admit said no: malformedNonce, nonceQuotaFull, or "" for a real replay, which
+// each caller words for its own path. Wording only; admit is the decision.
+func (n *nonceCache) refusal(owner, nonce string, nowUnix int64) string {
+	if !isLowerHex(nonce, 32) {
+		return malformedNonce
+	}
+	if n.spent(owner, nonce, nowUnix) {
+		return ""
+	}
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if len(n.seen) >= maxNonces || n.byOwner[owner] >= maxNoncesPerNode {
+		return nonceQuotaFull
+	}
+	return ""
+}
+
+// orReplay is why, or the caller's own replay words when why is "".
+func orReplay(why, replay string) string {
+	if why != "" {
+		return why
+	}
+	return replay
+}
+
 // spent reports whether owner already spent nonce and it is still live, without spending it. It lets a
 // caller refuse a replay before it takes any shared resource (a phone turn's slot).
 func (n *nonceCache) spent(owner, nonce string, nowUnix int64) bool {

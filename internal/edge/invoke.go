@@ -124,7 +124,7 @@ func (s *Server) handleInvoke(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !s.invokeSeen.admit(callerID, req.Nonce, time.Unix(req.TS, 0).Add(invokeFreshness).Unix(), now.Unix()) {
-		refuse(http.StatusForbidden, "that invocation was already seen")
+		refuse(http.StatusForbidden, orReplay(s.invokeSeen.refusal(callerID, req.Nonce, now.Unix()), "that invocation was already seen"))
 		return
 	}
 	// 7. Run it. The receiver's runner uses its OWN harness, tools and permissions (control.feature).

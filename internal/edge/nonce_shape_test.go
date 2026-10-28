@@ -40,3 +40,32 @@ func TestAnInvocationWithAMalformedNonceIsToldSo(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, resp.StatusCode)
 	require.Contains(t, string(b), "malformed nonce")
 }
+
+// Adversarial review 2026-10-27: the phone paths say "malformed nonce" too (a nonce's shape tells a
+// caller nothing about who is enrolled), and a node at its quota of live nonces is told to slow
+// down, not that a fresh request "was already seen".
+func TestAPhoneTurnWithAMalformedNonceIsToldSo(t *testing.T) {
+	rig := newPhoneRig(t)
+	for _, nonce := range []string{uuidNonce, strings.ToUpper(freshNonce())} {
+		w := rig.ask(t, http.MethodPost, PhoneInferPath, chatBody, signed{action: ActionInfer, nonce: nonce})
+		require.Equal(t, http.StatusForbidden, w.Code)
+		require.Contains(t, w.Body.String(), "malformed nonce", nonce)
+	}
+}
+
+func TestANodeAtItsNonceQuotaIsToldToSlowDown(t *testing.T) {
+	c := newNonceCache()
+	now := time.Now().Unix()
+	for i := 0; i < maxNoncesPerNode; i++ {
+		require.True(t, c.admit("n", freshNonce(), now+300, now))
+	}
+	fresh := freshNonce()
+	require.False(t, c.admit("n", fresh, now+300, now))
+	require.Contains(t, c.refusal("n", fresh, now), "too many")
+	spent := freshNonce()
+	other := newNonceCache()
+	require.True(t, other.admit("m", spent, now+300, now))
+	require.False(t, other.admit("m", spent, now+300, now))
+	require.Equal(t, "", other.refusal("m", spent, now), "a real replay is the caller's own words")
+	require.Equal(t, malformedNonce, other.refusal("m", "nope", now))
+}
