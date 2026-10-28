@@ -127,6 +127,9 @@ func (s *State) attachStation(id, keyHash string, models []string, curatedProvid
 	return st, nil
 }
 
+// ErrStationNameTaken is a Station id (its name) another Station's key already holds on this Tower.
+var ErrStationNameTaken = errors.New("that Station id is already attached under a different key")
+
 // attachLocked records a Station in bs; the caller holds bootstrapMu and saves. A Station
 // joining with the owner's invite needs no operator: the invite is the owner's authority.
 func (s *State) attachLocked(bs *Snapshot, id, keyHash string, models []string, curatedProvider string) (Station, error) {
@@ -139,7 +142,7 @@ func (s *State) attachLocked(bs *Snapshot, id, keyHash string, models []string, 
 	// An existing id may only be updated by the SAME key, so a second Station cannot
 	// take over the first's identity by re-attaching under it.
 	if prev, ok := bs.Stations[id]; ok && !hmac.Equal([]byte(prev.KeyHash), []byte(keyHash)) {
-		return Station{}, errors.New("that Station id is already attached under a different key")
+		return Station{}, ErrStationNameTaken
 	}
 	// The broker's kind-flip guard, mirrored: an id that attached as a human Station
 	// cannot re-attach as a curated proxy (or the reverse) even under the same key -

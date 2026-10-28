@@ -110,3 +110,29 @@ func TestLocalJoinReplayIsRefusedByTheNonceRecord(t *testing.T) {
 	require.Contains(t, first.Body.String(), `"already_member":true`)
 	require.Equal(t, http.StatusUnauthorized, doJoin(srv, priv, body, n2).Code, "the replay is refused")
 }
+
+// Live E2E 2026-10-27: a second station joining under a name another station's key already holds was
+// told its invite had "expired, was already used, was voided, or is not this Tower's". The joiner
+// proved the code, so it is told the truth: the name is taken, the invite is still good, pick another.
+func TestLocalJoinSaysAStationNameIsTaken(t *testing.T) {
+	st := standaloneState(t)
+	srv := New(st)
+	_, code1, err := st.CreateJoinInvitation(tower.JoinStation, "", nil, 15*time.Minute)
+	require.NoError(t, err)
+	_, first, _ := ed25519.GenerateKey(rand.Reader)
+	n1 := protocol.NewNonce()
+	rec := doJoin(srv, first, joinBody(t, st, first, code1, n1, "station", "RogGentoo", []string{"m"}), n1)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	_, code2, err := st.CreateJoinInvitation(tower.JoinStation, "", nil, 15*time.Minute)
+	require.NoError(t, err)
+	_, second, _ := ed25519.GenerateKey(rand.Reader)
+	n2 := protocol.NewNonce()
+	rec = doJoin(srv, second, joinBody(t, st, second, code2, n2, "station", "RogGentoo", []string{"m"}), n2)
+	require.Equal(t, http.StatusConflict, rec.Code, rec.Body.String())
+	require.Contains(t, rec.Body.String(), "station_name_taken")
+
+	n3 := protocol.NewNonce()
+	rec = doJoin(srv, second, joinBody(t, st, second, code2, n3, "station", "bench", []string{"m"}), n3)
+	require.Equal(t, http.StatusOK, rec.Code, "the invite was not spent by the clash: %s", rec.Body.String())
+}

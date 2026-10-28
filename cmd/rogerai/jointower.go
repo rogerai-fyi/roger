@@ -96,17 +96,31 @@ func joinPost(key ed25519.PrivateKey, pubHex, addr string, in joininvite.Invite,
 			return ans, fmt.Errorf("%s answered something that is not a join answer", addr)
 		}
 		return ans, nil
+	}
+	return localplane.JoinAnswer{}, joinStatusRefusal(status, raw, addr)
+}
+
+// joinStatusRefusal is what the joiner is told for a Tower's refusal of a join.
+func joinStatusRefusal(status int, raw []byte, addr string) error {
+	switch status {
 	case http.StatusForbidden, http.StatusTooManyRequests:
-		return localplane.JoinAnswer{}, &joinRefusal{msg: towerError(raw)}
+		return &joinRefusal{msg: towerError(raw)}
+	case http.StatusConflict:
+		var e struct {
+			Name string `json:"name"`
+		}
+		_ = json.Unmarshal(raw, &e)
+		return &joinRefusal{msg: fmt.Sprintf("a station named %q is already on this Tower under another key; the invite is still good.\n"+
+			"join under another name: roger join <invite> <another name>", e.Name)}
 	case http.StatusGone:
 		if strings.Contains(string(raw), "invite_expired") {
-			return localplane.JoinAnswer{}, &joinRefusal{msg: "that invite has expired. Ask the owner for a new one: roger tower invite"}
+			return &joinRefusal{msg: "that invite has expired. Ask the owner for a new one: roger tower invite"}
 		}
-		return localplane.JoinAnswer{}, &joinRefusal{msg: "that invite was already used. Ask the owner for a new one: roger tower invite"}
+		return &joinRefusal{msg: "that invite was already used. Ask the owner for a new one: roger tower invite"}
 	case http.StatusUnauthorized:
-		return localplane.JoinAnswer{}, &joinRefusal{msg: "that invite has expired, was already used, was voided, or is not this Tower's. Ask the owner for a new one: roger tower invite"}
+		return &joinRefusal{msg: "that invite has expired, was already used, was voided, or is not this Tower's. Ask the owner for a new one: roger tower invite"}
 	}
-	return localplane.JoinAnswer{}, fmt.Errorf("%s answered status %d", addr, status)
+	return fmt.Errorf("%s answered status %d", addr, status)
 }
 
 // towerPost signs body with key (and the nonce) and posts it to the Tower at addr over TLS pinned

@@ -81,6 +81,11 @@ func (s *Server) localJoin(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusGone, map[string]any{"error": "invite_spent"})
 		return
 	}
+	if errors.Is(err, tower.ErrStationNameTaken) {
+		// The joiner proved the code, so it is told the truth; the invite is not spent.
+		writeJSON(w, http.StatusConflict, map[string]any{"error": "station_name_taken", "name": req.Name})
+		return
+	}
 	if errors.Is(err, tower.ErrInviteExpired) {
 		writeJSON(w, http.StatusGone, map[string]any{"error": "invite_expired"})
 		return

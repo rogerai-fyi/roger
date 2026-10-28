@@ -361,6 +361,14 @@ Feature: One invite, one paste, for Towers and Edge devices
     When the clock is corrected and a device presents it
     Then it is not an invite this Edge holds, and it never outlives its fifteen minutes
 
+  # Live E2E 2026-10-27: two machines that both default to the same hostname.
+  @security
+  Scenario: A station joining under a name another station holds is told the name is taken
+    Given a station named "RogGentoo" is already on the Tower under its own key
+    When a second machine joins as a station with a fresh invite, also named "RogGentoo"
+    Then it is told a station by that name is already on this Tower, and that the invite is still good
+    And it joins under another name with the same invite
+
   # Audit 2026-10-13: an invite bound to a device is bound to its KEY, through the id that key derives.
   @security
   Scenario: A bound invite cannot be reached by copying the device's node id

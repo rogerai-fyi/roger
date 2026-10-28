@@ -181,3 +181,14 @@ func TestAJoinedTowerIsReadOverItsPinAndAChangedKeyIsRefused(t *testing.T) {
 	require.Contains(t, status[0].Detail, "roger join <invite>")
 	require.Equal(t, inv.FP, loadConfig().LanTowerPins[addr], "the stored pin is not changed")
 }
+
+// Live E2E 2026-10-27: a station joining under a name another station already holds is told so, and
+// how to join under another name, with the invite still good.
+func TestAStationNameClashIsSaidAsSuch(t *testing.T) {
+	err := joinStatusRefusal(http.StatusConflict, []byte(`{"error":"station_name_taken","name":"RogGentoo"}`), "127.0.0.1:28787")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), `a station named "RogGentoo" is already on this Tower`)
+	require.Contains(t, err.Error(), "the invite is still good")
+	require.Contains(t, err.Error(), "roger join <invite> <another name>")
+	require.NotContains(t, err.Error(), "expired")
+}
