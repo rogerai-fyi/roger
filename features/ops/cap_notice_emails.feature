@@ -63,6 +63,8 @@ Feature: Monthly-cap notices are mailed to the account that crossed the threshol
     And the account has spent $10.00 this month
     When the account relays a paid request
     Then the response is 402 naming the monthly spend limit
+    # corrected 2026-10-07 (founder ruling 2026-10-05): the 100% notice also covers a refused
+    # too-large request, so its subject reads "A paid request hit your monthly spend limit"
     And exactly one "A paid request hit your monthly spend limit" message is sent to "<address>"
 
     Examples:

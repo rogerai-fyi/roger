@@ -241,13 +241,13 @@ func (s *cnState) relayPaid(key ed25519.PrivateKey, session string) *httptest.Re
 	return rec
 }
 
-// --- Background ---------------------------------------------------------------------------
-
-func (s *cnState) capturingMailerGiven() error { return nil }
-
 // paidStationCap lifts the request's input-price cap above the paid station's $40/1M, since
 // the broker's default input cap (routing slices) would otherwise filter that station out.
 var paidStationCap = map[string]string{"X-Roger-Max-Price": "50"}
+
+// --- Background ---------------------------------------------------------------------------
+
+func (s *cnState) capturingMailerGiven() error { return nil }
 
 func (s *cnState) paidStationOnAir(name, model string) error {
 	// $40/1M in: one relay (5000 prompt tokens) costs about $0.20; a low out price keeps the

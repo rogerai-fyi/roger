@@ -60,7 +60,7 @@ type rsoState struct {
 }
 
 func (s *rsoState) reset(t *testing.T) {
-	s.dq = &dqState{}
+	s.dq = &dqState{inProcess: true} // the outage is simulated by closing the in-process servers
 	s.dq.reset(t)
 	s.stations = map[string]*rsoStation{}
 	s.outs = nil

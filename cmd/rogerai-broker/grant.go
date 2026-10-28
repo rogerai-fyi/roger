@@ -152,9 +152,9 @@ type streamBill struct {
 	model    string
 	grantID  string
 	// pubHex is the verified consumer pubkey and req the request, both for a bridged attempt
-	// in the plan (the receipt's pseudonym; the traffic-origin record). req is also carried so a
-	// settle that crosses the monthly-cap threshold can resolve the account's notice address
-	// from its authenticated identity.
+	// in the plan (the receipt's pseudonym; the traffic-origin record). req also lets a settle
+	// that crosses the monthly-cap threshold resolve the account's notice address from its
+	// authenticated identity.
 	pubHex string
 	req    *http.Request
 	// cap is the monthly cap the relay's pre-hold check read (capUnknown when it did not run),
