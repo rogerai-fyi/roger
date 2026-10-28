@@ -60,3 +60,13 @@ func TestABrokerIsNotFoundAsAVoiceServerEither(t *testing.T) {
 	_, st := ProbeKey(broker.URL, "")
 	require.Equal(t, Unreachable, st)
 }
+
+// DisablePortScan leaves the named defaults, the environment and explicit URLs, and drops only the
+// scan of this host's listening ports.
+func TestDisablePortScanDropsOnlyTheScan(t *testing.T) {
+	prev := enumPorts
+	t.Cleanup(func() { enumPorts = prev })
+	enumPorts = func() []int { return []int{1} }
+	DisablePortScan()
+	require.Empty(t, enumPorts())
+}

@@ -162,6 +162,12 @@ var (
 	envKeysFn = envKeys
 )
 
+// DisablePortScan turns off the scan of this host's listening ports for the rest of the process.
+// It exists for test binaries: the gate runs every package's tests at once, and a test that runs the
+// real detection would otherwise probe every other package's test servers (CI, 2026-10-28). The
+// named defaults, the environment and explicit URLs are still probed.
+func DisablePortScan() { enumPorts = func() []int { return nil } }
+
 // DetectFull gathers candidate endpoints from every source - explicit extra base URLs
 // FIRST (the --upstream / saved-config (e) source, each normalized to a /v1 base and
 // winning de-dup so its friendly name is kept), then defaults, env, Ollama native, and
