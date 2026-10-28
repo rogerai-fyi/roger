@@ -197,7 +197,10 @@ func (s *pkgBDD) runInstall(component string) error {
 		return err
 	}
 	s.install = s.t.TempDir()
-	cmd := exec.Command("sh", filepath.Join(repoRoot(), "web", "src", "install.sh"))
+	// SHELL unset, as under `curl | sh` in a bare container, cron or CI. A bash that runs as sh fills
+	// SHELL in from the passwd entry at start, so it is unset INSIDE the shell before the script runs:
+	// the run is the same on every machine (CI's dash caught "SHELL: parameter not set", 2026-10-28).
+	cmd := exec.Command("sh", "-c", `unset SHELL; . "$0"`, filepath.Join(repoRoot(), "web", "src", "install.sh"))
 	cmd.Env = pkgEnv(s.t, "PATH="+fake+":"+os.Getenv("PATH"), "FAKE_RELEASE="+rel,
 		"ROGERAI_VERSION=v9.9.9", "ROGERAI_INSTALL_DIR="+s.install, "ROGERAI_COMPONENT="+component)
 	var o bytes.Buffer

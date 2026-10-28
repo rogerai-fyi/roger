@@ -240,7 +240,8 @@ case ":$PATH:" in
   *)
     say ""
     say "  ${C_DIM}note:${C_RESET} ${INSTALL_DIR} isn't on your PATH. Add it:"
-    case "${SHELL##*/}" in
+    login_shell="${SHELL:-}" # unset under curl | sh in a bare container, cron or CI
+    case "${login_shell##*/}" in
       fish)
         say "    fish_add_path $INSTALL_DIR"
         ;;
