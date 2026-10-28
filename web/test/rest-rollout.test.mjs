@@ -58,7 +58,8 @@ test("(b) the manual's contents are a tuner of every section, in order, and noth
   assert.match(t, /aria-label="Manual contents"/, "the contents keep their accessible name");
   const st = stations(t);
   const ids = [...html.matchAll(/<section class="man-sec" id="([^"]+)"/g)].map((m) => m[1]);
-  assert.equal(ids.length, 19, "the manual has its 19 sections");
+  // features/lan/trust_and_honesty.feature (the manual's LAN section, run by TestLANDocsBDD) adds §L.
+  assert.equal(ids.length, 20, "the manual has its 20 sections (§L LAN mode joined 2026-10-07)");
   assert.deepEqual(st.map((s) => s.id), ids, "one station per section, in page order");
   assert.doesNotMatch(html, /class="man-toc/, "the old sticky rail is gone");
   assert.doesNotMatch(stripCss(src("styles/manual.css")), /position:\s*sticky/, "nothing on the manual is sticky");
