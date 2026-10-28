@@ -103,3 +103,16 @@ func TestAnImplausibleTimeLeftIsLeftOut(t *testing.T) {
 	require.NotNil(t, p)
 	require.Nil(t, p.MinutesLeft)
 }
+
+// Adversarial review 2026-10-27: an absurd hours field from pmset must not overflow into a negative
+// time left (which the authority refuses, taking the whole beat with it); it is left out.
+func TestAnAbsurdPmsetTimeLeftIsLeftOut(t *testing.T) {
+	for _, hours := range []string{"200000000000000000", "9223372036854775807", "8761"} {
+		out := "Now drawing from 'Battery Power'\n -InternalBattery-0 (id=1)\t87%; discharging; " + hours + ":00 remaining present: true\n"
+		p := parsePmsetBatt(out)
+		require.NotNil(t, p, hours)
+		require.Nil(t, p.MinutesLeft, hours)
+	}
+	p := parsePmsetBatt("Now drawing from 'Battery Power'\n -InternalBattery-0 (id=1)\t87%; discharging; 4:12 remaining present: true\n")
+	require.Equal(t, 252, *p.MinutesLeft)
+}

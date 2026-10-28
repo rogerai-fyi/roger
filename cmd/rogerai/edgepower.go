@@ -181,10 +181,13 @@ func parsePmsetBatt(out string) *store.EdgePower {
 		}
 	}
 	if m := pmsetLeft.FindStringSubmatch(out); m != nil && p.Charging != nil && !*p.Charging {
-		h, _ := strconv.Atoi(m[1])
+		h, herr := strconv.Atoi(m[1])
 		mm, _ := strconv.Atoi(m[2])
-		if left := h*60 + mm; left <= edge.MaxMinutesLeft {
-			p.MinutesLeft = &left
+		// The hours are bounded BEFORE they are multiplied, so an absurd field cannot overflow.
+		if herr == nil && h >= 0 && h <= edge.MaxMinutesLeft/60 {
+			if left := h*60 + mm; left <= edge.MaxMinutesLeft {
+				p.MinutesLeft = &left
+			}
 		}
 	}
 	return p

@@ -545,6 +545,7 @@ type Observation struct {
 // LAN entry refreshed and sorted back to the front.
 func (f *Fleet) Observe(id string, obs Observation) (store.EdgeNode, error) {
 	now := f.now().Unix()
+	obs.Instances = datedPower(obs.Instances, now)
 	cur, ok, err := f.db.EdgeNodeByID(f.account, id)
 	if err != nil {
 		return store.EdgeNode{}, err
@@ -714,6 +715,27 @@ func sameBands(a, b []string) bool {
 // carried per (instance, capability) from what the node already held, so a probe passed
 // against one instance is not forgotten by the next describe; the node's Caps become the
 // union of its instances' with the providers named.
+// datedPower is the instances with each member-reported power reading dated HERE (the member's own
+// clock may be a day off, or unset before NTP) and held to the bounds a presence is held to; a
+// reading that cannot be true is dropped (adversarial review 2026-10-27).
+func datedPower(ins []Instance, now int64) []Instance {
+	out := make([]Instance, len(ins))
+	for i, in := range ins {
+		out[i] = in
+		if in.Resources == nil || in.Resources.Power == nil {
+			continue
+		}
+		r, pw := *in.Resources, *in.Resources.Power
+		r.Power = nil
+		if powerOutOfBounds(pw.BatteryPct, pw.Source, pw.MinutesLeft) == "" {
+			pw.ReadAt = now
+			r.Power = &pw
+		}
+		out[i].Resources = &r
+	}
+	return out
+}
+
 func applyInstances(n *store.EdgeNode, obs Observation) {
 	if obs.Instances == nil {
 		return // an older face that reports no household: the node-level caps stand

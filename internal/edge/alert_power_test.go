@@ -218,3 +218,37 @@ func TestASilentNodeKeepsItsPowerCallBeforeItIsSweptDark(t *testing.T) {
 	require.True(t, next.Firing("on_battery", "n_pi"), "silence is no evidence the power came back")
 	require.Empty(t, alerts)
 }
+
+// Adversarial review 2026-10-27: a dialed member's power report is dated by the AUTHORITY when it is
+// recorded, never by the member's clock (one a day ahead was judged current for a day; one behind, a
+// Pi with no clock before NTP, was never judged), and a reading outside the bounds presence enforces
+// is dropped, not stored.
+func TestADialedMembersPowerIsDatedHereAndBounded(t *testing.T) {
+	now := time.Now()
+	f := NewFleet(store.NewMem(), "acct-1")
+	f.SetClock(func() time.Time { return now })
+	observe := func(p *store.EdgePower) *store.EdgePower {
+		_, err := f.Observe("n_pi", Observation{Name: "pi", Kind: "host", Addr: "192.168.1.9:1", Fingerprint: "ab",
+			Instances: []Instance{{Name: "serve", Resources: &store.EdgeResources{ReadAt: now.Unix(), Power: p}}}})
+		require.NoError(t, err)
+		hs, err := FleetHealth(f, now)
+		require.NoError(t, err)
+		require.Len(t, hs, 1)
+		return hs[0].Power
+	}
+	pct, no := 5, false
+	for _, readAt := range []int64{now.Add(24 * time.Hour).Unix(), 3600} {
+		got := observe(&store.EdgePower{BatteryPct: &pct, Charging: &no, Source: "battery", ReadAt: readAt})
+		require.NotNil(t, got)
+		require.Equal(t, now.Unix(), got.ReadAt, "dated by this authority, whatever the member's clock said")
+	}
+	neg, big, over := -30, MaxMinutesLeft+1, 101
+	for name, p := range map[string]*store.EdgePower{
+		"a negative time left": {BatteryPct: &pct, MinutesLeft: &neg},
+		"over a year left":     {BatteryPct: &pct, MinutesLeft: &big},
+		"a battery over 100":   {BatteryPct: &over},
+		"a source not a word":  {BatteryPct: &pct, Source: "solar"},
+	} {
+		require.Nil(t, observe(p), name)
+	}
+}

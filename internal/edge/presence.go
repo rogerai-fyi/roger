@@ -82,6 +82,23 @@ type PowerVitals struct {
 // estimate (a discharge rate near zero), and a duration that large would overflow when printed.
 const MaxMinutesLeft = 365 * 24 * 60
 
+// powerOutOfBounds says why a power reading cannot be true, or "": a battery outside 0-100, a source
+// outside the vocabulary, a time remaining below zero or over a year. One rule for a presence and
+// for a dialed member's own readings (fleet.go), so neither path stores what the other refuses.
+func powerOutOfBounds(batteryPct *int, source string, minutesLeft *int) string {
+	switch {
+	case batteryPct != nil && (*batteryPct < 0 || *batteryPct > 100):
+		return "a battery reading outside 0-100"
+	case !powerSources[source]:
+		return "a power source that does not exist"
+	case minutesLeft != nil && *minutesLeft < 0:
+		return "a negative time remaining"
+	case minutesLeft != nil && *minutesLeft > MaxMinutesLeft:
+		return "a time remaining over a year"
+	}
+	return ""
+}
+
 // powerSources is the closed vocabulary of a power source. "solar" and "ups" are not in it: no
 // operating system this reads reports them as a source, and a word nobody can report is a guess.
 var powerSources = map[string]bool{"": true, "ac": true, "battery": true, "unknown": true}
@@ -118,17 +135,8 @@ func (p PresenceRequest) vitalsRefusal() string {
 			return "in a v3 presence the battery is reported under power"
 		}
 		if w := p.Power; w != nil {
-			if w.BatteryPct != nil && (*w.BatteryPct < 0 || *w.BatteryPct > 100) {
-				return "a battery reading outside 0-100"
-			}
-			if !powerSources[w.Source] {
-				return "a power source that does not exist"
-			}
-			if w.MinutesLeft != nil && *w.MinutesLeft < 0 {
-				return "a negative time remaining"
-			}
-			if w.MinutesLeft != nil && *w.MinutesLeft > MaxMinutesLeft {
-				return "a time remaining over a year"
+			if why := powerOutOfBounds(w.BatteryPct, w.Source, w.MinutesLeft); why != "" {
+				return why
 			}
 		}
 	default:
