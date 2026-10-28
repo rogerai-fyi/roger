@@ -8,7 +8,8 @@
 <!-- The go-import tag is what makes `go get rogerai.fm/roger/v7` work. It is the ONE place the
      code host is named: the import path belongs to this domain, so moving or renaming the
      repository is a one-line change here rather than an edit to every import in the tree.
-     Pinned by test/smoke/module_path_test.go, which fails if this drifts from go.mod. -->
+     Pinned by web/test/vanity-import.test.mjs; once go.mod names /v7, test/smoke/module_path_test.go
+     pins it to go.mod too. -->
 <meta name="go-import" content="rogerai.fm/roger/v7 git https://github.com/rogerai-fyi/roger">
 <meta name="go-source" content="rogerai.fm/roger/v7 https://github.com/rogerai-fyi/roger https://github.com/rogerai-fyi/roger/tree/main{/dir} https://github.com/rogerai-fyi/roger/blob/main{/dir}/{file}#L{line}">
 
