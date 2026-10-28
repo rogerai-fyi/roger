@@ -1046,3 +1046,26 @@ func TestModelTogetherIsJudgedByRogersSumEvenWhenTheRuntimeSaysYes(t *testing.T)
 	require.NoError(t, err)
 	require.ErrorContains(t, refused, "do not fit together with tiny")
 }
+
+// Finding 5b, ruled 2026-10-27: the container limit reaches the SERVE-time verdict. Under a limit
+// below roger's sum, the runtime's yes (it counts the host's free memory) does not start the serve;
+// with no limit the runtime's yes wins as before.
+func TestModelServeHoldsRogersSumAgainstAContainerLimit(t *testing.T) {
+	r := newModelRig(t, 2048)
+	_, err := r.run(t, "get", "acme/Tiny-GGUF:Q4_K_M", "--yes")
+	require.NoError(t, err)
+	modelFitExe = func(string) string { return os.Args[0] }
+	modelServeEnv = map[string]string{"FAKE_LLAMA": "1", "FAKE_FIT": "yes"}
+
+	modelHW = func() detect.LocalHW { return detect.LocalHW{RAMKnown: true, RAMTotalMiB: 2048, MemLimitMiB: 2048} }
+	_, err = r.run(t, "serve", "tiny")
+	require.Error(t, err, "the runtime said yes, but roger's sum is over the container's limit")
+	require.Contains(t, err.Error(), "memory limit of 2.0 GiB")
+	_, live := r.home.Live()
+	require.False(t, live, "nothing was started")
+
+	modelHW = func() detect.LocalHW { return detect.LocalHW{RAMKnown: true, RAMTotalMiB: 2048} }
+	out, err := r.run(t, "serve", "tiny")
+	require.NoError(t, err, "no limit: the runtime's answer wins")
+	require.Contains(t, out, "by llama.cpp's own check")
+}

@@ -243,3 +243,40 @@ func TestTheMemoryLimitIsReadFromRogersOwnCgroupAndItsParents(t *testing.T) {
 	delete(files, "/sys/fs/cgroup/system.slice/memory.max")
 	require.Equal(t, 128000, detectLocalHW().RAMTotalMiB, "a path that climbs out is not followed")
 }
+
+// Finding 5b, ruled 2026-10-27: the machine says which limit it read, so the verdict can hold roger's
+// sum against it. No limit, "max", an unreadable file and a limit above the host's RAM are all none;
+// a nested limit is the tightest on the way to the root.
+func TestTheContainerLimitIsRecordedOnlyWhenOneHolds(t *testing.T) {
+	files := map[string]string{}
+	origRun, origRead, origDisk := hwRun, hwReadFile, hwDiskFreeMiB
+	t.Cleanup(func() { hwRun, hwReadFile, hwDiskFreeMiB = origRun, origRead, origDisk })
+	hwRun = noTools
+	hwDiskFreeMiB = func(string) (int, bool) { return 100000, true }
+	hwReadFile = func(p string) ([]byte, error) {
+		if v, ok := files[p]; ok {
+			if v == "UNREADABLE" {
+				return nil, os.ErrPermission
+			}
+			return []byte(v), nil
+		}
+		return nil, os.ErrNotExist
+	}
+	files["/proc/meminfo"] = "MemTotal: 131072000 kB\n"
+	require.Zero(t, detectLocalHW().MemLimitMiB, "no cgroup memory file: no limit")
+	files["/sys/fs/cgroup/memory.max"] = "max\n"
+	require.Zero(t, detectLocalHW().MemLimitMiB, "max: no limit")
+	files["/sys/fs/cgroup/memory.max"] = "UNREADABLE"
+	require.Zero(t, detectLocalHW().MemLimitMiB, "an unreadable file: no limit")
+	files["/sys/fs/cgroup/memory.max"] = "274877906944\n"
+	require.Zero(t, detectLocalHW().MemLimitMiB, "above the host's RAM: no limit")
+	files["/sys/fs/cgroup/memory.max"] = "8589934592\n"
+	require.Equal(t, 8192, detectLocalHW().MemLimitMiB)
+
+	files["/proc/self/cgroup"] = "0::/system.slice/roger-edge.service\n"
+	files["/sys/fs/cgroup/system.slice/roger-edge.service/memory.max"] = "8589934592\n"
+	files["/sys/fs/cgroup/system.slice/memory.max"] = "4294967296\n"
+	hw := detectLocalHW()
+	require.Equal(t, 4096, hw.MemLimitMiB, "nested: a parent's tighter limit holds")
+	require.Equal(t, 4096, hw.RAMTotalMiB)
+}

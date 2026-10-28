@@ -83,7 +83,7 @@ func detectLocalHW() detect.LocalHW {
 		if limit, ok := hwMemoryLimitMiB(); ok && limit < hw.RAMTotalMiB {
 			hw.Note(fmt.Sprintf("system RAM: this machine runs under a memory limit of %d MiB (its cgroup), "+
 				"less than the %d MiB the host has - the limit is what a model can use", limit, hw.RAMTotalMiB))
-			hw.RAMTotalMiB = limit
+			hw.RAMTotalMiB, hw.MemLimitMiB = limit, limit
 		}
 	}
 

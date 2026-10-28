@@ -25,6 +25,9 @@ type Budget struct {
 	Why   string    // when Bytes is zero: the reading that failed
 	BW    Bandwidth // how fast this pool reads, for how fast a model answers
 	Note  string    // why this pool and not another the machine has, when that is not obvious
+	// LimitBytes is the container memory limit that governs this pool, or 0 when none does (finding
+	// 5b, ruled 2026-10-27): only then is roger's own sum held against it beside the runtime's answer.
+	LimitBytes int64
 }
 
 // Known reports whether there is a budget at all.
@@ -41,7 +44,8 @@ func budgetFor(hw detect.LocalHW, offloads bool, measure func(ramMiB int) Bandwi
 	const mib = int64(1) << 20
 	switch {
 	case hw.UnifiedMemory && hw.RAMKnown:
-		return Budget{Bytes: int64(hw.RAMTotalMiB) * mib, Pool: "unified memory", BW: bandwidthOf(hw, measure)}
+		return Budget{Bytes: int64(hw.RAMTotalMiB) * mib, Pool: "unified memory", BW: bandwidthOf(hw, measure),
+			LimitBytes: int64(hw.MemLimitMiB) * mib}
 	case offloads && hw.VRAMKnown && hw.VRAMTotalMiB > 0:
 		pool := "video memory"
 		if len(hw.GPUs) > 1 {
@@ -51,7 +55,8 @@ func budgetFor(hw detect.LocalHW, offloads bool, measure func(ramMiB int) Bandwi
 		}
 		return Budget{Bytes: int64(hw.VRAMTotalMiB) * mib, Pool: pool, BW: bandwidthOf(hw, measure)}
 	case hw.RAMKnown && hw.RAMTotalMiB > 0:
-		b := Budget{Bytes: int64(hw.RAMTotalMiB) * mib, Pool: "system memory", BW: measure(hw.RAMTotalMiB)}
+		b := Budget{Bytes: int64(hw.RAMTotalMiB) * mib, Pool: "system memory", BW: measure(hw.RAMTotalMiB),
+			LimitBytes: int64(hw.MemLimitMiB) * mib}
 		if !offloads && len(hw.GPUs) > 0 {
 			b.Note = "the runtime roger starts here runs on the CPU, so a model lives in system memory, not on the GPU"
 		}
@@ -75,6 +80,7 @@ type Verdict struct {
 	Pace   Pace // how fast it would answer: a separate claim, never folded into Fit
 
 	ByRuntime bool   // the runtime's own check answered, on the file on disk
+	OverLimit bool   // the runtime said yes, but roger's sum is over the container limit (finding 5b)
 	Unasked   string // why the runtime could not be asked, when this is roger's estimate of a file on disk
 }
 
@@ -98,6 +104,16 @@ func (v Verdict) Settled(f runtime.Fitted, err error) Verdict {
 	out.Need.Total = out.Need.Weights + out.Need.KV + out.Need.Compute + out.Need.Headroom
 	if !f.Fits {
 		out.Fit, out.MaxCtx, out.Why = catalog.FitWontFit, f.MaxCtx, f.Said
+		return out
+	}
+	// Finding 5b (ruled 2026-10-27): the runtime judged the memory it sees as free, which under a
+	// container limit is the host's. Only then is roger's own sum held against the limit, and the
+	// stricter verdict wins.
+	if lim := v.Budget.LimitBytes; lim > 0 && v.Need.Total > lim {
+		v.Fit, v.OverLimit = catalog.FitWontFit, true
+		v.Why = fmt.Sprintf("roger's sum is %s, over this machine's memory limit of %s (its container or cgroup); "+
+			"the runtime's own check counts the host's free memory, not the limit", BytesWord(v.Need.Total), BytesWord(lim))
+		return v
 	}
 	return out
 }
@@ -145,6 +161,9 @@ func (v Verdict) Line() string {
 		}
 		return fmt.Sprintf("fits at %s context by llama.cpp's own check: needs %s", ctxWord(v.Ctx),
 			BytesWord(v.Need.Total-v.Need.Headroom)) + MarginFree
+	}
+	if v.OverLimit {
+		return fmt.Sprintf("will not fit at %s context: %s", ctxWord(v.Ctx), v.Why)
 	}
 	if v.Unasked != "" {
 		return v.estimateLine() + " (roger's estimate - the runtime's own check could not run: " + v.Unasked + ")"

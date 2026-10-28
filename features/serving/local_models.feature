@@ -346,6 +346,11 @@ Feature: Roger can find, judge, fetch and serve a model from the wider world, on
   # 4. THE ARITHMETIC - the numbers behind "fit"
   # =========================================================================
 
+  # AMENDED 2026-10-27 (founder ruling on pre-push finding 5b): the runtime's answer wins EXCEPT when
+  # roger detects a container memory limit on the memory a model is judged against. The runtime judges
+  # the memory it sees as free, which inside a container or a limited cgroup is the host's, not the
+  # limit; so only then is roger's own sum held against the limit too, and the stricter verdict wins.
+  # Everywhere else the runtime's answer still wins. The scenarios that follow pin each case.
   @fit
   Scenario: the runtime's own fitness answer wins once the file is on disk
     Given a model already downloaded
@@ -353,6 +358,31 @@ Feature: Roger can find, judge, fetch and serve a model from the wider world, on
     Then it asks the runtime, which has a fitness pass of its own
     And it takes that answer rather than re-deriving one
     And our own estimate is used only BEFORE the file exists, where the runtime cannot be asked
+
+  @fit
+  Scenario Outline: under a container memory limit, the stricter of the two verdicts wins
+    Given a model already downloaded whose sum, by roger's arithmetic, is 6 GiB
+    And this machine's memory limit reads <limit>
+    And the runtime's own check says <runtime>
+    When roger judges whether it will run, before downloading, at "roger model serve", and in a serve started in the background
+    Then the verdict is <verdict>
+
+    Examples:
+      | limit                                                    | runtime     | verdict                                                          |
+      | no limit (no cgroup memory file)                         | it fits     | it fits, by the runtime's check                                  |
+      | no limit (no cgroup memory file)                         | it does not | it does not fit, by the runtime's check                          |
+      | "max" (cgroup v2) or v1's unlimited near 2^63            | it fits     | it fits, by the runtime's check: no limit is no limit            |
+      | unreadable (the cgroup files cannot be read)             | it fits     | it fits, by the runtime's check: an unread limit is no limit     |
+      | 16 GiB (above roger's 6 GiB sum)                         | it fits     | it fits, by the runtime's check                                  |
+      | 4 GiB (below roger's 6 GiB sum)                          | it fits     | it does not fit, naming the 4 GiB limit and roger's 6 GiB sum    |
+      | 4 GiB (below roger's 6 GiB sum)                          | it does not | it does not fit, by the runtime's check                          |
+      | 4 GiB on a parent cgroup of roger's own (nested), 8 on its own | it fits | it does not fit: the tightest limit on the way to the root counts |
+
+  @fit
+  Scenario: a container limit governs system memory, not a GPU's own memory
+    Given a machine under a 4 GiB container memory limit whose runtime offloads to a GPU with its own memory
+    When roger judges a model that fits on the GPU
+    Then the runtime's answer wins: a cgroup limit does not hold video memory
 
   @fit
   Scenario: a verdict that does not name its context is not a verdict
