@@ -379,10 +379,11 @@ Feature: Roger can find, judge, fetch and serve a model from the wider world, on
       | 4 GiB on a parent cgroup of roger's own (nested), 8 on its own | it fits | it does not fit: the tightest limit on the way to the root counts |
 
   @fit
-  Scenario: a container limit governs system memory, not a GPU's own memory
+  Scenario: under a GPU, the part of a model left in system memory is held to the container limit
     Given a machine under a 4 GiB container memory limit whose runtime offloads to a GPU with its own memory
-    When roger judges a model that fits on the GPU
-    Then the runtime's answer wins: a cgroup limit does not hold video memory
+    When the runtime's own check says a model fits, with the part it keeps in system memory named in its breakdown
+    Then a model that leaves 1 GiB in system memory fits, by the runtime's check
+    And one that leaves 6 GiB there does not, naming the 4 GiB limit and the 6 GiB the runtime keeps in system memory
 
   @fit
   Scenario: a verdict that does not name its context is not a verdict

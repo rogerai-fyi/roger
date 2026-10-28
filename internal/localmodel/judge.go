@@ -25,8 +25,10 @@ type Budget struct {
 	Why   string    // when Bytes is zero: the reading that failed
 	BW    Bandwidth // how fast this pool reads, for how fast a model answers
 	Note  string    // why this pool and not another the machine has, when that is not obvious
-	// LimitBytes is the container memory limit that governs this pool, or 0 when none does (finding
-	// 5b, ruled 2026-10-27): only then is roger's own sum held against it beside the runtime's answer.
+	// LimitBytes is the container memory limit this machine runs under, or 0 when none was read
+	// (finding 5b, ruled 2026-10-27): only then is the part of a model held in system memory checked
+	// against it beside the runtime's answer - all of it for system or unified memory, the runtime's
+	// Host row when the layers go to a GPU.
 	LimitBytes int64
 }
 
@@ -53,7 +55,8 @@ func budgetFor(hw detect.LocalHW, offloads bool, measure func(ramMiB int) Bandwi
 			// but it is a sum, and the owner should know that is what they are reading.
 			pool = fmt.Sprintf("video memory across %d GPUs", len(hw.GPUs))
 		}
-		return Budget{Bytes: int64(hw.VRAMTotalMiB) * mib, Pool: pool, BW: bandwidthOf(hw, measure)}
+		return Budget{Bytes: int64(hw.VRAMTotalMiB) * mib, Pool: pool, BW: bandwidthOf(hw, measure),
+			LimitBytes: int64(hw.MemLimitMiB) * mib}
 	case hw.RAMKnown && hw.RAMTotalMiB > 0:
 		b := Budget{Bytes: int64(hw.RAMTotalMiB) * mib, Pool: "system memory", BW: measure(hw.RAMTotalMiB),
 			LimitBytes: int64(hw.MemLimitMiB) * mib}
@@ -109,11 +112,23 @@ func (v Verdict) Settled(f runtime.Fitted, err error) Verdict {
 	// Finding 5b (ruled 2026-10-27): the runtime judged the memory it sees as free, which under a
 	// container limit is the host's. Only then is roger's own sum held against the limit, and the
 	// stricter verdict wins.
-	if lim := v.Budget.LimitBytes; lim > 0 && v.Need.Total > lim {
-		v.Fit, v.OverLimit = catalog.FitWontFit, true
-		v.Why = fmt.Sprintf("roger's sum is %s, over this machine's memory limit of %s (its container or cgroup); "+
-			"the runtime's own check counts the host's free memory, not the limit", BytesWord(v.Need.Total), BytesWord(lim))
-		return v
+	if lim := v.Budget.LimitBytes; lim > 0 {
+		host, what := v.Need.Total, "roger's sum is"
+		if strings.HasPrefix(v.Budget.Pool, "video memory") {
+			host, what = 0, "the runtime keeps"
+			for _, d := range f.Devices {
+				if n := strings.ToLower(d.Name); n == "host" || n == "cpu" {
+					host += d.Model + d.Context + d.Compute
+				}
+			}
+			what += " in system memory"
+		}
+		if host > lim {
+			v.Fit, v.OverLimit = catalog.FitWontFit, true
+			v.Why = fmt.Sprintf("%s %s, over this machine's memory limit of %s (its container or cgroup); "+
+				"the runtime's own check counts the host's free memory, not the limit", what, BytesWord(host), BytesWord(lim))
+			return v
+		}
 	}
 	return out
 }

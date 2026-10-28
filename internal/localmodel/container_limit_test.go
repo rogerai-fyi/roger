@@ -49,15 +49,28 @@ func TestUnderAContainerLimitTheStricterVerdictWins(t *testing.T) {
 	}
 }
 
-// A limit governs system memory: a budget in a GPU's own memory carries none, so the runtime's answer
-// stands there; system and unified memory carry the limit the machine reads.
-func TestAContainerLimitGovernsSystemMemoryNotVideoMemory(t *testing.T) {
+// Under a GPU the limit still holds the part of the model that stays in system memory: the runtime's
+// own breakdown names it (its Host row), and that part is held to the limit (founder ruling
+// 2026-10-27: whenever a limit is detected, the stricter verdict wins). Every pool a machine under a
+// limit is judged in carries the limit; a machine with none carries none.
+func TestUnderAGPUTheHostPartIsHeldToTheContainerLimit(t *testing.T) {
 	hw := detect.LocalHW{RAMKnown: true, RAMTotalMiB: 4096, MemLimitMiB: 4096, VRAMKnown: true, VRAMTotalMiB: 24576,
 		GPUs: []detect.LocalGPU{{Model: "card"}}}
-	require.Zero(t, budgetFor(hw, true, func(int) Bandwidth { return Bandwidth{} }).LimitBytes, "video memory: no cgroup limit")
-	require.Equal(t, 4*gib, budgetFor(hw, false, func(int) Bandwidth { return Bandwidth{} }).LimitBytes, "system memory: the limit")
-	hw.UnifiedMemory = true
-	require.Equal(t, 4*gib, budgetFor(hw, true, func(int) Bandwidth { return Bandwidth{} }).LimitBytes, "unified memory: the limit")
-	hw.MemLimitMiB, hw.UnifiedMemory = 0, false
-	require.Zero(t, budgetFor(hw, false, func(int) Bandwidth { return Bandwidth{} }).LimitBytes, "no limit read: none")
+	none := func(int) Bandwidth { return Bandwidth{} }
+	for name, b := range map[string]Budget{"video": budgetFor(hw, true, none), "system": budgetFor(hw, false, none)} {
+		require.Equal(t, 4*gib, b.LimitBytes, name)
+	}
+	hw.MemLimitMiB = 0
+	require.Zero(t, budgetFor(hw, true, none).LimitBytes, "no limit read: none")
+
+	video := Budget{Bytes: 24 * gib, Pool: "video memory", LimitBytes: 4 * gib}
+	split := func(host int64) runtime.Fitted {
+		return runtime.Fitted{Fits: true, Ctx: 8192, Devices: []runtime.DeviceUse{
+			{Name: "CUDA0", Model: 10 << 30, Context: 2 << 30}, {Name: "Host", Model: host}}}
+	}
+	ok := estimateNeeding(video, 12*gib).Settled(split(1*gib), nil)
+	require.NotEqual(t, catalog.FitWontFit, ok.Fit, "1 GiB in system memory is under the 4 GiB limit")
+	over := estimateNeeding(video, 12*gib).Settled(split(6*gib), nil)
+	require.Equal(t, catalog.FitWontFit, over.Fit, "6 GiB left in system memory is over the 4 GiB limit")
+	require.Contains(t, over.Line(), "memory limit of 4.0 GiB")
 }
