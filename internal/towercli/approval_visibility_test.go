@@ -89,6 +89,13 @@ func TestResolveAdvertisedIsHonest(t *testing.T) {
 	require.Contains(t, err.Error(), "does not resolve")
 	require.Contains(t, err.Error(), "IP address")
 
+	// This machine's own address is a seam here: the rules below must hold on a machine with no
+	// route out too (CI in a network namespace), so the real lookup is pinned by
+	// TestOutboundIPAnswersOrSaysWhy and stubbed for these.
+	prevOut := outboundIPFn
+	defer func() { outboundIPFn = prevOut }()
+	outboundIPFn = func() (string, error) { return "192.0.2.10", nil }
+
 	// 0.0.0.0 / :: are BIND wildcards, not reachable addresses - the --hub argument
 	// mistaken for --relay-public. Both mean "this machine", so they resolve to the
 	// outbound address exactly like the empty host, with a note that says why.
@@ -113,15 +120,26 @@ func TestResolveAdvertisedIsHonest(t *testing.T) {
 	// An empty host resolves to this machine's own address and SAYS which - the literal
 	// ":8444" made every node dial itself.
 	addr, note, err = resolveAdvertised(":8444")
-	if err != nil {
-		t.Skipf("no outbound address on this machine: %v", err)
-	}
+	require.NoError(t, err)
 	host, port, serr := net.SplitHostPort(addr)
 	require.NoError(t, serr)
 	require.Equal(t, "8444", port)
 	require.NotEmpty(t, host)
 	require.False(t, net.ParseIP(host).IsLoopback(), "the resolved address must be reachable by others")
 	require.Contains(t, note, host, "the choice is printed so a wrong guess is visible")
+
+	require.Equal(t, "192.0.2.10", host)
+
+	// A machine with no route out cannot name its own address: a wildcard is refused with the
+	// repair, never advertised as itself.
+	outboundIPFn = func() (string, error) { return "", fmt.Errorf("network is unreachable") }
+	for _, wildcard := range []string{":8444", "0.0.0.0:8444", "[::]:8444"} {
+		_, _, err := resolveAdvertised(wildcard)
+		require.Error(t, err, wildcard)
+		require.Contains(t, err.Error(), "bind wildcard")
+		require.Contains(t, err.Error(), "network is unreachable")
+		require.Contains(t, err.Error(), "pass the address explicitly")
+	}
 
 	// Garbage is a flag error, not a mystery later.
 	_, _, err = resolveAdvertised("not an address")

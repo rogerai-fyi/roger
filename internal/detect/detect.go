@@ -166,7 +166,21 @@ var (
 // It exists for test binaries: the gate runs every package's tests at once, and a test that runs the
 // real detection would otherwise probe every other package's test servers (CI, 2026-10-28). The
 // named defaults, the environment and explicit URLs are still probed.
-func DisablePortScan() { enumPorts = func() []int { return nil } }
+func DisablePortScan() { portScanOff = true }
+
+// PortScanDisabled reports whether DisablePortScan was called, so a test binary can prove it was.
+func PortScanDisabled() bool { return portScanOff }
+
+var portScanOff bool
+
+// scanPorts is the listening ports to probe: none once the scan is off, and then the host is not
+// even asked which ports are open.
+func scanPorts() []int {
+	if portScanOff {
+		return nil
+	}
+	return enumPorts()
+}
 
 // DetectFull gathers candidate endpoints from every source - explicit extra base URLs
 // FIRST (the --upstream / saved-config (e) source, each normalized to a /v1 base and
@@ -249,7 +263,7 @@ func detectWith(priority []candidate) (found []Found, needKey []string) {
 	// (d) real listening ports -> probe each on localhost for /v1/models. This is
 	// what finds a model on a CUSTOM port without a brute scan: the OS already
 	// knows which ports are open; we only probe those.
-	for _, port := range enumPorts() {
+	for _, port := range scanPorts() {
 		cands = append(cands, candidate{name: "port:" + strconv.Itoa(port), base: "http://127.0.0.1:" + strconv.Itoa(port) + "/v1"})
 	}
 

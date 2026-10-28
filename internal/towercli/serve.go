@@ -641,7 +641,7 @@ func resolveAdvertised(endpoint string) (addr, note string, err error) {
 	// mistaken for the thing you advertise. You cannot dial 0.0.0.0. Both mean "this
 	// machine", so resolve to the machine's own outbound address and say what happened.
 	if host == "" || (parsed != nil && parsed.IsUnspecified()) {
-		ip, derr := outboundIP()
+		ip, derr := outboundIPFn()
 		if derr != nil {
 			return "", "", fmt.Errorf("--relay-public %q is a bind wildcard, not a reachable address, "+
 				"and this machine's own address could not be determined (%v) - pass the address explicitly", endpoint, derr)
@@ -705,6 +705,10 @@ func classifyAdvertised(host string, ips []net.IP, named bool) string {
 	}
 	return ""
 }
+
+// outboundIPFn is outboundIP behind a seam, so the wildcard rules are tested on any machine,
+// including one with no route out at all.
+var outboundIPFn = outboundIP
 
 // outboundIP is the address this machine uses to reach the world: a UDP "dial" that
 // sends nothing and asks the kernel which source address it would pick.

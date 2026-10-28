@@ -16,6 +16,9 @@ import (
 )
 
 func TestNoTestHereProbesAPortItDidNotName(t *testing.T) {
+	// The guarantee itself, on any host: the scan is off for this whole binary (TestMain). The live
+	// check below is the symptom, and it can only see a port the scan would have reached.
+	require.True(t, detect.PortScanDisabled(), "TestMain turns the port scan off")
 	var hits atomic.Int32
 	bystander := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hits.Add(1)
