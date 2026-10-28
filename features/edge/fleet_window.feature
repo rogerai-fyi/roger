@@ -392,10 +392,19 @@ Feature: From the authority, every unit can be seen, judged and acted on without
     Given "pi" has the call "battery" standing
     When "pi" is heard within the liveness window, with no power report, a stale one, or a fresh one
       without the battery reading (its battery was taken out)
-    Then the call is closed with a line saying "pi no longer reports its power", in those words on
+    Then the call is closed with a line saying "pi no longer reports its battery level", in those words on
       every surface (the alert log, the sinks, the webhook, the events timeline, the trouble feed),
       never as a value
     But a node that has fallen silent keeps the call, swept dark or not yet: silence is no evidence
+
+  # Re-review 2026-10-27: a field missing on SOME beats is carried from the last report that had it,
+  # for the liveness window from when it was last read, so a flaky reading does not page.
+  @edge
+  Scenario: a reading missing on some beats does not page
+    Given "pi" has the call "battery" standing
+    When its battery level is missing from every other report
+    Then nothing is paged and the call stands
+    And once the battery level has been missing for longer than the liveness window, the call closes once
 
   @edge
   Scenario: a charging battery with no source named is on external power

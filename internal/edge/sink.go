@@ -327,7 +327,7 @@ func AlertWords(a Alert) string {
 		state = "CLEARED"
 	}
 	if a.Unreported {
-		return "ROGER EDGE " + state + " · " + a.Node + " · " + string(a.Metric) + " · " + a.Node + " no longer reports its power, so this call is closed"
+		return "ROGER EDGE " + state + " · " + a.Node + " · " + string(a.Metric) + " · " + a.Node + " no longer reports " + unreportedReading(a.Metric) + ", so this call is closed"
 	}
 	out := "ROGER EDGE " + state + " · " + a.Node + " · " + string(a.Metric)
 	if a.Metric != "" && a.Threshold != 0 {

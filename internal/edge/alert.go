@@ -328,7 +328,7 @@ func (a Alert) String() string {
 		return fmt.Sprintf("%s: %s is no longer throttled", state, a.Node)
 	}
 	if a.Unreported {
-		return fmt.Sprintf("%s: %s no longer reports its power, so this call is closed", state, a.Node)
+		return fmt.Sprintf("%s: %s no longer reports %s, so this call is closed", state, a.Node, unreportedReading(a.Metric))
 	}
 	switch a.Metric {
 	case MetricOnBattery:
@@ -355,6 +355,20 @@ func (a Alert) String() string {
 	unit := metricUnit(a.Metric)
 	return fmt.Sprintf("%s: %s %s %s%s (threshold %s %s%s)", state, a.Node, metricLabel(a.Metric),
 		fmtThreshold(a.Value), unit, a.Op, fmtThreshold(a.Threshold), unit)
+}
+
+// unreportedReading names the power reading a node stopped reporting, for an unreported close: the
+// node may still report its other readings in the same beat.
+func unreportedReading(m Metric) string {
+	switch m {
+	case MetricBattery, MetricBatteryCritical:
+		return "its battery level"
+	case MetricOnBattery:
+		return "its power source"
+	case MetricLowPower:
+		return "its low power mode"
+	}
+	return "its power"
 }
 
 // isPowerMetric is a metric read from the node's power report (presence v3 or its own readings).

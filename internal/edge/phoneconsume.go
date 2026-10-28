@@ -321,10 +321,6 @@ func (h *phoneConsume) admit(w http.ResponseWriter, r *http.Request, action stri
 	}
 	// 2. Signed, by the key its certificate names, over what its headers declare - nothing about the
 	//    caller's standing is consulted before this, so every failure here and below reads the same.
-	// A nonce's shape is said as such: it tells a caller nothing about who is enrolled here.
-	if !isLowerHex(p.Nonce, 32) {
-		return refuse(http.StatusForbidden, malformedNonce)
-	}
 	leaf, pub, okLeaf := p.leaf()
 	if !okLeaf || !isLowerHex(p.BodySHA, 64) || !p.signedOver(pub, action, p.BodySHA) {
 		return refuse(http.StatusForbidden, errNotVerified)

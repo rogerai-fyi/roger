@@ -332,5 +332,5 @@ func TestTheFeedSaysAPowerCallClosedBecauseItIsNoLongerReported(t *testing.T) {
 	}
 	require.NotNil(t, closed, body)
 	require.True(t, closed.Unreported)
-	require.Equal(t, "no longer reports its power", closed.When)
+	require.Equal(t, "no longer reports its power source", closed.When)
 }

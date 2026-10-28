@@ -591,12 +591,24 @@ func (f *Fleet) Observe(id string, obs Observation) (store.EdgeNode, error) {
 		if LooksLikeID(n.Name) && obs.Name != "" && !LooksLikeID(obs.Name) && ValidName(obs.Name) == nil {
 			n.Name = obs.Name
 		}
+		for i, in := range obs.Instances {
+			if in.Resources == nil || in.Resources.Power == nil {
+				continue
+			}
+			for _, was := range n.Instances {
+				if was.Name == in.Name && was.Resources != nil {
+					r := *in.Resources
+					r.Power = carryPower(was.Resources.Power, in.Resources.Power, now)
+					obs.Instances[i].Resources = &r
+				}
+			}
+		}
 		applyInstances(n, obs)
 		if obs.Phone != nil {
 			n.Phone = obs.Phone
 		}
 		if obs.Power != nil {
-			n.Power = obs.Power
+			n.Power = carryPower(n.Power, obs.Power, now)
 		}
 		n.Presence = string(PresenceVerified)
 		n.LastSeen = now
@@ -734,6 +746,51 @@ func datedPower(ins []Instance, now int64) []Instance {
 		out[i].Resources = &r
 	}
 	return out
+}
+
+// carryPower is next, with each field it left out copied from prev when prev's value was last read
+// within the liveness window: a field missing on SOME beats (a flaky fuel gauge, a status the kernel
+// reads as Unknown) does not page a close and a re-fire. A field gone longer than that stays gone,
+// and the call on it closes as unreported (re-review 2026-10-27).
+func carryPower(prev, next *store.EdgePower, now int64) *store.EdgePower {
+	if prev == nil || next == nil {
+		return next
+	}
+	out := *next
+	out.Carried = nil
+	carry := func(name string, has bool, set func()) {
+		if has {
+			return
+		}
+		at, ok := prev.Carried[name]
+		if !ok {
+			at = prev.ReadAt
+		}
+		if now-at > int64(DefaultTTL/time.Second) {
+			return
+		}
+		set()
+		if out.Carried == nil {
+			out.Carried = map[string]int64{}
+		}
+		out.Carried[name] = at
+	}
+	if prev.BatteryPct != nil {
+		carry("battery_pct", next.BatteryPct != nil, func() { out.BatteryPct = prev.BatteryPct })
+	}
+	if prev.Charging != nil {
+		carry("charging", next.Charging != nil, func() { out.Charging = prev.Charging })
+	}
+	if prev.Source != "" {
+		carry("source", next.Source != "", func() { out.Source = prev.Source })
+	}
+	if prev.LowPower != nil {
+		carry("low_power", next.LowPower != nil, func() { out.LowPower = prev.LowPower })
+	}
+	if prev.MinutesLeft != nil {
+		carry("minutes_left", next.MinutesLeft != nil, func() { out.MinutesLeft = prev.MinutesLeft })
+	}
+	return &out
 }
 
 func applyInstances(n *store.EdgeNode, obs Observation) {

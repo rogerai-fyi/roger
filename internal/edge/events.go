@@ -152,7 +152,7 @@ func alertEventDetail(a Alert) string {
 		return "heard again"
 	}
 	if a.Unreported {
-		return a.Node + " no longer reports its power"
+		return a.Node + " no longer reports " + unreportedReading(a.Metric)
 	}
 	if !a.Firing {
 		return fmt.Sprintf("%s, back under %s", FormatValue(a.Metric, a.Value), FormatValue(a.Metric, a.Threshold))

@@ -218,7 +218,7 @@ func (l AlertLog) feedFrom(hist []Alert, calls []TroubleCall, rate int, so SignO
 		if a.Test {
 			when = "TEST · " + a.RuleID
 		} else if a.Unreported {
-			when = "no longer reports its power"
+			when = "no longer reports " + unreportedReading(a.Metric)
 		} else if a.Op != "" {
 			when = fmt.Sprintf("%s %s %s", a.Metric, a.Op, fmtThreshold(a.Threshold))
 		}

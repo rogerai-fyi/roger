@@ -166,7 +166,7 @@ func TestAnUnreportedCloseReadsTheSameEverywhere(t *testing.T) {
 	low := a
 	low.Metric, low.Op, low.Threshold = MetricBattery, OpLT, 20
 	require.NotContains(t, AlertWords(low), "battery 0")
-	require.Contains(t, alertEventDetail(low), "no longer reports its power")
+	require.Contains(t, alertEventDetail(low), "no longer reports its battery level")
 	require.NotContains(t, alertEventDetail(low), "back under")
 	body, err := sinkBody(SinkWebhook, low)
 	require.NoError(t, err)
@@ -250,5 +250,87 @@ func TestADialedMembersPowerIsDatedHereAndBounded(t *testing.T) {
 		"a source not a word":  {BatteryPct: &pct, Source: "solar"},
 	} {
 		require.Nil(t, observe(p), name)
+	}
+}
+
+// Re-review 2026-10-27: a field that is missing on SOME beats (a flaky fuel gauge, a status the
+// kernel reads as Unknown) must not page fire, close, fire. A field missing from a report is carried
+// from the last report that had it, for the liveness window from when it was last read; only after
+// that is the call closed as unreported. Through the real path: Observe, FleetHealth, Evaluate, for a
+// node that pushes its power (presence) and for one whose instance reports it when dialed.
+func TestAFieldMissingOnSomeBeatsDoesNotFlap(t *testing.T) {
+	for _, via := range []string{"presence", "instance"} {
+		t.Run(via, func(t *testing.T) {
+			t0 := time.Now()
+			clock := t0
+			f := NewFleet(store.NewMem(), "acct-1")
+			f.SetClock(func() time.Time { return clock })
+			beat := func(withPct bool) {
+				src, no := "battery", false
+				p := &store.EdgePower{Charging: &no, Source: src, ReadAt: clock.Unix()}
+				if withPct {
+					pct := 12
+					p.BatteryPct = &pct
+				}
+				obs := Observation{Name: "pi", Kind: "host", Addr: "192.168.1.9:1", Fingerprint: "ab"}
+				if via == "presence" {
+					obs.Power = p
+				} else {
+					obs.Instances = []Instance{{Name: "serve", Resources: &store.EdgeResources{ReadAt: clock.Unix(), Power: p}}}
+				}
+				_, err := f.Observe("n_pi", obs)
+				require.NoError(t, err)
+			}
+			rules := RuleSet(DefaultRules())
+			var st AlertState
+			pages := 0
+			judge := func() []Alert {
+				hs, err := FleetHealth(f, clock)
+				require.NoError(t, err)
+				var alerts []Alert
+				st, alerts = Evaluate(rules, hs, st, clock)
+				pages += len(alerts)
+				return alerts
+			}
+			beat(true)
+			judge()
+			require.True(t, st.Firing("battery", "n_pi"))
+			pages = 0
+			for i := 1; i <= 6; i++ { // the gauge fails every other beat
+				clock = t0.Add(time.Duration(i) * 30 * time.Second)
+				beat(i%2 == 0)
+				judge()
+			}
+			require.Zero(t, pages, "a field missing on some beats paged")
+			require.True(t, st.Firing("battery", "n_pi"))
+
+			// The battery is really gone: missing beat after beat, past the window from its last reading.
+			last := clock
+			var closed []Alert
+			for clock.Sub(last) <= DefaultTTL+time.Minute {
+				clock = clock.Add(30 * time.Second)
+				beat(false)
+				closed = append(closed, judge()...)
+			}
+			require.Len(t, closed, 1, "closed once")
+			require.True(t, closed[0].Unreported)
+			require.False(t, st.Firing("battery", "n_pi"))
+		})
+	}
+}
+
+// Re-review 2026-10-27: an unreported close names the reading that went, since the node may still
+// report its other power readings in the same beat.
+func TestAnUnreportedCloseNamesTheReadingThatWent(t *testing.T) {
+	for m, want := range map[Metric]string{
+		MetricBattery:         "pi no longer reports its battery level",
+		MetricBatteryCritical: "pi no longer reports its battery level",
+		MetricOnBattery:       "pi no longer reports its power source",
+		MetricLowPower:        "pi no longer reports its low power mode",
+	} {
+		a := Alert{At: time.Now(), RuleID: string(m), NodeID: "n_pi", Node: "pi", Metric: m, Unreported: true}
+		require.Contains(t, a.String(), want, m)
+		require.Contains(t, AlertWords(a), want, m)
+		require.Contains(t, alertEventDetail(a), want, m)
 	}
 }

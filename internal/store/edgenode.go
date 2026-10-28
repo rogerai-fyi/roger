@@ -162,6 +162,9 @@ type EdgePower struct {
 	LowPower    *bool  `json:"low_power,omitempty"`    // the OS energy-saver / Low Power Mode is on
 	MinutesLeft *int   `json:"minutes_left,omitempty"` // the OS estimate of time remaining, when it gives one
 	ReadAt      int64  `json:"read_at,omitempty"`
+	// Carried names each field copied from an earlier report because this one left it out, with
+	// when it was last actually read (edge.CarryPower). A field read in this report is not in it.
+	Carried map[string]int64 `json:"carried,omitempty"`
 }
 
 // Empty reports whether p says nothing at all.
