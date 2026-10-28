@@ -90,3 +90,17 @@ test("the superseded major-version path is still served", () => {
   assert.ok(m, `no go-import meta tag on the ${LEGACY_MAJOR} page`);
   assert.equal(m[1].trim().split(/\s+/)[0], `rogerai.fm/roger/${LEGACY_MAJOR}`);
 });
+
+// The next major is served BEFORE its first tag. Go fetches https://rogerai.fm/roger/v7?go-get=1
+// the moment anyone runs `go install rogerai.fm/roger/v7/...`, and a tag pushed before this page is
+// live resolves nothing. Shipping the page first is the order the v6 move set (release notes).
+const NEXT_MAJOR = "v7";
+test("the next major-version path is served ahead of its tag", () => {
+  const next = path.join(DIST, "roger", NEXT_MAJOR, "index.html");
+  assert.ok(existsSync(next), `dist/roger/${NEXT_MAJOR}/index.html is missing`);
+  const html = readFileSync(next, "utf8");
+  const m = /<meta\s+name="go-import"\s+content="([^"]+)"/.exec(html);
+  assert.ok(m, `no go-import meta tag on the ${NEXT_MAJOR} page`);
+  assert.equal(m[1].trim().split(/\s+/)[0], `rogerai.fm/roger/${NEXT_MAJOR}`);
+  assert.ok(html.includes(`<link rel="canonical" href="https://rogerai.fm/roger/${NEXT_MAJOR}/">`), "the canonical is the next major's own path");
+});

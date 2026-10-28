@@ -248,7 +248,8 @@ test("the vanity-import redirect is scoped to the apex and preserves the go-get 
   // Sorted, so the majors read in order. The superseded major stays covered: its tags
   // still name it in go.mod, so dropping it would break `go install .../v5/...` for
   // everyone who has not migrated.
-  assert.deepEqual(covered, ["/roger", "/roger/v5", "/roger/v6"]);
+  // The next major is covered before its first tag, so that tag resolves the moment it exists.
+  assert.deepEqual(covered, ["/roger", "/roger/v5", "/roger/v6", "/roger/v7"]);
 
   const from = rule.action_parameters.from_value;
   assert.equal(from.status_code, 301, "a permanent move, so the module path is cacheable");
