@@ -1,6 +1,6 @@
 // vanity-import.test.mjs asserts the built site can actually resolve the Go module path.
 //
-// `go get rogerai.fm/roger/v6` fetches https://rogerai.fm/roger/v6?go-get=1 and reads a go-import
+// `go get rogerai.fm/roger/v7` fetches https://rogerai.fm/roger/v7?go-get=1 and reads a go-import
 // meta tag out of the response. If that document is missing from dist/, the module is
 // unbuildable for everyone outside this checkout, and nothing else in the suite would notice.
 
@@ -11,10 +11,10 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 const DIST = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "dist");
-const MODULE_PATH = "rogerai.fm/roger/v6";
-// The superseded major still has to be served: its tags name it in go.mod, so it keeps
-// resolving for anyone who has not migrated. Dropping the page would break their builds.
-const LEGACY_MAJOR = "v5";
+const MODULE_PATH = "rogerai.fm/roger/v7";
+// The superseded majors still have to be served: their tags name them in go.mod, so they keep
+// resolving for anyone who has not migrated. Dropping a page would break their builds.
+const LEGACY_MAJORS = ["v5", "v6"];
 const PAGE = path.join(DIST, "roger", "index.html");
 const ROOT_PREFIX = "rogerai.fm/roger";
 
@@ -54,15 +54,16 @@ test("the import path does not depend on the code host", () => {
 });
 
 test("the major-version path serves the tag too", () => {
-  // Go fetches the FULL module path, so https://rogerai.fm/roger/v6?go-get=1 must answer.
-  // Serving only /roger would resolve nothing for `go install rogerai.fm/roger/v6/...`.
-  const versioned = path.join(DIST, "roger", "v6", "index.html");
-  assert.ok(existsSync(versioned), "dist/roger/v6/index.html is missing");
+  // Go fetches the FULL module path, so https://rogerai.fm/roger/v7?go-get=1 must answer.
+  // Serving only /roger would resolve nothing for `go install rogerai.fm/roger/v7/...`.
+  const versioned = path.join(DIST, "roger", "v7", "index.html");
+  assert.ok(existsSync(versioned), "dist/roger/v7/index.html is missing");
 
   const html = readFileSync(versioned, "utf8");
   const m = /<meta\s+name="go-import"\s+content="([^"]+)"/.exec(html);
   assert.ok(m, "no go-import meta tag on the versioned page");
   assert.equal(m[1].trim().split(/\s+/)[0], MODULE_PATH);
+  assert.ok(html.includes(`<link rel="canonical" href="https://${MODULE_PATH}/">`), "the canonical is the module path's own page");
 });
 
 test("the module path carries the major-version suffix", () => {
@@ -78,29 +79,17 @@ test("the module path carries the major-version suffix", () => {
 // This is a guard rather than a comment because the failure is invisible from inside the
 // repo: everything here builds, the current major resolves, and the break lands only on
 // somebody else's machine who has not migrated yet.
-test("the superseded major-version path is still served", () => {
-  const legacy = path.join(DIST, "roger", LEGACY_MAJOR, "index.html");
-  assert.ok(
-    existsSync(legacy),
-    `dist/roger/${LEGACY_MAJOR}/index.html is missing: removing it breaks ` +
-      `\`go install rogerai.fm/roger/${LEGACY_MAJOR}/...\` for everyone still on it`,
-  );
-  const html = readFileSync(legacy, "utf8");
-  const m = /<meta\s+name="go-import"\s+content="([^"]+)"/.exec(html);
-  assert.ok(m, `no go-import meta tag on the ${LEGACY_MAJOR} page`);
-  assert.equal(m[1].trim().split(/\s+/)[0], `rogerai.fm/roger/${LEGACY_MAJOR}`);
-});
-
-// The next major is served BEFORE its first tag. Go fetches https://rogerai.fm/roger/v7?go-get=1
-// the moment anyone runs `go install rogerai.fm/roger/v7/...`, and a tag pushed before this page is
-// live resolves nothing. Shipping the page first is the order the v6 move set (release notes).
-const NEXT_MAJOR = "v7";
-test("the next major-version path is served ahead of its tag", () => {
-  const next = path.join(DIST, "roger", NEXT_MAJOR, "index.html");
-  assert.ok(existsSync(next), `dist/roger/${NEXT_MAJOR}/index.html is missing`);
-  const html = readFileSync(next, "utf8");
-  const m = /<meta\s+name="go-import"\s+content="([^"]+)"/.exec(html);
-  assert.ok(m, `no go-import meta tag on the ${NEXT_MAJOR} page`);
-  assert.equal(m[1].trim().split(/\s+/)[0], `rogerai.fm/roger/${NEXT_MAJOR}`);
-  assert.ok(html.includes(`<link rel="canonical" href="https://rogerai.fm/roger/${NEXT_MAJOR}/">`), "the canonical is the next major's own path");
-});
+for (const legacyMajor of LEGACY_MAJORS) {
+  test(`the superseded major-version path ${legacyMajor} is still served`, () => {
+    const legacy = path.join(DIST, "roger", legacyMajor, "index.html");
+    assert.ok(
+      existsSync(legacy),
+      `dist/roger/${legacyMajor}/index.html is missing: removing it breaks ` +
+        `\`go install rogerai.fm/roger/${legacyMajor}/...\` for everyone still on it`,
+    );
+    const html = readFileSync(legacy, "utf8");
+    const m = /<meta\s+name="go-import"\s+content="([^"]+)"/.exec(html);
+    assert.ok(m, `no go-import meta tag on the ${legacyMajor} page`);
+    assert.equal(m[1].trim().split(/\s+/)[0], `rogerai.fm/roger/${legacyMajor}`);
+  });
+}

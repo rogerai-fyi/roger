@@ -2,9 +2,10 @@ package localplane
 
 // join.go is POST /local/join (features/join/invite.feature): a joiner presents proof of an
 // invite's code, signed with its own key and a fresh nonce, and the Tower admits it as a client or
-// attaches it as a Station. Every refusal is the uniform 401, except a right code presented for
-// the wrong kind, which names the kind it is for (the joiner already holds the code, so that is
-// no oracle) and does not spend the invite.
+// attaches it as a Station. Every refusal is the uniform 401, except where the joiner has proved the
+// code (so naming the reason is no oracle): 403 for an invite of the other kind, 409 for a Station
+// name another Station's key holds (neither spends the invite), and 410 for an invite already spent
+// or expired.
 
 import (
 	"bytes"
