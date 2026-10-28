@@ -387,10 +387,11 @@ func BandRangeFor(broker, model string) (BandRange, bool) {
 }
 
 // routedStation is the station a session's routing (--node / --order, --only, --exclude) has the
-// router try first for model, and how the preview says why; ok=false when the routing pins nothing
-// on air, so the preview names the cheapest station as before. An --order station is tried first
-// when it is on air, allowed and within the out-price cap (maxOut, 0 = none); otherwise the router
-// falls back to the cheapest it allows.
+// router try first for model, and how the preview says why; ok=false when the routing pins nothing,
+// so the preview names the cheapest station as before. An --order station is tried first when it is
+// on air, allowed and within the out-price cap (maxOut, 0 = none); otherwise the router falls back
+// to the cheapest it allows, unless fallbacks are off (--node). When the routing allows no station
+// on air, ok is true and the Offer's NodeID is empty.
 func routedStation(offers []Offer, model string, maxOut float64, opt UseOptions) (Offer, string, bool) {
 	if len(opt.Prefer) == 0 && len(opt.Only) == 0 && len(opt.ExcludeNodes) == 0 {
 		return Offer{}, "", false
@@ -407,8 +408,8 @@ func routedStation(offers []Offer, model string, maxOut float64, opt UseOptions)
 			return allowed[i], "pinned by your routing", true
 		}
 	}
-	if len(allowed) == 0 {
-		return Offer{}, "", false
+	if len(allowed) == 0 || (opt.NoFallbacks && len(opt.Prefer) > 0) {
+		return Offer{}, "", true // nothing the routing allows is on air: an empty NodeID says so
 	}
 	cheapest := slices.MinFunc(allowed, func(a, b Offer) int { return cmp.Compare(a.PriceOut, b.PriceOut) })
 	return cheapest, "the cheapest your routing allows", true

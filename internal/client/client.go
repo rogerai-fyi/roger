@@ -2008,6 +2008,7 @@ func Use(broker, user, model string, opt UseOptions) error {
 	}
 	in := useStdin
 	var locked BandRange // the station we resolve + confirm (used for the staged lock)
+	noneAllowed := false // the routing pins stations and none it allows is on air
 	_ = defaultedCap
 	// A variant suffix on the positional (`qwen3-32b:free`) rides to the broker in the body;
 	// discovery and the plate read the bare band and name the mark.
@@ -2070,18 +2071,27 @@ func Use(broker, user, model string, opt UseOptions) error {
 		// session's routing tries first: the cheapest, unless --node / --order / --only /
 		// --exclude pins another (live E2E 2026-10-28); its price is the one quoted below.
 		why, cheapest := "the strongest match", "   (cheapest)"
-		if o, w, pinned := routedStation(offers, band, maxOut, opt); pinned {
+		o, w, pinned := routedStation(offers, band, maxOut, opt)
+		noneAllowed = pinned && o.NodeID == ""
+		if pinned && !noneAllowed {
 			locked.CheapNode, locked.CheapTPS, locked.CheapIn, locked.Min = o.NodeID, o.TPS, o.PriceIn, o.PriceOut
 			why, cheapest = w, ""
 		}
 		fmt.Printf("\n  tune in to  %s%s\n", band, mark)
-		if br.Stations == 1 {
+		if noneAllowed {
+			// A --node station never falls back, and --only / --exclude / the cap can leave
+			// nothing: name no station and quote no price the session would not pay.
+			fmt.Printf("    live range     %s   (%d on air)\n", rangeLabel(br), br.Stations)
+			fmt.Printf("    station        none your routing allows is on air right now (--node, --only, --exclude, your max-out)\n")
+		} else if br.Stations == 1 {
 			fmt.Printf("    price now      %.2f $/1M out   ·   %.2f $/1M in\n", locked.Min, locked.CheapIn)
 		} else {
 			fmt.Printf("    live range     %s   (%d stations on air)\n", rangeLabel(br), br.Stations)
 			fmt.Printf("    price now      %.2f $/1M out   ·   %.2f $/1M in%s\n", locked.Min, locked.CheapIn, cheapest)
 		}
-		fmt.Printf("    station        @%s   %s   (%s)\n", locked.CheapNode, tpsLabel(locked.CheapTPS), why)
+		if !noneAllowed {
+			fmt.Printf("    station        @%s   %s   (%s)\n", locked.CheapNode, tpsLabel(locked.CheapTPS), why)
+		}
 		if maxOut > 0 {
 			note := "(within limit)"
 			if defaultedCap {
@@ -2089,8 +2099,10 @@ func Use(broker, user, model string, opt UseOptions) error {
 			}
 			fmt.Printf("    your max       %.2f $/1M out   %s\n", maxOut, note)
 		}
-		fmt.Printf("    est. cost      ~ $%.6f / typical reply  (~%d out tokens)\n", estReplyCost(locked.Min, typical), typical)
-		if bal := balanceOf(broker, user); bal >= 0 {
+		if !noneAllowed {
+			fmt.Printf("    est. cost      ~ $%.6f / typical reply  (~%d out tokens)\n", estReplyCost(locked.Min, typical), typical)
+		}
+		if bal := balanceOf(broker, user); bal >= 0 && !noneAllowed {
 			per100 := estReplyCost(locked.Min, typical) * 100
 			fmt.Printf("                   ~ $%.6f / 100 replies        balance $%.4f\n", per100, bal)
 		}
@@ -2101,7 +2113,7 @@ func Use(broker, user, model string, opt UseOptions) error {
 		// be waved through by a reflexive yes. A --yes/headless caller is still bounded by
 		// the relay's enforced max-out cap, so it cannot silently overpay either.
 		if !opt.Yes {
-			if locked.Min > ConsumerConfirmThreshold {
+			if !noneAllowed && locked.Min > ConsumerConfirmThreshold {
 				fmt.Printf("\n  this station is %.2f $/1M out - above the $%.0f confirm line.\n", locked.Min, ConsumerConfirmThreshold)
 				fmt.Printf("  to confirm, TYPE THE OUT-PRICE exactly (%.2f), or blank to abort: ", locked.Min)
 				line, _ := readLine(in)
@@ -2138,9 +2150,15 @@ func Use(broker, user, model string, opt UseOptions) error {
 		verified = "  " + glyphVerify + " verified"
 	}
 	fmt.Printf("\n  %s scanning stations ... ok\n", glyphOnAir)
-	fmt.Printf("  %s locking strongest @%s · %s · %.2f $/M ... ok\n", glyphOnAir, locked.CheapNode, tpsLabel(locked.CheapTPS), locked.Min)
+	via := "@" + locked.CheapNode
+	if noneAllowed {
+		via = "your routing"
+		fmt.Printf("  %s locking: no station your routing allows is on air yet; replies route once one is\n", glyphOnAir)
+	} else {
+		fmt.Printf("  %s locking strongest @%s · %s · %.2f $/M ... ok\n", glyphOnAir, locked.CheapNode, tpsLabel(locked.CheapTPS), locked.Min)
+	}
 	fmt.Printf("  %s lineage handshake %s weights·shard·token ... ok\n", glyphOnAir, glyphVerify)
-	fmt.Printf("  %s CHANNEL OPEN %s via @%s%s\n", glyphOnAir, model, locked.CheapNode, verified)
+	fmt.Printf("  %s CHANNEL OPEN %s via %s%s\n", glyphOnAir, model, via, verified)
 	// A per-session bearer key (the hardened proxy enforces Authorization on every route), the
 	// tuned band's model (the proxy rewrites any incoming model to it), and NO session spend cap
 	// (Budget 0 = unlimited - `roger use` is a single-user, hands-on flow; the guest-operator
