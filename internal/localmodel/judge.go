@@ -117,7 +117,7 @@ func (v Verdict) Settled(f runtime.Fitted, err error) Verdict {
 		if strings.HasPrefix(v.Budget.Pool, "video memory") {
 			host, what = 0, "the runtime keeps"
 			for _, d := range f.Devices {
-				if n := strings.ToLower(d.Name); n == "host" || n == "cpu" {
+				if n := strings.ToLower(d.Name); n == "host" || n == "cpu" || strings.HasPrefix(n, "cpu_") || strings.HasSuffix(n, "_host") {
 					host += d.Model + d.Context + d.Compute
 				}
 			}

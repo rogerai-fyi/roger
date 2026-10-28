@@ -74,3 +74,15 @@ func TestUnderAGPUTheHostPartIsHeldToTheContainerLimit(t *testing.T) {
 	require.Equal(t, catalog.FitWontFit, over.Fit, "6 GiB left in system memory is over the 4 GiB limit")
 	require.Contains(t, over.Line(), "memory limit of 4.0 GiB")
 }
+
+// Re-review 2026-10-27: every row a runtime prints for memory in system RAM counts (pinned host
+// buffers and mapped CPU buffers included), never a GPU's own row.
+func TestEveryHostResidentRowCountsAgainstTheLimit(t *testing.T) {
+	video := Budget{Bytes: 24 * gib, Pool: "video memory across 2 GPUs", LimitBytes: 4 * gib}
+	for _, name := range []string{"Host", "CPU", "CPU_Mapped", "CUDA_Host", "CUDA0_Host"} {
+		f := runtime.Fitted{Fits: true, Ctx: 8192, Devices: []runtime.DeviceUse{{Name: "CUDA0", Model: 20 << 30}, {Name: name, Model: 5 << 30}}}
+		require.Equal(t, catalog.FitWontFit, estimateNeeding(video, 25*gib).Settled(f, nil).Fit, name)
+	}
+	f := runtime.Fitted{Fits: true, Ctx: 8192, Devices: []runtime.DeviceUse{{Name: "CUDA0", Model: 20 << 30}, {Name: "CUDA1", Model: 5 << 30}}}
+	require.NotEqual(t, catalog.FitWontFit, estimateNeeding(video, 25*gib).Settled(f, nil).Fit, "GPU rows are not system memory")
+}
