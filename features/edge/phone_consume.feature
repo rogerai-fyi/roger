@@ -145,6 +145,15 @@ Feature: a phone uses the Edge's models through its authority
     When the phone sends any /edge/phone/* request to the plain listener
     Then it is refused with 503, saying a phone's requests are served only over TLS, and nothing is relayed
 
+  # Adversarial review 2026-10-27: the one refusal that can be retried as it was is "busy". A request
+  # refused after it was taken in (the member did not answer, the target went dark, the body was late
+  # or too large or not the one declared) spent its nonce, and the app signs a fresh one to retry.
+  @ios @security
+  Scenario: a turn refused after it was taken in is signed again to retry
+    Given the member serving the band did not answer the phone's turn
+    When the phone sends the very same request again
+    Then it is refused as already seen, so the app retries with a freshly signed request
+
   @ios @security
   Scenario: a turn refused for being busy can be sent again as it was
     Given "pocket" has two turns streaming

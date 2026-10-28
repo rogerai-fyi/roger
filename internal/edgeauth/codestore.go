@@ -43,6 +43,9 @@ func (l *Local) SetNow(now func() time.Time) { l.iss.cfg.Now = now }
 
 func (l *Local) now() time.Time { return l.iss.cfg.Now() }
 
+// codeClockSkew is how far in the future a code's date may be and still count as live.
+const codeClockSkew = time.Minute
+
 // readCodes returns the live codes, dropping any that have expired. Unlocked; callers hold l.mu.
 func (l *Local) readCodes() ([]enrollCode, error) {
 	var got []enrollCode
@@ -52,7 +55,9 @@ func (l *Local) readCodes() ([]enrollCode, error) {
 	now := l.now()
 	live := got[:0]
 	for _, c := range got {
-		if c.At > 0 && now.Sub(time.Unix(c.At, 0)) <= CodeLifetime {
+		// Not older than its lifetime, and not dated in the future past a little skew: a code minted
+		// while this clock ran ahead would otherwise outlive its fifteen minutes once corrected.
+		if age := now.Sub(time.Unix(c.At, 0)); c.At > 0 && age <= CodeLifetime && age >= -codeClockSkew {
 			live = append(live, c)
 		}
 	}

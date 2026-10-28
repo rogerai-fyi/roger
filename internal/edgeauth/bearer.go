@@ -141,13 +141,17 @@ func (l *Local) bearerFind(r Request) (string, bool, error) {
 			newest = i
 		}
 	}
+	// A codes file from before spends were dated has no order to go by: every code this key spent
+	// is checked (still bounded: codes expire with their fifteen minutes).
+	unordered := newest >= 0 && got[newest].SpentAt == 0
 	tried := false
 	for i, c := range got {
 		if !strings.HasPrefix(c.Join, bearerPrefix) {
 			continue
 		}
 		live := c.SpentBy == "" && (c.For == "" || c.For == r.NodeID)
-		if i != newest && !live {
+		mine := c.SpentBy != "" && c.SpentBy == r.UserKey
+		if i != newest && !live && !(unordered && mine) {
 			continue
 		}
 		tried = tried || live

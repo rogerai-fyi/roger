@@ -7,6 +7,9 @@ package edgeauth_test
 
 import (
 	"crypto/ed25519"
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -251,4 +254,58 @@ func TestTwoSpendsInOneSecondAreStillOrderedBySpend(t *testing.T) {
 	resp, err := local.Issue(retry)
 	require.NoError(t, err)
 	requireProof(t, a, resp, retry.Nonce)
+}
+
+// Adversarial review 2026-10-27: a codes file from before spent_at was recorded (every SpentAt 0)
+// has no spend order, so every invite the key spent is checked, and the retry is still proven.
+func TestALegacyCodesFileWithNoSpendTimesStillProvesTheRetry(t *testing.T) {
+	dir := t.TempDir()
+	local, err := edgeauth.Designate(dir, "shed")
+	require.NoError(t, err)
+	_, user := keypair(t)
+	node, _ := keypair(t)
+	a, err := local.MintBearerCode()
+	require.NoError(t, err)
+	b, err := local.MintBearerCode()
+	require.NoError(t, err)
+	_, err = local.Issue(proven(t, local, user, node, b))
+	require.NoError(t, err)
+	_, err = local.Issue(proven(t, local, user, node, a)) // a is spent last
+	require.NoError(t, err)
+	var path string
+	_ = filepath.Walk(dir, func(p string, _ os.FileInfo, _ error) error {
+		if filepath.Base(p) == edgeauth.CodesFile {
+			path = p
+		}
+		return nil
+	})
+	raw, err := os.ReadFile(path)
+	require.NoError(t, err)
+	var got []map[string]any
+	require.NoError(t, json.Unmarshal(raw, &got))
+	for _, c := range got {
+		delete(c, "spent_at")
+	}
+	raw, err = json.Marshal(got)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(path, raw, 0o600))
+
+	retry := proven(t, local, user, node, a)
+	resp, err := local.Issue(retry)
+	require.NoError(t, err)
+	requireProof(t, a, resp, retry.Nonce)
+}
+
+// Adversarial review 2026-10-27: an invite dated in the future (minted while this machine's clock ran
+// ahead) is not live once the clock is corrected; it never outlives its fifteen minutes.
+func TestAnInviteDatedInTheFutureIsNotLive(t *testing.T) {
+	local, err := edgeauth.Designate(t.TempDir(), "shed")
+	require.NoError(t, err)
+	real := time.Now()
+	local.SetNow(func() time.Time { return real.Add(24 * time.Hour) })
+	code, err := local.MintBearerCode()
+	require.NoError(t, err)
+	local.SetNow(func() time.Time { return real }) // the clock is corrected
+	_, err = local.Issue(bearerReq(t, local, code))
+	require.ErrorIs(t, err, edgeauth.ErrUnknownMachine, "an invite from the future is not one this Edge holds now")
 }

@@ -78,3 +78,16 @@ func TestAReplayTakesNoneOfItsMembersSlots(t *testing.T) {
 	wg.Wait()
 	require.Zero(t, busy, "the member's own turns were told busy because of replays")
 }
+
+// Adversarial review 2026-10-27: only "busy" can be retried as it was. A turn refused after it was
+// taken in (here: the member did not answer) spent its nonce, so the same bytes are a replay.
+func TestATurnRefusedAfterItWasTakenInIsSignedAgainToRetry(t *testing.T) {
+	rig := newPhoneRig(t)
+	rig.face.Close()
+	s := signed{action: ActionInfer, nonce: freshNonce()}
+	w := rig.ask(t, http.MethodPost, PhoneInferPath, chatBody, s)
+	require.Equal(t, http.StatusBadGateway, w.Code, w.Body.String())
+	w = rig.ask(t, http.MethodPost, PhoneInferPath, chatBody, s)
+	require.Equal(t, http.StatusForbidden, w.Code)
+	require.Contains(t, w.Body.String(), "already seen")
+}

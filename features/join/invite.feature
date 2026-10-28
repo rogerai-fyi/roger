@@ -348,6 +348,19 @@ Feature: One invite, one paste, for Towers and Edge devices
     Then it is issued as an allowed key is, with no root proof from that invite
     And a retry with the invite it spent last is still proven, whichever of the two was minted first
 
+  # Adversarial review 2026-10-27.
+  @security
+  Scenario: A codes file from before spends were dated still proves the retry
+    Given a device spent two invites and the authority's codes file records no spend times
+    When the device retries with the invite it spent last
+    Then every invite that key spent is checked, and the retry is proven
+
+  @security
+  Scenario: An invite dated in the future is not live
+    Given an invite minted while this machine's clock ran a day ahead
+    When the clock is corrected and a device presents it
+    Then it is not an invite this Edge holds, and it never outlives its fifteen minutes
+
   # Audit 2026-10-13: an invite bound to a device is bound to its KEY, through the id that key derives.
   @security
   Scenario: A bound invite cannot be reached by copying the device's node id
