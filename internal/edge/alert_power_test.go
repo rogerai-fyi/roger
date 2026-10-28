@@ -138,10 +138,10 @@ func TestAPowerCallClosesWhenAHeardNodeStopsReportingIt(t *testing.T) {
 	}
 
 	for name, h := range map[string]NodeHealth{
-		"no power report": {ID: "n_pi", Name: "pi", Kind: "host", Presence: string(PresenceVerified)},
+		"no power report": {ID: "n_pi", Name: "pi", Kind: "host", Presence: string(PresenceVerified), LastHeard: now},
 		"a stale one": func() NodeHealth {
 			s := powered("n_pi", "host", 80, false, "battery", false)
-			s.Name, s.PowerAge = "pi", 2*DefaultTTL
+			s.Name, s.PowerAge, s.LastHeard = "pi", 2*DefaultTTL, now
 			return s
 		}(),
 	} {
@@ -174,13 +174,47 @@ func TestAnUnreportedCloseReadsTheSameEverywhere(t *testing.T) {
 	require.NotContains(t, string(body), `"value":0`)
 }
 
-func TestAPowerReportMissingOneFieldKeepsTheCall(t *testing.T) {
+// Adversarial review 2026-10-27: holding a call while ONE field is missing from a fresh report made it
+// stand forever (a battery taken out of a machine whose report still says its source; a UPS HAT whose
+// report never names a source). A fresh report from a heard node that no longer carries the reading
+// closes the call as unreported. A charging battery with no source named is on external power.
+func TestAFreshReportWithoutTheReadingClosesTheCall(t *testing.T) {
 	now := time.Now()
 	rules := RuleSet(DefaultRules())
-	st, _ := Evaluate(rules, []NodeHealth{powered("n_pi", "host", 80, false, "battery", false)}, nil, now)
+	st, _ := Evaluate(rules, []NodeHealth{powered("n_pi", "host", 15, false, "ac", false)}, nil, now)
+	require.True(t, st.Firing("battery", "n_pi"))
+	removed := NodeHealth{ID: "n_pi", Name: "pi", Kind: "host", Presence: string(PresenceVerified), LastHeard: now,
+		Power: &store.EdgePower{Source: "ac"}}
+	next, alerts := Evaluate(rules, []NodeHealth{removed}, st, now)
+	require.False(t, next.Firing("battery", "n_pi"), "the battery is gone: nothing is left to call low")
+	require.Len(t, alerts, 1)
+	require.True(t, alerts[0].Unreported)
+}
+
+func TestAChargingBatteryWithNoSourceIsNotOnBattery(t *testing.T) {
+	now := time.Now()
+	rules := RuleSet(DefaultRules())
+	st, _ := Evaluate(rules, []NodeHealth{powered("n_pi", "host", 50, false, "battery", false)}, nil, now)
 	require.True(t, st.Firing("on_battery", "n_pi"))
-	partial := powered("n_pi", "host", 80, false, "", false) // this beat did not say its source
-	next, alerts := Evaluate(rules, []NodeHealth{partial}, st, now)
-	require.True(t, next.Firing("on_battery", "n_pi"), "one missing field is no verdict")
+	charging := powered("n_pi", "host", 90, true, "", false)
+	charging.LastHeard = now
+	next, alerts := Evaluate(rules, []NodeHealth{charging}, st, now)
+	require.False(t, next.Firing("on_battery", "n_pi"))
+	require.Len(t, alerts, 1)
+	require.False(t, alerts[0].Unreported, "charging is external power: the call clears as power back, not as unreported")
+	require.Contains(t, alerts[0].String(), "back on external power")
+}
+
+// Adversarial review 2026-10-27: a node that falls silent is not swept dark at once, but its power
+// goes stale with it; that gap must not close the call. Only a node HEARD within the window closes one.
+func TestASilentNodeKeepsItsPowerCallBeforeItIsSweptDark(t *testing.T) {
+	t0 := time.Now()
+	rules := RuleSet(DefaultRules())
+	st, _ := Evaluate(rules, []NodeHealth{powered("n_pi", "host", 50, false, "battery", false)}, nil, t0)
+	later := t0.Add(DefaultTTL + 20*time.Second)
+	silent := powered("n_pi", "host", 50, false, "battery", false)
+	silent.LastHeard, silent.PowerAge = t0, DefaultTTL+20*time.Second // not yet swept: Dark is false
+	next, alerts := Evaluate(rules, []NodeHealth{silent}, st, later)
+	require.True(t, next.Firing("on_battery", "n_pi"), "silence is no evidence the power came back")
 	require.Empty(t, alerts)
 }

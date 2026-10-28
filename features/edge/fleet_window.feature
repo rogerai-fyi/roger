@@ -384,16 +384,24 @@ Feature: From the authority, every unit can be seen, judged and acted on without
       | low power mode on, any kind                      | low_power        | fires                                            |
 
   # Audit 2026-10-27: a power call held while the reading was missing never cleared, because "no
-  # reading is no verdict" was the only rule. A node still heard that no longer reports that reading
-  # (its battery came out, or its power report went stale while it answers) has nothing left to judge.
+  # reading is no verdict" was the only rule. Adversarial review the same day: holding it while ONE
+  # field was missing made it stand forever (a battery taken out; a UPS HAT that never names a
+  # source), and a node that had just fallen silent closed its call before it was swept dark.
   @edge
-  Scenario: a power call closes when a node that is still heard stops reporting that reading
-    Given "pi" has the call "on_battery" standing
-    When "pi" is heard again with no power report, or with one older than the liveness window
+  Scenario: a power call closes when a node that is heard no longer reports that reading
+    Given "pi" has the call "battery" standing
+    When "pi" is heard within the liveness window, with no power report, a stale one, or a fresh one
+      without the battery reading (its battery was taken out)
     Then the call is closed with a line saying "pi no longer reports its power", in those words on
-      every surface (the alert log, the sinks, the webhook, the events timeline), never as a value
-    And a beat that only leaves one power field out keeps the call, so it does not flap
-    But while "pi" is dark the call stands, because a dark node is no evidence either way
+      every surface (the alert log, the sinks, the webhook, the events timeline, the trouble feed),
+      never as a value
+    But a node that has fallen silent keeps the call, swept dark or not yet: silence is no evidence
+
+  @edge
+  Scenario: a charging battery with no source named is on external power
+    Given "pi" has the call "on_battery" standing
+    When its report says the battery is charging and names no source
+    Then the call clears as "pi is back on external power"
 
   @edge
   Scenario: the owner sets power thresholds per node, per tag or per kind

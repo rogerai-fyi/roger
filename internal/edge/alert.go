@@ -437,6 +437,9 @@ func (h NodeHealth) powerReading(m Metric) (float64, bool) {
 		case "ac":
 			return 0, true
 		}
+		if p.Charging != nil && *p.Charging {
+			return 0, true // a charging battery is on external power, named or not
+		}
 	case MetricLowPower:
 		if p.LowPower != nil {
 			if *p.LowPower {
@@ -474,10 +477,11 @@ func Evaluate(rules RuleSet, hs []NodeHealth, prev AlertState, now time.Time) (A
 			was := prev.Firing(r.ID, h.ID)
 			if !have {
 				switch {
-				case was && isPowerMetric(m) && !h.Dark && (h.Power == nil || h.PowerAge > DefaultTTL):
-					// A node still heard whose power report is gone (or stale) has nothing left to judge:
-					// the call closes, without claiming the power is back. A report that only leaves one
-					// field out is no verdict, so it holds below rather than flapping close and re-fire.
+				case was && isPowerMetric(m) && !h.Dark && !h.LastHeard.IsZero() && now.Sub(h.LastHeard) <= DefaultTTL:
+					// A node HEARD within the window that no longer reports this power reading (no
+					// report, a stale one, or a fresh one without the field: a battery taken out) has
+					// nothing left to judge: the call closes, without claiming the power is back. A node
+					// that fell silent holds it, swept dark or not yet: silence is no evidence either way.
 					alerts = append(alerts, Alert{At: now, RuleID: r.ID, NodeID: h.ID, Node: alertUnit(h), Metric: m,
 						Threshold: r.Value, Op: r.Op, Unreported: true})
 				case was:

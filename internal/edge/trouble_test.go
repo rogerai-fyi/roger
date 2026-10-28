@@ -319,7 +319,7 @@ func TestTheFeedSaysAPowerCallClosedBecauseItIsNoLongerReported(t *testing.T) {
 	on := NodeHealth{ID: "n_desk", Name: "desk", Kind: "host", Presence: string(PresenceVerified),
 		Power: &store.EdgePower{BatteryPct: &pct, Charging: &no, Source: "battery"}}
 	_, _, _ = rig.log.Judge([]NodeHealth{on}, now.Add(-time.Second))
-	gone := NodeHealth{ID: "n_desk", Name: "desk", Kind: "host", Presence: string(PresenceVerified)}
+	gone := NodeHealth{ID: "n_desk", Name: "desk", Kind: "host", Presence: string(PresenceVerified), LastHeard: now}
 	_, _, _ = rig.log.Judge([]NodeHealth{gone}, now)
 	_, body := rig.get(t, &rig.phone, "")
 	var feed TroubleFeed
