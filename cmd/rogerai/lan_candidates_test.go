@@ -13,9 +13,20 @@ import (
 	"rogerai.fm/roger/v7/internal/edge/wire"
 )
 
+// It passed on a developer machine only because that machine is on an Edge, read from the real
+// config: CI is not, so the LAN browse gate (edgeMayBrowse) said no and nothing was heard. The test
+// now has its own empty config, and holds the LAN dial's scan scope open as the TUI does; and with no
+// scope open, on no Edge, nothing is browsed at all.
 func TestLANCandidatesFilterAndSummarise(t *testing.T) {
+	useTempConfig(t)
 	prev := lanBrowseTowers
 	t.Cleanup(func() { lanBrowseTowers = prev })
+	browsed := false
+	lanBrowseTowers = func(context.Context) (wire.BrowseResult, error) { browsed = true; return wire.BrowseResult{}, nil }
+	require.Nil(t, lanCandidates(context.Background(), nil))
+	require.False(t, browsed, "no LAN view open and no Edge: no browse, no socket")
+	end := edgeScans.Begin(scanLAN) // what the TUI's hook does while the LAN dial shows
+	t.Cleanup(end)
 	lanBrowseTowers = func(context.Context) (wire.BrowseResult, error) {
 		return wire.BrowseResult{Seen: 7, Adverts: []wire.Advert{
 			{Kind: wire.TowerKind, IP: net.ParseIP("192.168.1.50"), Port: 8787, Name: "gar\x1bage" + strings.Repeat("x", 60)},
