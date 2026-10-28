@@ -110,7 +110,7 @@ func recorded(m Model, mtime time.Time) Model {
 	if b, err := os.ReadFile(m.Path + recordExt); err == nil {
 		var rec Model
 		if json.Unmarshal(b, &rec) == nil && rec.ID != "" {
-			if (rec.Bytes > 0 && rec.Bytes != m.Bytes) || (!rec.ModTime.IsZero() && !rec.ModTime.Equal(mtime)) {
+			if (rec.Bytes > 0 && rec.Bytes != m.Bytes) || (!rec.ModTime.IsZero() && !sameSecond(rec.ModTime, mtime)) {
 				return m
 			}
 			rec.Path = m.Path
@@ -118,6 +118,14 @@ func recorded(m Model, mtime time.Time) Model {
 		}
 	}
 	return m
+}
+
+// sameSecond is two modification times that agree to the second, one second either way: a copy to
+// another machine (tar, rsync, podman cp, a FAT stick) keeps the time only to the second, and may
+// round it up; that copy is still the file the record describes.
+func sameSecond(a, b time.Time) bool {
+	d := a.Truncate(time.Second).Sub(b.Truncate(time.Second))
+	return d >= -time.Second && d <= time.Second
 }
 
 // found describes a file nobody recorded: what its name says, and nothing it does not.

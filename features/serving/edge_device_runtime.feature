@@ -74,6 +74,9 @@ Feature: A Wave model on an edge device, from the RogerAI channel, on a runtime 
     Then the record is trusted only while the file's size and modification time are the ones it remembers
     And "roger model status" and the list show no digest until the new file is digested in its turn
     And a record written before modification times were kept is trusted while the size matches
+    # Live E2E 2026-10-27: a copy to another machine keeps the time only to the second.
+    And the modification time is compared to the second, one second either way, so a model directory
+      copied to another machine (tar, rsync, a USB stick, edgesim seed) keeps its records
 
   # BUILT 2026-10-27 (pre-push audit note): TestADigestNeverBringsBackTheRecordOfAServeThatStopped
   Scenario: a digest that finishes after the serve stopped brings no record back

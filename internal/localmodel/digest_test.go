@@ -191,3 +191,27 @@ func TestADigestNeverBringsBackTheRecordOfAServeThatStopped(t *testing.T) {
 	_, ok := h.Live()
 	require.False(t, ok)
 }
+
+// Live E2E 2026-10-27: a model directory copied to another machine (edgesim seed, tar, rsync, podman
+// cp, a FAT USB stick) keeps the file's time only to the second, so an exact comparison dropped the
+// record and the fetched model became a nameless found file that `roger model serve <id>` then went
+// to the hub for. The time is compared to the second, with one second either way for rounding.
+func TestACopyThatKeepsTheTimeToTheSecondKeepsItsRecord(t *testing.T) {
+	h := Home{Dir: t.TempDir()}
+	p := filepath.Join(h.Models(), "wave-nano-1p45b-Q4_K_M.gguf")
+	put(t, p, "the weights")
+	at := time.Date(2026, 10, 1, 13, 36, 50, 791022039, time.UTC)
+	require.NoError(t, os.Chtimes(p, at, at))
+	put(t, p+recordExt, `{"id":"rogerai/wave-nano-1.45b:Q4_K_M","file":"wave-nano-1p45b-Q4_K_M.gguf","bytes":11,"band":"wave-nano-1.45b","modtime":"`+at.Format(time.RFC3339Nano)+`"}`)
+	for _, copied := range []time.Time{at.Truncate(time.Second), at.Truncate(time.Second).Add(time.Second)} {
+		require.NoError(t, os.Chtimes(p, copied, copied))
+		m, err := FromPath(p)
+		require.NoError(t, err)
+		require.Equal(t, "rogerai/wave-nano-1.45b:Q4_K_M", m.ID, "a copy kept to %v is the same file", copied)
+	}
+	later := at.Add(5 * time.Second)
+	require.NoError(t, os.Chtimes(p, later, later))
+	m, err := FromPath(p)
+	require.NoError(t, err)
+	require.NotEqual(t, "rogerai/wave-nano-1.45b:Q4_K_M", m.ID, "a file written seconds later is a different file")
+}
