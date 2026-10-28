@@ -69,7 +69,7 @@ import (
 	"os"
 	"reflect"
 	"regexp"
-	"rogerai.fm/roger/v6/internal/bddtest"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"sort"
 	"strconv"
 	"strings"
@@ -79,15 +79,15 @@ import (
 	"time"
 
 	"github.com/cucumber/godog"
-	"rogerai.fm/roger/v6/internal/agent"
-	"rogerai.fm/roger/v6/internal/detect"
-	"rogerai.fm/roger/v6/internal/protocol"
-	"rogerai.fm/roger/v6/internal/store"
-	"rogerai.fm/roger/v6/internal/towercore/admit"
-	"rogerai.fm/roger/v6/internal/towercore/dispatch"
-	"rogerai.fm/roger/v6/internal/towercore/fleet"
-	"rogerai.fm/roger/v6/internal/towercore/link"
-	"rogerai.fm/roger/v6/internal/towerhub"
+	"rogerai.fm/roger/v7/internal/agent"
+	"rogerai.fm/roger/v7/internal/detect"
+	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/store"
+	"rogerai.fm/roger/v7/internal/towercore/admit"
+	"rogerai.fm/roger/v7/internal/towercore/dispatch"
+	"rogerai.fm/roger/v7/internal/towercore/fleet"
+	"rogerai.fm/roger/v7/internal/towercore/link"
+	"rogerai.fm/roger/v7/internal/towerhub"
 )
 
 const (
@@ -3040,7 +3040,7 @@ func TestRoutingEdgeBridgeParityBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if bddtest.Run(t, &suite) != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("routing/edge_bridge_parity scenarios failed (see godog output above)")
 	}
 }

@@ -28,15 +28,15 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"rogerai.fm/roger/v6/internal/bddtest"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strconv"
 	"strings"
 	"sync"
 	"testing"
 
 	"github.com/cucumber/godog"
-	"rogerai.fm/roger/v6/internal/client"
-	"rogerai.fm/roger/v6/internal/operator"
+	"rogerai.fm/roger/v7/internal/client"
+	"rogerai.fm/roger/v7/internal/operator"
 )
 
 type cf4oAttempt struct {
@@ -928,7 +928,7 @@ func TestGuestRoutingBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if bddtest.Run(t, &suite) != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("features/operator/guest_routing.feature: failing scenarios")
 	}
 }

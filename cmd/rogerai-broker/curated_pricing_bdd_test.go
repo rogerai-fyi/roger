@@ -13,13 +13,13 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
-	"rogerai.fm/roger/v6/internal/bddtest"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/cucumber/godog"
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 type curPriceState struct {
@@ -324,7 +324,7 @@ func TestCuratedPricingFeature(t *testing.T) {
 			Paths: []string{"../../features/curated/curated_pricing.feature"},
 		},
 	}
-	if bddtest.Run(t, &suite) != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("curated pricing scenarios failed")
 	}
 }

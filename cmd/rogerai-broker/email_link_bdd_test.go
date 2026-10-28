@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strings"
 	"testing"
 
@@ -92,7 +93,7 @@ func TestEmailLinkBDD(t *testing.T) {
 		},
 		Options: &godog.Options{Format: "pretty", Paths: []string{"../../features/auth/email_link.feature"}, TestingT: t, Output: os.Stdout},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("email-link scenarios failed (see godog output above)")
 	}
 }

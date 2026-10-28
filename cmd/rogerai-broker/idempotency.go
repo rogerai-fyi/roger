@@ -22,7 +22,7 @@ import (
 	"sync"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 const (

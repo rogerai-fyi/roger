@@ -11,7 +11,7 @@ import (
 //
 // The console could set a MONTHLY cap and nothing else. The per-band caps - the most you
 // will pay for a turn, and the slowest station you will accept - lived only in the TUI's
-// [3] CONFIG, so an operator who worked in the browser could not see or change the limits
+// [4] CONFIG, so an operator who worked in the browser could not see or change the limits
 // that were actually bounding their spend.
 //
 // ONE STORE, TWO FRONT-ENDS. These read and write the SAME LimitStore the TUI edits,

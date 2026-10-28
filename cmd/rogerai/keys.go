@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/mattn/go-isatty"
-	"rogerai.fm/roger/v6/internal/client"
+	"rogerai.fm/roger/v7/internal/client"
 )
 
 // keysSecretWarning follows a freshly minted secret, the only time it is ever shown.

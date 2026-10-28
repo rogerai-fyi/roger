@@ -16,7 +16,6 @@ import (
 	"net/http/httptest"
 	"net/http/httputil"
 	"net/url"
-	"rogerai.fm/roger/v6/internal/bddtest"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -24,8 +23,9 @@ import (
 	"time"
 
 	"github.com/cucumber/godog"
-	"rogerai.fm/roger/v6/internal/agent"
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/agent"
+	"rogerai.fm/roger/v7/internal/bddrun"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // ackProxy is the load balancer in front of the brokers.
@@ -787,7 +787,7 @@ func TestNodeAckBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if bddtest.Run(t, &suite) != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("multinode/node_ack scenarios failed (see godog output above)")
 	}
 }

@@ -13,7 +13,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/stretchr/testify/require"
-	"rogerai.fm/roger/v6/internal/client"
+	"rogerai.fm/roger/v7/internal/client"
 )
 
 // TestAgentTurnReadsLiveRouting: the F/C toggles flipped AFTER the agent runtime was built
@@ -497,7 +497,7 @@ func TestOnlyTheExplicitRescanReplyMayOfferARaise(t *testing.T) {
 	require.Equal(t, modeOverLimit, asModel(out).mode)
 }
 
-// TestCONFIGNavigationDoesNotRepointTheProxy: moving around [3] CONFIG changes no rule, so it
+// TestCONFIGNavigationDoesNotRepointTheProxy: moving around [4] CONFIG changes no rule, so it
 // re-points nothing; only a key that changed the limit store re-points the live proxy.
 func TestCONFIGNavigationDoesNotRepointTheProxy(t *testing.T) {
 	m := autoTunedModel(t)

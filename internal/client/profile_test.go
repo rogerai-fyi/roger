@@ -156,16 +156,6 @@ func joinPrefs() string {
 	return out
 }
 
-func TestIdListAcceptsStringSlices(t *testing.T) {
-	ids, err := idList([]string{"a", "b"})
-	require.NoError(t, err)
-	require.Equal(t, []string{"a", "b"}, ids)
-	_, err = idList([]string{"a", " "})
-	require.Error(t, err)
-	_, err = idList(3)
-	require.Error(t, err)
-}
-
 func TestMergeProfile(t *testing.T) {
 	prof := obj(t, `{"model":"m","models":["a"],
 		"provider":{"sort":"price","only":["s1"],"max_price":{"prompt":1,"completion":2}},

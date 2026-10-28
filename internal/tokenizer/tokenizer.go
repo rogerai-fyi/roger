@@ -1,5 +1,5 @@
 // Package tokenizer is the hybrid, model-aware token counter that backs the
-// tokenizer-sidecar and the broker's L1 independent re-count (see
+// tokenizer service (`rogerai-broker tokenizer`, server.go) and the broker's L1 independent re-count (see
 // docs-internal/VERIFICATION-DESIGN.md, "L1 - Independent token re-count").
 //
 // It never trusts the node's self-reported `usage` block. Instead it re-counts

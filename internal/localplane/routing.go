@@ -4,11 +4,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/protocol"
 	"sort"
 	"strings"
 
-	"rogerai.fm/roger/v6/internal/client"
+	"rogerai.fm/roger/v7/internal/routingrules"
 )
 
 // The routing body object on the Core-free plane (ROUTING-EXPRESSION-CONTRACT §5a). The plane
@@ -82,7 +82,7 @@ func knownKeysInOrder(carrier string, obj map[string]json.RawMessage, sets ...ma
 	return keys, nil
 }
 
-// validateCarriers runs the shared value rules (client.ValidateRoutingValues) over the
+// validateCarriers runs the shared value rules (routingrules.Values) over the
 // provider and roger carriers. Not the cross-key ones: this plane ignores sort and pref, so
 // stating both is not a conflict here (localplane_routing.feature).
 func validateCarriers(m map[string]json.RawMessage) error {
@@ -96,7 +96,7 @@ func validateCarriers(m map[string]json.RawMessage) error {
 			sub[k] = v
 		}
 	}
-	return client.ValidateRoutingValues(sub)
+	return routingrules.Values(sub)
 }
 
 func parseLocalRouting(body []byte, hdrConfidential bool) (localRouting, *routeErr) {

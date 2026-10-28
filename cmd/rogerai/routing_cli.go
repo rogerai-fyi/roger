@@ -20,7 +20,7 @@ import (
 	"strconv"
 	"strings"
 
-	"rogerai.fm/roger/v6/internal/client"
+	"rogerai.fm/roger/v7/internal/client"
 )
 
 // maxListIDs is the contract's cap on a station-id list (provider.only / order / ignore).
@@ -147,7 +147,14 @@ type useFlags struct {
 	minCtx, maxTTFT                       intFlag
 	selfHosted, confidential, noFallbacks bool
 	advanced, yes, raw                    bool
+	market                                bool // go to the market even when this machine serves the model
 	port                                  int
+	// Edge and LAN addressing (features/edge/addressed_inference.feature,
+	// features/lan/routing_and_inference.feature): <model> may name a node on this Edge or,
+	// in LAN mode, a Tower address; --model (or a second positional after a Tower) then
+	// names the model on it.
+	onModel string
+	extra   []string
 	// Account keys (features/auth/key_guardrails.feature).
 	key                string
 	saveKey, forgetKey bool
@@ -180,6 +187,10 @@ routing:
   --max-cost $      per-request USD cap; 0 = no per-request cap
   --freq CODE       tune a private band by its frequency code
 
+edge and LAN:
+  roger use <node> [--model M]          pin a node on your Edge (addressed inference)
+  roger --lan use <tower:port> <model>  that LAN Tower and nothing else
+
 account keys:
   --key rog-key_... relay with an account key instead of this device; - reads it from stdin
                     (or set ROGER_KEY)
@@ -192,6 +203,7 @@ advanced flags: --port --max-in --min-tps --confidential --yes --raw
   --confidential    route only to confidential (TEE-attested) stations
   --yes             skip the connect-time confirm (scripts, bots)
   --raw             disable the reasoning->content fallback for this session
+  --market          use the market even when this machine serves the model (roger model serve)
 `
 
 var flagNameRE = regexp.MustCompile(`-{1,2}([A-Za-z0-9][A-Za-z0-9_-]*)`)
@@ -280,7 +292,9 @@ func parseUseFlags(args []string) (f *useFlags, help bool, err error) {
 	fs.BoolVar(&f.advanced, "advanced", false, "")
 	fs.BoolVar(&f.yes, "yes", false, "")
 	fs.BoolVar(&f.raw, "raw", false, "")
+	fs.BoolVar(&f.market, "market", false, "")
 	fs.IntVar(&f.port, "port", 0, "")
+	fs.StringVar(&f.onModel, "model", "", "")
 	fs.StringVar(&f.key, "key", "", "")
 	fs.BoolVar(&f.saveKey, "save-key", false, "")
 	fs.BoolVar(&f.forgetKey, "forget-key", false, "")
@@ -290,7 +304,13 @@ func parseUseFlags(args []string) (f *useFlags, help bool, err error) {
 		}
 		return nil, false, flagError("use", err)
 	}
-	if (f.model == "" && !f.forgetKey) || fs.NArg() > 0 {
+	// One extra positional is the model on an addressed LAN Tower (`roger --lan use host:port m`).
+	if _, isTower := lanTowerAddress(f.model); isTower && fs.NArg() == 1 {
+		f.extra = fs.Args()
+	} else if fs.NArg() > 0 {
+		return nil, false, fmt.Errorf("usage: roger use <model> [flags]")
+	}
+	if f.model == "" && !f.forgetKey {
 		return nil, false, fmt.Errorf("usage: roger use <model> [flags]")
 	}
 	switch {
@@ -739,6 +759,30 @@ func cmdUse(cfg config, args []string) error {
 	if f.advanced {
 		fmt.Println("advanced flags: --port --max-in --min-tps --confidential --yes --raw")
 	}
+	// ADDRESSED INFERENCE (features/edge/addressed_inference.feature): a first argument naming a
+	// NODE on this Edge pins the turn to that node's model; in LAN mode a Tower address pins
+	// that Tower (features/lan/routing_and_inference.feature). A plain model falls through.
+	pinnedPeer, pinned, pinnedTower := client.EdgePeer{}, false, ""
+	if t, ok := lanTowerAddress(f.model); ok && cfg.lan.LAN {
+		if cfg.lan.EdgeOnly {
+			// features/lan/edge_only.feature: a Tower is never dialed under edge-only.
+			return fmt.Errorf("roger use %s: %s; drop --edge-only to use a Tower", t, edgeOnlyNote)
+		}
+		pinnedTower, f.model = t, strings.TrimSpace(f.onModel)
+		if f.model == "" && len(f.extra) > 0 {
+			f.model = f.extra[0]
+		}
+		if f.model == "" {
+			return fmt.Errorf("usage: roger --lan use %s <model>", t)
+		}
+	} else if len(f.extra) > 0 {
+		return fmt.Errorf("usage: roger use <model> [flags]")
+	} else if peer, band, isNode, err := edgeResolveAddressed(f.model, strings.TrimSpace(f.onModel)); isNode {
+		if err != nil {
+			return err // a node address that cannot carry a turn - the typed refusal
+		}
+		f.model, pinnedPeer, pinned = band, peer, true
+	}
 	profs := readProfiles()
 	if profs.SectionWarn != "" {
 		fmt.Fprintln(os.Stderr, profs.SectionWarn)
@@ -762,7 +806,76 @@ func cmdUse(cfg config, args []string) error {
 		return err
 	}
 	opt.Key, opt.KeyNote = key, note
-	return client.Use(cfg.Broker, cfg.User, t.model, opt)
+	// Every turn through this endpoint is a `roger use` session on this machine's Edge,
+	// visible from the TUI and the console in their own processes.
+	opt.OnReceipt = edgeUseRecorder()
+	// THE LADDER: a peer on this Edge before the market (features/edge/local_inference.
+	// feature). A machine that has not enrolled and set no preference is untouched.
+	var po client.ProxyOptions
+	applyEdgeLadder(cfg, &po)
+	applyLAN(cfg, &po)
+	if pinnedTower != "" {
+		pt := pinnedTower
+		po.EdgePeers, po.LANSelf = nil, nil
+		po.LANTowers = func(string) []string { return []string{pt} }
+		opt.Pinned = "tower: " + pt
+	}
+	if pinned {
+		// The owner named a specific node: pin the turn to it, and do not fall through to the
+		// market - an addressed node is that node or nothing.
+		peer := pinnedPeer
+		po.EdgePeers = func(string) []client.EdgePeer { return []client.EdgePeer{peer} }
+		po.EdgePrefer = "local-only"
+		po.LANSelf, po.LANTowers = nil, nil
+		opt.Pinned = "edge: " + peer.Node
+	}
+	// THIS MACHINE FIRST (edge_device_runtime.feature §3): a model roger serves itself opens
+	// without a market lookup, in every mode. LAN mode has its own ladder with the same rung
+	// first; --market skips it on purpose; a node, a Tower or a private band is what it names.
+	if !cfg.lan.LAN && !pinned && pinnedTower == "" && f.freq == "" {
+		if up, _ := lanSelfServe(bareModelID(t.model)); up != "" {
+			if f.market {
+				fmt.Printf("this machine serves %s - skipped on request (--market)\n", bareModelID(t.model))
+			} else {
+				po.LANSelf = lanSelfServe
+				opt.Pinned = client.PinnedSelf
+				opt.LANSources = func(string) []client.LANSource {
+					return []client.LANSource{{Kind: client.LANSelf, Verified: true}}
+				}
+			}
+		}
+	}
+	opt.EdgePeers, opt.EdgePrefer, opt.EdgeCert, opt.EdgeVerify = po.EdgePeers, po.EdgePrefer, po.EdgeCert, po.EdgeVerify
+	opt.LANMode, opt.LANEdgeOnly, opt.LANSelf, opt.LANTowers, opt.LANHTTP, opt.LANResolve = po.LANMode, po.LANEdgeOnly, po.LANSelf, po.LANTowers, po.LANHTTP, po.LANResolve
+	opt.LANSelfQuant, opt.LANSelfName, opt.LANBands = po.LANSelfQuant, po.LANSelfName, po.LANBands
+	if cfg.lan.LAN {
+		opt.LANSources = func(band string) []client.LANSource {
+			src := lanSourcesOf(cfg, band)
+			lanTrustNoteOnce(src, pinnedTower)
+			return src
+		}
+	}
+	err = client.Use(cfg.Broker, cfg.User, t.model, opt)
+	if err != nil && cfg.lan.LAN {
+		err = withNotAdmittedHints(err, lanDial(cfg).Towers)
+	}
+	return err
+}
+
+// withNotAdmittedHints adds, to a LAN refusal, the simple way into each configured Tower that has
+// not let this machine in yet (features/join/surfaces.feature): the Tower may serve the band once
+// this machine joins.
+func withNotAdmittedHints(err error, towers []client.LANTowerStatus) error {
+	msg := err.Error()
+	for _, t := range towers {
+		if t.State == client.LANTowerNotAdmitted && t.Detail != "" && !strings.Contains(msg, t.Detail) {
+			msg += "\n" + t.Addr + ": " + t.Detail
+		}
+	}
+	if msg == err.Error() {
+		return err
+	}
+	return errors.New(msg)
 }
 
 // useAccountKey resolves the account key a session relays with: --key's (- reads it from

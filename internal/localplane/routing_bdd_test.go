@@ -34,7 +34,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"rogerai.fm/roger/v6/internal/bddtest"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"sort"
 	"strings"
 	"sync"
@@ -43,8 +43,8 @@ import (
 
 	"github.com/cucumber/godog"
 
-	"rogerai.fm/roger/v6/internal/protocol"
-	"rogerai.fm/roger/v6/internal/tower"
+	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/tower"
 )
 
 const (
@@ -1522,7 +1522,7 @@ func TestLocalplaneRoutingBDD(t *testing.T) {
 			Paths: []string{"../../features/tower/localplane_routing.feature"},
 		},
 	}
-	if bddtest.Run(t, &suite) != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("the local-plane routing scenarios failed")
 	}
 }

@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/agent"
-	"rogerai.fm/roger/v6/internal/detect"
-	"rogerai.fm/roger/v6/internal/tui"
+	"rogerai.fm/roger/v7/internal/agent"
+	"rogerai.fm/roger/v7/internal/detect"
+	"rogerai.fm/roger/v7/internal/tui"
 )
 
 // dateServer stands up a broker whose /health (and every) response carries a FIXED Date
@@ -641,7 +641,7 @@ func TestOnAirLockEmptyStationMessage(t *testing.T) {
 	if other == os.Getpid() || !processAlive(other) {
 		t.Skip("no distinct live parent PID to simulate another daemon")
 	}
-	held := onAirInfo{PID: other, Station: "", Model: "m1", Started: 1} // empty station
+	held := onAirInfo{PID: other, Station: "", Model: "m1", Started: time.Now().Unix()} // empty station; dated after its holder started
 	b, _ := json.Marshal(held)
 	path := onAirLockPath("brave-otter-m1")
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {

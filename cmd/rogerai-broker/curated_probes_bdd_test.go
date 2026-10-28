@@ -10,13 +10,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"rogerai.fm/roger/v6/internal/bddtest"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/cucumber/godog"
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 type curProbeState struct {
@@ -186,7 +186,7 @@ func TestCuratedProbesFeature(t *testing.T) {
 			Paths: []string{"../../features/curated/curated_probes.feature"},
 		},
 	}
-	if bddtest.Run(t, &suite) != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("curated probe-economics scenarios failed")
 	}
 }

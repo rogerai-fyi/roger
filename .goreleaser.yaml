@@ -6,7 +6,7 @@
 #
 # CI runs `goreleaser release --clean` on a tag push (see .github/workflows/release.yml),
 # AFTER the coverage gate is green. The git TAG is the single source of truth for the
-# version - GoReleaser stamps it into main.Version, exactly like the old hand-rolled step.
+# version - GoReleaser stamps it into internal/buildinfo.Version, the one version every binary reports.
 #
 # IMPORTANT: the primary archive is `format: binary`, so the uploaded assets stay RAW binaries
 # named `roger-<os>-<arch>` (+ .exe) with a matching checksums.txt - byte-for-byte what
@@ -18,7 +18,7 @@ project_name: roger
 
 # Two builds only so the archives below can single out Windows for a zip (Scoop needs a
 # real archive, not a bare binary). Both are byte-identical settings otherwise.
-# Match the old release.yml exactly: strip symbols + stamp the tag into main.Version.
+# Strip symbols + stamp the tag into internal/buildinfo.Version (the one build-time variable).
 # {{.Version}} is the tag WITHOUT the leading v (v5.0.1 -> 5.0.1), same as ${GITHUB_REF_NAME#v}.
 builds:
   - id: roger-unix
@@ -26,9 +26,18 @@ builds:
     binary: roger
     env: [CGO_ENABLED=0]
     goos: [linux, darwin]
-    goarch: [amd64, arm64]
+    # arm (32-bit, GOARM=7) is here for the SMALL BOARDS an Edge is made of: a Raspberry Pi
+    # running a 32-bit OS, which is what an older Pi or a Pi Zero 2 ships with by default.
+    # Until 2026-09-29 roger did not even COMPILE for it (a hash constant that does not fit in a
+    # 32-bit int), so nobody had noticed there was no binary to install. darwin/arm is not a
+    # thing, and goreleaser's ignore below says so.
+    goarch: [amd64, arm64, arm]
+    goarm: ["7"]
+    ignore:
+      - goos: darwin
+        goarch: arm
     flags: [-trimpath]
-    ldflags: ["-s -w -X main.Version={{.Version}}"]
+    ldflags: ["-s -w -X rogerai.fm/roger/v7/internal/buildinfo.Version={{.Version}}"]
   - id: roger-win
     main: ./cmd/rogerai
     binary: roger
@@ -36,12 +45,10 @@ builds:
     goos: [windows]
     goarch: [amd64, arm64]
     flags: [-trimpath]
-    ldflags: ["-s -w -X main.Version={{.Version}}"]
-  # roger-tower: the self-hosted relay an operator downloads and runs. Linux only for
-  # now, which is deliberate rather than an oversight - a Tower is a long-running server
-  # process, and the standalone MVP targets an ordinary Linux host, container runtime,
-  # or Kubernetes. macOS and Windows builds would ship a binary nobody should run as a
-  # production relay, so they wait until there is a reason.
+    ldflags: ["-s -w -X rogerai.fm/roger/v7/internal/buildinfo.Version={{.Version}}"]
+  # The one-release stand-ins: `roger-tower` and `roger-tower-local` print one deprecation line
+  # and hand off to `roger tower` (internal/towershim). Linux only, where the old binaries
+  # shipped; the next release removes them. A Tower itself is `roger tower`, in roger above.
   - id: roger-tower
     main: ./cmd/roger-tower
     binary: roger-tower
@@ -49,9 +56,7 @@ builds:
     goos: [linux]
     goarch: [amd64, arm64]
     flags: [-trimpath]
-    ldflags: ["-s -w -X main.version={{.Version}}"]
-  # roger-tower-local: the STANDALONE consumer plane's Core-free serving binary, run beside
-  # roger-tower on the same Tower host. Same platforms and stamping as roger-tower.
+    ldflags: ["-s -w"]  # a one-release shim: it reports roger's version by handing off to it
   - id: roger-tower-local
     main: ./cmd/roger-tower-local
     binary: roger-tower-local
@@ -59,7 +64,7 @@ builds:
     goos: [linux]
     goarch: [amd64, arm64]
     flags: [-trimpath]
-    ldflags: ["-s -w -X main.version={{.Version}}"]
+    ldflags: ["-s -w"]  # a one-release shim: it reports roger's version by handing off to it
 
 # ---- macOS code signing + notarization -----------------------------------------------
 # Signs + notarizes the darwin binaries so the OFFICIAL Homebrew cask route
@@ -100,14 +105,11 @@ archives:
     ids: [roger-unix, roger-win]
     formats: [binary]
     name_template: "roger-{{ .Os }}-{{ .Arch }}"
-  # roger-tower ships as a raw binary too, so the Tower installer fetches an asset by a
-  # predictable name and verifies it against the SAME checksums.txt as the client.
+  # The stand-ins ship as raw binaries too, verified against the SAME checksums.txt.
   - id: tower
     ids: [roger-tower]
     formats: [binary]
     name_template: "roger-tower-{{ .Os }}-{{ .Arch }}"
-  # roger-tower-local ships as a raw binary too, under a predictable name verified against the
-  # SAME checksums.txt.
   - id: tower-local
     ids: [roger-tower-local]
     formats: [binary]

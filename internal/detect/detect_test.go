@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // fakeServer mimics an OpenAI-compatible GET /v1/models response.
@@ -574,4 +576,38 @@ func TestDetectWithExplicitUpstreamWins(t *testing.T) {
 	if found[0].Name != "configured" {
 		t.Errorf("explicit upstream should win the name, got %q", found[0].Name)
 	}
+}
+
+// A runtime roger started itself sits on an unchosen port behind a key nobody exported. It is
+// found WITH its key through the served rung, and the blind port scan alone could only ever
+// report it as wanting one.
+func TestARuntimeRogerStartedIsFoundWithItsKey(t *testing.T) {
+	defer quietSources(t)()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer k1" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]string{{"id": "qwen3-4b"}}})
+	}))
+	defer srv.Close()
+	_, port := hostPort(t, srv.URL)
+	old := probes
+	probes = nil
+	defer func() { probes = old }()
+	enumPorts = func() []int { return []int{port} }
+
+	found, needKey := DetectFull()
+	require.Empty(t, found)
+	require.Len(t, needKey, 1, "without the served rung it is only a server that wants a key")
+
+	oldServed := Served
+	defer func() { Served = oldServed }()
+	Served = func() []Endpoint { return []Endpoint{{Name: "roger", Base: srv.URL + "/v1", Key: "k1"}} }
+	found, needKey = DetectFull()
+	require.Empty(t, needKey)
+	require.Len(t, found, 1, "the served rung and the port scan are one server, not two")
+	require.Equal(t, "roger", found[0].Name)
+	require.Equal(t, "k1", found[0].Key)
+	require.Equal(t, []string{"qwen3-4b"}, found[0].Models)
 }

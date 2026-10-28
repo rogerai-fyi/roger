@@ -14,14 +14,14 @@ import (
 	"crypto/ed25519"
 	"fmt"
 	"math"
-	"rogerai.fm/roger/v6/internal/bddtest"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/cucumber/godog"
-	"rogerai.fm/roger/v6/internal/protocol"
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 type pfState struct {
@@ -341,7 +341,7 @@ func TestPriceFloorBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if bddtest.Run(t, &suite) != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("price-floor scenarios failed (see godog output above)")
 	}
 }

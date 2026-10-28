@@ -20,7 +20,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"rogerai.fm/roger/v6/internal/towercore/envelope"
+	"rogerai.fm/roger/v7/internal/towercore/envelope"
 )
 
 func postSealedTranscript(t *testing.T, srvURL string, payload map[string]any) (int, string) {

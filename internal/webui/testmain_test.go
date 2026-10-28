@@ -4,6 +4,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"rogerai.fm/roger/v7/internal/detect"
 )
 
 // TestMain isolates os.UserConfigDir for the WHOLE package run: the web-console
@@ -22,6 +24,7 @@ func TestMain(m *testing.M) {
 	if got, err := os.UserConfigDir(); err != nil || !strings.HasPrefix(got, dir) {
 		panic("config isolation FAILED: UserConfigDir=" + got + " not under " + dir)
 	}
+	detect.DisablePortScan() // no test probes this host's listening ports (CI, 2026-10-28)
 	code := m.Run()
 	_ = os.RemoveAll(dir)
 	os.Exit(code)

@@ -4,13 +4,13 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"rogerai.fm/roger/v6/internal/bddtest"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/cucumber/godog"
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // rc_secrets_bdd_test.go makes features/remote/rc_secrets.feature EXECUTABLE at the STORE
@@ -193,7 +193,7 @@ func TestRCSecretsFeature(t *testing.T) {
 			TestingT: t, Strict: true,
 		},
 	}
-	if bddtest.Run(t, &suite) != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("remote/rc_secrets behavior scenarios failed")
 	}
 }

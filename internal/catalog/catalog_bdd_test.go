@@ -12,7 +12,7 @@ package catalog
 import (
 	"context"
 	"fmt"
-	"rogerai.fm/roger/v6/internal/bddtest"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strconv"
 	"strings"
 	"testing"
@@ -207,7 +207,7 @@ func TestModelCatalogueDataScenarios(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if bddtest.Run(t, &suite) != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("model catalogue @data scenarios failed (see godog output above)")
 	}
 	if want := 3; ran < want {

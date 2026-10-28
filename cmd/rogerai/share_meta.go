@@ -4,8 +4,8 @@ import (
 	"flag"
 	"strings"
 
-	"rogerai.fm/roger/v6/internal/detect"
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/detect"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // shareMetaFlags are `roger share`'s taxonomy flags (features/categories/share_cli.feature).

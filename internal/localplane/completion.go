@@ -10,7 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/tower"
+	"rogerai.fm/roger/v7/internal/servedfile"
+	"rogerai.fm/roger/v7/internal/tower"
 )
 
 // maxPromptBody bounds an authenticated consumer prompt. It is larger than the auth cap (a
@@ -44,6 +45,13 @@ func randID() string {
 // recorded key hash). Only an attached station may poll for work or return an answer; every
 // failure is the same uniform refusal, revealing nothing about the fleet.
 func (s *Server) authStation(r *http.Request, body []byte) (tower.Station, bool) {
+	return s.authStationWith(r, body, s.stationRL)
+}
+
+// authStationWith is authStation over a given rate bucket: polls and completions share the
+// station bucket, while chunk posts have their own so a real stream is never throttled by the
+// limit meant to stop a flooding key.
+func (s *Server) authStationWith(r *http.Request, body []byte, rl *rateLimiter) (tower.Station, bool) {
 	keyHash, nonce, verified := s.verifiedIdentity(r, body)
 	if !verified {
 		return tower.Station{}, false
@@ -74,7 +82,7 @@ func (s *Server) authStation(r *http.Request, body []byte) (tower.Station, bool)
 	// Then bound the station's request rate, so a station whose key was compromised cannot flood
 	// the replay guard's nonce set. The cap is far above a long-poller's legitimate cadence, so
 	// it never bites normal serving.
-	if !s.stationRL.allow(found.ID) {
+	if !rl.allow(found.ID) {
 		return tower.Station{}, false
 	}
 	// RECORD only now, atomically (used() checks-and-records under one lock): two polls racing
@@ -84,6 +92,7 @@ func (s *Server) authStation(r *http.Request, body []byte) (tower.Station, bool)
 	if nonce != "" && s.replay.used(nonceKey) {
 		return tower.Station{}, false
 	}
+	s.notePlain(r, "station:"+keyHash, "station "+found.ID)
 	return found, true
 }
 
@@ -176,7 +185,11 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	jobID := randID()
-	j := s.q.submitRouted(jobID, model, lr.jobBody(model), lr.admits, lr.preferredFor(stations, model), s.pollTimeout)
+	j := s.q.submitRouted(jobID, model, lr.jobBody(model), streamWanted(body), lr.admits, lr.preferredFor(stations, model), s.pollTimeout)
+	if j.stream {
+		s.streamAnswer(w, r, clientKeyHash, model, j)
+		return
+	}
 	select {
 	case res := <-j.result:
 		s.writeAnswer(w, clientKeyHash, model, res)
@@ -272,7 +285,39 @@ func (s *Server) localPoll(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), s.pollTimeout)
 	defer cancel()
-	j, got := s.q.poll(ctx, station.ID, station.Models)
+	// A current station announces chunk support in its poll ("streams": true) and is handed
+	// streamed jobs as streams; an older one sends no body and gets them to return whole.
+	// It also says what it serves now, and the Tower routes that from this poll on, within what the
+	// owner allowed it (features/join/invite.feature); an older station sends no list.
+	var announce struct {
+		Streams bool     `json:"streams"`
+		Models  []string `json:"models"`
+		// Files is which exact file each model is, as this station says (short_names_nearby.feature).
+		Files []struct {
+			Model string `json:"model"`
+			servedfile.File
+		} `json:"files"`
+	}
+	_ = json.Unmarshal(body, &announce)
+	if len(announce.Models) > 0 { // bounded and checked by SetStationModels
+		if now, changed, err := s.st.SetStationModels(station.ID, announce.Models); err == nil {
+			files := map[string]servedfile.File{}
+			for i, f := range announce.Files {
+				if i == tower.MaxStationModels {
+					break
+				}
+				files[f.Model] = f.File
+			}
+			if withFiles, err := s.st.SetStationFiles(station.ID, files); err == nil {
+				now = withFiles
+			}
+			station = now
+			if changed {
+				s.logf("station %s now serves: %s", station.ID, strings.Join(station.Models, ", "))
+			}
+		}
+	}
+	j, got := s.q.poll(ctx, station.ID, station.Models, announce.Streams)
 	if !got {
 		w.WriteHeader(http.StatusNoContent)
 		return
@@ -281,6 +326,7 @@ func (s *Server) localPoll(w http.ResponseWriter, r *http.Request) {
 		"job_id":  j.id,
 		"model":   j.model,
 		"request": json.RawMessage(j.body),
+		"stream":  j.chunked,
 	})
 }
 
@@ -310,8 +356,14 @@ func (s *Server) localComplete(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "a job_id and answer are required"})
 		return
 	}
-	delivered := s.q.complete(req.JobID, station.ID, req.Answer)
-	writeJSON(w, http.StatusOK, map[string]any{"delivered": delivered})
+	switch s.q.complete(req.JobID, station.ID, req.Answer) {
+	case completeStreamed:
+		writeJSON(w, http.StatusConflict, map[string]any{"error": "this job is streamed: send it as chunks to /local/chunk"})
+	case completeDelivered:
+		writeJSON(w, http.StatusOK, map[string]any{"delivered": true})
+	default:
+		writeJSON(w, http.StatusOK, map[string]any{"delivered": false})
+	}
 }
 
 // readPrompt reads at most the authenticated-prompt cap. The signature is verified over these

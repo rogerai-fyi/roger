@@ -22,7 +22,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"rogerai.fm/roger/v6/internal/bddtest"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -31,8 +31,8 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/cucumber/godog"
-	"rogerai.fm/roger/v6/internal/protocol"
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 type epState struct {
@@ -644,7 +644,7 @@ func TestVoiceErrorPassthroughBDD(t *testing.T) {
 		},
 		Options: &godog.Options{Format: "pretty", Paths: []string{"../../features/voice/error_passthrough.feature"}, TestingT: t, Strict: true},
 	}
-	if bddtest.Run(t, &suite) != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("voice/error_passthrough behavior scenarios failed (see godog output above)")
 	}
 }

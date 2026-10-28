@@ -29,7 +29,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"rogerai.fm/roger/v6/internal/bddtest"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strings"
 	"sync"
 	"testing"
@@ -37,7 +37,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/cucumber/godog"
-	"rogerai.fm/roger/v6/internal/client"
+	"rogerai.fm/roger/v7/internal/client"
 )
 
 // pinReq is one request the recording broker saw.
@@ -356,7 +356,7 @@ func (s *routingPinsBDD) brokerKnob(string) error { return nil }
 // --- Givens ------------------------------------------------------------------------------
 
 func (s *routingPinsBDD) limitsEditorSetsPref(pref, mdl string) error {
-	// The REAL editor: open [3] CONFIG, put the cursor on the band, and press p (cycle the
+	// The REAL editor: open [4] CONFIG, put the cursor on the band, and press p (cycle the
 	// pref) until the row shows the value - the same keystrokes an operator uses. Nothing is
 	// smuggled in through a struct field the editor never exposes.
 	s.addOffer(offer{NodeID: "n-1", Model: mdl, PriceOut: 0.5, TPS: 40})
@@ -843,7 +843,7 @@ func TestRoutingPinsTUI(t *testing.T) {
 			Paths: []string{"../../features/routing/regression_pins.feature"},
 		},
 	}
-	if bddtest.Run(t, &suite) != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("routing regression pin (TUI) scenarios failed")
 	}
 }

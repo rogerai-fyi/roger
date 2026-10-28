@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/ctxsig"
-	"rogerai.fm/roger/v6/internal/protocol"
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/ctxsig"
+	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 // strikes.go is the OWNER-KEYED anti-abuse layer. The verify/void/recount stack flags

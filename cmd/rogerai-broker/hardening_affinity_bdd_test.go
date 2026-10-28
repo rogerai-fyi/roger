@@ -44,8 +44,8 @@ import (
 	"crypto/rand"
 
 	"github.com/cucumber/godog"
-	"rogerai.fm/roger/v6/internal/protocol"
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 // ===================================================================================
@@ -118,6 +118,10 @@ func (q *sa6Spec) frag() string {
 
 type sa6H struct {
 	*rs1State
+
+	// over closes when the scenario ends, before teardown: a station scripted to take longer
+	// than the scenario lasts stops waiting then, so closing the servers does not wait it out.
+	over chan struct{}
 
 	users map[string]sa6User
 	cur   string
@@ -1304,9 +1308,11 @@ func sa6Run(t *testing.T, feature string, steps func(*godog.ScenarioContext, *sa
 	suite := godog.TestSuite{
 		ScenarioInitializer: func(sc *godog.ScenarioContext) {
 			sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
+				h.over = make(chan struct{})
 				return ctx, h.reset()
 			})
 			sc.After(func(ctx context.Context, scn *godog.Scenario, err error) (context.Context, error) {
+				close(h.over)
 				if err != nil {
 					all := h.logs.String()
 					if len(all) > 1500 {

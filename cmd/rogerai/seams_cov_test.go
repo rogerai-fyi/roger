@@ -15,11 +15,11 @@ import (
 	"testing"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/agent"
-	"rogerai.fm/roger/v6/internal/detect"
-	"rogerai.fm/roger/v6/internal/node"
-	"rogerai.fm/roger/v6/internal/tui"
-	"rogerai.fm/roger/v6/internal/webui"
+	"rogerai.fm/roger/v7/internal/agent"
+	"rogerai.fm/roger/v7/internal/detect"
+	"rogerai.fm/roger/v7/internal/node"
+	"rogerai.fm/roger/v7/internal/tui"
+	"rogerai.fm/roger/v7/internal/webui"
 )
 
 // stubDetectFull points the detectFull seam at a fake local-LLM detector so the
@@ -187,6 +187,7 @@ func captureStdout(t *testing.T, fn func()) string {
 func TestCmdShareDetectionPath(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	stubShareSeams(t)
+	answerShareYes(t) // an auto-picked model needs a yes before the market (marketconsent.go)
 	stubDetectFull(t, []detect.Found{{
 		Name:    "ollama",
 		BaseURL: "http://127.0.0.1:11434/v1",
@@ -230,6 +231,7 @@ func TestCmdShareDetectionPicksRequestedModel(t *testing.T) {
 func TestCmdShareSavedKeyedUpstream(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	stubShareSeams(t)
+	answerShareYes(t) // the model is still auto-picked from the saved server
 	stubDetectProbeKey(t, func(url, key string) (detect.Found, detect.Status) {
 		return detect.Found{
 			BaseURL: "http://127.0.0.1:9000/v1",
@@ -325,13 +327,14 @@ func TestCmdOnboardFree(t *testing.T) {
 	}
 }
 
-// TestMaybeOnboardAlreadyOnboarded covers the early return when the user has onboarded
-// (the wizard never runs, the config passes through unchanged).
-func TestMaybeOnboardAlreadyOnboarded(t *testing.T) {
+// TestWelcomeOnLaunchAlreadyOnboarded: an onboarded user never sees the card, and nothing but
+// welcome_seen changes.
+func TestWelcomeOnLaunchAlreadyOnboarded(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	in := config{Broker: "https://b", User: "u", Onboarded: true}
-	got := maybeOnboard(in)
-	if got.Broker != in.Broker || got.User != in.User || !got.Onboarded || got.Share != nil {
-		t.Fatalf("maybeOnboard(onboarded) mutated config: %+v", got)
+	got, due := welcomeOnLaunch(in, true)
+	if due || got.Broker != in.Broker || got.User != in.User || !got.Onboarded || got.Share != nil || !got.WelcomeSeen {
+		t.Fatalf("welcomeOnLaunch(onboarded) = %+v due %v", got, due)
 	}
 }
 
@@ -352,7 +355,7 @@ func TestRunNoArgsLaunch(t *testing.T) {
 		}
 		return nil
 	}
-	startWebConsoleFn = func(cfg config, ctrl *node.Controller, port string, _ *tui.LimitStore) string {
+	startWebConsoleFn = func(cfg config, ctrl *node.Controller, port string, _ *tui.LimitStore, _ *tui.Hooks) string {
 		webCalled = true
 		if port != defaultWebuiPort {
 			t.Errorf("startWebConsoleFn got port %q, want %q", port, defaultWebuiPort)
@@ -379,7 +382,7 @@ func TestRunNoWebui(t *testing.T) {
 		tuiCalled = true
 		return nil
 	}
-	startWebConsoleFn = func(cfg config, ctrl *node.Controller, port string, _ *tui.LimitStore) string {
+	startWebConsoleFn = func(cfg config, ctrl *node.Controller, port string, _ *tui.LimitStore, _ *tui.Hooks) string {
 		webCalled = true
 		return ""
 	}
@@ -431,7 +434,7 @@ func TestStartWebConsole(t *testing.T) {
 		t.Fatal(err)
 	}
 	os.Stdout = w
-	startWebConsole(cfg, ctrl, "0", tuiLimits(cfg)) // "0" => OS-assigned ephemeral port
+	startWebConsole(cfg, ctrl, "0", tuiLimits(cfg), nil) // "0" => OS-assigned ephemeral port
 	w.Close()
 	os.Stdout = origStdout
 
@@ -476,7 +479,7 @@ func TestStartWebConsoleListenFailure(t *testing.T) {
 	on := true
 	cfg := config{Broker: "https://b", User: "u", WebuiOpen: &on}
 	ctrl := tui.NewController(cfg.Broker, tuiHooks(cfg))
-	if url := startWebConsole(cfg, ctrl, "0", tuiLimits(cfg)); url != "" {
+	if url := startWebConsole(cfg, ctrl, "0", tuiLimits(cfg), nil); url != "" {
 		t.Fatalf("a bind failure should return no URL, got %q", url)
 	}
 	if len(opened) != 0 {
@@ -498,7 +501,7 @@ func TestStartWebConsoleBogusPortRescued(t *testing.T) {
 	on := true
 	cfg := config{Broker: "https://b", User: "u", WebuiOpen: &on}
 	ctrl := tui.NewController(cfg.Broker, tuiHooks(cfg))
-	url := startWebConsole(cfg, ctrl, "99999999", tuiLimits(cfg))
+	url := startWebConsole(cfg, ctrl, "99999999", tuiLimits(cfg), nil)
 	if url == "" || !strings.Contains(url, "127.0.0.1") {
 		t.Fatalf("a bogus port should be rescued by the OS-picked fallback, got %q", url)
 	}
@@ -676,4 +679,14 @@ func TestCmdAppealListRows(t *testing.T) {
 	if err := cmdAppeal(cfg, []string{"status"}); err != nil {
 		t.Fatalf("cmdAppeal(status, rows) = %v", err)
 	}
+}
+
+// answerShareYes is an operator at a terminal answering y to the market confirmation that an
+// auto-picked model needs (features/sharing/market_offer_consent.feature).
+func answerShareYes(t *testing.T) {
+	t.Helper()
+	prevTTY, prevIn := shareInteractive, shareStdin
+	shareInteractive = func() bool { return true }
+	shareStdin = strings.NewReader("y\n")
+	t.Cleanup(func() { shareInteractive, shareStdin = prevTTY, prevIn })
 }

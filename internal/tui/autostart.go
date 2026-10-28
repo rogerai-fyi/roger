@@ -17,7 +17,7 @@ import (
 	"sort"
 	"strings"
 
-	"rogerai.fm/roger/v6/internal/node"
+	"rogerai.fm/roger/v7/internal/node"
 )
 
 // autoStartArmedAtLaunch reports whether Init has any reason to kick the launch detect.

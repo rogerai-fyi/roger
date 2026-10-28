@@ -27,7 +27,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"rogerai.fm/roger/v6/internal/glyphs"
+	"rogerai.fm/roger/v7/internal/glyphs"
 )
 
 // pingState selects which animation Ping plays.
@@ -185,8 +185,14 @@ func tintEyeLineDepth(line, eyeGlyph string, row int) string {
 // the frame counter. It is fully deterministic (same frame -> same value) so tests
 // stay reproducible, while reading as "random" across frames so the mascot never
 // looks like a metronome.
-func pingHash(x int) uint32 {
-	z := uint32(x)*2654435761 + 0x9e3779b9
+func pingHash(x int) uint32 { return pingHash32(uint32(x)) }
+
+// pingHash32 is the mixer itself, taking the word it actually works on. It exists because the
+// multiplier does not fit in an `int` on a 32-bit build, so arithmetic that reached it through an
+// int would not COMPILE for armv7 - a Raspberry Pi running a 32-bit OS. Doing the mixing in uint32
+// is modular arithmetic, so every value is bit-identical to what the 64-bit build always produced.
+func pingHash32(x uint32) uint32 {
+	z := x*2654435761 + 0x9e3779b9
 	z ^= z >> 15
 	z *= 0x85ebca6b
 	z ^= z >> 13

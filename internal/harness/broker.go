@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/client"
+	"rogerai.fm/roger/v7/internal/client"
 )
 
 // CostFunc receives one model-call's BILLED result parsed from the relay's response
@@ -89,7 +89,7 @@ type BrokerRoute struct {
 	// Routing is the consumer routing object (pref, self_hosted_only, quantizations, the
 	// standing exclusions as Ignore, ...). ONE carrier policy with the proxy and the chat
 	// path: it rides the request BODY on every attempt (or the X-Roger-* headers in
-	// HeaderMode, for an old broker) - contract §1; the TUI's [3] CONFIG rules reach an
+	// HeaderMode, for an old broker) - contract §1; the TUI's [4] CONFIG rules reach an
 	// agent turn through it. Confidential below is OR'd into it.
 	Routing         client.Routing
 	OnCost          CostFunc
@@ -160,7 +160,11 @@ func BrokerCompleterRoute(rt BrokerRoute) Completer {
 		if rt.Freq != "" {
 			req.Header.Set("X-Roger-Freq", rt.Freq)
 		}
-		resp, err := httpClient.Do(req)
+		resp, inLAN := client.LANDo(req, reqBody)
+		var err error
+		if !inLAN {
+			resp, err = httpClient.Do(req) // LAN mode never reaches here: the local ladder served or refused
+		}
 		if err != nil {
 			// User aborted the turn (esc): a clean cancellation, not a network failure. An
 			// ExtendableTimeout that expired cancels with cause DeadlineExceeded - that is

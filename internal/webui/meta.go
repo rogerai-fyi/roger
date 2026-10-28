@@ -4,8 +4,8 @@ import (
 	"errors"
 	"net/http"
 
-	"rogerai.fm/roger/v6/internal/node"
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/node"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // handleCategories serves the closed category list the editor offers (the same list the

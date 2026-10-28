@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // isolateConfig gives ONE test its own throwaway config dir (on top of the package
@@ -88,7 +89,7 @@ func TestToggleRefusedWhileAnotherLiveProcessHoldsNodeID(t *testing.T) {
 		t.Skip("no distinct live parent PID to simulate another daemon")
 	}
 	c := newCtrl(t, Config{})
-	writeLock(t, "amber-fox-free-1", lockInfo{PID: other, Station: "systemd-unit", Model: "free-1", Started: 1})
+	writeLock(t, "amber-fox-free-1", lockInfo{PID: other, Station: "systemd-unit", Model: "free-1", Started: time.Now().Unix()})
 
 	res := c.ToggleOnAir("free-1")
 	if res.Err == nil {

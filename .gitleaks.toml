@@ -18,7 +18,8 @@ useDefault = true
 [allowlist]
 description = "Audited false positives (see header). Verified: no real secret committed."
 
-# Specific non-secret strings the default rules flag. Matched against the detected secret.
+# Specific non-secret strings the default rules flag. Matched against the detected secret, and
+# anchored (^...$) so an audited value never excuses a longer string that merely contains it.
 # We DELIBERATELY allowlist by exact value, NOT by path: a broad path allowlist (e.g. the
 # generated coverage/ report or web/dist/ build output) could mask a real secret bundled
 # into generated output, so every suppression here is a precise, audited string.
@@ -28,70 +29,65 @@ regexes = [
   # and its generator gen_join_proof_vectors.py): fixed sequential test node keys and keys
   # derived by PBKDF2 from published one-time test codes. Every value was reproduced exactly
   # by re-running the generator. Test data, not credentials.
-  '''00112233445566778899aabbccddeeff''',
-  '''0593c046af53232bd64c421285981b243dbfb58aca72cd05a92b790a15807e70''',
-  '''0a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f9''',
-  '''0dcca7ff252bad1731a9b0a6b168c3cb2ebae86737e7895a012d06c1dfa80921''',
-  '''1f2e3d4c5b6a79880918273645546372819aabbccddeeff00112233445566778''',
-  '''3e6fd14446fd909d91669d4967b6241a4cf0a8a8455472e9bc1daf750214bcbd''',
-  '''75d8aea587dc461c6c5b911e7dc27a9ba76b81d9831c2a89de19411d82b9169b''',
-  '''9795017b8ff63376b3f948c4c9f2133625de1a89460d2e2eac99adb073059c45''',
-  '''f9e8d7c6b5a4938271605f4e3d2c1b0af9e8d7c6b5a4938271605f4e3d2c1b0a''',
+  '''^00112233445566778899aabbccddeeff$''',
+  '''^0593c046af53232bd64c421285981b243dbfb58aca72cd05a92b790a15807e70$''',
+  '''^0a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f9$''',
+  '''^0dcca7ff252bad1731a9b0a6b168c3cb2ebae86737e7895a012d06c1dfa80921$''',
+  '''^1f2e3d4c5b6a79880918273645546372819aabbccddeeff00112233445566778$''',
+  '''^3e6fd14446fd909d91669d4967b6241a4cf0a8a8455472e9bc1daf750214bcbd$''',
+  '''^75d8aea587dc461c6c5b911e7dc27a9ba76b81d9831c2a89de19411d82b9169b$''',
+  '''^9795017b8ff63376b3f948c4c9f2133625de1a89460d2e2eac99adb073059c45$''',
+  '''^f9e8d7c6b5a4938271605f4e3d2c1b0af9e8d7c6b5a4938271605f4e3d2c1b0a$''',
   # checks_root golden vectors (internal/edgeauth/testdata/checks_root_vectors.json, unpushed
   # branches at audit time): Ed25519 PUBLIC node keys from a documented pure-Python RFC 8032
   # signer. Public keys are not secrets.
-  '''3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c''',
-  '''fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025''',
+  '''^3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c$''',
+  '''^fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025$''',
   # join-sas golden vectors (internal/joinsas/testdata/sas_vectors.json): fixed test client and
   # tower keys in a documented, Python-generated vector file. Test data, not credentials.
-  '''293b1186e4eddc2c56cc08582f8236981d633d1023691c7d637bae459f377c8c''',
-  '''64dbdc38ede19b85cac8beccc15d52debb1a30e42c2fa15716ce95ac0913ad09''',
+  '''^293b1186e4eddc2c56cc08582f8236981d633d1023691c7d637bae459f377c8c$''',
+  '''^64dbdc38ede19b85cac8beccc15d52debb1a30e42c2fa15716ce95ac0913ad09$''',
   # --- Audited 2026-10-11 (all on unmerged feature branches; each verified a non-secret) ---
   # Edge root-proof GOLDEN VECTORS (internal/edgeauth/testdata/root_proof_vectors.json): keys
   # derived from published one-time test codes by an independent Python reference; test data.
-  '''b6f3e4472e65660b01bbc93eeb85a1b606fe90ce21c3a054d76e2d944a1dfafd''',
-  '''53b58aa2e060c61a0fec8de497259a79ddc4202a3fc8d34649c0c2a9fb7fd723''',
-  '''50817702c74e01aad884a60683f7be2fec11005ef338e76013ab69a802609f61''',
-  '''061877fecb0509cbe4fc3dcbeb9cc1ea592dc41462543b5a7681a498574bc53b''',
+  '''^b6f3e4472e65660b01bbc93eeb85a1b606fe90ce21c3a054d76e2d944a1dfafd$''',
+  '''^53b58aa2e060c61a0fec8de497259a79ddc4202a3fc8d34649c0c2a9fb7fd723$''',
+  '''^50817702c74e01aad884a60683f7be2fec11005ef338e76013ab69a802609f61$''',
+  '''^061877fecb0509cbe4fc3dcbeb9cc1ea592dc41462543b5a7681a498574bc53b$''',
   # Fake key in a fake HTTP response (cmd/rogerai/keys_test.go).
-  '''rog-key_s3cret''',
+  '''^rog-key_s3cret$''',
   # GGUF metadata field NAME, not a value (internal/detect/ggufshape_test.go).
-  '''qwen3\.vocab_size''',
-  # Environment variable NAME with an empty value (cmd/rogerai/routing_flags_bdd_test.go).
-  '''ROGERAI_CONSUMER_DEFAULT_MAX_PRICE_OUT=''',
+  '''^qwen3\.vocab_size$''',
+  # Environment variable NAME with an empty value (cmd/rogerai/routing_flags_bdd_test.go, audited
+  # 2026-10-04): generic-api-key captures the NAME= text after a test-generated admin-key variable.
+  '''^ROGERAI_CONSUMER_DEFAULT_MAX_PRICE_OUT=$''',
   # Redaction test input (internal/edge/logtail_test.go): the test asserts it gets redacted.
-  '''abc123def456''',
+  '''^abc123def456$''',
   # PUBLIC GitHub OAuth client id - public by design (see cmd/rogerai/main.go defaultGitHubClientID).
-  '''Ov23liQE7Z6ITMbeJoF3''',
+  '''^Ov23liQE7Z6ITMbeJoF3$''',
   # Historical fake Stripe test fixture (the current code uses sk_live_not_a_real_key, which
   # does not match the stripe rule); kept so the history scan stays clean.
-  '''sk_live_realprodkey''',
-  '''sk_live_not_a_real_key''',
+  '''^sk_live_realprodkey$''',
+  '''^sk_live_not_a_real_key$''',
   # TUI keybinding help string ("keys: pgup/pgdown/ctrl+u/ctrl+d"), not an API key.
-  '''pgup/pgdown/ctrl\+u/ctrl\+d''',
+  '''^pgup/pgdown/ctrl\+u/ctrl\+d$''',
   # An env-var line mis-flagged as KEY=value after an empty TOKENIZER_URL= in .env.example.
-  '''ROGERAI_RECOUNT_TOLERANCE=0\.02''',
+  '''^ROGERAI_RECOUNT_TOLERANCE=0\.02$''',
   # Docs: the non-secret local proxy key default printed by `roger use`.
-  '''roger-local''',
+  '''^roger-local$''',
   # Docs: a historical placeholder example bearer token in the manual.
-  '''sk-roger-\.\.\.''',
+  '''^sk-roger-\.\.\.$''',
   # AUDITED 2026-08-29. Test fixture in internal/stationattach/stationattach_test.go
-  # (b76818c52e, since deleted): `const inviteSecret = "test-invite-secret"`, documented in
+  # (b76818c52e, since deleted): `const inviteSecret = "test-invite-secret-0123456789"`, documented in
   # the file as "the plaintext an operator would hand a Station", used so the secret check
   # is exercised on every path rather than bypassed. Not a credential - it never existed
   # outside the test.
-  '''test-invite-secret''',
+  '''^test-invite-secret-0123456789$''',
   # AUDITED 2026-08-29. NOT a secret at all: a URL PATH in
   # internal/edgeclient/edgeclient_test.go (9ee8fe7684),
   # `w.client.Do(ctx, auth, "v1/no/leading/slash", ...)` - a test asserting the client
   # accepts a path with no leading slash. The generic-api-key rule fires on a string
   # literal following a variable named `auth`. Nothing to rotate; the shape will recur,
   # so tighten the rule rather than grow this list if it does.
-  '''v1/no/leading/slash''',
-  # AUDITED 2026-10-04. NOT a secret: an environment-variable NAME followed by "=" in the
-  # routing CLI test (cmd/rogerai/routing_flags_bdd_test.go, 825045af). The test builds a
-  # child-process env list of `"NAME="+value` entries right after a test-generated admin-key
-  # variable, and generic-api-key captures the NAME= text as the "secret" (same shape as
-  # ROGERAI_RECOUNT_TOLERANCE above). Real values are generated at test time, never committed.
-  '''ROGERAI_CONSUMER_DEFAULT_MAX_PRICE_OUT=''',
+  '''^v1/no/leading/slash$''',
 ]

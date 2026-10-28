@@ -23,7 +23,7 @@ import (
 	"time"
 
 	"github.com/cucumber/godog"
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 // stationOwnerCapSpent binds a GitHub-linked owner at `addr`, stands up a paid station it

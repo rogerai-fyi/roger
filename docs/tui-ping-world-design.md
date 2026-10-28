@@ -1,3 +1,7 @@
+> HISTORICAL (2026-09-13): the preset bar in this document predates the Roger Edge
+> renumber. The bar now reads [0] AGENT [1] TUNE IN [2] SHARE [3] EDGE [4] CONFIG.
+> The layouts below are kept as they were written; only the key digits moved.
+
 # RogerAI — TUI Beautification + `roger --ping` "Ping World" Screensaver
 ### A design proposal (DESIGN ONLY — no production Go in this doc)
 
@@ -62,7 +66,7 @@ real render order in `View()` (`tui.go:3630`):
 
 ```
 ROW  SOURCE                              what it is
-1    presetBar (tui.go:3501)             [0] AGENT [1] TUNE IN [2] SHARE [3] CONFIG [L] LOGIN [?] HELP
+1    presetBar (tui.go:3501)             [0] AGENT [1] TUNE IN [2] SHARE [4] CONFIG [L] LOGIN [?] HELP
 2    "\n\n" spacer                       blank
 3    header() top line (tui.go:4407)     ▟█▙ R O G E R · A I  ((•))            TUNE IN [s]
 4    header() rule                       ────────────────────────────────────────────
@@ -117,7 +121,7 @@ zone (kills the header/badge/state triplication).
 **BEFORE** (today, ~11 chrome rows around the list):
 
 ```
-  [0] AGENT  [1] TUNE IN  [2] SHARE  [3] CONFIG  [L] LOGIN  [?] HELP
+  [0] AGENT  [1] TUNE IN  [2] SHARE  [4] CONFIG  [L] LOGIN  [?] HELP
 
   ▟█▙ R O G E R · A I  ((•))                                     TUNE IN [s]
   ────────────────────────────────────────────────────────────────────────
@@ -230,7 +234,7 @@ not always-on.
             │    /grant         private keys for bots/family            │
             │    /confidential  route only to TEE nodes     ◆           │
             │    ─ sections ───────────────────────────────────────    │
-            │    [0] AGENT  [1] TUNE IN  [2] SHARE  [3] CONFIG  [?]     │
+            │    [0] AGENT  [1] TUNE IN  [2] SHARE  [4] CONFIG  [?]     │
             │                                                          │
             │  ↑↓ choose · ⏎ run · esc close                           │
             └──────────────────────────────────────────────────────────┘

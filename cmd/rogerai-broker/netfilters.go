@@ -12,8 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/detect"
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/detect"
+	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/routingrules"
 )
 
 // netFilters are the slice-2 hard filters a request states. The zero value filters nothing.
@@ -175,7 +176,7 @@ func (b *broker) noMatchFilters(models []routedModel, req pickReq, minTPS float6
 			if !want[o.Model] {
 				continue
 			}
-			if req.quants != nil && !req.quants[strings.ToLower(o.Quant)] && !(o.Quant == "" && req.quants[protocol.QuantUnknown]) {
+			if !routingrules.QuantAdmits(req.quants, o.Quant) {
 				hit["quantizations"] = true
 			}
 			if tps := b.tps[n.NodeID]; minTPS > 0 && tps > 0 && tps < minTPS {

@@ -1,8 +1,8 @@
 package node
 
 import (
-	"rogerai.fm/roger/v6/internal/agent"
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/agent"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // Snapshot is a consistent, JSON-able read of the node's live state, taken under the
@@ -17,6 +17,10 @@ type Snapshot struct {
 	Upstream string    `json:"upstream"`
 	Rows     []RowView `json:"rows"`
 	Totals   Totals    `json:"totals"`
+	// LAN is set when SHARE runs in LAN mode: the console marks the mode and bills nothing.
+	LAN bool `json:"lan,omitempty"`
+	// EdgeOnly is set when that LAN share is edge-only: Edge members only, never a Tower.
+	EdgeOnly bool `json:"edge_only,omitempty"`
 }
 
 // RowView is one model in the share table: its catalog facts plus live counters when
@@ -103,6 +107,8 @@ func (c *Controller) Snapshot() Snapshot {
 		LoggedIn: c.loggedIn,
 		Upstream: c.upstream,
 		Rows:     make([]RowView, 0, len(c.rows)),
+		LAN:      c.lanTowers != nil,
+		EdgeOnly: c.lanTowers != nil && c.lanEdgeOnly,
 	}
 	for _, r := range c.rows {
 		p := c.pricingForLocked(r.Model)

@@ -26,7 +26,7 @@ func TestShareExplainsTheRemovedTowerFlag(t *testing.T) {
 			t.Fatalf("roger share %v was accepted; the flag no longer does anything and must not look like it does", args)
 		}
 		msg := err.Error()
-		for _, want := range []string{"no longer", "roger share", "roger-tower"} {
+		for _, want := range []string{"no longer", "roger share", "roger tower attach"} {
 			if !strings.Contains(msg, want) {
 				t.Errorf("roger share %v: refusal %q does not mention %q", args, msg, want)
 			}

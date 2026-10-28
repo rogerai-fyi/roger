@@ -12,14 +12,14 @@ import (
 	"crypto/ed25519"
 	"net/http"
 	"net/http/httptest"
-	"rogerai.fm/roger/v6/internal/bddtest"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/cucumber/godog"
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 type relayAllowlistState struct {
@@ -232,7 +232,7 @@ func TestRelayAllowlistBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if bddtest.Run(t, &suite) != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("voice/relay_allowlist behavior scenarios failed (see godog output above)")
 	}
 }

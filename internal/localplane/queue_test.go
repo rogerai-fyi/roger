@@ -11,16 +11,16 @@ import (
 
 func TestQueueDeliversAJobToAPollingStation(t *testing.T) {
 	q := newQueue()
-	j := q.submit("req-1", "llama-8b", []byte(`{"prompt":"hi"}`))
+	j := q.submit("req-1", "llama-8b", []byte(`{"prompt":"hi"}`), false)
 
 	// A station polling for a matching model gets the job.
-	got, ok := q.poll(context.Background(), "st-1", []string{"llama-8b", "qwen"})
+	got, ok := q.poll(context.Background(), "st-1", []string{"llama-8b", "qwen"}, false)
 	require.True(t, ok)
 	require.Equal(t, "req-1", got.id)
 	require.Equal(t, []byte(`{"prompt":"hi"}`), got.body)
 
 	// It completes back to the waiting consumer.
-	require.True(t, q.complete("req-1", "st-1", []byte(`{"answer":"hello"}`)))
+	require.Equal(t, completeDelivered, q.complete("req-1", "st-1", []byte(`{"answer":"hello"}`)))
 	select {
 	case res := <-j.result:
 		require.Equal(t, "st-1", res.stationID)
@@ -32,10 +32,10 @@ func TestQueueDeliversAJobToAPollingStation(t *testing.T) {
 
 func TestPollIgnoresJobsForOtherModels(t *testing.T) {
 	q := newQueue()
-	q.submit("req-x", "mistral", nil)
+	q.submit("req-x", "mistral", nil, false)
 	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
 	defer cancel()
-	_, ok := q.poll(ctx, "st-test", []string{"llama-8b"})
+	_, ok := q.poll(ctx, "st-test", []string{"llama-8b"}, false)
 	require.False(t, ok, "a station must not be handed a model it does not serve")
 }
 
@@ -43,14 +43,14 @@ func TestPollBlocksUntilAJobArrives(t *testing.T) {
 	q := newQueue()
 	done := make(chan *job, 1)
 	go func() {
-		j, ok := q.poll(context.Background(), "st-test", []string{"llama-8b"})
+		j, ok := q.poll(context.Background(), "st-test", []string{"llama-8b"}, false)
 		if ok {
 			done <- j
 		}
 	}()
 	// Nothing yet; submit after a beat and the poller wakes.
 	time.Sleep(50 * time.Millisecond)
-	q.submit("late", "llama-8b", nil)
+	q.submit("late", "llama-8b", nil, false)
 	select {
 	case j := <-done:
 		require.Equal(t, "late", j.id)
@@ -63,13 +63,13 @@ func TestPollReturnsOnContextCancel(t *testing.T) {
 	q := newQueue()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, ok := q.poll(ctx, "st-test", []string{"llama-8b"})
+	_, ok := q.poll(ctx, "st-test", []string{"llama-8b"}, false)
 	require.False(t, ok)
 }
 
 func TestExactlyOneStationTakesAJob(t *testing.T) {
 	q := newQueue()
-	q.submit("only", "m", nil)
+	q.submit("only", "m", nil, false)
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	got := 0
@@ -79,7 +79,7 @@ func TestExactlyOneStationTakesAJob(t *testing.T) {
 			defer wg.Done()
 			ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 			defer cancel()
-			if _, ok := q.poll(ctx, "st-test", []string{"m"}); ok {
+			if _, ok := q.poll(ctx, "st-test", []string{"m"}, false); ok {
 				mu.Lock()
 				got++
 				mu.Unlock()
@@ -92,34 +92,34 @@ func TestExactlyOneStationTakesAJob(t *testing.T) {
 
 func TestCompleteForUnknownJobIsANoOp(t *testing.T) {
 	q := newQueue()
-	require.False(t, q.complete("never-existed", "st", []byte("x")), "a completion for an unknown id changes nothing")
+	require.Equal(t, completeDropped, q.complete("never-existed", "st", []byte("x")), "a completion for an unknown id changes nothing")
 }
 
 func TestAbandonedJobCannotBeCompleted(t *testing.T) {
 	q := newQueue()
-	q.submit("gone", "m", nil)
-	_, ok := q.poll(context.Background(), "st", []string{"m"})
+	q.submit("gone", "m", nil, false)
+	_, ok := q.poll(context.Background(), "st", []string{"m"}, false)
 	require.True(t, ok)
 	q.abandon("gone")
-	require.False(t, q.complete("gone", "st", []byte("x")), "an abandoned job's late completion is dropped")
+	require.Equal(t, completeDropped, q.complete("gone", "st", []byte("x")), "an abandoned job's late completion is dropped")
 }
 
 func TestOnlyTheTakingStationMayComplete(t *testing.T) {
 	q := newQueue()
-	q.submit("j1", "m", nil)
-	_, ok := q.poll(context.Background(), "st-owner", []string{"m"})
+	q.submit("j1", "m", nil, false)
+	_, ok := q.poll(context.Background(), "st-owner", []string{"m"}, false)
 	require.True(t, ok)
 	// A different station guessing the id cannot complete it.
-	require.False(t, q.complete("j1", "st-impostor", []byte("x")), "only the station that took the job may complete it")
+	require.Equal(t, completeDropped, q.complete("j1", "st-impostor", []byte("x")), "only the station that took the job may complete it")
 	// The real owner can.
-	require.True(t, q.complete("j1", "st-owner", []byte("ok")))
+	require.Equal(t, completeDelivered, q.complete("j1", "st-owner", []byte("ok")))
 }
 
 // A job abandoned before any station took it must leave the PENDING set, or it leaks there
 // forever and a later poll would hand a station stale work the consumer already gave up on.
 func TestAbandonRemovesANeverTakenJobFromPending(t *testing.T) {
 	q := newQueue()
-	q.submit("timed-out", "m", make([]byte, 1024))
+	q.submit("timed-out", "m", make([]byte, 1024), false)
 	q.abandon("timed-out") // consumer gave up before any station polled
 
 	q.mu.Lock()
@@ -130,7 +130,7 @@ func TestAbandonRemovesANeverTakenJobFromPending(t *testing.T) {
 	// A station polling now finds nothing - the stale job is gone, not served.
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Millisecond)
 	defer cancel()
-	_, ok := q.poll(ctx, "st", []string{"m"})
+	_, ok := q.poll(ctx, "st", []string{"m"}, false)
 	require.False(t, ok, "an abandoned job is never handed to a station")
 }
 
@@ -142,12 +142,12 @@ func TestAGoneStationNeverClaimsAJob(t *testing.T) {
 	q := newQueue()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	q.submit("req-1", "llama-8b", []byte(`{}`))
+	q.submit("req-1", "llama-8b", []byte(`{}`), false)
 
-	_, ok := q.poll(ctx, "st-gone", []string{"llama-8b"})
+	_, ok := q.poll(ctx, "st-gone", []string{"llama-8b"}, false)
 	require.False(t, ok, "a cancelled poll took a job")
 
-	got, ok := q.poll(context.Background(), "st-live", []string{"llama-8b"})
+	got, ok := q.poll(context.Background(), "st-live", []string{"llama-8b"}, false)
 	require.True(t, ok, "the job was lost to the gone station")
 	require.Equal(t, "req-1", got.id)
 }

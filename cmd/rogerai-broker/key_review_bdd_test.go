@@ -15,7 +15,7 @@ import (
 	"time"
 
 	"github.com/cucumber/godog"
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 func (k *kg5State) registerReview(sc *godog.ScenarioContext) {
@@ -218,6 +218,7 @@ func (k *kg5State) rvUnknownKeys() error {
 	defer func() { k.b.db = saved }()
 	body := k.relayBody(k.model, false, nil)
 	k.codes, k.rvRetryAfter = nil, 0
+	began := time.Now()
 	for i := 0; i < 10000; i++ {
 		r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
 		r.Header.Set("Content-Type", "application/json")
@@ -231,6 +232,7 @@ func (k *kg5State) rvUnknownKeys() error {
 		}
 	}
 	k.rvLookups = counter.n
+	k.rvElapsed = time.Since(began)
 	return nil
 }
 
@@ -255,9 +257,13 @@ func (k *kg5State) rvUnknownLimited() error {
 }
 
 func (k *kg5State) rvUnknownLookups() error {
-	burst := int(k.b.keyMissLimiter().burst)
-	if k.rvLookups > burst+1 {
-		return fmt.Errorf("%d unknown keys reached the key store, want at most the burst of %d", k.rvLookups, burst)
+	// The budget is a token bucket: the burst, plus what refills at its rate while the loop runs
+	// (0.5 a second at 30 a minute). Bounding by the burst alone failed whenever 10,000 relays took
+	// a few seconds; the refill is exact, so the bound stays as tight as the limiter itself.
+	rl := k.b.keyMissLimiter()
+	limit := int(rl.burst) + int(k.rvElapsed.Seconds()*rl.rpm/60)
+	if k.rvLookups > limit {
+		return fmt.Errorf("%d unknown keys reached the key store in %s, want at most the burst of %d plus %d refilled", k.rvLookups, k.rvElapsed.Round(time.Millisecond), int(rl.burst), limit-int(rl.burst))
 	}
 	return nil
 }

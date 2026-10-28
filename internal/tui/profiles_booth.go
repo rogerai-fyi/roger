@@ -1,7 +1,7 @@
 package tui
 
 // PROFILES IN THE BOOTH (features/tui/routing_profiles.feature): the named routing profiles of
-// config.json are listed under the [3] CONFIG table (read-only: `roger profile set` edits
+// config.json are listed under the [4] CONFIG table (read-only: `roger profile set` edits
 // them), offered on the TUNE IN confirm (p cycles), and the one tuned under rides every
 // in-booth path for the connected band.
 
@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"strings"
 
-	"rogerai.fm/roger/v6/internal/client"
+	"rogerai.fm/roger/v7/internal/client"
 )
 
 // profiles is the current named-profile set (never nil).

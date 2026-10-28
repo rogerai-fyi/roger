@@ -1,0 +1,1074 @@
+package edge
+
+import (
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+
+	"rogerai.fm/roger/v7/internal/store"
+)
+
+// Fleet is one account's Edge: the set of machines that owner owns.
+//
+// Everything on it is account-scoped by construction - the account is a field on the
+// Fleet, not an argument a caller can forget - so there is no path where a surface of
+// one account lists, describes or addresses another account's node.
+type Fleet struct {
+	db      store.Store
+	account string
+	// now is the clock, injectable so a test can assert on recorded times without
+	// racing the wall clock.
+	now func() time.Time
+	// returning is the name a device that was forgotten and comes back had (NameReturning).
+	returning func(id string) string
+}
+
+// NameReturning tells the fleet what a forgotten device was called, so one that is re-admitted
+// comes back under the name its owner knew it by rather than whatever it calls itself
+// (features/edge/node_identity.feature, RE-ADMITTING). fn returns "" for a device with no such name.
+func (f *Fleet) NameReturning(fn func(id string) string) { f.returning = fn }
+
+// returningName is the remembered name for a device joining the fleet, when there is one that is
+// usable and no other member holds it now; else "".
+func (f *Fleet) returningName(id string) string {
+	if f.returning == nil {
+		return ""
+	}
+	name := f.returning(id)
+	if name == "" || ValidName(name) != nil {
+		return ""
+	}
+	if _, taken, err := f.ByName(name); err != nil || taken {
+		return ""
+	}
+	return name
+}
+
+// NewFleet returns the fleet view for one account.
+func NewFleet(db store.Store, account string) *Fleet {
+	return &Fleet{db: db, account: account, now: time.Now}
+}
+
+// SetClock replaces the fleet's clock. Test seam.
+func (f *Fleet) SetClock(now func() time.Time) { f.now = now }
+
+// Account is the owner this fleet belongs to.
+func (f *Fleet) Account() string { return f.account }
+
+// EnrollError refuses a node that already belongs to another Edge.
+//
+// Existing names the account it already belongs to, for the surfaces entitled to know:
+// the node itself, and its actual owner. Error() does NOT, because the reader of the
+// message is the account whose enrollment just failed, and a refusal that names the
+// other account turns "is this device already claimed?" into an account-enumeration
+// oracle on any LAN.
+type EnrollError struct{ Existing string }
+
+func (e *EnrollError) Error() string { return "that node already belongs to another Edge" }
+
+// ErrNoSuchNode is returned when this account holds no node with that id.
+var ErrNoSuchNode = errors.New("no such node on this Edge")
+
+// ErrNotVerified is returned when work is addressed to a capability the node has not
+// had verified (or, for actuate, has not had confirmed).
+var ErrNotVerified = errors.New("that node has no verified capability for this")
+
+// Enroll adds a node to this Edge. The record's account is stamped here rather than
+// taken from the caller, so a node can never be enrolled into an account by asking.
+func (f *Fleet) Enroll(n store.EdgeNode) (store.EdgeNode, error) {
+	if err := ValidName(n.Name); err != nil {
+		return store.EdgeNode{}, err
+	}
+	if !Kind(n.Kind).Valid() {
+		return store.EdgeNode{}, fmt.Errorf("%q is not a node kind", n.Kind)
+	}
+	for _, c := range n.Caps {
+		if err := f.checkCap(Kind(n.Kind), Capability(c.Name)); err != nil {
+			return store.EdgeNode{}, err
+		}
+	}
+	n.Account = f.account
+	n.Station = false
+	sortTransports(n.Transports)
+	if n.Pin == "" {
+		// A LAN transport's fingerprint IS the pin: it is the certificate the owner
+		// accepted for this node, and the thing a later dial is checked against.
+		for _, t := range n.Transports {
+			if t.Kind == "lan" && t.Fingerprint != "" {
+				n.Pin = t.Fingerprint
+				break
+			}
+		}
+	}
+	now := f.now().Unix()
+	if n.LastSeen == 0 {
+		n.LastSeen = now
+	}
+	if n.Presence == "" {
+		n.Presence = string(PresenceVerified)
+	}
+	n.History = append(n.History, store.EdgeEvent{At: now, What: "enrolled", Detail: n.Name})
+	capHistoryOn(&n) // the enroll path writes without mutate, so it caps here (features/edge/events.feature)
+	got, err := f.db.EnrollEdgeNode(n)
+	if err != nil {
+		var elsewhere *store.EdgeEnrolledElsewhere
+		if errors.As(err, &elsewhere) {
+			return store.EdgeNode{}, &EnrollError{Existing: elsewhere.Existing}
+		}
+		return store.EdgeNode{}, err
+	}
+	return got, nil
+}
+
+// checkCap refuses a capability that is not in the vocabulary, or that this kind of
+// thing cannot have.
+func (f *Fleet) checkCap(k Kind, c Capability) error {
+	if !c.Valid() {
+		return fmt.Errorf("%q is not a capability", c)
+	}
+	if !k.MayDeclare(c) {
+		return fmt.Errorf("a %s may not declare %q", k, c)
+	}
+	return nil
+}
+
+// List is the fleet view: this account's enrolled nodes, plus its Stations.
+//
+// A Station is DERIVED, never shadowed. `roger share` registers into rogerai.nodes and
+// binds the node to an account, and that path is untouched by Roger Edge - so rather
+// than copy a Station into the Edge table (where it would drift, and where a bug could
+// disturb a live registration), the fleet joins the two at read time. A Station that is
+// ALSO enrolled keeps its Edge record and simply gains the verified `serve` mark.
+func (f *Fleet) List() ([]store.EdgeNode, error) {
+	enrolled, err := f.db.EdgeNodesOfAccount(f.account)
+	if err != nil {
+		return nil, err
+	}
+	byID := make(map[string]int, len(enrolled))
+	for i, n := range enrolled {
+		byID[n.ID] = i
+	}
+	stations, err := f.db.NodesOfAccount(f.account)
+	if err != nil {
+		return nil, err
+	}
+	if len(stations) == 0 {
+		return enrolled, nil
+	}
+	regs, err := f.db.AllNodes()
+	if err != nil {
+		return nil, err
+	}
+	reg := make(map[string]store.NodeRecord, len(regs))
+	for _, r := range regs {
+		reg[r.NodeID] = r
+	}
+	for _, id := range stations {
+		r, registered := reg[id]
+		if !registered {
+			continue // bound but not registered: supply state, not a machine we can show
+		}
+		if i, ok := byID[id]; ok {
+			enrolled[i] = withServe(enrolled[i])
+			continue
+		}
+		enrolled = append(enrolled, withServe(store.EdgeNode{
+			ID: id, Account: f.account, Name: id, Kind: string(Host),
+			Presence: string(PresenceVerified), LastSeen: r.LastSeen,
+			Transports: []store.EdgeTransport{{Kind: "relay"}},
+			Station:    true,
+		}))
+	}
+	sortEdgeNodes(enrolled)
+	return enrolled, nil
+}
+
+// withServe marks a record as serving, VERIFIED: a registered Station has already
+// passed the existing serving probe, which is exactly what `serve` means.
+func withServe(n store.EdgeNode) store.EdgeNode {
+	for i, c := range n.Caps {
+		if c.Name == string(Serve) {
+			n.Caps[i].State = string(Verified)
+			return n
+		}
+	}
+	n.Caps = append(n.Caps, store.EdgeCap{Name: string(Serve), State: string(Verified)})
+	return n
+}
+
+// sortEdgeNodes orders a fleet listing by name then id, so the view is stable.
+func sortEdgeNodes(ns []store.EdgeNode) {
+	for i := 1; i < len(ns); i++ {
+		for j := i; j > 0 && less(ns[j], ns[j-1]); j-- {
+			ns[j], ns[j-1] = ns[j-1], ns[j]
+		}
+	}
+}
+
+func less(a, b store.EdgeNode) bool {
+	if a.Name != b.Name {
+		return a.Name < b.Name
+	}
+	return a.ID < b.ID
+}
+
+// Get returns one of this account's nodes (a derived Station included).
+func (f *Fleet) Get(id string) (store.EdgeNode, bool, error) {
+	list, err := f.List()
+	if err != nil {
+		return store.EdgeNode{}, false, err
+	}
+	for _, n := range list {
+		if n.ID == id {
+			return n, true, nil
+		}
+	}
+	return store.EdgeNode{}, false, nil
+}
+
+// ByName resolves the owner's name for a node within this account.
+func (f *Fleet) ByName(name string) (store.EdgeNode, bool, error) {
+	list, err := f.List()
+	if err != nil {
+		return store.EdgeNode{}, false, err
+	}
+	for _, n := range list {
+		if n.Name == name {
+			return n, true, nil
+		}
+	}
+	return store.EdgeNode{}, false, nil
+}
+
+// mutate loads this account's stored record, applies fn, and writes it back. It is the
+// single write path, so account scoping and the history line are in one place instead
+// of repeated at every caller.
+func (f *Fleet) mutate(id string, fn func(*store.EdgeNode) error) error {
+	n, ok, err := f.db.EdgeNodeByID(f.account, id)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return ErrNoSuchNode
+	}
+	if err := fn(&n); err != nil {
+		return err
+	}
+	// Every write goes through here, so the history cap belongs here too rather than in fourteen
+	// callers (features/edge/events.feature).
+	capHistoryOn(&n)
+	sortTransports(n.Transports)
+	if err := f.db.UpdateEdgeNode(n); err != nil {
+		return err
+	}
+	return nil
+}
+
+// Rename changes the owner's name for a node. The ID is the key, so the history, the
+// pin and any grant addressed to the node all survive untouched.
+func (f *Fleet) Rename(id, name string) error {
+	if err := ValidName(name); err != nil {
+		return err
+	}
+	return f.mutate(id, func(n *store.EdgeNode) error {
+		old := n.Name
+		n.Name = name
+		n.History = append(n.History, store.EdgeEvent{
+			At: f.now().Unix(), What: "renamed", Detail: old + " -> " + name})
+		return nil
+	})
+}
+
+// Forget removes the node and its pin from this Edge, and nothing else. Receipts and
+// ledger rows are money, not fleet state, and are never touched; clearing the pin is
+// what makes the node adoptable again later.
+func (f *Fleet) Forget(id string) error {
+	ok, err := f.db.ForgetEdgeNode(f.account, id)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return ErrNoSuchNode
+	}
+	return nil
+}
+
+// RepinNode records the certificate a node now presents, for a node whose IDENTITY has
+// not changed - a renewal. The id, the name, the history and the node's place in the
+// fleet are untouched, because none of them is a property of the paper.
+//
+// It is deliberately not a general "set the pin": the only caller is the renewal path,
+// which has already established that the KEY is the same one.
+func (f *Fleet) RepinNode(id, fingerprint string) error {
+	return f.mutate(id, func(n *store.EdgeNode) error {
+		if n.Pin == fingerprint {
+			return nil
+		}
+		n.Pin = fingerprint
+		n.History = append(n.History, store.EdgeEvent{
+			At: f.now().Unix(), What: "renewed", Detail: fingerprint})
+		return nil
+	})
+}
+
+// RequireReenrollment marks every member of this Edge as needing to re-enroll, with the
+// reason, and returns how many were marked.
+//
+// Nothing is deleted. Changing an Edge's authority invalidates every certificate at
+// once, and the honest way to show that is a fleet full of nodes saying WHY they stopped
+// verifying - not an empty screen the owner has to work out for themselves.
+func (f *Fleet) RequireReenrollment(reason string) (int, error) {
+	list, err := f.db.EdgeNodesOfAccount(f.account)
+	if err != nil {
+		return 0, err
+	}
+	marked := 0
+	for _, n := range list {
+		if err := f.mutate(n.ID, func(m *store.EdgeNode) error {
+			m.Presence = string(PresenceReenroll)
+			m.History = append(m.History, store.EdgeEvent{
+				At: f.now().Unix(), What: "re-enrollment required", Detail: reason})
+			return nil
+		}); err != nil {
+			return marked, err
+		}
+		marked++
+	}
+	return marked, nil
+}
+
+// Declare replaces the node's declared capability set. Identity does not move: the id,
+// the name and the history are the node's, and what it can do is merely current state.
+func (f *Fleet) Declare(id string, caps []Capability) error {
+	return f.mutate(id, func(n *store.EdgeNode) error {
+		for _, c := range caps {
+			if err := f.checkCap(Kind(n.Kind), c); err != nil {
+				return err
+			}
+		}
+		prev := map[string]store.EdgeCap{}
+		for _, c := range n.Caps {
+			prev[c.Name] = c
+		}
+		var next []store.EdgeCap
+		var added []string
+		for _, c := range caps {
+			if old, ok := prev[string(c)]; ok {
+				next = append(next, old)
+				delete(prev, string(c))
+				continue
+			}
+			next = append(next, store.EdgeCap{Name: string(c), State: string(initialState(c))})
+			added = append(added, "+"+string(c))
+		}
+		var dropped []string
+		for name := range prev {
+			dropped = append(dropped, "-"+name)
+		}
+		n.Caps = next
+		detail := strings.Join(append(added, dropped...), " ")
+		n.History = append(n.History, store.EdgeEvent{
+			At: f.now().Unix(), What: "capabilities", Detail: detail})
+		return nil
+	})
+}
+
+// RecordProbe records the OUTCOME of verifying one declared capability: a pass promotes
+// it to VERIFIED, a failure leaves it CLAIMED so nothing routes on the strength of the
+// claim alone.
+//
+// It refuses `actuate` outright. Actuate is never probed - there is no read-only way to
+// ask a machine whether it can move something - so the only path to a verified actuate
+// is ConfirmActuate, and closing this door is what stops behavior from being promoted
+// into permission.
+func (f *Fleet) RecordProbe(id string, c Capability, passed bool) error {
+	if c == Actuate {
+		return fmt.Errorf("actuate is never probed; it is confirmed by the owner")
+	}
+	return f.mutate(id, func(n *store.EdgeNode) error {
+		for i, d := range n.Caps {
+			if d.Name != string(c) {
+				continue
+			}
+			state := Claimed
+			if passed {
+				state = Verified
+			}
+			n.Caps[i].State = string(state)
+			n.History = append(n.History, store.EdgeEvent{
+				At: f.now().Unix(), What: "probe", Detail: string(c) + " -> " + string(state)})
+			return nil
+		}
+		return fmt.Errorf("this node does not declare %q", c)
+	})
+}
+
+// ConfirmActuate is the owner saying yes to a node that can change the physical world.
+// It records WHO confirmed and WHEN, because that is the only audit trail a physical
+// action has before it happens.
+func (f *Fleet) ConfirmActuate(id, who string) error {
+	if who == "" {
+		return fmt.Errorf("a confirmation records who gave it")
+	}
+	return f.mutate(id, func(n *store.EdgeNode) error {
+		for i, d := range n.Caps {
+			if d.Name != string(Actuate) {
+				continue
+			}
+			at := f.now().Unix()
+			n.Caps[i].State = string(Verified)
+			n.Caps[i].ConfirmedBy = who
+			n.Caps[i].ConfirmedAt = at
+			n.History = append(n.History, store.EdgeEvent{
+				At: at, What: "actuate-confirmed", Detail: who})
+			return nil
+		}
+		return fmt.Errorf("this node does not declare actuate")
+	})
+}
+
+// RecordEvent appends one line to a node's history. Behavior is recorded honestly and
+// separately from capability: a node that accepted world-changing commands has that in
+// its history, and STILL does not gain `actuate` from it.
+func (f *Fleet) RecordEvent(id, what, detail string) error {
+	return f.RecordEventBy(id, what, detail, "")
+}
+
+// RecordEventBy is RecordEvent with WHO asked: the authenticated node id of the caller, kept as a
+// field for audit (names change and can be reused) and never written into the sentence.
+func (f *Fleet) RecordEventBy(id, what, detail, by string) error {
+	return f.mutate(id, func(n *store.EdgeNode) error {
+		n.History = append(n.History, store.EdgeEvent{At: f.now().Unix(), What: what, Detail: detail, By: by})
+		return nil
+	})
+}
+
+// VerificationMethod answers "how would the fleet verify this?" for one of a node's
+// declared capabilities - the line a fleet view shows beside a CLAIMED mark.
+func (f *Fleet) VerificationMethod(id string, c Capability) (string, error) {
+	n, ok, err := f.Get(id)
+	if err != nil {
+		return "", err
+	}
+	if !ok {
+		return "", ErrNoSuchNode
+	}
+	if !Declares(n, c) {
+		return "", fmt.Errorf("this node does not declare %q", c)
+	}
+	return c.VerificationMethod(), nil
+}
+
+// AuthorizeInvoke is the gate in front of every action addressed to a node. It answers
+// one question - may THIS grant do THIS on THIS node, right now - and it is the reason
+// forgetting a node is enough to revoke what was addressed to it: a node that is not on
+// the Edge is not a node an invoke can name.
+//
+// need is the capability the action requires; "" means the caller needs membership and
+// a valid grant but no particular capability.
+func (f *Fleet) AuthorizeInvoke(g store.Grant, nodeID string, need Capability) error {
+	n, ok, err := f.Get(nodeID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return ErrNoSuchNode
+	}
+	if g.Owner != f.account {
+		return fmt.Errorf("that grant was not issued by this Edge's owner")
+	}
+	if g.Revoked {
+		return fmt.Errorf("that grant is revoked")
+	}
+	if g.Expired(f.now()) {
+		return fmt.Errorf("that grant has expired")
+	}
+	if len(g.Nodes) > 0 {
+		scoped := false
+		for _, id := range g.Nodes {
+			if id == nodeID {
+				scoped = true
+				break
+			}
+		}
+		if !scoped {
+			return fmt.Errorf("that grant does not address this node")
+		}
+	}
+	if need == "" {
+		return nil
+	}
+	// OPERATE is DECLARATION-gated: it is never probed, so it never reaches VERIFIED, and the grant is
+	// what authorizes it. Requiring Routable here would refuse EVERY delegate, since no probe verifies
+	// operate. So it need only be DECLARED. Every other capability - including ACTUATE, which is
+	// "declared, owner-confirmed" and reaches VERIFIED only when the owner confirms it - still requires
+	// VERIFIED (Routable), so actuate keeps its owner-confirmation gate.
+	if DeclarationGated(need) {
+		if !Declares(n, need) {
+			return fmt.Errorf("%w: %s", ErrNotVerified, need)
+		}
+		return nil
+	}
+	if !Routable(n, need) {
+		return fmt.Errorf("%w: %s", ErrNotVerified, need)
+	}
+	return nil
+}
+
+// Observation is what a VERIFIED dial learned about a node: its own account of itself,
+// over its own certificate, plus where it was reached and the certificate it served.
+type Observation struct {
+	Name        string // used only when the node is new to this Edge
+	Kind        string
+	Caps        []Capability
+	Addr        string
+	Fingerprint string
+	// Instances is the household the node's face reported, already bounded by the
+	// reader. When present it is the truth about capabilities: the node's Caps become
+	// the union of its instances' (features/edge/instances.feature).
+	Instances          []Instance
+	InstancesTruncated bool
+	// Phone is a phone's own signed vitals, when its presence carried them (nil leaves the last).
+	Phone *store.EdgePhone
+	// Power is a node's own power from a v3 presence, any kind.
+	Power *store.EdgePower
+}
+
+// Observe records a verified sighting. It is the ONLY way discovery writes to the
+// fleet, and it happens strictly after VerifyPeer has passed - an advertisement on its
+// own never reaches this function.
+//
+// A node already on the Edge is UPDATED, never re-added: the id is the key, so its
+// name, its history and its place in the fleet survive going dark and coming back, and
+// no duplicate row is created. Its other transports (a relay path) are kept, with the
+// LAN entry refreshed and sorted back to the front.
+func (f *Fleet) Observe(id string, obs Observation) (store.EdgeNode, error) {
+	now := f.now().Unix()
+	obs.Instances = datedPower(obs.Instances, now)
+	cur, ok, err := f.db.EdgeNodeByID(f.account, id)
+	if err != nil {
+		return store.EdgeNode{}, err
+	}
+	if !ok {
+		n := store.EdgeNode{ID: id, Name: obs.Name, Kind: obs.Kind, Pin: obs.Fingerprint}
+		if name := f.returningName(id); name != "" {
+			n.Name = name
+		}
+		if n.Kind == "" {
+			n.Kind = string(Host)
+		}
+		for _, c := range obs.Caps {
+			n.Caps = append(n.Caps, store.EdgeCap{Name: string(c), State: string(initialState(c))})
+		}
+		applyInstances(&n, obs)
+		n.Phone = obs.Phone
+		n.Power = obs.Power
+		n.Transports = []store.EdgeTransport{{Kind: "lan", Addr: obs.Addr, Fingerprint: obs.Fingerprint}}
+		n.Presence = string(PresenceVerified)
+		n.LastSeen = now
+		return f.Enroll(n)
+	}
+	err = f.mutate(id, func(n *store.EdgeNode) error {
+		// The capabilities of record are the ones the certificate-backed describe
+		// reported, not the ones the advertisement claimed. A state already earned
+		// (a passed probe, an owner's actuate confirmation) is carried across.
+		prev := map[string]store.EdgeCap{}
+		for _, c := range n.Caps {
+			prev[c.Name] = c
+		}
+		var next []store.EdgeCap
+		for _, c := range obs.Caps {
+			if old, ok := prev[string(c)]; ok {
+				next = append(next, old)
+				continue
+			}
+			next = append(next, store.EdgeCap{Name: string(c), State: string(initialState(c))})
+		}
+		n.Caps = next
+		// A record this machine never named (its name is still the id) takes the name the member
+		// stated it enrolled under; discovery has already checked the name is free here.
+		if LooksLikeID(n.Name) && obs.Name != "" && !LooksLikeID(obs.Name) && ValidName(obs.Name) == nil {
+			n.Name = obs.Name
+		}
+		for i, in := range obs.Instances {
+			if in.Resources == nil || in.Resources.Power == nil {
+				continue
+			}
+			for _, was := range n.Instances {
+				if was.Name == in.Name && was.Resources != nil {
+					r := *in.Resources
+					r.Power = carryPower(was.Resources.Power, in.Resources.Power, now)
+					obs.Instances[i].Resources = &r
+				}
+			}
+		}
+		applyInstances(n, obs)
+		if obs.Phone != nil {
+			n.Phone = obs.Phone
+		}
+		if obs.Power != nil {
+			n.Power = carryPower(n.Power, obs.Power, now)
+		}
+		n.Presence = string(PresenceVerified)
+		n.LastSeen = now
+		if n.Pin == "" {
+			n.Pin = obs.Fingerprint
+		}
+		lan := false
+		for i, t := range n.Transports {
+			if t.Kind == "lan" {
+				n.Transports[i].Addr = obs.Addr
+				n.Transports[i].Fingerprint = obs.Fingerprint
+				lan = true
+				break
+			}
+		}
+		if !lan {
+			n.Transports = append(n.Transports,
+				store.EdgeTransport{Kind: "lan", Addr: obs.Addr, Fingerprint: obs.Fingerprint})
+		}
+		if cur.Presence != string(PresenceVerified) {
+			n.History = append(n.History, store.EdgeEvent{At: now, What: "seen", Detail: obs.Addr})
+		}
+		return nil
+	})
+	if err != nil {
+		return store.EdgeNode{}, err
+	}
+	got, _, err := f.db.EdgeNodeByID(f.account, id)
+	return got, err
+}
+
+// Sweep marks every node not heard from within window as DARK, and KEEPS it. A fleet
+// that silently drops members hides the problem it exists to show: a dark box with a
+// last-seen time is information, an absent box is a lie by omission.
+//
+// It returns how many nodes went dark on this pass.
+func (f *Fleet) Sweep(window time.Duration) (int, error) {
+	list, err := f.db.EdgeNodesOfAccount(f.account)
+	if err != nil {
+		return 0, err
+	}
+	cutoff := f.now().Add(-window).Unix()
+	darkened := 0
+	for _, n := range list {
+		if n.Presence != string(PresenceVerified) || n.LastSeen == 0 || n.LastSeen > cutoff {
+			continue
+		}
+		if err := f.mutate(n.ID, func(m *store.EdgeNode) error {
+			m.Presence = string(PresenceDark)
+			m.History = append(m.History, store.EdgeEvent{
+				At: f.now().Unix(), What: "dark", Detail: "last seen " + time.Unix(m.LastSeen, 0).UTC().Format(time.RFC3339)})
+			return nil
+		}); err != nil {
+			return darkened, err
+		}
+		darkened++
+	}
+	return darkened, nil
+}
+
+// LANAddr is the address a node was last reached at on the LAN, or "" if it has no LAN
+// transport.
+func LANAddr(n store.EdgeNode) string {
+	for _, t := range n.Transports {
+		if t.Kind == "lan" {
+			return t.Addr
+		}
+	}
+	return ""
+}
+
+// sameBands reports whether two band sets are equal as sets (order-insensitive). A serve
+// verification is tied to the bands it was probed against, so a change here re-opens the probe.
+// BandsWithin reports whether every band in want is in have. It is how a SHRINKING band set keeps a
+// verdict the probe earned: the probe marks an instance only when EVERY band it advertises answered,
+// so any subset of that set is proven too. A band that is not in have was never proven.
+func BandsWithin(want, have []string) bool {
+	if len(want) == 0 {
+		return false // nothing advertised is not something proven
+	}
+	in := make(map[string]bool, len(have))
+	for _, b := range have {
+		in[b] = true
+	}
+	for _, b := range want {
+		if !in[b] {
+			return false
+		}
+	}
+	return true
+}
+
+// SameBands reports whether two band lists hold the same bands, whatever their order. Order is not
+// meaningful - it is whatever the process listed its models in - so anything that decides "have the
+// bands changed" must use this rather than comparing joined strings.
+func SameBands(a, b []string) bool { return sameBands(a, b) }
+
+func sameBands(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	seen := make(map[string]int, len(a))
+	for _, x := range a {
+		seen[x]++
+	}
+	for _, x := range b {
+		seen[x]--
+		if seen[x] < 0 {
+			return false
+		}
+	}
+	return true
+}
+
+// applyInstances records the household a node's face reported. The instances' states are
+// carried per (instance, capability) from what the node already held, so a probe passed
+// against one instance is not forgotten by the next describe; the node's Caps become the
+// union of its instances' with the providers named.
+// datedPower is the instances with each member-reported power reading dated HERE (the member's own
+// clock may be a day off, or unset before NTP) and held to the bounds a presence is held to; a
+// reading that cannot be true is dropped (adversarial review 2026-10-27).
+func datedPower(ins []Instance, now int64) []Instance {
+	out := make([]Instance, len(ins))
+	for i, in := range ins {
+		out[i] = in
+		if in.Resources == nil || in.Resources.Power == nil {
+			continue
+		}
+		r, pw := *in.Resources, *in.Resources.Power
+		r.Power = nil
+		if powerOutOfBounds(pw.BatteryPct, pw.Source, pw.MinutesLeft) == "" {
+			pw.ReadAt = now
+			r.Power = &pw
+		}
+		out[i].Resources = &r
+	}
+	return out
+}
+
+// carryPower is next, with each field it left out copied from prev when prev's value was last read
+// within the liveness window: a field missing on SOME beats (a flaky fuel gauge, a status the kernel
+// reads as Unknown) does not page a close and a re-fire. A field gone longer than that stays gone,
+// and the call on it closes as unreported (re-review 2026-10-27).
+func carryPower(prev, next *store.EdgePower, now int64) *store.EdgePower {
+	if prev == nil || next == nil {
+		return next
+	}
+	out := *next
+	out.Carried = nil
+	carry := func(name string, has bool, set func()) {
+		if has {
+			return
+		}
+		at, ok := prev.Carried[name]
+		if !ok {
+			at = prev.ReadAt
+		}
+		if now-at > int64(DefaultTTL/time.Second) {
+			return
+		}
+		set()
+		if out.Carried == nil {
+			out.Carried = map[string]int64{}
+		}
+		out.Carried[name] = at
+	}
+	if prev.BatteryPct != nil {
+		carry("battery_pct", next.BatteryPct != nil, func() { out.BatteryPct = prev.BatteryPct })
+	}
+	// Charging and source are ONE reading (alert.go reads them together): a report that names either
+	// carries neither from before, or a node plugged in would still read as on battery, and one
+	// unplugged at 5% would read as charging and never be called low.
+	if next.Charging == nil && next.Source == "" {
+		if prev.Charging != nil {
+			carry("charging", false, func() { out.Charging = prev.Charging })
+		}
+		if prev.Source != "" {
+			carry("source", false, func() { out.Source = prev.Source })
+		}
+	}
+	if prev.LowPower != nil {
+		carry("low_power", next.LowPower != nil, func() { out.LowPower = prev.LowPower })
+	}
+	// A time left is never carried: an old estimate is not one.
+	return &out
+}
+
+func applyInstances(n *store.EdgeNode, obs Observation) {
+	if obs.Instances == nil {
+		return // an older face that reports no household: the node-level caps stand
+	}
+	prev := map[string]map[string]store.EdgeCap{}
+	prevProven := map[string][]string{}
+	for _, in := range n.Instances {
+		m := map[string]store.EdgeCap{}
+		for _, c := range in.Caps {
+			m[c.Name] = c
+		}
+		prev[in.Name] = m
+		// What the probe actually answered for. An older record carries none, so for a serve that
+		// was VERIFIED its band list stands in for it and the behaviour is what it always was. A
+		// serve still CLAIMED proved nothing: filing its bands as proven would let verifyServe skip
+		// it on every later pass, so it would never be probed.
+		if len(in.ServeProven) > 0 {
+			prevProven[in.Name] = in.ServeProven
+		} else if m[string(Serve)].State == string(Verified) {
+			prevProven[in.Name] = in.Bands
+		}
+	}
+	kind := Kind(n.Kind)
+	next := make([]Instance, 0, len(obs.Instances))
+	for i, in := range obs.Instances {
+		if i >= MaxInstances {
+			break
+		}
+		cp := in
+		cp.Caps = nil
+		cp.Model = CleanModel(in.Model)                                // the member's word, bounded and cleaned before it is stored
+		cp.Voices = voicesWithin(in.Voices, in.Bands)                  // a voice is one of its bands, never more
+		cp.ServeProven = append([]string(nil), prevProven[in.Name]...) // the peer never states this
+		if len(prev[in.Name]) == 0 {
+			cp.ServeProven = nil // an instance we have not seen before has proven nothing
+		}
+		for _, c := range in.Caps {
+			cap := Capability(c.Name)
+			// A node's KIND bounds what it may declare at all. Drop a capability its kind cannot
+			// have (a board that claims to serve, a mobile that claims to relay). Only filter when
+			// the kind is known, so a record with no kind yet is not stripped of everything.
+			if kind.Valid() && !kind.MayDeclare(cap) {
+				continue
+			}
+			// The peer's ASSERTED state is NOT trusted. A capability starts at its initial state and
+			// is only lifted to a higher one that was EARNED here - a passed probe (RecordInstance
+			// Probe) or an owner confirmation - and carried across in prev. Believing c.State let a
+			// member self-declare VERIFIED and route real work on the strength of a lie (audit
+			// 2026-09-24: the whole point of CLAIMED vs VERIFIED is that the node does not get to
+			// promote itself).
+			state := string(initialState(cap))
+			if p, ok := prev[in.Name][c.Name]; ok && rank(p.State) > rank(state) {
+				// serve is verified for a SPECIFIC band set (the probe served those bands). If the
+				// instance now advertises different bands, the earned state does not carry - it must
+				// be re-probed - so a re-banded instance cannot route on an old serve probe (audit
+				// 2026-09-24). Other capabilities are not band-scoped and carry as before.
+				if cap == Serve && !BandsWithin(in.Bands, prevProven[in.Name]) {
+					// keep initialState: a band nobody proved needs a probe. A SUBSET of what was
+					// proven is still proven - the probe answers for every band it marks - so an
+					// instance that drops a model keeps its verdict rather than re-proving on every
+					// pass (features/edge/serving_probe.feature).
+				} else {
+					state = p.State // earned once, kept
+				}
+			}
+			cp.Caps = append(cp.Caps, store.EdgeCap{Name: c.Name, State: state})
+		}
+		// The proven bands belong to a VERIFIED serve. When the serve is gone or back to claimed (a
+		// restart, a serve stopped and started again) its old proof lapsed with it: carrying the list
+		// would let verifyServe skip the returning serve on every pass, so it never verified again.
+		if !hasVerifiedServe(cp.Caps) {
+			cp.ServeProven = nil
+		}
+		next = append(next, cp)
+	}
+	n.Instances = next
+	n.InstancesTruncated = obs.InstancesTruncated || len(obs.Instances) > MaxInstances
+	if len(next) > 0 {
+		n.Caps = unionCaps(n.Caps, next)
+	}
+}
+
+// InstancesOf is the household of one node as the fleet last recorded it.
+func (f *Fleet) InstancesOf(id string) ([]Instance, error) {
+	n, ok, err := f.db.EdgeNodeByID(f.account, id)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, ErrNoSuchNode
+	}
+	return append([]Instance(nil), n.Instances...), nil
+}
+
+// RecordInstanceProbe verifies a capability on ONE instance, never on the whole machine:
+// the probe passed against that process. Actuate is never probed, on an instance either.
+func (f *Fleet) RecordInstanceProbe(id, instance string, c Capability, passed bool) error {
+	return f.recordInstanceProbe(id, instance, c, passed, nil)
+}
+
+// RecordServeProbe records a passed SERVING probe together with the bands it answered for
+// (features/edge/serving_probe.feature). Recording the bands is what lets an instance that drops a
+// model keep its verdict, and what keeps the fleet from routing a band nobody proved: a boolean
+// could only say "something answered".
+func (f *Fleet) RecordServeProbe(id, instance string, bands []string) error {
+	if len(bands) == 0 {
+		return fmt.Errorf("a serving probe names the bands it answered for")
+	}
+	return f.recordInstanceProbe(id, instance, Serve, true, bands)
+}
+
+func (f *Fleet) recordInstanceProbe(id, instance string, c Capability, passed bool, bands []string) error {
+	if c == Actuate {
+		return fmt.Errorf("actuate is never probed; it is confirmed by the owner")
+	}
+	return f.mutate(id, func(n *store.EdgeNode) error {
+		for i := range n.Instances {
+			if n.Instances[i].Name != instance {
+				continue
+			}
+			for j, d := range n.Instances[i].Caps {
+				if d.Name != string(c) {
+					continue
+				}
+				state := Claimed
+				if passed {
+					state = Verified
+				}
+				proven := n.Instances[i].ServeProven
+				if c == Serve {
+					proven = nil
+					if passed {
+						proven = append([]string(nil), bands...)
+						if len(proven) == 0 {
+							proven = append([]string(nil), n.Instances[i].Bands...) // a caller that named none
+						}
+					}
+				}
+				if d.State == string(state) && sameBands(proven, n.Instances[i].ServeProven) {
+					return nil // nothing moved: not an event, and not a write worth making
+				}
+				if c == Serve {
+					n.Instances[i].ServeProven = proven
+				}
+				n.Instances[i].Caps[j].State = string(state)
+				n.Caps = unionCaps(n.Caps, n.Instances)
+				n.History = append(n.History, store.EdgeEvent{At: f.now().Unix(), What: "probe",
+					Detail: instance + ": " + string(c) + " -> " + string(state)})
+				return nil
+			}
+			return fmt.Errorf("instance %q does not declare %q", instance, c)
+		}
+		return fmt.Errorf("%w: %s/%s", ErrNoSuchInstance, n.Name, instance)
+	})
+}
+
+// Located is one instance and the node it runs on.
+type Located struct {
+	Node     store.EdgeNode
+	Instance Instance
+}
+
+// Resolve turns an address into an instance: "node/instance" exactly, or a bare name
+// when exactly one instance on the Edge carries it. A bare name on more than one node is
+// ambiguous, and the error names every node it is on so the owner can say which.
+func (f *Fleet) Resolve(addr string) (Located, error) {
+	list, err := f.List()
+	if err != nil {
+		return Located{}, err
+	}
+	nodeName, instName := SplitAddress(addr)
+	var hits []Located
+	for _, n := range list {
+		if nodeName != "" && n.Name != nodeName && n.ID != nodeName {
+			continue
+		}
+		for _, in := range n.Instances {
+			if in.Name == instName {
+				hits = append(hits, Located{Node: n, Instance: in})
+			}
+		}
+	}
+	switch len(hits) {
+	case 0:
+		return Located{}, fmt.Errorf("%w: %s", ErrNoSuchInstance, addr)
+	case 1:
+		return hits[0], nil
+	}
+	var on []string
+	for _, h := range hits {
+		on = append(on, h.Node.Name+"/"+h.Instance.Name)
+	}
+	return Located{}, fmt.Errorf("%w: %s", ErrAmbiguousInstance, strings.Join(on, ", "))
+}
+
+// ServersOf answers "who on this Edge serves this band" from the record alone, without
+// dialling anyone: every instance that lists the band on air, on a node that is not dark.
+// A CLAIMED serve is listed but reported as unverified, so nothing routes on it.
+func (f *Fleet) ServersOf(band string) ([]Located, error) {
+	list, err := f.List()
+	if err != nil {
+		return nil, err
+	}
+	var out []Located
+	for _, n := range list {
+		if n.Presence == string(PresenceDark) {
+			continue
+		}
+		for _, in := range n.Instances {
+			for _, b := range in.Bands {
+				if b == band {
+					out = append(out, Located{Node: n, Instance: in})
+				}
+			}
+		}
+	}
+	return out, nil
+}
+
+// ServesBand reports whether this instance may be dispatched the given band: its serve is VERIFIED
+// AND the probe answered for that band (features/edge/serving_probe.feature). A record written before
+// the probe kept a band list falls back to what it advertises, so an older Edge routes as it did.
+func (l Located) ServesBand(band string) bool {
+	if !l.Serves() {
+		return false
+	}
+	proven := l.Instance.ServeProven
+	if len(proven) == 0 {
+		proven = l.Instance.Bands
+	}
+	for _, b := range proven {
+		if b == band {
+			return true
+		}
+	}
+	return false
+}
+
+// Serves reports whether the instance's serve capability is VERIFIED - the only state the
+// ladder may dispatch to.
+func (l Located) Serves() bool {
+	for _, c := range l.Instance.Caps {
+		if c.Name == string(Serve) && c.State == string(Verified) {
+			return true
+		}
+	}
+	return false
+}
+
+// Address is how the owner writes this instance: node/instance.
+func (l Located) Address() string { return l.Node.Name + "/" + l.Instance.Name }
+
+// voicesWithin keeps only the voices that are also bands the instance has on air: a member's
+// record can never declare a voice it does not serve.
+func voicesWithin(voices, bands []string) []string {
+	var out []string
+	for _, v := range voices {
+		for _, b := range bands {
+			if v == b {
+				out = append(out, v)
+				break
+			}
+		}
+	}
+	return out
+}
+
+// hasVerifiedServe reports whether caps hold a serve the fleet verified here.
+func hasVerifiedServe(caps []store.EdgeCap) bool {
+	for _, c := range caps {
+		if c.Name == string(Serve) {
+			return c.State == string(Verified)
+		}
+	}
+	return false
+}

@@ -7,13 +7,13 @@ package tui
 import (
 	"context"
 	"fmt"
-	"rogerai.fm/roger/v6/internal/bddtest"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/cucumber/godog"
-	"rogerai.fm/roger/v6/internal/detect"
+	"rogerai.fm/roger/v7/internal/detect"
 )
 
 type reentryBDD struct {
@@ -304,7 +304,7 @@ func TestShareReentryFeature(t *testing.T) {
 			Paths: []string{"../../features/sharing/share_reentry.feature"},
 		},
 	}
-	if bddtest.Run(t, &suite) != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("share re-entry scenarios failed")
 	}
 }

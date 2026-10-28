@@ -3,6 +3,7 @@ package client
 import (
 	"crypto/ed25519"
 	"encoding/hex"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -198,11 +199,12 @@ func TestUseOnFreq(t *testing.T) {
 	var addr string
 	captureServe(t, &addr)
 	b := fakeBroker(t) // /bands/resolve returns the m1 offer
-	if err := Use(b, "u_gh_1", "m1", UseOptions{Freq: "147.520", Yes: true, MaxOut: 5, Port: 8123}); err != nil {
+	port := freeTestPort(t)
+	if err := Use(b, "u_gh_1", "m1", UseOptions{Freq: "147.520", Yes: true, MaxOut: 5, Port: port}); err != nil {
 		t.Fatalf("Use(--freq) = %v, want nil", err)
 	}
-	if addr != "127.0.0.1:8123" {
-		t.Errorf("freq relay addr = %q, want 127.0.0.1:8123", addr)
+	if want := fmt.Sprintf("127.0.0.1:%d", port); addr != want {
+		t.Errorf("freq relay addr = %q, want %s", addr, want)
 	}
 
 	// A frequency that resolves to no station -> clean message, nil.

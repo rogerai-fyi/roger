@@ -92,11 +92,14 @@ Feature: The tower explains how a request is routed, metered and guaranteed
   # The page spent three sections explaining a Tower. A reader who wants to BE one should not
   # have to go looking, and what they are offered must be the artifact the release actually
   # publishes rather than a promise of one.
+  # superseded 2026-10-07 by founder ruling (one binary): a Tower is part of roger, so the page
+  # offers the normal roger install and `roger tower`; standalone runs everywhere, joined on Linux.
   Scenario: The page offers the Tower it describes
-    Then the page offers a copyable install command for the Tower component
-    And it links the published Linux amd64 and arm64 binaries by their release asset names
-    And it links the checksums that verify them
-    And it states that a Tower ships for Linux only, because it is a long-running server process
+    Then the page offers the normal copyable roger install command, not a separate Tower component
+    And it names `roger tower` as the way to run a Tower once roger is installed
+    And it links the published roger release and the checksums that verify it, and no separate Tower asset
+    And it states that a standalone Tower runs on Linux, macOS and Windows
+    And it states that a joined Tower runs on Linux only, because it is a long-running server process on the public network
     And it states the share a Tower operator earns on a settled request
 
   # A number the page prints is a number the page must keep true. The split is founder-set and

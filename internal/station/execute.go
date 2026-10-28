@@ -39,7 +39,7 @@ import (
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/towercore/dispatch"
+	"rogerai.fm/roger/v7/internal/towercore/dispatch"
 )
 
 // ExecuteRequest is what a Tower hands a Station.

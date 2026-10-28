@@ -33,8 +33,9 @@
 #     JS-readable `signedInHint` companion, and `safeNext` in authnext.go validates a
 #     post-login destination.
 #   - internal/deviceauth is provider-agnostic already: it decides WHICH ACCOUNT, never
-#     which key. An email sign-in therefore reaches `roger login` and `roger-tower login`
+#     which key. An email sign-in therefore reaches `roger login` and `roger tower login`
 #     with no CLI change at all.
+#     superseded 2026-10-07 by founder ruling (one binary): `roger-tower login` became `roger tower login`.
 #
 # THE THING THAT MAKES THIS DIFFERENT FROM OAUTH, AND WHY THE SPEC IS LONG. With OAuth, the
 # provider owns the hard parts: proving the human, rate-limiting the guessing, resisting
@@ -307,8 +308,9 @@ Feature: A person signs in to RogerAI with an emailed code
     Then the device login completes and binds the CLI's key to the email account
     And the CLI is told which account it reached, never which provider proved it
 
-  Scenario: roger-tower login works through the email route
-    Given roger-tower has started a device login
+  # superseded 2026-10-07 by founder ruling (one binary): the command is `roger tower login`.
+  Scenario: roger tower login works through the email route
+    Given roger tower has started a device login
     When the approver signs in with an emailed code and approves
     Then the Tower's account is recorded
     And the Tower reached no host other than the broker

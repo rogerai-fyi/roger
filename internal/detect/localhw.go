@@ -66,6 +66,9 @@ type LocalHW struct {
 
 	RAMTotalMiB int
 	RAMKnown    bool
+	// MemLimitMiB is the container (cgroup) memory limit this process runs under, when one was read
+	// and is below the host's RAM; RAMTotalMiB is already held to it. 0 when there is none.
+	MemLimitMiB int
 
 	// DiskFreeMiB is free space on the filesystem holding DiskPath. DiskPath is reported
 	// verbatim because the honest scope of the number is "this filesystem": we cannot know

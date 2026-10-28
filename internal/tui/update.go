@@ -18,12 +18,12 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
-	"rogerai.fm/roger/v6/internal/agent"
-	"rogerai.fm/roger/v6/internal/client"
-	"rogerai.fm/roger/v6/internal/detect"
-	"rogerai.fm/roger/v6/internal/harness"
-	"rogerai.fm/roger/v6/internal/node"
-	"rogerai.fm/roger/v6/internal/session"
+	"rogerai.fm/roger/v7/internal/agent"
+	"rogerai.fm/roger/v7/internal/client"
+	"rogerai.fm/roger/v7/internal/detect"
+	"rogerai.fm/roger/v7/internal/harness"
+	"rogerai.fm/roger/v7/internal/node"
+	"rogerai.fm/roger/v7/internal/session"
 )
 
 // Update wraps the message dispatch with a transcript-scroll refresh, so any handler
@@ -37,6 +37,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	m = m.syncComposerGeometry()
 	prevStatus := m.status
 	tm, cmd := m.update(msg)
+	// Some handlers have pointer receivers and return the *model. The post-update steps below
+	// (the scan scopes above all) must run for those too, or leaving a screen that way keeps
+	// its scan open after the owner has left (features/edge/scan_on_request.feature).
+	if pm, ok := tm.(*model); ok {
+		tm = *pm
+	}
 	if mm, ok := tm.(model); ok {
 		// Stamp the frame whenever the status line CHANGES, so the tick can auto-dismiss it as
 		// a transient toast (A.6.6) - this central stamp avoids touching the ~50 assignment
@@ -45,6 +51,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			mm.statusFrame = mm.frame
 		}
 		mm = mm.syncComposerGeometry()
+		// Re-anchor the selected-cell marquee whenever the cell under the cursor changes
+		// (a move, a re-sort, a resize, a screen change). One central call, so no key
+		// handler has to remember to reset the scroll.
+		mm.syncMarquee()
+		// One central call, after every update: a screen change opens or closes the
+		// on-request LAN scan (scan.go), so no key handler has to remember it.
+		mm.syncScans()
+		// [3] re-reads its status while it shows (edge_empty_simple.go).
+		if _, isKey := msg.(tea.KeyMsg); isKey {
+			if tick := mm.armEdgeStatusTick(); tick != nil {
+				cmd = tea.Batch(cmd, tick)
+			}
+		}
 		return mm.refreshScroll(), cmd
 	}
 	return tm, cmd
@@ -100,10 +119,17 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if k.String() == "ctrl+c" {
 		return m.requestQuit()
 	}
+	// The one-time welcome card owns every other key while it is open (welcome.go).
+	if m.welcome {
+		return m.onWelcomeKey(k)
+	}
 	// alt+m is the typing-SAFE global minimize: it toggles the dense compact "windowshade"
 	// (the 2000s-MP3-player feel) from ANY mode - including chat / AGENT / the command palette
 	// / numeric editors, where plain m is a literal character. Plain m still toggles compact on
 	// the nav screens via presetForKey; alt+m (and /compact) make it reachable "from anywhere".
+	if nm, cmd, ok := m.onOwnerJoinKey(k); ok {
+		return nm, cmd
+	}
 	if k.String() == "alt+m" {
 		if m.mode == modeLimits {
 			// Collapsing mid-edit discards the draft: nothing half-typed is ever saved.
@@ -305,7 +331,7 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 				return m, sendChatLocal(m.chatLocalChat, m.chatLocalKey, m.connected.Model, turn, msgs)
 			}
-			// The [3] CONFIG rules and the tuned row ride the request body (quant_route.go),
+			// The [4] CONFIG rules and the tuned row ride the request body (quant_route.go),
 			// derived from the CONNECTED band, not from m.q - the quote is whatever row was
 			// last priced. A row outside the standing quant rule never leaves the booth.
 			if why := m.quantRuleRefusal(m.connected.Model, m.connected.Quant); why != "" {
@@ -326,6 +352,7 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// HELP is a pager now (audit P0: it was taller than most terminals and any
 		// key exited, so the top - the part a new user needs - was unreachable).
 		// Scroll keys page it; esc/q/enter/? go back; a preset key still jumps.
+		m.helpPaged(m.effWidth()) // the keys scroll the content the frame draws
 		switch k.String() {
 		case "up", "k":
 			m.helpVP.ScrollUp(1)
@@ -417,6 +444,8 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.onOverLimitKey(k)
 	case modeLimits:
 		return m.onLimitsKey(k)
+	case modeEdge:
+		return m.onEdgeKey(k)
 	case modeShare:
 		return m.onShareKey(k)
 	case modeBandCard:
@@ -427,6 +456,8 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.onShareMetaKey(k)
 	case modeShareSetup:
 		return m.onShareSetupKey(k)
+	case modeModels:
+		return m.onModelsKey(k)
 	case modeAgent:
 		return m.onAgentKey(k)
 	case modeLogin:
@@ -535,7 +566,7 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.clampBrowse()
 			return m, c
 		}
-		// The preset bank: 1 TUNE IN · 2 SHARE · 3 CONFIG · L LOGIN · ? HELP. Handled
+		// The preset bank: 1 TUNE IN · 2 SHARE · 3 EDGE · 4 CONFIG · L LOGIN · ? HELP. Handled
 		// first so the always-visible top bar's buttons jump straight to their mode.
 		if nm, cmd, ok := m.presetForKey(k.String()); ok {
 			return nm, cmd
@@ -547,6 +578,10 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if nm, cmd, ok := m.onPrivateTabKey(k); ok {
 				return nm, cmd
 			}
+		}
+		// LAN mode: + adds a candidate Tower, asked first (features/lan/discovery_and_dial.feature).
+		if nm, cmd, ok := m.lanCandidateKey(k.String()); ok {
+			return nm, cmd
 		}
 		switch k.String() {
 		case "b", "B":
@@ -930,6 +965,10 @@ func (m model) run(cmd string) (tea.Model, tea.Cmd) {
 	case "limits", "limit":
 		m.enterLimits()
 		return m, nil
+	case "edge":
+		// [3] EDGE: the fleet topology - what is on my Edge, and how is it connected.
+		m.enterEdge()
+		return m, m.edgeResume()
 	case "config", "cfg":
 		m.status = fmt.Sprintf("broker %s · user %s  (roger config set broker <url>)", m.broker, m.user)
 	case "confidential", "conf":
@@ -1020,7 +1059,7 @@ func (m model) doShare(args []string) (tea.Model, tea.Cmd) {
 			m.sharePending = args[0]
 		}
 		m.status = stDim.Render("refreshing local models…")
-		return m, detectSharesCmd(m.shareUp, m.shareKey)
+		return m, tea.Batch(detectSharesCmd(m.shareUp, m.shareKey), m.shareModelsCmd())
 	}
 	m.shareLoading = true
 	m.setupOnEmpty = true // the initial open: an empty scan drops into the guided wizard
@@ -1031,7 +1070,7 @@ func (m model) doShare(args []string) (tea.Model, tea.Cmd) {
 		m.sharePending = args[0] // `/share <model>` shortcut: flip it on air after detect
 	}
 	m.status = stDim.Render("scanning the band for local models…")
-	return m, detectSharesCmd(m.shareUp, m.shareKey)
+	return m, tea.Batch(detectSharesCmd(m.shareUp, m.shareKey), m.shareModelsCmd())
 }
 
 // onSharesDetected folds an async detection result into the provider table: it
@@ -1287,12 +1326,29 @@ func (m *model) onShareKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.renaming {
 		return m.onStationRenameKey(k)
 	}
-	// Preset bank: 1 TUNE IN · 3 CONFIG · L LOGIN · ? HELP jump straight out of the
+	// Preset bank: 1 TUNE IN · 3 EDGE · 4 CONFIG · L LOGIN · ? HELP jump straight out of the
 	// table. (2 SHARE is the current screen, so it is a no-op pressed-state and falls
 	// through to the table keys below; `a`/`enter` toggle on-air as before.)
+	// A serve question asked from one of roger's own rows owns the next key (y, or anything is no).
+	if m.mdl.ask != nil {
+		return m.onModelsKey(k)
+	}
+	// The serving-settings chooser (share_settings.go) owns every key while it is open.
+	if m.mdl.set != nil {
+		return m.onSettingsKey(k)
+	}
 	if k.String() != "2" {
 		if nm, cmd, ok := m.presetForKey(k.String()); ok {
 			return nm, cmd
+		}
+	}
+	// Roger's own rows (share_models.go) take Enter; the detected-row keys do not apply to them.
+	if e, ok := m.shareExtraAt(m.shareCursor); ok {
+		switch k.String() {
+		case "enter", "a", " ", "space":
+			return m.onShareExtraEnter(e)
+		case "h", "b", "B", "p", "e", "y", "g":
+			return m, nil
 		}
 	}
 	switch k.String() {
@@ -1305,7 +1361,7 @@ func (m *model) onShareKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.shareCursor--
 		}
 	case "down", "j":
-		if m.shareCursor < len(m.shareRows)-1 {
+		if m.shareCursor < m.shareRowCount()-1 {
 			m.shareCursor++
 		}
 	case "enter", "a", " ", "space":
@@ -1443,6 +1499,12 @@ func (m *model) onShareSetupKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return nm, cmd
 		}
 	}
+	// g: nothing found to share, so serve one with roger itself (models.go). Never while pasting:
+	// those keystrokes are the URL.
+	if k.String() == "g" && !pasting {
+		nm, cmd := m.enterModels()
+		return nm, cmd
+	}
 	switch k.String() {
 	case "esc", "s":
 		m.mode = modeBrowse
@@ -1513,6 +1575,14 @@ func (m *model) onShareSetupKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		}
+		// Get a model: roger serves it itself - the search and the fit view, inside SHARE.
+		if setupOptions[m.setupCursor].key == "roger" {
+			if m.hooks.Models.View == nil {
+				m.setupErr = "this build cannot serve models itself - `roger model` in a terminal"
+				return m, nil
+			}
+			return m.onShareExtraEnter(shareExtra{kind: extraGet})
+		}
 		// A named tool: ASYNC re-detect (maybe it's already up). If nothing comes back we
 		// return to the wizard with this tool's start one-liner; a found result lands the
 		// table. Detection runs off the event loop so the pick never freezes the wizard.
@@ -1559,6 +1629,8 @@ func (m model) enterShareEditor() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if !m.loggedInState() {
+		// The login requirement and the payout terms come BEFORE any price is asked.
+		m.earnShown = true
 		m.status = stEmber.Render("log in to earn - run ") + stKey.Render("/login") + stDim.Render("  (free sharing works without an account)")
 		return m, nil
 	}
@@ -1684,10 +1756,11 @@ func (m model) doLogin() (tea.Model, tea.Cmd) {
 	m.loginDevice = LoginDevice{}
 	if m.loggedInState() {
 		m.status = stDim.Render("log out? y confirms · n / esc keeps you logged in")
-	} else {
-		m.status = stDim.Render("log in with GitHub - press enter · esc cancels")
+		return m, nil
 	}
-	return m, nil
+	m.status = stDim.Render("log in with GitHub - press enter · esc cancels")
+	// Whether new accounts still get a starter credit is the broker's to say (GET /promo).
+	return m, fetchPromo(m.broker)
 }
 
 // onLoginKey owns every key while the [L] login/logout panel is open, so the
@@ -2044,8 +2117,8 @@ func (m *model) limitsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	if !editing {
 		// Preset bank jumps (only when NOT editing a numeric field, so a typed digit in
-		// the editor is never stolen). 3 CONFIG is the current screen -> no-op.
-		if k.String() != "3" {
+		// the editor is never stolen). 4 CONFIG is the current screen -> no-op.
+		if k.String() != "4" {
 			if nm, cmd, ok := m.presetForKey(k.String()); ok {
 				return nm, cmd
 			}
@@ -2236,8 +2309,8 @@ func (m *model) limitsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // presetForKey maps a top-level key press to its preset action, returning the new
 // model + cmd and true when the key was a preset jump (so onKey can short-circuit).
-// It is the keyboard half of the preset bank: 1 -> TUNE IN, 2 -> SHARE, 3 -> CONFIG
-// (limits), L -> LOGIN, ? -> HELP. It is only consulted from non-text-entry modes
+// It is the keyboard half of the preset bank: 1 -> TUNE IN, 2 -> SHARE, 3 -> EDGE,
+// 4 -> CONFIG (limits), L -> LOGIN, ? -> HELP. It is only consulted from non-text-entry modes
 // (browse / a SHARE sub-screen / limits / help) so it never steals a typed digit in
 // the command palette, the chat input, or a numeric price/limit editor.
 // toggleCompact flips the windowshade compact mode and persists the choice via the

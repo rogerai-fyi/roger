@@ -32,7 +32,7 @@
         </p>
         <div class="man-cover__meta">
           <span>Set: <b>roger</b></span>
-          <span>Version: <b data-cli-version>v6.9.0</b></span>
+          <span>Version: <b data-cli-version>v7.0.0</b></span>
           <span>Broker: <b>broker.rogerai.fm</b></span>
           <span>Protocol: <b>OpenAI-compatible</b></span>
         </div>
@@ -88,7 +88,7 @@
   <!-- ============================ CONTENTS ============================ -->
   <!-- The contents as the site's tuning scale (components.css .toc-tuner): in the page,
        never pinned; the needle rests on the section in view while the scale is on screen.
-       Under 760px its 19 stations become a two-column contents list. -->
+       Under 760px its 20 stations become a two-column contents list. -->
   <nav class="toc-tuner man-contents" data-tuner aria-label="Manual contents">
     <div class="wrap man-contents__head"><span class="sectionno">Contents</span></div>
     <div class="wrap toc-tuner__band">
@@ -102,6 +102,7 @@
       <li><a class="toc-tuner__st" href="#sPlay"><b>§P</b><span class="toc-tuner__name">Playbox</span></a></li>
       <li><a class="toc-tuner__st" href="#s4"><b>§4</b><span class="toc-tuner__name">Go on air</span></a></li>
       <li><a class="toc-tuner__st" href="#sTower"><b>§T</b><span class="toc-tuner__name">Run a Tower</span></a></li>
+      <li><a class="toc-tuner__st" href="#sLAN"><b>§L</b><span class="toc-tuner__name">LAN mode</span></a></li>
       <li><a class="toc-tuner__st" href="#sV"><b>§V</b><span class="toc-tuner__name">Voices</span></a></li>
       <li><a class="toc-tuner__st" href="#s5"><b>§5</b><span class="toc-tuner__name">Private channels</span></a></li>
       <li><a class="toc-tuner__st" href="#s6"><b>§6</b><span class="toc-tuner__name">Wallet &amp; billing</span></a></li>
@@ -200,18 +201,26 @@
           <section class="man-sec" id="s2">
             <span class="man-sec__no">§2 · First contact</span>
             <h2>The first run</h2>
-            <p>Run <code>roger</code> with no arguments. On a real terminal, a tiny
-              first-run wizard asks the one question that matters - are you here to
-              <b>use</b> models or to <b>share</b> your GPU - then drops you into the app.
-              Everything else (the model, the context length, a free local port) is
-              auto-detected. The wizard runs once; re-run it any time with
-              <code>roger onboard</code>.</p>
+            <!-- superseded 2026-10-11 by founder ruling (welcome card / simple empty Edge):
+                 the pre-app wizard is replaced by a one-time welcome card inside the app. -->
+            <p>Run <code>roger</code> with no arguments. The first time the app opens, a
+              one-time welcome card names the six things roger does, one line each. Press a
+              key (or move with the arrows and press enter) and you land on that part of the
+              app; <kbd>esc</kbd> skips it. Nothing is configured by the card itself. Open it
+              again any time from help with <kbd>?</kbd>, or run
+              <code>roger onboard --welcome</code> to show it on the next launch.
+              <code>roger onboard</code> still sets up sharing.</p>
             <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">$</span> roger
-  Welcome to RogerAI - a two-way radio for Local Models.
-  Are you here to use models, or to share your GPU?
-   <span class="code-block__prompt" aria-hidden="true">&gt;</span> Just use models (open the app)
-     Share my GPU - QuickStart, FREE, no login
-     Share my GPU - earn (set prices + log in)</pre></div>
+  first time here? pick one, or esc to skip
+
+   1  Chat with a model     pick a band on the dial and talk
+   0  Run an agent          let a model read, write, run code
+   2  Share a model         put a model on air (free or paid)
+   3  Edge network          join your own devices together
+   w  Web console           open the same app in a browser
+   l  Log in                starter credit for new accounts, earn from shares
+
+  you can always get here again with ?</pre></div>
 
             <h3>Share for free in 30 seconds</h3>
             <p>Pick the FREE share path (or run it straight): no login, no account. The
@@ -235,12 +244,13 @@
             <h3>The app at a glance: the preset bank</h3>
             <p>The interactive app is a radio. A row of station presets sits across the
               bottom of every screen - press the key, jump to that screen:</p>
-            <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">[0] AGENT</span>   <span class="code-block__prompt" aria-hidden="true">[1] TUNE IN</span>   <span class="code-block__prompt" aria-hidden="true">[2] SHARE</span>   <span class="code-block__prompt" aria-hidden="true">[3] CONFIG</span>   <span class="code-block__prompt" aria-hidden="true">[L] LOGIN</span>   <span class="code-block__prompt" aria-hidden="true">[?] HELP</span></pre></div>
+            <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">[0] AGENT</span>   <span class="code-block__prompt" aria-hidden="true">[1] TUNE IN</span>   <span class="code-block__prompt" aria-hidden="true">[2] SHARE</span>   <span class="code-block__prompt" aria-hidden="true">[3] EDGE</span>   <span class="code-block__prompt" aria-hidden="true">[4] CONFIG</span>   <span class="code-block__prompt" aria-hidden="true">[L] LOGIN</span>   <span class="code-block__prompt" aria-hidden="true">[?] HELP</span></pre></div>
             <div class="man-plate">
               <div class="man-plate__row"><span class="man-plate__k">[0] AGENT</span><span class="man-plate__v">the embedded tool-using agent - it can read/list/search on its own and (with your y/N) fetch/write/run, on a model you tune in (§A)</span></div>
               <div class="man-plate__row"><span class="man-plate__k">[1] TUNE IN</span><span class="man-plate__v">browse the live band, filter/sort, and tune in to a station to chat (§3)</span></div>
               <div class="man-plate__row"><span class="man-plate__k">[2] SHARE</span><span class="man-plate__v">your provider table - flip your own models on / off air (§4)</span></div>
-              <div class="man-plate__row"><span class="man-plate__k">[3] CONFIG</span><span class="man-plate__v">the in-app spend-limits editor (§8)</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">[3] EDGE</span><span class="man-plate__v">your fleet, and how it is connected</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">[4] CONFIG</span><span class="man-plate__v">the in-app spend-limits editor (§8)</span></div>
               <div class="man-plate__row"><span class="man-plate__k">[L] LOGIN / LOGOUT</span><span class="man-plate__v">sign in or out - the label flips with your state (§6)</span></div>
               <div class="man-plate__row"><span class="man-plate__k">[?] HELP</span><span class="man-plate__v">the in-app help screen; the version is printed here</span></div>
             </div>
@@ -872,7 +882,7 @@
 
             <h3>Install</h3>
             <p>One line, same installer as the client with the Tower component selected. It
-              verifies the release checksum and installs <code>roger-tower</code> to
+              verifies the release checksum and installs <code>roger</code> (a Tower is <code>roger tower</code>; for this release the old <code>roger-tower</code> name is installed beside it as a stand-in) to
               <code>~/.local/bin</code>.</p>
             <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">$</span> curl -fsSL https://rogerai.fm/install.sh | ROGERAI_COMPONENT=tower sh</pre></div>
 
@@ -880,23 +890,23 @@
             <p>Prefer to fetch and place the binary yourself? Pull it straight from the latest
               release and verify it against the published checksums before you run it.</p>
             <div class="man-plate">
-              <div class="man-plate__row"><span class="man-plate__k">Linux amd64</span><span class="man-plate__v"><a href="https://github.com/rogerai-fyi/roger/releases/latest/download/roger-tower-linux-amd64">roger-tower-linux-amd64 &darr;</a></span></div>
-              <div class="man-plate__row"><span class="man-plate__k">Linux arm64</span><span class="man-plate__v"><a href="https://github.com/rogerai-fyi/roger/releases/latest/download/roger-tower-linux-arm64">roger-tower-linux-arm64 &darr;</a></span></div>
+              <div class="man-plate__row"><span class="man-plate__k">Linux amd64</span><span class="man-plate__v"><a href="https://github.com/rogerai-fyi/roger/releases/latest/download/roger-linux-amd64">roger-linux-amd64 &darr;</a></span></div>
+              <div class="man-plate__row"><span class="man-plate__k">Linux arm64</span><span class="man-plate__v"><a href="https://github.com/rogerai-fyi/roger/releases/latest/download/roger-linux-arm64">roger-linux-arm64 &darr;</a></span></div>
               <div class="man-plate__row"><span class="man-plate__k">Checksums</span><span class="man-plate__v"><a href="https://github.com/rogerai-fyi/roger/releases/latest/download/checksums.txt">checksums.txt</a> - verify with <code>sha256sum -c</code>, then <code>chmod +x</code> and move onto your <code>PATH</code></span></div>
               <div class="man-plate__row"><span class="man-plate__k">All releases</span><span class="man-plate__v"><a href="https://github.com/rogerai-fyi/roger/releases">github.com/rogerai-fyi/roger/releases</a></span></div>
             </div>
 
             <h3>Bring it up</h3>
             <p>Initialize state, run the pre-flight, then enroll against the network. Enrolling
-              is a signed act tied to your account (<code>roger-tower login</code> first), because
+              is a signed act tied to your account (<code>roger tower login</code> first), because
               putting a relay on the network under your name is an account decision.</p>
-            <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">$</span> roger-tower login --dir /var/lib/roger-tower                 <span class="code-block__comment"># sign in - same account as the website</span>
-<span class="code-block__prompt" aria-hidden="true">$</span> roger-tower init --dir /var/lib/roger-tower --mode joined    <span class="code-block__comment"># create keys + local state</span>
-<span class="code-block__prompt" aria-hidden="true">$</span> roger-tower doctor --config /etc/roger-tower/tower.yaml      <span class="code-block__comment"># pre-flight: config, reachability, clock</span>
-<span class="code-block__prompt" aria-hidden="true">$</span> roger-tower ready  --config /etc/roger-tower/tower.yaml      <span class="code-block__comment"># durability preflight - exits non-zero if it cannot keep state</span>
-<span class="code-block__prompt" aria-hidden="true">$</span> roger-tower register --dir /var/lib/roger-tower              <span class="code-block__comment"># enroll this Tower against the broker</span>
-<span class="code-block__prompt" aria-hidden="true">$</span> roger-tower status --dir /var/lib/roger-tower                <span class="code-block__comment"># admission state, lease, attached nodes</span>
-<span class="code-block__prompt" aria-hidden="true">$</span> roger-tower serve --dir /var/lib/roger-tower --hub :8444 --relay-public YOUR.HOST:8444 --hub-tls   <span class="code-block__comment"># hold the link + host the data plane, encrypted</span></pre></div>
+            <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">$</span> roger tower login --dir /var/lib/roger-tower                 <span class="code-block__comment"># sign in - same account as the website</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> roger tower init --dir /var/lib/roger-tower --mode joined    <span class="code-block__comment"># create keys + local state</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> roger tower doctor --config /etc/roger-tower/tower.yaml      <span class="code-block__comment"># pre-flight: config, reachability, clock</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> roger tower ready  --config /etc/roger-tower/tower.yaml      <span class="code-block__comment"># durability preflight - exits non-zero if it cannot keep state</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> roger tower register --dir /var/lib/roger-tower              <span class="code-block__comment"># enroll this Tower against the broker</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> roger tower status --dir /var/lib/roger-tower                <span class="code-block__comment"># admission state, lease, attached nodes</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> roger tower serve --dir /var/lib/roger-tower --hub :8444 --relay-public YOUR.HOST:8444 --hub-tls   <span class="code-block__comment"># hold the link + host the data plane, encrypted</span></pre></div>
             <div class="man-note">
               <span class="man-note__tag">--mode is not optional</span>
               A data directory is initialized as <b>one mode for life</b>. To change mode you
@@ -920,8 +930,8 @@
               typed. Two commented, ready-to-edit configurations ship in
               <code>packaging/tower/</code> - <code>tower.standalone.example.yaml</code> and
               <code>tower.joined.example.yaml</code>. Check one before you trust it:</p>
-            <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">$</span> roger-tower config validate --config /etc/roger-tower/tower.yaml
-<span class="code-block__prompt" aria-hidden="true">$</span> roger-tower config print    --config /etc/roger-tower/tower.yaml   <span class="code-block__comment"># every effective value, secrets shown as PATHS only</span></pre></div>
+            <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">$</span> roger tower config validate --config /etc/roger-tower/tower.yaml
+<span class="code-block__prompt" aria-hidden="true">$</span> roger tower config print    --config /etc/roger-tower/tower.yaml   <span class="code-block__comment"># every effective value, secrets shown as PATHS only</span></pre></div>
             <div class="man-note">
               <span class="man-note__tag">unknown fields are errors</span>
               A misspelled setting <b>fails the config</b> rather than being silently ignored,
@@ -937,12 +947,19 @@
               its own local network and trust root, and routes between your own machines. This
               is how you build a private relay for local models - a household, a lab, an
               air-gapped site - with nothing leaving your machines and nobody to sign up with.</p>
-            <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">$</span> roger-tower init --dir ~/tower --mode standalone
-<span class="code-block__prompt" aria-hidden="true">$</span> roger-tower invite --dir ~/tower --client $KEYHASH        <span class="code-block__comment"># prints a code ONCE; 15m, 5 attempts</span>
-<span class="code-block__prompt" aria-hidden="true">$</span> roger-tower admit  --dir ~/tower --client $KEYHASH --id ID --code CODE
-<span class="code-block__prompt" aria-hidden="true">$</span> roger-tower attach --dir ~/tower --station st-1 --key $STATION_KEYHASH --models llama-3,qwen-2.5
-<span class="code-block__prompt" aria-hidden="true">$</span> roger-tower stations --dir ~/tower                        <span class="code-block__comment"># what is attached</span>
-<span class="code-block__prompt" aria-hidden="true">$</span> roger-tower route --dir ~/tower --client $KEYHASH --model llama-3</pre></div>
+            <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">$</span> roger tower init --dir ~/tower --mode standalone
+<span class="code-block__prompt" aria-hidden="true">$</span> roger tower invite --dir ~/tower --client $KEYHASH        <span class="code-block__comment"># prints a code ONCE; 15m, 5 attempts</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> roger tower admit  --dir ~/tower --client $KEYHASH --id ID --code CODE
+<span class="code-block__prompt" aria-hidden="true">$</span> roger tower attach --dir ~/tower --station st-1 --key $STATION_KEYHASH --models llama-3,qwen-2.5
+<span class="code-block__prompt" aria-hidden="true">$</span> roger tower stations --dir ~/tower                        <span class="code-block__comment"># what is attached</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> roger tower route --dir ~/tower --client $KEYHASH --model llama-3
+<span class="code-block__prompt" aria-hidden="true">$</span> roger tower serve --dir ~/tower --bind 192.168.1.20:8787   <span class="code-block__comment"># serve the consumer plane on your LAN</span></pre></div>
+            <p><b>What "no outbound connection" rests on.</b> The standalone serve package imports no
+              Core code, which a dependency test enforces, and standalone mode refuses every
+              non-local connection: the process's default HTTP client, transport and resolver
+              reach only local addresses, and serving refuses to start if a Core client was ever
+              built. That is a guarantee about the serving code and the running process, not a
+              claim that <code>roger</code> as a whole carries nothing else.</p>
             <div class="man-note">
               <span class="man-note__tag">free, and it says so</span>
               Standalone routing is <b>free and locally accounted</b>: every receipt names your
@@ -981,10 +998,10 @@
               model and its own listed price - and <b>Core</b> decides which Tower it lands on.
               Placement is first-fit today, so a new Tower may wait while an established one
               takes attachments; locality- and load-aware placement is being built.
-              <code>roger-tower station revoke</code> is your kill switch for a node serving
-              under your Tower, and <code>roger-tower probe --model NAME</code> drives the
+              <code>roger tower station revoke</code> is your kill switch for a node serving
+              under your Tower, and <code>roger tower probe --model NAME</code> drives the
               whole sealed loop as a consumer to prove your Tower carries work.
-              <code>roger-tower --help</code> lists every command (<code>drain</code>,
+              <code>roger tower help</code> lists every command (<code>drain</code>,
               <code>resume</code>, <code>revoke</code>).</p>
 
             <h3>Run it as a service</h3>
@@ -1003,6 +1020,60 @@
               pipeline, keyed to your account. Cash out from the same page as any other
               earning, on any sign-in (GitHub, Apple, or email), once you finish Stripe
               Connect onboarding (§7).
+            </div>
+          </section>
+
+          <!-- ============== §L LAN MODE ============== -->
+          <section class="man-sec" id="sLAN">
+            <span class="man-sec__no">§L · LAN mode (local bands only)</span>
+            <h2>LAN mode</h2>
+            <p class="man-lead">LAN mode shows you <b>only bands served on your local network</b>:
+              this machine, your Edge members, and standalone Towers at a local address. Nothing
+              falls back to the open market: if nothing local serves a band, the turn is refused
+              and says so. Turns are free and nothing is billed.</p>
+            <p>It is a filter, <b>not an offline mode</b>. Update checks, sign-in, model
+              downloads and web search still use the internet as usual; only where your turns
+              go changes.</p>
+            <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">$</span> roger --lan                    <span class="code-block__comment"># the TUI, with the LAN dial</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> ROGER_LAN=1 roger use qwen3-8b   <span class="code-block__comment"># the same switch from the environment</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> roger config set mode lan      <span class="code-block__comment"># keep it on; --no-lan turns it off for one run</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> roger --lan search             <span class="code-block__comment"># every local band and where it is served</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> roger status                   <span class="code-block__comment"># which mode this run is in, and why</span></pre></div>
+
+            <h3>What counts as local</h3>
+            <p>Loopback, the private ranges (10/8, 172.16/12, 192.168/16), IPv6 unique-local
+              (fc00::/7) and link-local addresses. A hostname counts only when every address it
+              resolves to is local, and it is checked again on every connection, so a name that
+              starts pointing somewhere public is never dialed. A carrier or overlay address
+              (100.64/10) counts only if you add it by hand.</p>
+
+            <h3>Joining Towers</h3>
+            <p>Towers are now joined with <code>roger join</code>. The Tower&rsquo;s owner runs
+              <code>roger tower invite</code> and gets one line; you paste it on your machine. The
+              invite carries the Tower&rsquo;s key, so your machine talks to that Tower and no
+              other: Towers are <b>verified by their key</b>, and a Tower whose key changed is
+              refused with how to re-join. No invite? <code>roger join 192.168.1.20:8787</code>
+              asks the owner, and both screens show the same phrase to approve.</p>
+            <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">$</span> roger join roger://join?...         <span class="code-block__comment"># the line the owner's invite printed</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> roger lan list                    <span class="code-block__comment"># each Tower, whether it answers, its bands</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> roger lan rm 192.168.1.20:8787</pre></div>
+            <p>A Tower started with <code>--advertise</code> announces itself on your private
+              network and appears on the dial as a candidate; it is never used until you join it.
+              Older clients pin their Tower on first contact after upgrading: a Tower you added
+              before this release is pinned to the key it shows the first time it answers over
+              TLS, once, and roger says so. <code>roger lan add</code> still works for a Tower
+              you are already admitted to, and asks before it pins one.</p>
+
+            <div class="man-note">
+              <span class="man-note__tag">trust</span>
+              A Tower can read what you send to it, so join only Towers you trust. A Tower that
+              answers only over plain http (an older roger) is shown as <b>unverified</b> for one
+              release; join it again once it is upgraded. Edge members
+              are <b>verified by certificate</b> under your Edge, exactly as without LAN mode.
+              For sensitive work, keep it on Edge members only: run <code>roger --edge-only</code>
+              (or <code>roger config set mode lan-edge-only</code>), and no Tower is shown, dialed
+              or shared to, while the LAN dial serves from this machine and your Edge alone. Your
+              Tower list is kept; remove a Tower for good with <code>roger lan rm</code>.
             </div>
           </section>
 
@@ -1280,7 +1351,7 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre></div>
             <h3>One card per band</h3>
             <p>A band&rsquo;s settings used to be spread across four screens: on air and
               visibility in <b>[2] SHARE</b>, its price in that screen&rsquo;s editor, your
-              spend caps in <b>[3] CONFIG</b>, and the dial itself in BASE STATION. Nothing
+              spend caps in <b>[4] CONFIG</b>, and the dial itself in BASE STATION. Nothing
               anywhere could answer &ldquo;how is this band set up?&rdquo;</p>
             <p>Press <kbd>b</kbd> on any band, from any list that shows one, for a card
               that carries every setting that applies to it - each row naming the key
@@ -1492,7 +1563,7 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre></div>
           <section class="man-sec" id="s9">
             <span class="man-sec__no">§9 · Command reference</span>
             <h2>Every command, every key</h2>
-            <p>The full surface as of <b data-cli-version>v6.9.0</b>: the top-level CLI
+            <p>The full surface as of <b data-cli-version>v7.0.0</b>: the top-level CLI
               commands with their key flags, then the in-app keys and slash commands grouped
               by context. Commands with flag surfaces document <code>--help</code>; advanced
               flags hide behind <code>--advanced</code>. Run <code>roger</code> with no
@@ -1512,7 +1583,7 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre></div>
                 <caption>roger &lt;command&gt; [flags]</caption>
                 <thead><tr><th>Command</th><th>Description &amp; key flags</th></tr></thead>
                 <tbody>
-                  <tr><td><code>roger</code></td><td>open the interactive app (browse, tune in, chat); first run shows the onboarding wizard</td></tr>
+                  <tr><td><code>roger</code></td><td>open the interactive app (browse, tune in, chat); the first launch shows a one-time welcome card</td></tr>
                   <tr><td><code>search</code></td><td>list models, cheapest first (aliases: <code>discover</code>, <code>models</code>)</td></tr>
                   <tr><td><code>use &lt;model&gt;</code></td><td>open a local OpenAI endpoint for your bots (aliases: <code>connect</code>, <code>tune</code>). Flags: <code>--max-out $</code> (headline cap, skip stations above this $/1M out) · <code>--yes</code> (skip the connect confirm) · <code>--advanced</code> reveals <code>--port</code> (0 = auto-pick) · <code>--max-in</code> · <code>--min-tps</code> · <code>--confidential</code> · <code>--raw</code> (keep raw model output; skip the reasoning-as-answer fallback)</td></tr>
                   <tr><td><code>balance</code></td><td>wallet balance ($). Topping up is <code>topup [usd]</code>; <code>balance --topup [usd]</code> and <code>balance topup [usd]</code> are retained aliases</td></tr>
@@ -1546,12 +1617,12 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre></div>
 
             <h3>In the app: the preset bank</h3>
             <p>Every screen carries the preset bank along the bottom -
-              <b>[0] AGENT [1] TUNE IN [2] SHARE [3] CONFIG [L] LOGIN/LOGOUT [?] HELP</b> -
+              <b>[0] AGENT [1] TUNE IN [2] SHARE [3] EDGE [4] CONFIG [L] LOGIN/LOGOUT [?] HELP</b> -
               and the lit preset is where you are. Press a key to jump there;
               <kbd>&larr;</kbd>/<kbd>&rarr;</kbd> step through the bank; <kbd>m</kbd> is the
               compact "windowshade". The full keys for <b>[0] AGENT</b> are in §A and for
               <b>[1] TUNE IN</b> + the channel in §3; <b>[2] SHARE</b> is below.
-              <b>[3] CONFIG</b> is the spend-limits editor (§8) and <b>[L]</b> is the login
+              <b>[4] CONFIG</b> is the spend-limits editor (§8) and <b>[L]</b> is the login
               panel (§6). Leaving a channel (<kbd>esc</kbd> / <code>/disconnect</code>) is
               distinct from quitting the app - quitting is a deliberate <kbd>q</kbd> from
               the band, and while you are ON AIR it asks you to confirm going off air
@@ -1807,6 +1878,7 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre></div>
               Newest first. The set self-updates - <code>roger upgrade</code> pulls the
               latest, <code>roger upgrade --check</code> just reports.</p>
             <div class="man-plate">
+              <div class="man-plate__row"><span class="man-plate__k">v7.0.0</span><span class="man-plate__v">The Go module path becomes <code>rogerai.fm/roger/v7</code>, so installing from source is <code>go install rogerai.fm/roger/v7/cmd/rogerai@latest</code> (/v6 and /v5 keep resolving). <code>roger tower</code> replaces the Tower binaries, <code>roger join</code> joins an Edge or a Tower with one line, <code>roger --lan</code> keeps turns on your own network, and phones join the Edge as members.</span></div>
               <div class="man-plate__row"><span class="man-plate__k">v6.9.0</span><span class="man-plate__v">The network tells its own story: the homepage carries identity unlinking, both earn paths (your GPU at 90%, your contracts as curated), the tower network, and the honest comparison; why.html joins the nav and footer. Curated stations are verified <b>once, plus a minimal weekly recheck</b> (disclosed - never the adaptive schedule that burned a dollar a day of upstream credit on the first live stations), dial rows wear the bare <b>&raquo;</b> mark with the provider named in the station log, and an undetected context window reads <b>~333k</b> - visibly a sentinel, never a plausible lie.</span></div>
               <div class="man-plate__row"><span class="man-plate__k">v6.8.0</span><span class="man-plate__v">Payouts get four times faster: the hold drops from a blanket 120 days to <b>30 days on the principal</b>, with a <b>10% reserve slice riding to day 90</b> to cover the late-chargeback tail. Sized against researched dispute data (most disputes land inside 30-60 days); a payout pays the principal and the reserve follows on its own tail, never stranded, never early.</span></div>
               <div class="man-plate__row"><span class="man-plate__k">v6.7.0</span><span class="man-plate__v">Curated operators earn: the settlement becomes <b>your list back whole, plus half the routing fee</b> (the network keeps the other half). Stated as a share of the fee pool - never a percent of the posted price - so a curated station cannot be underwater at any markup. The reason to bring your own provider contracts to the dial.</span></div>

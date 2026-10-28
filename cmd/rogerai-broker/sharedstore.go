@@ -723,6 +723,12 @@ func valkeyTopologyFromEnv() (valkeyTopology, bool) {
 // build returns a client for the topology with the broker's tight timeouts. poolSize 0
 // keeps go-redis's default; readTimeout overrides the per-op read timeout (a blocking
 // reader needs longer than sharedOpTimeout).
+// valkeyDialerRetries overrides go-redis's dial retries when above zero. Production keeps the
+// library default (5 tries, 100ms apart); the test binary lowers it so the many outage
+// scenarios, each of which fails every shared call against a closed server, do not spend half
+// a second per call redialing. Which calls fail, and how the broker reacts, is unchanged.
+var valkeyDialerRetries int
+
 func (tp valkeyTopology) build(readTimeout time.Duration, poolSize int) (redis.UniversalClient, int, error) {
 	if len(tp.urls) == 0 {
 		return nil, 0, fmt.Errorf("no valkey url")
@@ -737,6 +743,9 @@ func (tp valkeyTopology) build(readTimeout time.Duration, poolSize int) (redis.U
 		opt.ReadTimeout = readTimeout
 		opt.WriteTimeout = sharedOpTimeout
 		opt.MaxRetries = 1
+		if valkeyDialerRetries > 0 {
+			opt.DialerRetries = valkeyDialerRetries
+		}
 		if poolSize > 0 {
 			opt.PoolSize = poolSize
 		}
@@ -758,7 +767,7 @@ func (tp valkeyTopology) build(readTimeout time.Duration, poolSize int) (redis.U
 		return redis.NewClusterClient(&redis.ClusterOptions{
 			Addrs: addrs, Username: o.Username, Password: o.Password, TLSConfig: o.TLSConfig,
 			DialTimeout: o.DialTimeout, ReadTimeout: o.ReadTimeout, WriteTimeout: o.WriteTimeout,
-			MaxRetries: o.MaxRetries, PoolSize: o.PoolSize,
+			MaxRetries: o.MaxRetries, PoolSize: o.PoolSize, DialerRetries: o.DialerRetries,
 		}), eff, nil
 	default:
 		byAddr := map[string]*redis.Options{}

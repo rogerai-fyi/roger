@@ -7,14 +7,15 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/routingrules"
 	"slices"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/operator"
+	"rogerai.fm/roger/v7/internal/operator"
 )
 
 // Routing is the consumer-side routing object a first-party client puts in the request
@@ -73,20 +74,10 @@ type Routing struct {
 
 // RoutingPrefs are the four values roger.pref / X-Roger-Pref accept; anything else is
 // refused at the CLI before a request is made (regression_pins.feature, defect 1).
-var RoutingPrefs = []string{"cheap", "balanced", "fast", "reliable"}
+var RoutingPrefs = routingrules.Prefs
 
 // ValidPref reports whether p is one of RoutingPrefs (or empty = unset).
-func ValidPref(p string) bool {
-	if p == "" {
-		return true
-	}
-	for _, v := range RoutingPrefs {
-		if v == p {
-			return true
-		}
-	}
-	return false
-}
+func ValidPref(p string) bool { return routingrules.ValidPref(p) }
 
 // QuantUnknown is the quantizations value that admits an UNLABELED offer (contract §5): a
 // standing quant RULE is sent as its labels plus this, so an unlabeled station keeps passing

@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"rogerai.fm/roger/v6/internal/detect"
+	"rogerai.fm/roger/v7/internal/detect"
 )
 
 // detectScan is the seam. The real scan talks to whatever is listening on this machine,

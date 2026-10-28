@@ -36,7 +36,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"regexp"
-	"rogerai.fm/roger/v6/internal/bddtest"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"sort"
 	"strconv"
 	"strings"
@@ -44,8 +44,8 @@ import (
 	"time"
 
 	"github.com/cucumber/godog"
-	"rogerai.fm/roger/v6/internal/protocol"
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 type df2State struct {
@@ -1789,7 +1789,7 @@ func TestDiscoveryFiltersBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if bddtest.Run(t, &suite) != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("discovery/filters.feature failed (see godog output above)")
 	}
 }
@@ -1808,7 +1808,7 @@ func TestModelsEndpointBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if bddtest.Run(t, &suite) != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("discovery/models_endpoint.feature (non-@slice0) failed (see godog output above)")
 	}
 }

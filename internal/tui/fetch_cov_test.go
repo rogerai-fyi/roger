@@ -1,7 +1,7 @@
 package tui
 
 import (
-	"rogerai.fm/roger/v6/internal/client"
+	"rogerai.fm/roger/v7/internal/client"
 
 	"net/http"
 	"net/http/httptest"

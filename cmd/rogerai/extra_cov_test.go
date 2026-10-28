@@ -5,7 +5,7 @@ import (
 	"io"
 	"testing"
 
-	"rogerai.fm/roger/v6/internal/update"
+	"rogerai.fm/roger/v7/internal/update"
 )
 
 // TestCmdUpgrade covers cmdUpgrade's --check (available + up-to-date) and the install
@@ -94,7 +94,7 @@ func TestTuiHooksSeeded(t *testing.T) {
 }
 
 // TestRunWizardNonInteractive covers runWizard's non-interactive, no-force-flag return
-// (ran=false, config unchanged) and maybeOnboard's wrapper around it.
+// (ran=false, config unchanged), and that a non-interactive launch never shows the card.
 func TestRunWizardNonInteractive(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	cfg := config{Broker: "https://b"}
@@ -105,9 +105,9 @@ func TestRunWizardNonInteractive(t *testing.T) {
 	if got.Onboarded {
 		t.Error("non-interactive runWizard should not mark onboarded")
 	}
-	// maybeOnboard on a not-yet-onboarded, non-interactive run returns the config as-is.
-	if out := maybeOnboard(config{Broker: "https://b"}); out.Onboarded {
-		t.Error("maybeOnboard(non-interactive) should not onboard")
+	// A not-yet-onboarded, non-interactive launch shows no welcome card and onboards nothing.
+	if out, due := welcomeOnLaunch(config{Broker: "https://b"}, false); due || out.Onboarded {
+		t.Errorf("welcomeOnLaunch(non-interactive) = due %v onboarded %v", due, out.Onboarded)
 	}
 }
 

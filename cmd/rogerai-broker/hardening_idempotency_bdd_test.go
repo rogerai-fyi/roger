@@ -30,7 +30,7 @@ import (
 	"time"
 
 	"github.com/cucumber/godog"
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 type id6State struct {
@@ -283,8 +283,14 @@ func (s *id6State) slowerThanWindow(name string) error {
 
 func (s *id6State) takesSeconds(name, secs string) error {
 	d := time.Duration(rs1i(secs)) * time.Second
+	over := s.over
 	s.hitScript(name, func(_ int, w http.ResponseWriter, _ *http.Request) {
-		time.Sleep(d)
+		// It does not answer for d, or until the scenario is over: every Then runs while it is
+		// still silent, and teardown need not wait out the rest.
+		select {
+		case <-time.After(d):
+		case <-over:
+		}
 		utRealCompletion(w)
 	})
 	return nil

@@ -14,14 +14,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"rogerai.fm/roger/v6/internal/bddtest"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/cucumber/godog"
-	"rogerai.fm/roger/v6/internal/client"
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/client"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 type blState struct {
@@ -343,7 +343,7 @@ func TestBrokerMediatedLoginBDD(t *testing.T) {
 			Strict:   false, // the prose-only scenarios stay documentation until they earn steps
 		},
 	}
-	if bddtest.Run(t, &suite) != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("broker-mediated login scenarios failed (see godog output above)")
 	}
 }

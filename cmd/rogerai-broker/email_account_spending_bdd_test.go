@@ -31,14 +31,15 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/cucumber/godog"
-	"rogerai.fm/roger/v6/internal/protocol"
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 type emailAcctState struct {
@@ -1206,7 +1207,7 @@ func TestEmailAccountSpendingBDD(t *testing.T) {
 			Tags: "~@needs-pr125", TestingT: t, Strict: true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("email_account_spending.feature failed")
 	}
 }

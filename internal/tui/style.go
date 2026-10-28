@@ -9,7 +9,7 @@ package tui
 
 import (
 	"github.com/charmbracelet/lipgloss"
-	"rogerai.fm/roger/v6/internal/glyphs"
+	"rogerai.fm/roger/v7/internal/glyphs"
 )
 
 // frozenFrame is the fixed, well-formed frame the compact "windowshade" mode feeds

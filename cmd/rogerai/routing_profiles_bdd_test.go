@@ -44,17 +44,16 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"rogerai.fm/roger/v6/internal/bddtest"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"testing"
 	"time"
 
 	"github.com/cucumber/godog"
-	"rogerai.fm/roger/v6/internal/agent"
-	"rogerai.fm/roger/v6/internal/client"
+	"rogerai.fm/roger/v7/internal/agent"
+	"rogerai.fm/roger/v7/internal/client"
 )
 
 // ── front recorder ─────────────────────────────────────────────────────────────────────
@@ -427,8 +426,8 @@ func (s *cf4State) snapshotCfg() {
 	if b, err := os.ReadFile(s.cfgPath()); err == nil {
 		s.cfgBefore = b
 		if fi, err := os.Stat(s.cfgPath()); err == nil {
-			if st, ok := fi.Sys().(*syscall.Stat_t); ok {
-				s.cfgInode = st.Ino
+			if ino, ok := fileInode(fi); ok {
+				s.cfgInode = ino
 			}
 		}
 	}
@@ -1637,8 +1636,8 @@ func (s *cf4State) writeAtomic() error {
 	if err != nil {
 		return err
 	}
-	st, _ := fi.Sys().(*syscall.Stat_t)
-	if st == nil || st.Ino == s.cfgInode {
+	ino, ok := fileInode(fi)
+	if !ok || ino == s.cfgInode {
 		return fmt.Errorf("config.json kept its inode: not written by temp file + rename")
 	}
 	return nil
@@ -2500,7 +2499,7 @@ func cf4Suite(t *testing.T, name, path string) {
 			Strict:   true,
 		},
 	}
-	if bddtest.Run(t, &suite) != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatalf("%s: failing scenarios", name)
 	}
 }

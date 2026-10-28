@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 // ownerReq builds a request authenticated as the bound owner via the X-Roger-Pubkey

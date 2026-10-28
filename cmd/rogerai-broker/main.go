@@ -26,6 +26,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"rogerai.fm/roger/v7/internal/buildinfo"
+	"rogerai.fm/roger/v7/internal/tokenizer"
 	"strconv"
 	"strings"
 	"sync"
@@ -34,16 +36,14 @@ import (
 	"time"
 
 	"golang.org/x/sync/singleflight"
-	"rogerai.fm/roger/v6/internal/deviceauth"
-	"rogerai.fm/roger/v6/internal/emailauth"
-	"rogerai.fm/roger/v6/internal/protocol"
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/deviceauth"
+	"rogerai.fm/roger/v7/internal/emailauth"
+	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
-// version is the broker's reported version (also in ServiceInfo + logs). Keep a
-// truthful source-build fallback; release builders may override it with
-// -ldflags "-X main.version=<tag>".
-var version = "6.9.0"
+// version is the one build version (internal/buildinfo), stamped by the release pipeline.
+var version = buildinfo.Version
 
 // openapiSpec is the served API contract (see openapi.yaml). Single source of
 // truth for the broker's HTTP surface.
@@ -290,7 +290,7 @@ type broker struct {
 	// discipline the concierge already uses (concierge.rl) to the other anon surfaces.
 	anonRL    *rateLimiter
 	concierge *concierge    // "Ping" homepage chatbot (public LLM surface)
-	recount   recountConfig // L1 independent token re-count (tokenizer-sidecar)
+	recount   recountConfig // L1 independent token re-count (`rogerai-broker tokenizer`)
 	probe     probeConfig   // active canary + latency probe
 
 	// shared is the optional cross-instance state layer (DO Valkey via
@@ -596,7 +596,26 @@ func (b *broker) now() time.Time {
 	return time.Now()
 }
 
+// brokerMode runs a mode named by the first argument instead of the broker, and reports whether
+// it did. `rogerai-broker tokenizer` is the token re-count service (internal/tokenizer), run as
+// its own process from the same binary: it opens no store and no broker listener.
+func brokerMode(args []string) (bool, error) {
+	if len(args) > 0 && args[0] == "tokenizer" {
+		return true, serveTokenizer(os.Getenv("TOKENIZER_PORT"), os.Getenv("TOKENIZER_DIR"), nil, nil)
+	}
+	return false, nil
+}
+
+// serveTokenizer is the tokenizer service (a seam: a test stands in for the blocking serve).
+var serveTokenizer = tokenizer.Serve
+
 func main() {
+	if handled, err := brokerMode(os.Args[1:]); handled {
+		if err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	addr := flag.String("addr", "127.0.0.1:7070", "listen address")
 	fee := flag.Float64("fee", defaultFeeRate, "platform take rate")
 	seed := flag.Float64("seed-credits", 100.0, "starting credits per new user (until Stripe)")

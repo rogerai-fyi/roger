@@ -21,7 +21,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"rogerai.fm/roger/v6/internal/tower"
+	"rogerai.fm/roger/v7/internal/tower"
 )
 
 const accountFile = "account.json"
@@ -103,7 +103,7 @@ func Register(st *tower.State, a Account) error {
 	}
 	if !a.SignedIn() {
 		return errors.New(
-			"registering a Tower requires a RogerAI account - sign in first with `roger-tower login`. " +
+			"registering a Tower requires a RogerAI account - sign in first with `roger tower login`. " +
 				"A joined Tower relays other people's traffic, so it must stay accountable - standalone mode needs no account at all")
 	}
 	return enrollFn(st, a)

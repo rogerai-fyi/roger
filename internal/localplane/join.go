@@ -1,0 +1,135 @@
+package localplane
+
+// join.go is POST /local/join (features/join/invite.feature): a joiner presents proof of an
+// invite's code, signed with its own key and a fresh nonce, and the Tower admits it as a client or
+// attaches it as a Station. Every refusal is the uniform 401, except where the joiner has proved the
+// code (so naming the reason is no oracle): 403 for an invite of the other kind, 409 for a Station
+// name another Station's key holds (neither spends the invite), and 410 for an invite already spent
+// or expired.
+
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"net"
+	"net/http"
+	"slices"
+
+	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/tower"
+)
+
+// JoinRequestBody is what a joiner posts.
+type JoinRequestBody struct {
+	Kind   string   `json:"kind"` // "client" or "station"
+	Proof  string   `json:"proof"`
+	Name   string   `json:"name,omitempty"`
+	Models []string `json:"models,omitempty"`
+}
+
+// JoinAnswer is what a successful join returns.
+type JoinAnswer struct {
+	Joined        string   `json:"joined"` // "client" or "station"
+	Network       string   `json:"network,omitempty"`
+	Role          string   `json:"role,omitempty"`
+	Models        []string `json:"models,omitempty"`  // a Station's accepted models, or a client's bands
+	Refused       []string `json:"refused,omitempty"` // a Station's models the invite did not allow
+	AlreadyMember bool     `json:"already_member,omitempty"`
+	Tower         string   `json:"tower,omitempty"` // the Tower's name ("lab"), so the joiner can say which it joined
+}
+
+func (s *Server) localJoin(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "POST only"})
+		return
+	}
+	// Joins are rate limited per source address before anything is checked, so a flood of
+	// guesses costs the sender, not the Tower.
+	ip, _, _ := net.SplitHostPort(r.RemoteAddr)
+	if !s.stationRL.allow("join:" + ip) {
+		w.Header().Set("Retry-After", "60")
+		writeJSON(w, http.StatusTooManyRequests, map[string]any{"error": "too many join attempts - wait a minute"})
+		return
+	}
+	body := readBody(r)
+	id, nonce, ok := s.verifiedIdentity(r, body)
+	if !ok || nonce == "" || s.replay.used("join:"+id+":"+nonce) {
+		unauthorized(w)
+		return
+	}
+	// Malformed, oversized (cut short, so it no longer verifies above) or carrying unknown fields:
+	// refused here, before any proof is computed.
+	var req JoinRequestBody
+	dec := json.NewDecoder(bytes.NewReader(body))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&req); err != nil {
+		unauthorized(w)
+		return
+	}
+	res, err := s.st.ConsumeJoin(tower.JoinRequest{
+		Kind: tower.JoinKind(req.Kind), Proof: req.Proof, Nonce: nonce,
+		PubHex: r.Header.Get(protocol.HeaderPubkey), KeyHash: id, Name: req.Name, Models: req.Models,
+	})
+	if errors.Is(err, tower.ErrWrongInviteKind) {
+		writeJSON(w, http.StatusForbidden, map[string]any{
+			"error": "this invite is for a " + string(res.Kind) + ", not a " + req.Kind,
+		})
+		return
+	}
+	if errors.Is(err, tower.ErrInviteSpent) {
+		s.logf("a used invite was presented again from %s", ip)
+		writeJSON(w, http.StatusGone, map[string]any{"error": "invite_spent"})
+		return
+	}
+	if errors.Is(err, tower.ErrStationNameTaken) {
+		// The joiner proved the code, so it is told the truth; the invite is not spent.
+		writeJSON(w, http.StatusConflict, map[string]any{"error": "station_name_taken", "name": req.Name})
+		return
+	}
+	if errors.Is(err, tower.ErrInviteExpired) {
+		writeJSON(w, http.StatusGone, map[string]any{"error": "invite_expired"})
+		return
+	}
+	if err != nil {
+		unauthorized(w)
+		return
+	}
+	ans := JoinAnswer{Joined: string(res.Kind), AlreadyMember: res.AlreadyMember, Tower: s.label}
+	if res.Kind == tower.JoinStation {
+		ans.Models, ans.Refused, ans.Network = res.Station.Models, res.Refused, res.Station.NetworkID
+	} else {
+		ans.Network, ans.Role, ans.Models = res.Credential.NetworkID, res.Credential.Role, s.bands()
+	}
+	if !res.AlreadyMember {
+		s.noteJoin(req.Name, id, res.Kind, res.Station.Models)
+	}
+	writeJSON(w, http.StatusOK, ans)
+}
+
+// bands is every model an attached Station offers, sorted.
+func (s *Server) bands() []string {
+	sts, err := s.st.Stations()
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, st := range sts {
+		for _, m := range st.Models {
+			if !slices.Contains(out, m) {
+				out = append(out, m)
+			}
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+// SetLabel names the Tower in join answers (the name its owner gave it, or the machine's).
+func (s *Server) SetLabel(label string) { s.label = label }
+
+// noteJoin tells the owner, as it happens, who joined and how to undo it
+// (features/join/invite.feature, "The owner sees the join as it happens").
+func (s *Server) noteJoin(name, keyHash string, kind tower.JoinKind, models []string) {
+	s.logf("%s", tower.JoinedLine(name, keyHash, kind, models))
+}

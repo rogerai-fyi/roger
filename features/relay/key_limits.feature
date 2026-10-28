@@ -1,4 +1,4 @@
-# PROPOSED SPEC - 2026-09-30, awaiting founder approval. Part of the routing-expression set;
+# PROPOSED SPEC - 2026-09-30, awaiting founder approval. Part of the routing-expression set; [corrected 2026-10-07 (founder-approved Edge ruling): CONFIG is [4]]
 # the vocabulary is features/routing/ROUTING-EXPRESSION-CONTRACT.md §11 (plus §1b, §2). The
 # management surface (mint / patch / list / delete, windows, expiry, audit) is
 # features/auth/key_guardrails.feature; THIS file is what a key does to a relay.
@@ -140,14 +140,14 @@ Feature: Key limits on the relay - the per-key spend ceiling, window, and allow-
     Examples:
       | source      | code                 | message                                                                 | hint                                                                                          |
       | key_limit   | key_limit_reached    | key spend limit reached: $5.00 of $5.00 this month (resets 2026-11-01T00:00:00Z) | raise it with `roger keys set key_x --limit`, wait for the reset, or use another key |
-      | monthly_cap | monthly_cap_reached  | monthly spend limit reached: $50.00 of $50.00 this month - raise it with `roger limit --monthly` (or [3] CONFIG), or wait until next month | raise it with `roger limit --monthly` (or [3] CONFIG), or wait until next month |
+      | monthly_cap | monthly_cap_reached  | monthly spend limit reached: $50.00 of $50.00 this month - raise it with `roger limit --monthly` (or [4] CONFIG), or wait until next month | raise it with `roger limit --monthly` (or [4] CONFIG), or wait until next month |
       | credits     | insufficient_balance | insufficient balance - add funds                                        | top up at /billing                                                                            |
 
   Scenario: The monthly-cap message text is unchanged for every caller (monthlycap.go:73)
     # The message keeps today's full text, remedy clause included, for key and non-key callers
     # alike; remedy_hint repeats the remedy clause so machine readers need not parse the message.
     When a signed (no key) relay is refused by the monthly cap
-    Then the message is exactly today's "monthly spend limit reached: $X of $Y this month - raise it with `roger limit --monthly` (or [3] CONFIG), or wait until next month"
+    Then the message is exactly today's "monthly spend limit reached: $X of $Y this month - raise it with `roger limit --monthly` (or [4] CONFIG), or wait until next month"
     And the body additionally carries metadata.limit_source "monthly_cap" and code "monthly_cap_reached"
 
   Scenario: A key with reset "none" says so in the message

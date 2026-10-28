@@ -32,8 +32,15 @@ import (
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
+
+// Endpoint is a server roger itself started, with the key it was started behind.
+type Endpoint struct{ Name, Base, Key string }
+
+// Served lists what roger is serving on this machine. The caller that knows where the record
+// lives sets it; detection only reads it.
+var Served = func() []Endpoint { return nil }
 
 // Found is a reachable local OpenAI-compatible server discovered by DetectFull.
 type Found struct {
@@ -155,6 +162,26 @@ var (
 	envKeysFn = envKeys
 )
 
+// DisablePortScan turns off the scan of this host's listening ports for the rest of the process.
+// It exists for test binaries: the gate runs every package's tests at once, and a test that runs the
+// real detection would otherwise probe every other package's test servers (CI, 2026-10-28). The
+// named defaults, the environment and explicit URLs are still probed.
+func DisablePortScan() { portScanOff = true }
+
+// PortScanDisabled reports whether DisablePortScan was called, so a test binary can prove it was.
+func PortScanDisabled() bool { return portScanOff }
+
+var portScanOff bool
+
+// scanPorts is the listening ports to probe: none once the scan is off, and then the host is not
+// even asked which ports are open.
+func scanPorts() []int {
+	if portScanOff {
+		return nil
+	}
+	return enumPorts()
+}
+
 // DetectFull gathers candidate endpoints from every source - explicit extra base URLs
 // FIRST (the --upstream / saved-config (e) source, each normalized to a /v1 base and
 // winning de-dup so its friendly name is kept), then defaults, env, Ollama native, and
@@ -215,6 +242,12 @@ func ProbeKey(rawURL, key string) (Found, Status) {
 // have (so the caller can ask for one).
 func detectWith(priority []candidate) (found []Found, needKey []string) {
 	cands := priority
+	// (a0) runtimes roger started itself. They are on a port nobody chose and behind a key
+	// nobody exported, so without this rung the only way to find them would be the blind
+	// port scan, which by design never presents a key.
+	for _, e := range Served() {
+		cands = append(cands, candidate{name: e.Name, base: e.Base, key: e.Key})
+	}
 	// (a) documented default endpoints.
 	for _, p := range probes {
 		c := candidate{name: p.name, base: p.base}
@@ -230,7 +263,7 @@ func detectWith(priority []candidate) (found []Found, needKey []string) {
 	// (d) real listening ports -> probe each on localhost for /v1/models. This is
 	// what finds a model on a CUSTOM port without a brute scan: the OS already
 	// knows which ports are open; we only probe those.
-	for _, port := range enumPorts() {
+	for _, port := range scanPorts() {
 		cands = append(cands, candidate{name: "port:" + strconv.Itoa(port), base: "http://127.0.0.1:" + strconv.Itoa(port) + "/v1"})
 	}
 
@@ -362,9 +395,10 @@ func brandOsaurus(f *Found) {
 type probeResult int
 
 const (
-	probeMiss probeResult = iota // unreachable / not OpenAI-compatible
-	probeOK                      // 200: models parsed (usedKey is the key that worked, "" if none needed)
-	probeAuth                    // 401/403: server present but no supplied key worked
+	probeMiss    probeResult = iota // unreachable / not OpenAI-compatible
+	probeOK                         // 200: models parsed (usedKey is the key that worked, "" if none needed)
+	probeAuth                       // 401/403: server present but no supplied key worked
+	probeRogerAI                    // a RogerAI broker or roger use endpoint: never a local server, voice or chat
 )
 
 // probeModels does GET base/models, first with no auth, and - only when the server
@@ -374,6 +408,8 @@ const (
 func probeModels(base string, keys []string) (models []string, ctx map[string]int, usedKey string, res probeResult) {
 	models, ctx, code := getModels(base, "")
 	switch {
+	case code == statusRogerAI:
+		return nil, nil, "", probeRogerAI
 	case code == 200:
 		return models, ctx, "", probeOK
 	case code == 401 || code == 403:
@@ -381,7 +417,11 @@ func probeModels(base string, keys []string) (models []string, ctx map[string]in
 			if k == "" {
 				continue
 			}
-			if m, c, code2 := getModels(base, k); code2 == 200 {
+			m, c, code2 := getModels(base, k)
+			if code2 == statusRogerAI {
+				return nil, nil, "", probeRogerAI
+			}
+			if code2 == 200 {
 				return m, c, k, probeOK
 			}
 		}
@@ -403,6 +443,12 @@ func getModels(base, key string) (models []string, ctx map[string]int, status in
 	if resp.StatusCode != 200 {
 		return nil, nil, resp.StatusCode
 	}
+	// A RogerAI broker, or a `roger use` endpoint in front of one, lists the MARKET's models: it is
+	// never a local server to share through (a turn sent there is a market request, not this
+	// machine's model). Its answers carry the cost header; its listing names rogerai as the owner.
+	if resp.Header.Get("X-Rogerai-Cost") != "" {
+		return nil, nil, statusRogerAI
+	}
 	// Many OpenAI-compatible servers (vLLM, llama.cpp, LM Studio, TGI) report a
 	// per-model context length on /v1/models under one of these common keys.
 	//
@@ -415,6 +461,7 @@ func getModels(base, key string) (models []string, ctx map[string]int, status in
 	var d struct {
 		Data *[]struct {
 			ID         string `json:"id"`
+			OwnedBy    string `json:"owned_by"`
 			MaxLen     int    `json:"max_model_len"`  // vLLM
 			CtxLen     int    `json:"context_length"` // some gateways
 			NCtx       int    `json:"n_ctx"`          // llama.cpp
@@ -431,6 +478,9 @@ func getModels(base, key string) (models []string, ctx map[string]int, status in
 	}
 	ctx = map[string]int{}
 	for _, m := range *d.Data {
+		if m.OwnedBy == "rogerai" {
+			return nil, nil, statusRogerAI
+		}
 		if m.ID == "" {
 			continue
 		}
@@ -441,6 +491,9 @@ func getModels(base, key string) (models []string, ctx map[string]int, status in
 	}
 	return models, ctx, 200
 }
+
+// statusRogerAI marks a RogerAI broker or `roger use` endpoint: an OpenAI listing, of the market.
+const statusRogerAI = -2
 
 // statusNotOpenAI marks "answered, but the body was not an OpenAI /v1/models listing".
 // Negative so it can never collide with a real HTTP status code.
@@ -660,9 +713,21 @@ func audioRouteLive(url, key string) bool {
 	}
 	defer resp.Body.Close()
 	code := resp.StatusCode
+	if code == http.StatusBadRequest && plainHTTPToTLS(resp.Body) {
+		return false // an HTTPS-only port refusing a plain-http request: no route was reached
+	}
 	// Implemented + POST-handling: below 500 (not a server-side stub/5xx), and neither 404
 	// (route absent) nor 405 (route exists but rejects POST - a stub or a GET-only handler).
 	return code < 500 && code != http.StatusNotFound && code != http.StatusMethodNotAllowed
+}
+
+// plainHTTPToTLS reports whether a 400 body is a TLS server refusing a plain-http request (Go's
+// net/http and nginx answer every path that way), which says nothing about any route behind it.
+func plainHTTPToTLS(body io.Reader) bool {
+	b, _ := io.ReadAll(io.LimitReader(body, 512))
+	s := string(b)
+	return strings.Contains(s, "Client sent an HTTP request to an HTTPS server") ||
+		strings.Contains(s, "plain HTTP request was sent to HTTPS port")
 }
 
 // probeVoice classifies a BARE voice server - one with no usable GET /v1/models to enumerate

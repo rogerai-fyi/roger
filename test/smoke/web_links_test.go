@@ -57,18 +57,18 @@ var changelogVersionRe = regexp.MustCompile(`man-plate__k">v([^<]+)<`)
 
 // TestManualMentionsCLIVersion is the sync guard: the built operating manual
 // (web/dist/manual.html) MUST mention the current CLI version from
-// cmd/rogerai/main.go. A release that bumps `const Version` but forgets to
+// internal/buildinfo/buildinfo.go. A release that bumps `var Version` but forgets to
 // update web/src/manual.html (cover + changelog) fails here, mirroring the
 // equivalent check in scripts/smoke.sh. Keeps the manual from drifting stale.
 func TestManualMentionsCLIVersion(t *testing.T) {
 	root := repoRoot(t)
-	mainGo, err := os.ReadFile(filepath.Join(root, "cmd", "rogerai", "main.go"))
+	mainGo, err := os.ReadFile(filepath.Join(root, "internal", "buildinfo", "buildinfo.go"))
 	if err != nil {
-		t.Fatalf("read cmd/rogerai/main.go: %v", err)
+		t.Fatalf("read internal/buildinfo/buildinfo.go: %v", err)
 	}
 	m := versionRe.FindSubmatch(mainGo)
 	if m == nil {
-		t.Fatal("could not find `const/var Version = \"...\"` in cmd/rogerai/main.go")
+		t.Fatal("could not find `var Version = \"...\"` in internal/buildinfo/buildinfo.go")
 	}
 	version := string(m[1])
 

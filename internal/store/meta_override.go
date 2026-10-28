@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // MetaOverride is an owner-authored taxonomy for one (node, model) - see Store.SetMetaOverride.

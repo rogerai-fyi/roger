@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"io"
 	"log"
 	"strings"
 	"sync"
@@ -49,12 +50,40 @@ func (r *logRing) snapshot() []string {
 // tuiLog is the session log buffer (capped), shown by /log.
 var tuiLog = &logRing{max: 500}
 
+// logMirror is an EXTRA destination for the captured lines, set by the binary. The Edge's log tail
+// needs the same lines (features/edge/logs.feature), and for the life of a TUI this package owns the
+// standard logger - so without a mirror the Edge ring would see nothing at all while the terminal is
+// up, which is precisely when an operator is looking. Guarded by its own mutex: it is set once at
+// start-up and read on every log write.
+var (
+	mirrorMu  sync.Mutex
+	logMirror io.Writer
+)
+
+// SetLogMirror sends every captured log line to w as well as to the /log buffer. Pass nil to stop.
+func SetLogMirror(w io.Writer) {
+	mirrorMu.Lock()
+	logMirror = w
+	mirrorMu.Unlock()
+}
+
+// mirror returns the extra destination, or nil.
+func mirror() io.Writer {
+	mirrorMu.Lock()
+	defer mirrorMu.Unlock()
+	return logMirror
+}
+
 // launchTUI runs a Bubble Tea program with the std logger redirected into tuiLog for the
 // program's lifetime (restored on exit), so node/agent log lines never corrupt the
 // alt-screen render. The run itself goes through the runProgram seam (swappable in tests).
 func launchTUI(m tea.Model, opts ...tea.ProgramOption) error {
 	prev := log.Writer()
-	log.SetOutput(tuiLog)
+	out := io.Writer(tuiLog)
+	if m := mirror(); m != nil {
+		out = io.MultiWriter(tuiLog, m) // the Edge's log tail reads the same lines
+	}
+	log.SetOutput(out)
 	defer log.SetOutput(prev)
 	return runProgram(m, opts...)
 }

@@ -14,12 +14,12 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"rogerai.fm/roger/v6/internal/bddtest"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"testing"
 	"time"
 
 	"github.com/cucumber/godog"
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // suState wraps the namespacing harness with the last-registered offer + station so the
@@ -160,7 +160,7 @@ func TestVoiceSampleURLPassthroughBDD(t *testing.T) {
 		},
 		Options: &godog.Options{Format: "pretty", Paths: []string{"../../features/voice/sample_url_passthrough.feature"}, TestingT: t, Strict: true},
 	}
-	if bddtest.Run(t, &suite) != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("voice/sample_url_passthrough behavior scenarios failed (see godog output above)")
 	}
 }

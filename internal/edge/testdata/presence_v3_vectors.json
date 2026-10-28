@@ -1,0 +1,158 @@
+{
+  "domain": "rogerai-edge-present/v3",
+  "joined_by": "\n",
+  "vectors": [
+    {
+      "name": "a phone, every reading",
+      "seed": "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60",
+      "public_key": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+      "node_id": "n_21fe31dfa154a261626bf854046fd2271b7bed4b6abe45aa",
+      "request": {
+        "v": 3,
+        "node_id": "n_21fe31dfa154a261626bf854046fd2271b7bed4b6abe45aa",
+        "name": "pocket",
+        "kind": "mobile",
+        "caps": [
+          "classify"
+        ],
+        "addr": "",
+        "nonce": "00112233445566778899aabbccddeeff",
+        "ts": 1760400000,
+        "vitals": {
+          "thermal": "fair",
+          "foreground": true
+        },
+        "power": {
+          "battery_pct": 64,
+          "charging": false,
+          "source": "battery",
+          "low_power": true,
+          "minutes_left": 312
+        }
+      },
+      "canonical": "rogerai-edge-present/v3\nn_21fe31dfa154a261626bf854046fd2271b7bed4b6abe45aa\npocket\nmobile\nclassify\n\n00112233445566778899aabbccddeeff\n1760400000\nfair\n1\n64\n0\nbattery\n1\n312",
+      "canonical_hex": "726f67657261692d656467652d70726573656e742f76330a6e5f3231666533316466613135346132363136323662663835343034366664323237316237626564346236616265343561610a706f636b65740a6d6f62696c650a636c6173736966790a0a30303131323233333434353536363737383839396161626263636464656566660a313736303430303030300a666169720a310a36340a300a626174746572790a310a333132",
+      "sig": "20499527d005e413de69510d8b398e9334b28630543e1970840307d9c14d969c37e0aabe63b7b9aa3e7d8210ca9388982cf1f3ca6fa1c1775c4d1bd374204206"
+    },
+    {
+      "name": "a phone asleep, battery unknown",
+      "seed": "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60",
+      "public_key": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+      "node_id": "n_21fe31dfa154a261626bf854046fd2271b7bed4b6abe45aa",
+      "request": {
+        "v": 3,
+        "node_id": "n_21fe31dfa154a261626bf854046fd2271b7bed4b6abe45aa",
+        "name": "pocket",
+        "kind": "mobile",
+        "caps": [],
+        "addr": "",
+        "nonce": "00112233445566778899aabbccddeeff",
+        "ts": 1760400030,
+        "vitals": {
+          "foreground": false
+        },
+        "power": {
+          "low_power": false
+        }
+      },
+      "canonical": "rogerai-edge-present/v3\nn_21fe31dfa154a261626bf854046fd2271b7bed4b6abe45aa\npocket\nmobile\n\n\n00112233445566778899aabbccddeeff\n1760400030\n\n0\n\n\n\n0\n",
+      "canonical_hex": "726f67657261692d656467652d70726573656e742f76330a6e5f3231666533316466613135346132363136323662663835343034366664323237316237626564346236616265343561610a706f636b65740a6d6f62696c650a0a0a30303131323233333434353536363737383839396161626263636464656566660a313736303430303033300a0a300a0a0a0a300a",
+      "sig": "bfe585c26bbdf7b1ad35a31a8b6a6248916c3c7615d236ed26f26c71bced5612c606743937fc9f5c963ff6c034e43d2bd3941dc889f139b081aeffd831c80808"
+    },
+    {
+      "name": "a laptop host with a battery, on AC and charging",
+      "seed": "4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb",
+      "public_key": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+      "node_id": "n_39f713d0a644253f04529421b9f51b9b08979d08295959c4",
+      "request": {
+        "v": 3,
+        "node_id": "n_39f713d0a644253f04529421b9f51b9b08979d08295959c4",
+        "name": "bench",
+        "kind": "host",
+        "caps": [
+          "serve",
+          "operate"
+        ],
+        "addr": "192.168.1.20:8443",
+        "nonce": "00112233445566778899aabbccddeeff",
+        "ts": 1760400000,
+        "power": {
+          "battery_pct": 0,
+          "charging": true,
+          "source": "ac",
+          "low_power": false
+        }
+      },
+      "canonical": "rogerai-edge-present/v3\nn_39f713d0a644253f04529421b9f51b9b08979d08295959c4\nbench\nhost\nserve,operate\n192.168.1.20:8443\n00112233445566778899aabbccddeeff\n1760400000\n\n\n0\n1\nac\n0\n",
+      "canonical_hex": "726f67657261692d656467652d70726573656e742f76330a6e5f3339663731336430613634343235336630343532393432316239663531623962303839373964303832393539353963340a62656e63680a686f73740a73657276652c6f7065726174650a3139322e3136382e312e32303a383434330a30303131323233333434353536363737383839396161626263636464656566660a313736303430303030300a0a0a300a310a61630a300a",
+      "sig": "5dae87de6c3b731ba9bb9f55adda424962f6e2aa512ca4d087315810b209ca17d66f480d7eae8b424ff595feed230207c0147ff5c207cf4b666023f1fd61b401"
+    },
+    {
+      "name": "a host with no power block at all",
+      "seed": "4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb",
+      "public_key": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+      "node_id": "n_39f713d0a644253f04529421b9f51b9b08979d08295959c4",
+      "request": {
+        "v": 3,
+        "node_id": "n_39f713d0a644253f04529421b9f51b9b08979d08295959c4",
+        "name": "nas",
+        "kind": "host",
+        "caps": [
+          "serve"
+        ],
+        "addr": "192.168.1.21:8443",
+        "nonce": "ffeeddccbbaa99887766554433221100",
+        "ts": 1760400000
+      },
+      "canonical": "rogerai-edge-present/v3\nn_39f713d0a644253f04529421b9f51b9b08979d08295959c4\nnas\nhost\nserve\n192.168.1.21:8443\nffeeddccbbaa99887766554433221100\n1760400000\n\n\n\n\n\n\n",
+      "canonical_hex": "726f67657261692d656467652d70726573656e742f76330a6e5f3339663731336430613634343235336630343532393432316239663531623962303839373964303832393539353963340a6e61730a686f73740a73657276650a3139322e3136382e312e32313a383434330a66666565646463636262616139393838373736363535343433333232313130300a313736303430303030300a0a0a0a0a0a0a",
+      "sig": "a2701ff83977118c847ce47262c4b8d10fbf956b38c7f1f76c81fae77d30cad61a5b36c5c91db1f5064e4bec21e665959366b39d36b69f8603eeb7382efaa600"
+    },
+    {
+      "name": "a Pi on a UPS HAT, external power lost",
+      "seed": "c5aa8df43f9f837bedb7442f31dcb7b166d38535076f094b85ce3a2e0b4458f7",
+      "public_key": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+      "node_id": "n_dac073e0123bdea59dd9b3bda9cf6037f63aca82627d7abc",
+      "request": {
+        "v": 3,
+        "node_id": "n_dac073e0123bdea59dd9b3bda9cf6037f63aca82627d7abc",
+        "name": "shed-pi",
+        "kind": "host",
+        "caps": [],
+        "addr": "",
+        "nonce": "00112233445566778899aabbccddeeff",
+        "ts": 1760400061,
+        "power": {
+          "battery_pct": 100,
+          "source": "battery",
+          "minutes_left": 0
+        }
+      },
+      "canonical": "rogerai-edge-present/v3\nn_dac073e0123bdea59dd9b3bda9cf6037f63aca82627d7abc\nshed-pi\nhost\n\n\n00112233445566778899aabbccddeeff\n1760400061\n\n\n100\n\nbattery\n\n0",
+      "canonical_hex": "726f67657261692d656467652d70726573656e742f76330a6e5f6461633037336530313233626465613539646439623362646139636636303337663633616361383236323764376162630a736865642d70690a686f73740a0a0a30303131323233333434353536363737383839396161626263636464656566660a313736303430303036310a0a0a3130300a0a626174746572790a0a30",
+      "sig": "ea5815f6ffbfb458067cf44533cbab9c57e5da877491258b920fb39be4b01a29aeae0a09bc199df5f8595b323353a737ad68d1b27d459175708285e3e3fb3d04"
+    },
+    {
+      "name": "a board whose source is unknown",
+      "seed": "c5aa8df43f9f837bedb7442f31dcb7b166d38535076f094b85ce3a2e0b4458f7",
+      "public_key": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+      "node_id": "n_dac073e0123bdea59dd9b3bda9cf6037f63aca82627d7abc",
+      "request": {
+        "v": 3,
+        "node_id": "n_dac073e0123bdea59dd9b3bda9cf6037f63aca82627d7abc",
+        "name": "sensor-1",
+        "kind": "board",
+        "caps": [],
+        "addr": "",
+        "nonce": "00112233445566778899aabbccddeeff",
+        "ts": 1760400000,
+        "power": {
+          "source": "unknown"
+        }
+      },
+      "canonical": "rogerai-edge-present/v3\nn_dac073e0123bdea59dd9b3bda9cf6037f63aca82627d7abc\nsensor-1\nboard\n\n\n00112233445566778899aabbccddeeff\n1760400000\n\n\n\n\nunknown\n\n",
+      "canonical_hex": "726f67657261692d656467652d70726573656e742f76330a6e5f6461633037336530313233626465613539646439623362646139636636303337663633616361383236323764376162630a73656e736f722d310a626f6172640a0a0a30303131323233333434353536363737383839396161626263636464656566660a313736303430303030300a0a0a0a0a756e6b6e6f776e0a0a",
+      "sig": "dbb5b4194308f5dd8ea0d0975d92d57de3853e5d90cc7070d80f0ce36888ad87e9a70f4500eac15bd325171dcfc744d8cedeffc283a35893afb1bf8d00e9f00a"
+    }
+  ]
+}

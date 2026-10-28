@@ -11,7 +11,9 @@
 # carries the same evidence a released model card does.
 #
 # Scope:
-#   - a signed, cached catalogue of offerable artifacts;
+#   - a signed, cached catalogue of offerable artifacts; (superseded 2026-10-11 by founder ruling (short
+#     names nearby): there is no RogerAI catalogue; names come from what is served nearby and the
+#     model hub, features/models/short_names_nearby.feature)
 #   - SHARE rendering detected and offerable models in ONE list, distinguishable
 #     at a glance;
 #   - hardware fit assessment from real detected memory, not a guess;
@@ -66,11 +68,13 @@ Feature: RogerAI can offer models it publishes, not only models already running
 
   # ---- honesty --------------------------------------------------------------
 
+  # superseded 2026-10-11 by founder ruling (short names nearby): no RogerAI catalogue exists
   Scenario: A catalogue entry whose artifact is not public is never offered
     Given a catalogue entry names an artifact that is not publicly reachable
     Then the entry does not appear in the SHARE list
     And the operator is not shown a download action for it
 
+  # superseded 2026-10-11 by founder ruling (short names nearby): no RogerAI catalogue exists
   Scenario: The catalogue never invents a measurement
     Given a catalogue entry has no published measurement on this device class
     Then the entry does not display a speed or a benchmark figure
@@ -134,12 +138,14 @@ Feature: RogerAI can offer models it publishes, not only models already running
 
   # ---- degradation ----------------------------------------------------------
 
+  # superseded 2026-10-11 by founder ruling (short names nearby): no RogerAI catalogue exists
   Scenario: A catalogue that cannot be fetched never breaks discovery
     Given the catalogue cannot be reached
     Then previously detected local models are still listed
     And SHARE remains usable
     And the catalogue section states it is unavailable rather than empty
 
+  # superseded 2026-10-11 by founder ruling (short names nearby): no RogerAI catalogue exists
   Scenario: A stale cached catalogue is used but labelled
     Given the catalogue was last fetched some time ago
     And it cannot be refreshed now

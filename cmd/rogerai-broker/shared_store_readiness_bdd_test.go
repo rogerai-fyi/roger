@@ -28,8 +28,8 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/cucumber/godog"
 
-	"rogerai.fm/roger/v6/internal/deviceauth"
-	"rogerai.fm/roger/v6/internal/emailauth"
+	"rogerai.fm/roger/v7/internal/deviceauth"
+	"rogerai.fm/roger/v7/internal/emailauth"
 )
 
 type rdState struct {

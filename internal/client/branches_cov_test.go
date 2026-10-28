@@ -1,8 +1,6 @@
 package client
 
 import (
-	"crypto/ed25519"
-	"encoding/hex"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,7 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/protocol"
+
+	"rogerai.fm/roger/v7/internal/keyfile"
 )
 
 // jsonServer is a tiny per-test broker stub that answers every request with the given
@@ -594,30 +594,24 @@ func TestGrantListErrorBranches(t *testing.T) {
 // TestLoadOrCreateUserKeyGeneratesOnCorrupt covers LoadOrCreateUserKey's corrupted-key
 // fallthrough: a non-hex / wrong-size key on disk is discarded and a fresh valid key is
 // generated and persisted.
-func TestLoadOrCreateUserKeyGeneratesOnCorrupt(t *testing.T) {
+// A damaged user.key is refused, never replaced (features/packaging/one_binary.feature section
+// 7.5): replacing it would silently become a different identity. roger refuses at startup with
+// keyfile.Check, before LoadOrCreateUserKey could ever run on it.
+func TestDamagedUserKeyIsRefusedNotReplaced(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	if err := os.MkdirAll(filepath.Dir(userKeyPath()), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	// Garbage (not valid hex of the right length) -> the decode/size guard fails.
 	if err := os.WriteFile(userKeyPath(), []byte("not-a-valid-hex-key"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	old := userKeyOnce
-	userKeyOnce = nil
-	t.Cleanup(func() { userKeyOnce = old })
-
-	got := LoadOrCreateUserKey()
-	if len(got) != ed25519.PrivateKeySize {
-		t.Fatalf("LoadOrCreateUserKey(corrupt) len = %d, want a freshly generated %d-byte key", len(got), ed25519.PrivateKeySize)
+	err := keyfile.Check(UserKeyPath())
+	if err == nil || !strings.Contains(err.Error(), userKeyPath()) {
+		t.Fatalf("a damaged user.key must be refused naming its path, got %v", err)
 	}
-	// It must have been persisted as valid hex (so the next process reads it back).
-	raw, err := os.ReadFile(userKeyPath())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, derr := hex.DecodeString(strings.TrimSpace(string(raw))); derr != nil {
-		t.Errorf("persisted key is not valid hex: %v", derr)
+	raw, _ := os.ReadFile(userKeyPath())
+	if string(raw) != "not-a-valid-hex-key" {
+		t.Errorf("the damaged key was overwritten: %q", raw)
 	}
 }
 

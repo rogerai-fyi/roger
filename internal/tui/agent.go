@@ -33,9 +33,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
-	"rogerai.fm/roger/v6/internal/client"
-	"rogerai.fm/roger/v6/internal/glyphs"
-	"rogerai.fm/roger/v6/internal/harness"
+	"rogerai.fm/roger/v7/internal/client"
+	"rogerai.fm/roger/v7/internal/glyphs"
+	"rogerai.fm/roger/v7/internal/harness"
 )
 
 // The AGENT runs on the TUNED-IN channel's model - never a stale config/default
@@ -754,7 +754,7 @@ func (m model) newAgentRuntime() *agentRuntime {
 			// demonstrably tuned to.
 			Freq: freq,
 			// The operator's STANDING rules (pref, quant set, hidden curated supply) ride
-			// the request body. An agent turn is exactly the case the [3] CONFIG rules
+			// the request body. An agent turn is exactly the case the [4] CONFIG rules
 			// exist for - nobody is watching a dial, so the filter cannot help and only a
 			// rule can.
 			Routing: route,

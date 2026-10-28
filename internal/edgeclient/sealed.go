@@ -23,8 +23,8 @@ import (
 	"net/http"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/towercore/envelope"
-	"rogerai.fm/roger/v6/internal/towerhub"
+	"rogerai.fm/roger/v7/internal/towercore/envelope"
+	"rogerai.fm/roger/v7/internal/towerhub"
 )
 
 // SealedAuthorization is Core's Topology-2 answer: the grant, where to submit, the Station's

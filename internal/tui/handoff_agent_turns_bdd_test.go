@@ -14,13 +14,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"rogerai.fm/roger/v6/internal/bddtest"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strings"
 	"testing"
 
 	"github.com/cucumber/godog"
-	"rogerai.fm/roger/v6/internal/capsule"
-	"rogerai.fm/roger/v6/internal/harness"
+	"rogerai.fm/roger/v7/internal/capsule"
+	"rogerai.fm/roger/v7/internal/harness"
 )
 
 type agentTurnsState struct {
@@ -461,7 +461,7 @@ func TestHandoffAgentTurnsBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if bddtest.Run(t, &suite) != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("agent-turn handoff scenarios failed (see godog output above)")
 	}
 }

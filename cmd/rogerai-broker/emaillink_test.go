@@ -21,8 +21,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"rogerai.fm/roger/v6/internal/emailauth"
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/emailauth"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 func postWithSession(t *testing.T, h http.HandlerFunc, path string, in any, c *http.Cookie, origin string) *httptest.ResponseRecorder {

@@ -12,12 +12,12 @@ package tui
 
 import (
 	"path/filepath"
-	"rogerai.fm/roger/v6/internal/bddtest"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"testing"
 	"time"
 
 	"github.com/cucumber/godog"
-	"rogerai.fm/roger/v6/internal/operator"
+	"rogerai.fm/roger/v7/internal/operator"
 )
 
 func TestGuestOperatorBDD(t *testing.T) {
@@ -54,7 +54,7 @@ func TestGuestOperatorBDD(t *testing.T) {
 		},
 		Options: &godog.Options{Format: "pretty", Paths: operatorFeaturePaths(t), TestingT: t, Strict: true},
 	}
-	if bddtest.Run(t, &suite) != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("guest-operator scenarios failed (see godog output above)")
 	}
 }

@@ -4,10 +4,12 @@ package main
 
 import (
 	"errors"
+	"github.com/stretchr/testify/require"
+	"os"
 	"strings"
 	"testing"
 
-	"rogerai.fm/roger/v6/internal/detect"
+	"rogerai.fm/roger/v7/internal/detect"
 )
 
 // stubHWProbes points the three Linux gatherer seams at canned answers, so the
@@ -170,4 +172,111 @@ func TestCoreCountSeam(t *testing.T) {
 	if p := detect.Assess(detectLocalHW()); p.Verdict != detect.VerdictBelow {
 		t.Errorf("a 2-core CPU-only box is %q, want %q", p.Verdict, detect.VerdictBelow)
 	}
+}
+
+// Found with tools/edgesim (2026-10-04): in a container, /proc/meminfo is the HOST's memory, while
+// the container may be held to far less. The limit is what a model can actually use, so it is the
+// RAM roger judges a fit against - and it says so.
+func TestAContainersMemoryLimitIsTheRAMAModelCanUse(t *testing.T) {
+	files := map[string]string{}
+	origRun, origRead, origDisk := hwRun, hwReadFile, hwDiskFreeMiB
+	t.Cleanup(func() { hwRun, hwReadFile, hwDiskFreeMiB = origRun, origRead, origDisk })
+	hwRun = noTools
+	hwDiskFreeMiB = func(string) (int, bool) { return 100000, true }
+	hwReadFile = func(p string) ([]byte, error) {
+		if v, ok := files[p]; ok {
+			return []byte(v), nil
+		}
+		return nil, os.ErrNotExist
+	}
+	files["/proc/meminfo"] = "MemTotal: 131072000 kB\n" // 125 GiB on the host
+	files["/sys/fs/cgroup/memory.max"] = "8589934592\n"
+	hw := detectLocalHW()
+	require.Equal(t, 8192, hw.RAMTotalMiB, "an 8 GiB limit is the RAM a model can use")
+	require.Contains(t, strings.Join(hw.Undetermined, " "), "memory limit")
+
+	files["/sys/fs/cgroup/memory.max"] = "max\n"
+	require.Equal(t, 128000, detectLocalHW().RAMTotalMiB, "no limit: the host's RAM")
+
+	delete(files, "/sys/fs/cgroup/memory.max")
+	files["/sys/fs/cgroup/memory/memory.limit_in_bytes"] = "9223372036854771712\n" // cgroup v1 "unlimited"
+	require.Equal(t, 128000, detectLocalHW().RAMTotalMiB)
+	files["/sys/fs/cgroup/memory/memory.limit_in_bytes"] = "4294967296\n"
+	require.Equal(t, 4096, detectLocalHW().RAMTotalMiB, "a cgroup v1 limit counts too")
+
+	files["/sys/fs/cgroup/memory.max"] = "274877906944\n" // a limit above the host's RAM is no limit
+	delete(files, "/sys/fs/cgroup/memory/memory.limit_in_bytes")
+	require.Equal(t, 128000, detectLocalHW().RAMTotalMiB)
+}
+
+// Pre-push audit (2026-10-26): the limit was read only at the cgroup mount's root, which is the limit
+// inside a container but not on a host, where roger runs in its own cgroup - a boot service with
+// MemoryMax= set, or a slice above it with a limit of its own. The limit is the tightest one on the
+// way from roger's own cgroup to the root.
+func TestTheMemoryLimitIsReadFromRogersOwnCgroupAndItsParents(t *testing.T) {
+	files := map[string]string{}
+	origRun, origRead, origDisk := hwRun, hwReadFile, hwDiskFreeMiB
+	t.Cleanup(func() { hwRun, hwReadFile, hwDiskFreeMiB = origRun, origRead, origDisk })
+	hwRun = noTools
+	hwDiskFreeMiB = func(string) (int, bool) { return 100000, true }
+	hwReadFile = func(p string) ([]byte, error) {
+		if v, ok := files[p]; ok {
+			return []byte(v), nil
+		}
+		return nil, os.ErrNotExist
+	}
+	files["/proc/meminfo"] = "MemTotal: 131072000 kB\n"
+	files["/proc/self/cgroup"] = "0::/system.slice/roger-edge.service\n"
+	files["/sys/fs/cgroup/system.slice/roger-edge.service/memory.max"] = "2147483648\n" // MemoryMax=2G
+	files["/sys/fs/cgroup/system.slice/memory.max"] = "max\n"
+	require.Equal(t, 2048, detectLocalHW().RAMTotalMiB, "a boot service's own limit")
+
+	files["/sys/fs/cgroup/system.slice/roger-edge.service/memory.max"] = "max\n"
+	files["/sys/fs/cgroup/system.slice/memory.max"] = "4294967296\n"
+	require.Equal(t, 4096, detectLocalHW().RAMTotalMiB, "a limit on a parent holds the child too")
+
+	files["/sys/fs/cgroup/system.slice/roger-edge.service/memory.max"] = "3221225472\n"
+	require.Equal(t, 3072, detectLocalHW().RAMTotalMiB, "the tightest limit on the way up")
+
+	files["/proc/self/cgroup"] = "0::/../../etc\n"
+	delete(files, "/sys/fs/cgroup/system.slice/roger-edge.service/memory.max")
+	delete(files, "/sys/fs/cgroup/system.slice/memory.max")
+	require.Equal(t, 128000, detectLocalHW().RAMTotalMiB, "a path that climbs out is not followed")
+}
+
+// Finding 5b, ruled 2026-10-27: the machine says which limit it read, so the verdict can hold roger's
+// sum against it. No limit, "max", an unreadable file and a limit above the host's RAM are all none;
+// a nested limit is the tightest on the way to the root.
+func TestTheContainerLimitIsRecordedOnlyWhenOneHolds(t *testing.T) {
+	files := map[string]string{}
+	origRun, origRead, origDisk := hwRun, hwReadFile, hwDiskFreeMiB
+	t.Cleanup(func() { hwRun, hwReadFile, hwDiskFreeMiB = origRun, origRead, origDisk })
+	hwRun = noTools
+	hwDiskFreeMiB = func(string) (int, bool) { return 100000, true }
+	hwReadFile = func(p string) ([]byte, error) {
+		if v, ok := files[p]; ok {
+			if v == "UNREADABLE" {
+				return nil, os.ErrPermission
+			}
+			return []byte(v), nil
+		}
+		return nil, os.ErrNotExist
+	}
+	files["/proc/meminfo"] = "MemTotal: 131072000 kB\n"
+	require.Zero(t, detectLocalHW().MemLimitMiB, "no cgroup memory file: no limit")
+	files["/sys/fs/cgroup/memory.max"] = "max\n"
+	require.Zero(t, detectLocalHW().MemLimitMiB, "max: no limit")
+	files["/sys/fs/cgroup/memory.max"] = "UNREADABLE"
+	require.Zero(t, detectLocalHW().MemLimitMiB, "an unreadable file: no limit")
+	files["/sys/fs/cgroup/memory.max"] = "274877906944\n"
+	require.Zero(t, detectLocalHW().MemLimitMiB, "above the host's RAM: no limit")
+	files["/sys/fs/cgroup/memory.max"] = "8589934592\n"
+	require.Equal(t, 8192, detectLocalHW().MemLimitMiB)
+
+	files["/proc/self/cgroup"] = "0::/system.slice/roger-edge.service\n"
+	files["/sys/fs/cgroup/system.slice/roger-edge.service/memory.max"] = "8589934592\n"
+	files["/sys/fs/cgroup/system.slice/memory.max"] = "4294967296\n"
+	hw := detectLocalHW()
+	require.Equal(t, 4096, hw.MemLimitMiB, "nested: a parent's tighter limit holds")
+	require.Equal(t, 4096, hw.RAMTotalMiB)
 }

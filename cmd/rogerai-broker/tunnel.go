@@ -21,9 +21,12 @@ import (
 	"sync"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/ctxsig"
-	"rogerai.fm/roger/v6/internal/protocol"
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/ctxsig"
+	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/routingrules"
+	"rogerai.fm/roger/v7/internal/store"
+
+	"rogerai.fm/roger/v7/internal/netpriv"
 )
 
 // nodeTTL is how long after a node's last heartbeat/poll it is still considered
@@ -2307,7 +2310,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	// ctx re-pick, failover plan); only the seed differs per attempt.
 	routeReq := pickReq{pref: routePref, promptTokens: promptTokens, outTokens: lim.stated(), sort: routeSort,
 		needTools: doc.needsTools(), needVision: bodyVision,
-		quants: quantSet(routing.Quantizations), netFilters: routing.Net, budget: newPickBudget(),
+		quants: routingrules.QuantSet(routing.Quantizations), netFilters: routing.Net, budget: newPickBudget(),
 		pairCool: b.payerCooling(payerKey)}
 	// The work this relay did, one line per request (§14.B #12's observation point).
 	defer func() {
@@ -4354,9 +4357,10 @@ func (l *lazySSE) stripStationUsage(ready []byte) (out []byte, dropped bool) {
 }
 
 // finish closes a committed stream the broker's way: the held partial line, the broker's
-// usage chunk (nil = none), the deprecated `: rogerai-cost=` comment (empty = none), then
-// the broker's own [DONE]. A no-op on an uncommitted stream (nothing is on the wire).
-func (l *lazySSE) finish(chunk []byte, comment string) {
+// usage chunk (nil = none), its comment lines (the deprecated `: rogerai-cost=` meter and,
+// on a settled direct stream, the `: rogerai-receipt=` receipt; empty = none), then the
+// broker's own [DONE]. A no-op on an uncommitted stream (nothing is on the wire).
+func (l *lazySSE) finish(chunk []byte, comments ...string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if !l.committed || (l.ctx != nil && l.ctx.Err() != nil) {
@@ -4384,8 +4388,10 @@ func (l *lazySSE) finish(chunk []byte, comment string) {
 		chunk = l.stamp(chunk)
 		_, _ = fmt.Fprintf(l.w, "data: %s\n\n", chunk)
 	}
-	if comment != "" {
-		_, _ = fmt.Fprintf(l.w, ": %s\n\n", comment)
+	for _, comment := range comments {
+		if comment != "" {
+			_, _ = fmt.Fprintf(l.w, ": %s\n\n", comment)
+		}
 	}
 	_, _ = l.w.Write([]byte("data: [DONE]\n\n"))
 	l.flusher.Flush()
@@ -5077,17 +5083,21 @@ func (b *broker) streamAttempt(lw *lazySSE, c attemptCand, bill streamBill, requ
 				chunk[kf] = kv
 			}
 		}
-		comment := ""
+		comment, receipt := "", ""
 		if settleFailed {
 			cost = 0
 			chunk["void_reason"] = protocol.VoidSettleFailed
 		} else if *settled {
 			comment = "rogerai-cost=" + fmtCostHeader(cost)
+			// SSE RECEIPT (features/edge/session_attribution.feature): a stream's headers were
+			// flushed before any output, so X-RogerAI-Receipt cannot ride them; without this a
+			// streamed turn could never become a session on the caller's Edge. Settled only.
+			receipt = "rogerai-receipt=" + protocol.EncodeReceipt(rec)
 		}
 		if !settleFailed {
 			b.genServe(requestID, n, genServedFromReceipt(node.NodeID, rec), cost, billedPrompt, billedCompletion, streamTPS, protocol.EncodeReceipt(rec))
 		}
-		lw.finish(usageChunkJSON(billedPrompt, billedCompletion, cost, chunk), comment)
+		lw.finish(usageChunkJSON(billedPrompt, billedCompletion, cost, chunk), comment, receipt)
 		return res, false, dispatchResult // the receipt arrived; leave the idle loop
 	}
 	idle := b.streamIdle()
@@ -5786,7 +5796,7 @@ func (b *broker) pickFor(model string, confidentialOnly bool, minTPS, maxPriceIn
 			}
 			// provider.quantizations: the verbatim label, case-insensitive, never bucketed;
 			// an unlabeled offer matches only the reserved value "unknown".
-			if req.quants != nil && !req.quants[strings.ToLower(o.Quant)] && !(o.Quant == "" && req.quants["unknown"]) {
+			if !routingrules.QuantAdmits(req.quants, o.Quant) {
 				continue
 			}
 			// IMPLICIT capability gating (defect 5): tools only on the probe-VERIFIED
@@ -6318,7 +6328,8 @@ func coarseNetBucket(addr string) string {
 	if ip == nil {
 		return ""
 	}
-	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
+	switch netpriv.Classify(ip) {
+	case netpriv.Loopback, netpriv.Private, netpriv.ULA, netpriv.LinkLocal, netpriv.Unspecified:
 		return "local"
 	}
 	if v4 := ip.To4(); v4 != nil {

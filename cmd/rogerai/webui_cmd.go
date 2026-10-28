@@ -7,7 +7,7 @@ import (
 	"strings"
 	"syscall"
 
-	"rogerai.fm/roger/v6/internal/tui"
+	"rogerai.fm/roger/v7/internal/tui"
 )
 
 // `roger webui` - THE CONSOLE ON ITS OWN.
@@ -56,13 +56,38 @@ func cmdWebui(cfg config, args []string) error {
 	}
 
 	hooks := tuiHooks(cfg)
+	// The console's EDGE tab is this machine's real Edge here too - `roger webui` without
+	// a TUI must not be the one place the fleet is invisible.
+	stopEdge := startEdge(&hooks)
+	defer stopEdge()
 	ctrl := tui.NewController(cfg.Broker, hooks)
+
+	// This roger's bands on air feed its Edge registration (edgeinstance.go): the
+	// household says what each process is really serving.
+	edgeAttachOnAir(func() []string {
+		var out []string
+		for _, r := range ctrl.Snapshot().Rows {
+			if r.Link == "on-air" {
+				out = append(out, r.Model)
+			}
+		}
+		return out
+	})
+
+	// The peer-serving upstream: a model this process has on air is served to Edge
+	// peers from the same backend the market uses (features/edge/local_inference.feature).
+	edgeAttachUpstream(func(band string) (string, string, bool) { return ctrl.ServeUpstreamFor(band) })
+	edgeSpeechOf = ctrl.ServeSpeechFor
+
+	// The dispatch ladder: the booth tries a peer on this Edge before the market
+	// (features/edge/local_inference.feature), the same wiring `roger use` gets.
+	hooks.EdgeLadder = frontEndLadder(cfg)
 	limits := tuiLimits(cfg)
 	// startWebConsole prints the URL, serves in the background and self-gates its own
 	// auto-open on the saved config. Reuse it whole rather than standing up a second
 	// launcher: a divergence here would mean the console you get from `roger webui`
 	// differs from the one `roger` gives you, in ways nobody would think to test.
-	url := webConsoleFor(cfg, ctrl, port, limits)
+	url := webConsoleFor(cfg, ctrl, port, limits, &hooks)
 	if url == "" {
 		return fmt.Errorf("could not bind a localhost port for the console")
 	}

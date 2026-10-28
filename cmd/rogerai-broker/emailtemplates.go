@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 // emailtemplates.go holds the on-brand transactional templates + the broker-level
@@ -475,8 +475,8 @@ func (b *broker) emailCapNotice(email, holder string, threshold string, spend, c
 		subj = "A paid request hit your monthly spend limit"
 		bodyHTML := receipt(hero, nil) +
 			p(`A paid request was refused because it would take your spend past your monthly limit. Paid requests that do not fit are paused until next month, or until you raise the limit.`) +
-			p(`<span style="color:`+colInk500+`;">Raise it from the billing page, or on the CLI with <span style="font-family:`+fontMono+`;">roger limit --monthly</span> (or [3] CONFIG).</span>`)
-		bodyText := fmt.Sprintf("Spend this month: $%.2f of $%.2f limit (%.0f%%)\n\nA paid request was refused because it would take your spend past your monthly limit. Paid requests that do not fit are paused until next month, or until you raise the limit with `roger limit --monthly` (or [3] CONFIG).", round6(spend), round6(cap), pct)
+			p(`<span style="color:`+colInk500+`;">Raise it from the billing page, or on the CLI with <span style="font-family:`+fontMono+`;">roger limit --monthly</span> (or [4] CONFIG).</span>`)
+		bodyText := fmt.Sprintf("Spend this month: $%.2f of $%.2f limit (%.0f%%)\n\nA paid request was refused because it would take your spend past your monthly limit. Paid requests that do not fit are paused until next month, or until you raise the limit with `roger limit --monthly` (or [4] CONFIG).", round6(spend), round6(cap), pct)
 		d = emailDoc{
 			kicker:    "Spend limit",
 			heading:   "A paid request hit your monthly spend limit",

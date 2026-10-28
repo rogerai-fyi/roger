@@ -143,6 +143,14 @@ func (m model) confirmView(w int) string {
 		return b.String()
 	}
 
+	if LANMode() {
+		// LAN mode moves no money: no price, balance, estimate or hold - the band, its source,
+		// and that it is free (features/lan/money_and_accounts.feature).
+		b.WriteString("    " + stKey.Render("free") + stDim.Render(" · local, nothing is billed · source ") + stLive.Render(st.NodeID) + "\n\n")
+		b.WriteString("       " + stKey.Render("[enter/y]") + " " + stLive.Render("accept · open channel") + "    " +
+			stKey.Render("[esc/n]") + " " + stDim.Render("deny · back") + "\n")
+		return b.String()
+	}
 	// One glanceable line: what you pay, that it's under your cap, est cost.
 	cap := ""
 	if q.limit.MaxOut > 0 {

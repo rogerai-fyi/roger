@@ -26,24 +26,24 @@ import (
 // vanityModulePath is the import path users type. It is a domain we control, so it survives
 // any change of code host or organisation name.
 //
-// The /v6 suffix is not decoration. Go only considers tags whose major version matches the
+// The /v7 suffix is not decoration. Go only considers tags whose major version matches the
 // module path's suffix, so while this said "rogerai.fm/roger" the toolchain ignored every
 // v2+ tag and resolved @latest to v0.3.3 - a five-major-version-old build - for anyone
 // running `go install`. Silent, and wrong in the most expensive direction: it hands people
 // ancient code that still compiles.
-const vanityModulePath = "rogerai.fm/roger/v6"
+const vanityModulePath = "rogerai.fm/roger/v7"
 
 // vanityPage is the ROOT document. It declares the repo-root prefix WITHOUT the major
 // suffix, because a go-import prefix must be a prefix of the URL Go requested: declaring
-// ".../v6" at /roger would make Go reject the page outright rather than report the real
+// ".../v7" at /roger would make Go reject the page outright rather than report the real
 // problem. Keeping the bare prefix turns `go get rogerai.fm/roger` into the useful "module
-// declares its path as rogerai.fm/roger/v6".
+// declares its path as rogerai.fm/roger/v7".
 const vanityPage = "web/src/roger/index.html"
 const vanityRootPrefix = "rogerai.fm/roger"
 
 // vanityPageVersioned is the document Go actually fetches, at the URL that corresponds to
 // the full module path including its major-version suffix.
-const vanityPageVersioned = "web/src/roger/v6/index.html"
+const vanityPageVersioned = "web/src/roger/v7/index.html"
 
 // legacyModulePath is the host-coupled path we migrated away from. No source file may import
 // it: a half-migrated tree still compiles locally while being unbuildable for anyone else.
@@ -280,8 +280,8 @@ func TestModulePathMajorMatchesLatestReleaseTag(t *testing.T) {
 	// unreachable: the migration could never be committed, because the tag it needs cannot
 	// be cut until the migration is committed.
 	//
-	// Being ahead is also SAFE in the way being behind is not. `go install .../v6@latest`
-	// with no v6 tag yet fails loudly with "no matching versions"; it cannot quietly hand
+	// Being ahead is also SAFE in the way being behind is not. `go install .../v7@latest`
+	// with no v7 tag yet fails loudly with "no matching versions"; it cannot quietly hand
 	// anyone the wrong build. And the previous major keeps resolving from its own tags,
 	// whose go.mod still names the previous path.
 	if modMajor < tagMajor {
@@ -300,7 +300,7 @@ func TestModulePathMajorMatchesLatestReleaseTag(t *testing.T) {
 // TestVersionedVanityPageDeclaresTheModulePath covers the page Go actually fetches.
 //
 // The root page deliberately declares the suffix-less prefix, so on its own it proves
-// nothing about the module being resolvable. This is the assertion that does: the /v6
+// nothing about the module being resolvable. This is the assertion that does: the /v7
 // document must declare exactly what go.mod declares, or `go get` rejects the mismatch.
 func TestVersionedVanityPageDeclaresTheModulePath(t *testing.T) {
 	root := repoRoot(t)

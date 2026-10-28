@@ -1,7 +1,7 @@
 package tui
 
 // routing_profiles_bdd_test.go makes features/tui/routing_profiles.feature EXECUTABLE (slice 4 of
-// the routing-expression set: the [3] CONFIG profile editor, profiles in the booth, dial filters
+// the routing-expression set: the [4] CONFIG profile editor, profiles in the booth, dial filters
 // that bind via the body object, the windowshade pref glyph, the cost meter reading the final
 // usage chunk, and the key map).
 //
@@ -21,7 +21,7 @@ package tui
 // from the LimitStore the editor wrote through, by the Limit field the key names (reflection, so
 // a field the editor does not have yet fails naming it rather than passing vacuously).
 //
-// GROUND TRUTH (why most of this is RED): [3] CONFIG edits two fields (editField 0=out 1=tps,
+// GROUND TRUTH (why most of this is RED): [4] CONFIG edits two fields (editField 0=out 1=tps,
 // tab toggles between them only while editing); `p` cycles pref (slice 0); there is no detail
 // plate, no default row, no profile store, no profile in the confirm; no in-booth path streams,
 // so no turn reads the final usage chunk; the band code travels as the X-Roger-Freq header.
@@ -36,7 +36,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
-	"rogerai.fm/roger/v6/internal/bddtest"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strconv"
 	"strings"
 	"testing"
@@ -46,7 +46,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/cucumber/godog"
 	"github.com/muesli/termenv"
-	"rogerai.fm/roger/v6/internal/client"
+	"rogerai.fm/roger/v7/internal/client"
 )
 
 type tp4TUI struct {
@@ -270,7 +270,7 @@ func (s *tp4TUI) dialShows(spec string) error {
 	return nil
 }
 
-// --- [3] CONFIG -----------------------------------------------------------------------------
+// --- [4] CONFIG -----------------------------------------------------------------------------
 
 func (s *tp4TUI) opensConfig() error {
 	s.m.enterLimits()
@@ -312,7 +312,7 @@ func (s *tp4TUI) onRowInConfig(mdl string) error {
 			return nil
 		}
 	}
-	return fmt.Errorf("[3] CONFIG has no row for %q (rows %v)", mdl, s.m.limModels)
+	return fmt.Errorf("[4] CONFIG has no row for %q (rows %v)", mdl, s.m.limModels)
 }
 
 func (s *tp4TUI) pressTabN(n int) error {
@@ -454,7 +454,7 @@ func (s *tp4TUI) onDefaultRow() error {
 			return nil
 		}
 	}
-	return fmt.Errorf("[3] CONFIG has no \"default\" row (rows %v)", s.m.limModels)
+	return fmt.Errorf("[4] CONFIG has no \"default\" row (rows %v)", s.m.limModels)
 }
 
 func (s *tp4TUI) setsPref(pref string) error {
@@ -713,7 +713,7 @@ func (s *tp4TUI) profileExists(name string) error {
 func (s *tp4TUI) profilesSection(list string) error {
 	v := s.view()
 	if !strings.Contains(v, "profiles") {
-		return fmt.Errorf("[3] CONFIG has no profiles section:\n%s", v)
+		return fmt.Errorf("[4] CONFIG has no profiles section:\n%s", v)
 	}
 	for _, n := range regexp.MustCompile(`"([^"]+)"`).FindAllStringSubmatch(list, -1) {
 		if !strings.Contains(v, n[1]) {
@@ -732,7 +732,7 @@ func (s *tp4TUI) selectsProfile(name string) error {
 			return nil
 		}
 	}
-	return fmt.Errorf("[3] CONFIG has no profile row %q to select (rows %v)", name, s.m.profileRowNames())
+	return fmt.Errorf("[4] CONFIG has no profile row %q to select (rows %v)", name, s.m.profileRowNames())
 }
 
 func (s *tp4TUI) plateResolvedKeys() error {
@@ -1702,7 +1702,7 @@ func (s *tp4TUI) editingRoutingField() error {
 
 func (s *tp4TUI) permsOpens() error {
 	if s.m.mode != modeAgent && !strings.Contains(stripANSI(s.m.status), "perms") {
-		return fmt.Errorf("ctrl+p inside [3] CONFIG did not open perms (mode %v, status %q)", s.m.mode, stripANSI(s.m.status))
+		return fmt.Errorf("ctrl+p inside [4] CONFIG did not open perms (mode %v, status %q)", s.m.mode, stripANSI(s.m.status))
 	}
 	return nil
 }
@@ -1727,7 +1727,7 @@ func (s *tp4TUI) collapsedBufferDiscarded() error {
 
 func (s *tp4TUI) footerReads(want string) error {
 	if v := s.view(); !strings.Contains(v, want) {
-		return fmt.Errorf("the [3] CONFIG footer does not read %q:\n%s", want, v)
+		return fmt.Errorf("the [4] CONFIG footer does not read %q:\n%s", want, v)
 	}
 	return nil
 }
@@ -1797,10 +1797,10 @@ func TestRoutingProfilesTUI(t *testing.T) {
 			// The step functions close over st, re-bound per scenario through these thunks.
 			sc.Step(`^the TUI is running against a broker that accepts the routing body object$`, func() error { return st.tuiRunning() })
 			sc.Step(`^the dial shows bands (.+)$`, func(a string) error { return st.dialShows(a) })
-			sc.Step(`^the operator opens \[3\] CONFIG$`, func() error { return st.opensConfig() })
+			sc.Step(`^the operator opens \[4\] CONFIG$`, func() error { return st.opensConfig() })
 			sc.Step(`^the table still shows band / max \$/1M out / min t/s exactly as today$`, func() error { return st.tableUnchanged() })
 			sc.Step(`^the selected row's plate below the table lists the remaining routing fields for that band$`, func() error { return st.plateListsFields() })
-			sc.Step(`^the operator is on the row for "([^"]*)" in \[3\] CONFIG$`, func(a string) error { return st.onRowInConfig(a) })
+			sc.Step(`^the operator is on the row for "([^"]*)" in \[4\] CONFIG$`, func(a string) error { return st.onRowInConfig(a) })
 			sc.Step(`^the operator presses tab (\d+) times$`, func(n int) error { return st.pressTabN(n) })
 			sc.Step(`^the focused field is "([^"]*)"$`, func(a string) error { return st.focusedIs(a) })
 			sc.Step(`^the focused field is "([^"]*)" for "([^"]*)"$`, func(a, b string) error { return st.focusedFor(a, b) })
@@ -1815,8 +1815,8 @@ func TestRoutingProfilesTUI(t *testing.T) {
 			sc.Step(`^the plate shows "([^"]*)" in ember$`, func(a string) error { return st.plateEmber(a) })
 			sc.Step(`^config is unchanged$`, func() error { return st.configUnchanged() })
 			sc.Step(`^esc returns to the table$`, func() error { return st.escToTable() })
-			sc.Step(`^the operator is on the "default" row in \[3\] CONFIG$`, func() error { return st.onDefaultRow() })
-			sc.Step(`^the operator sets pref to "([^"]*)"(?: in \[3\] CONFIG)?$`, func(a string) error { return st.setsPref(a) })
+			sc.Step(`^the operator is on the "default" row in \[4\] CONFIG$`, func() error { return st.onDefaultRow() })
+			sc.Step(`^the operator sets pref to "([^"]*)"(?: in \[4\] CONFIG)?$`, func(a string) error { return st.setsPref(a) })
 			sc.Step(`^the operator is on the row for "([^"]*)" and no field is being edited$`, func(a string) error { return st.onRowNotEditing(a) })
 			sc.Step(`^the status line reads "([^"]*)"$`, func(a string) error { return st.statusReads(a) })
 			sc.Step(`^the operator is typing into "([^"]*)"$`, func(a string) error { return st.typingInto(a) })
@@ -1828,7 +1828,7 @@ func TestRoutingProfilesTUI(t *testing.T) {
 			sc.Step(`^a (\d+)-column terminal$`, func(w int) error { return st.columns(w) })
 			sc.Step(`^the operator focuses "([^"]*)" with value "([^"]*)"$`, func(a, b string) error { return st.focusesWithValue(a, b) })
 			sc.Step(`^the plate's right border is on screen, the value is shown whole, and the key hints are dropped before the value is clipped$`, func() error { return st.plateBorderValueWhole() })
-			sc.Step(`^the operator opens \[3\] CONFIG with every field set$`, func() error { return st.everyFieldSet() })
+			sc.Step(`^the operator opens \[4\] CONFIG with every field set$`, func() error { return st.everyFieldSet() })
 			sc.Step(`^only the existing styles \(dim, ink, ember, live, brand, selection bar\) are used$`, func() error { return st.onlyExistingStyles() })
 			sc.Step(`^NO_COLOR renders every field legibly$`, func() error { return st.noColorLegible() })
 			sc.Step(`^the operator edits any routing field$`, func() error { return st.editsAnyField() })
@@ -1926,7 +1926,7 @@ func TestRoutingProfilesTUI(t *testing.T) {
 			sc.Step(`^the approved binding for (.+) fires and nothing routing-related happens$`, func(a string) error { return st.approvedBindingFires(a) })
 			sc.Step(`^the operator is editing a routing field$`, func() error { return st.editingRoutingField() })
 			sc.Step(`^the perms screen opens as approved$`, func() error { return st.permsOpens() })
-			sc.Step(`^the operator is on \[3\] CONFIG with the detail plate open$`, func() error { return st.configPlateOpen() })
+			sc.Step(`^the operator is on \[4\] CONFIG with the detail plate open$`, func() error { return st.configPlateOpen() })
 			sc.Step(`^the windowshade collapses as approved and the edit buffer is discarded$`, func() error { return st.collapsedBufferDiscarded() })
 			sc.Step(`^the footer reads "([^"]*)"$`, func(a string) error { return st.footerReads(a) })
 			sc.Step(`^the operator opens help$`, func() error { return st.opensHelp() })
@@ -1939,7 +1939,7 @@ func TestRoutingProfilesTUI(t *testing.T) {
 			Paths: []string{"../../features/tui/routing_profiles.feature"},
 		},
 	}
-	if bddtest.Run(t, &suite) != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("the TUI routing-profile scenarios failed")
 	}
 }

@@ -14,12 +14,12 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"rogerai.fm/roger/v6/internal/bddtest"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"testing"
 	"time"
 
 	"github.com/cucumber/godog"
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 func pick(cond bool, v string) string {
@@ -334,7 +334,7 @@ func TestCuratedRoutingFeature(t *testing.T) {
 			Paths: []string{"../../features/curated/curated_routing.feature"},
 		},
 	}
-	if bddtest.Run(t, &suite) != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("curated routing scenarios failed")
 	}
 }

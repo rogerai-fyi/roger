@@ -625,6 +625,17 @@ type UsageReceipt struct {
 	SigVersion int    `json:"sig_version,omitempty"`
 	NodeSig    string `json:"node_sig,omitempty"`
 	BrokerSig  string `json:"broker_sig,omitempty"`
+	// Local marks a receipt issued by the SERVING NODE for a turn that never left the
+	// owner's Edge (features/edge/local_inference.feature): same shape, zero cost, signed
+	// with the node key and never by the broker. It exists for the Edge view and for
+	// audit, never for settlement - the broker refuses it (no broker signature).
+	Local bool `json:"local,omitempty"`
+	// LAN marks a turn a LAN Tower served in LAN mode (features/lan/ui_visibility.feature): local and
+	// free like an Edge turn, but on a Tower that may not be the owner's, so its route is "lan".
+	// The client writes it on its own record; no broker or peer ever signs it.
+	LAN bool `json:"lan,omitempty"`
+	// Instance names the running roger that served, on a local receipt.
+	Instance string `json:"instance,omitempty"`
 	// RelayRequestID is the consumer-facing request id (X-RogerAI-Request-Id) this attempt
 	// belongs to. Broker-internal: never serialized, so it is in neither signed form, never
 	// reaches a station, and travels only to the store's consumer-side ledger row.

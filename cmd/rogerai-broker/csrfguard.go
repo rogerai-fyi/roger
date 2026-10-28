@@ -3,7 +3,7 @@ package main
 import (
 	"net/http"
 
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // csrfGuard is the one place cross-site request forgery is stopped for every route.

@@ -12,7 +12,8 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"rogerai.fm/roger/v6/internal/agent"
+	"rogerai.fm/roger/v7/internal/agent"
+	"rogerai.fm/roger/v7/internal/look"
 )
 
 // shortTerminal reports a window with no rows to spare for decoration. A frame taller than
@@ -56,6 +57,13 @@ func (m model) compactHeader(w int) string {
 		if m.inShareSection() {
 			section = "SHARE"
 		}
+		if m.mode == modeEdge {
+			// The windowshade names the screen it is on, never TUNE IN over [3] (ruled 2026-10-11).
+			section = "[3] EDGE"
+			if m.edgeEmptySimple() {
+				summary = look.EmptyEdgeCompact
+			}
+		}
 		state := stKey.Render(section) + sep + stDim.Render(summary)
 		if m.onAir && m.share != nil {
 			state = m.headlineBadge() + sep + state
@@ -67,7 +75,9 @@ func (m model) compactHeader(w int) string {
 	// is terse - ✓ @login · $bal collapses to just $bal (or /login when anonymous) - so
 	// the dense strip stays short and the m:expand hint never gets crowded out.
 	acct := m.accountTag(true)
-	if m.loggedInState() && m.ghLogin != "" {
+	if LANMode() {
+		acct = lanBadge(true) // the LAN badge holds the balance tag's place (ruled 2026-10-06)
+	} else if m.loggedInState() && m.ghLogin != "" {
 		// Logged in: keep the callsign + balance (the identity is worth the few cols).
 		acct = stGold.Render(glyphLineage) + stDim.Render(" @") + stSelText.Render(m.ghLogin)
 		if m.haveBal {
@@ -210,7 +220,7 @@ func (m model) compactOnAirLine(w int) string {
 // screen. Anything else must not be handed the default, which teaches the dial's keys.
 func compactKnowsMode(md mode) bool {
 	switch md {
-	case modeBrowse, modeChat, modeAgent, modeShare, modeLimits,
+	case modeBrowse, modeChat, modeAgent, modeShare, modeLimits, modeEdge,
 		modeShareEditor, modeShareSetup, modeConnectConfirm, modeOverLimit:
 		return true
 	}
@@ -231,6 +241,11 @@ func (m model) compactFooter(w int) string {
 		keys = "↑↓ · ⏎/a air · p price · b card · esc"
 	case modeLimits:
 		keys = "↑↓ · ⏎ edit · d clear · esc"
+	case modeEdge:
+		keys = "↑↓ · ⏎ detail · i invite · a approve · esc"
+		if m.edgeEmptySimple() {
+			keys = look.ActionsPlain(look.EmptyEdgeActions)
+		}
 	case modeShareEditor:
 		keys = "tab field · ⏎ save · esc"
 	case modeShareSetup:

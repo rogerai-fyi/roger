@@ -13,7 +13,7 @@ package main
 import (
 	"context"
 	"net/http"
-	"rogerai.fm/roger/v6/internal/bddtest"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strings"
 	"testing"
 
@@ -219,7 +219,7 @@ func TestModerationIntentBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if bddtest.Run(t, &suite) != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("intent-not-capability behavior scenarios failed (see godog output above)")
 	}
 }

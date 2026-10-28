@@ -219,6 +219,14 @@ noscript {
   font-variant-numeric: tabular-nums;
 }
 .slot-meter .dot-on { color: var(--live); font-size: 0.7em; line-height: 1; }
+/* LAN mode's mark in the top bar: a word in strong ink, never the brand red, and it wraps with
+   the bar on a phone rather than forcing a width (features/lan/ui_visibility.feature). */
+.lan-badge {
+  color: var(--ink-900);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
 
 /* the big share-header slot reading. */
 .slot-meter.big {
@@ -1301,6 +1309,338 @@ body.is-chat .content { padding-bottom: var(--s-6); }
 }
 .chat-receipt-row b { font-weight: 500; color: var(--live); }
 
+/* ---------------------------------------------------------------------------
+   EDGE - the fleet graph. State is carried by STROKE PATTERN and case, never by
+   colour alone: solid = LAN-direct, dashed = through a relay, broken = dark. The
+   one red is the selection ring and the live pulse - the console's own "live".
+   --------------------------------------------------------------------------- */
+.edge-headline { font-size: var(--t-sm); font-weight: var(--weight-regular); margin-left: var(--s-2); }
+.edge-empty { padding: var(--s-5) 0; max-width: 56ch; }
+/* the simple empty Edge (console-edge-empty.js): the Health/Fleet look, one red */
+.edgeempty { padding: var(--s-5) 0; max-width: 72ch; }
+.edgeempty__eyebrow { color: var(--ink-400); letter-spacing: .08em; font-size: 12px; margin: 0; }
+.edgeempty__head { margin: 4px 0 8px; border-left: 3px solid var(--live); padding-left: 8px; }
+.edgeempty__title { letter-spacing: .06em; }
+.edgeempty__state { color: var(--ink-700); }
+.edgeempty__say { color: var(--ink-700); margin: 0 0 12px; }
+.edgeempty__ways { display: grid; grid-template-columns: max-content 1fr; gap: 6px 12px; align-items: baseline; margin-bottom: 12px; }
+.edgeempty__way { background: var(--paper-2); border: 1px solid var(--hairline-2); padding: 4px 10px; cursor: pointer; font: inherit; color: var(--ink-900); text-align: left; }
+.edgeempty__way:hover, .edgeempty__way:focus-visible { border-color: var(--live); }
+.edgeempty__way:disabled { opacity: .5; cursor: default; }
+.edgeempty__is, .edgeempty__note, .edgeempty__nearby, .edgeempty__wait, .edgeempty__phrasenote { color: var(--ink-500); }
+.edgeempty__join { margin: 8px 0 12px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.edgeempty__field { flex: 1 1 32ch; font: inherit; padding: 4px 8px; border: 1px solid var(--hairline-2); background: var(--paper); color: var(--ink-900); }
+.edgeempty__go, .edgeempty__cancel { background: none; border: 1px solid var(--hairline-2); padding: 2px 10px; cursor: pointer; color: var(--ink-700); font: inherit; }
+.edgeempty__says { flex-basis: 100%; color: var(--live); margin: 0; }
+.edgeempty__ask { flex-basis: 100%; }
+.edgeempty__phrase { font-size: 1.1em; letter-spacing: .04em; }
+.edgeempty__scan { margin: 0; color: var(--ink-700); }
+.edgeempty__eye { color: var(--live); }
+.edgeempty__scan--off .edgeempty__eye { color: var(--ink-400); }
+.edge-empty p { margin-bottom: var(--s-3); }
+.edge-stage { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 22rem); gap: var(--s-5); align-items: start; }
+@media (max-width: 900px) { .edge-stage { grid-template-columns: minmax(0, 1fr); } }
+.edge-graph { border: 1px solid var(--hairline); background: var(--paper-2); padding: var(--s-2); }
+.edge-graph svg { width: 100%; height: auto; display: block; }
+.edge-legend { padding: var(--s-2) var(--s-2) 0; }
+.edge-link { fill: none; stroke-width: 1.5; stroke: var(--ink-500); }
+.edge-link--lan { stroke-dasharray: none; stroke: var(--ink-700); }
+.edge-link--relay { stroke-dasharray: 6 4; stroke: var(--ink-400); }
+.edge-link--dark { stroke-dasharray: 2 6; stroke: var(--ink-300); }
+.edge-node { cursor: pointer; }
+.edge-node circle { fill: var(--paper); stroke: var(--ink-700); stroke-width: 1.5; }
+.edge-node text { font-family: var(--font-mono); font-size: 11px; fill: var(--ink-900); }
+.edge-node .edge-marks { fill: var(--ink-400); font-size: 10px; }
+.edge-node--dark { opacity: 0.45; }
+.edge-node--alert circle { stroke: var(--live); stroke-width: 2; }
+.edge-node--alert .edge-marks { fill: var(--live); }
+.edge-alert { color: var(--live); }
+.edge-node--dark circle { stroke-dasharray: 2 3; }
+.edge-node--sel circle { stroke: var(--live); stroke-width: 2.5; }
+.edge-self circle { fill: var(--ink-900); stroke: var(--ink-900); }
+.edge-self text { font-weight: var(--weight-medium); }
+.edge-pulse { fill: var(--live); }
+.edge-beat circle { stroke: var(--live); stroke-width: 3; }
+.edge-detail .kv > b { white-space: normal; text-align: right; }
+.edge-detail .card-title small { color: var(--ink-400); font-weight: var(--weight-regular); }
+.edge-cands { display: flex; flex-wrap: wrap; gap: var(--s-2); }
+.edge-cand { font-family: var(--font-mono); font-size: var(--t-sm); padding: var(--s-1) var(--s-3); border: 1px dashed var(--ink-400); background: transparent; color: var(--ink-700); cursor: pointer; }
+.edge-cand[aria-pressed="true"] { border-color: var(--live); color: var(--ink-900); }
+.sess-table td.path { color: var(--ink-500); }
+.sess-table td.path b { color: var(--ink-700); font-weight: var(--weight-regular); }
+.sess-table .sess-count { color: var(--ink-900); font-weight: var(--weight-medium); margin-left: var(--s-2); }
+.sess--served { color: var(--ink-700); }
+/* an ESCALATION is the right call: primary ink and weight, the same treatment as money -
+   never the error colour. */
+.sess--escalate { color: var(--ink-900); font-weight: var(--weight-medium); }
+.sess--refused { color: var(--ink-500); }
+.edge-facts { margin: var(--s-4) 0; max-width: 72ch; }
+.edge-facts .kv > span { flex: 0 0 9rem; letter-spacing: var(--tracking-label); font-size: var(--t-micro); text-transform: uppercase; }
+.edge-facts .kv > b { white-space: normal; text-align: left; font-weight: var(--weight-regular); }
+.edge-mode { font-size: var(--t-sm); font-weight: var(--weight-medium); color: var(--ink-700); margin-left: var(--s-2); }
+.edge-mode--only { color: var(--ink-900); text-decoration: underline; }
+.route--local { color: var(--ink-900); }
+.route--market { color: var(--ink-500); }
+
+
+/* =====================================================================
+   EDGE MANAGE - the console's fleet-management controls. One warm-paper
+   system, one red signal: inputs and pills sit on --paper-2 with a
+   --hairline rule; the only fill is an --ink-900 primary action; machine
+   truth (ids, models, ports) stays in mono. Kept quiet so the fleet, not
+   the chrome, is what reads.
+   ===================================================================== */
+
+/* Shared: inline management inputs + selects match the console's fields. */
+.edge-rename-input,
+.edge-prefer-sel,
+.edge-job-form input[type="text"],
+.edge-job-sel,
+.edge-grant-form select,
+.edge-grant-form input[type="text"],
+.edge-rule-form select,
+.edge-rule-form input[type="text"],
+.edge-tag-input,
+.edge-service-agent {
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  color: var(--ink-900);
+  background: var(--paper);
+  border: 1px solid var(--hairline-2);
+  border-radius: var(--r-sm);
+  padding: 5px 9px;
+  min-width: 0;
+}
+.edge-rename-input:focus,
+.edge-prefer-sel:focus,
+.edge-job-form input[type="text"]:focus,
+.edge-job-sel:focus,
+.edge-grant-form select:focus,
+.edge-grant-form input[type="text"]:focus,
+.edge-rule-form select:focus,
+.edge-rule-form input[type="text"]:focus,
+.edge-tag-input:focus,
+.edge-service-agent:focus {
+  outline: 2px solid var(--live);
+  outline-offset: 1px;
+  border-color: var(--live);
+}
+.edge-rename-input,
+.edge-tag-input { flex: 1 1 8rem; }
+.edge-service-agent { flex: 0 1 10rem; }
+
+/* This machine's controls: a quiet banded strip under the header. */
+.edge-self-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-2) var(--s-3);
+  margin: var(--s-2) 0 var(--s-3);
+  background: var(--paper-2);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+}
+.edge-self-controls > .muted { margin-right: var(--s-1); }
+.edge-prefer { display: inline-flex; align-items: center; gap: var(--s-2); }
+
+/* Adopting: dashed pills - a device on its way in, not yet a member. */
+.edge-adopting {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-2) 0;
+}
+.edge-adopting-pill {
+  padding: 2px var(--s-3);
+  border: 1px dashed var(--hairline-2);
+  border-radius: var(--r-pill);
+  color: var(--ink-500);
+  background: var(--paper-2);
+}
+
+/* A member's log tail: a bounded mono block that scrolls on its own, so a hundred
+   lines never widen the card or the page. */
+.edge-log-tail {
+  margin: var(--s-2) 0;
+  padding: var(--s-2);
+  max-height: 18rem;
+  overflow: auto;
+  background: var(--paper-2);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+}
+.edge-log-line {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--ink-700);
+}
+
+/* Job + grant forms: a bordered panel, fields wrapping to one row on wide,
+   stacking on narrow. Labels are quiet mono captions. */
+.edge-job-form,
+.edge-grant-form,
+.edge-rule-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-3);
+  margin: var(--s-2) 0;
+  background: var(--paper-2);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+}
+.edge-job-field,
+.edge-job-check {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+.edge-job-field > .muted,
+.edge-grant-form .muted,
+.edge-rule-form .muted {
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  font-size: var(--t-micro);
+  color: var(--ink-400);
+}
+.edge-job-check input { accent-color: var(--live); }
+.edge-job-actions { margin-top: 0; }
+
+/* Grants table: revoke stays a quiet ghost; a REVOKED row reads muted. */
+.edge-grants-wrap { margin-top: var(--s-6); }
+
+/* Edge: a resource level bar in a node's detail - ink fill on a hairline track, one figure beside it. */
+.edge-res { display: flex; align-items: center; gap: var(--s-2); justify-content: flex-end; width: 100%; }
+.edge-res-bar {
+  flex: 1 1 auto; max-width: 8rem; height: 6px;
+  background: var(--paper-3);
+  border-radius: var(--r-pill);
+  overflow: hidden;
+}
+.edge-res-fill { height: 100%; background: var(--ink-700); border-radius: var(--r-pill); }
+.edge-res-fig { font-size: var(--t-xs); color: var(--ink-500); white-space: nowrap; }
+
+/* The floor: andon tiles and the trouble list (the console's ANDON and TROUBLE). One colour per
+   tile, red only for trouble; dark is dim, not coloured. */
+.edge-floor-wrap { margin-top: var(--s-6); }
+.edge-floor-wrap .sub-head { margin-top: var(--s-8); }
+.edge-andon { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--s-3); margin: var(--s-3) 0; }
+.edge-tile { border-left: 3px solid var(--ink-300); padding: var(--s-3) var(--s-4); background: var(--paper-2); }
+.edge-tile--air { border-left-color: var(--ink-500); }
+.edge-tile--trouble { border-left-color: var(--live); }
+.edge-tile--dark { border-left-color: var(--ink-300); opacity: 0.7; }
+.edge-tile__name { font-weight: 600; color: var(--ink-900); }
+.edge-tile__state { margin-top: 2px; color: var(--ink-700); }
+.edge-tile--trouble .edge-tile__state { color: var(--live-text); font-weight: 600; }
+.edge-tile--dark .edge-tile__state { color: var(--ink-500); }
+.edge-tile__air { margin-top: 4px; color: var(--ink-500); white-space: nowrap; overflow: hidden; }
+.edge-tile__what { margin-top: 2px; }
+.edge-log { margin-left: 8px; display: inline-flex; align-items: flex-end; gap: 1px; vertical-align: middle; }
+.edge-log__cell { display: inline-block; width: 4px; height: 10px; background: transparent; }
+.edge-log__signal { background: var(--ink-500); }
+.edge-log__dark { background: var(--ink-300); height: 6px; }
+.edge-log__live { background: var(--live); }
+.edge-log__dim { background: transparent; }
+.edge-foot__part { margin-left: var(--s-3); }
+.edge-why td { padding-top: 0; padding-bottom: var(--s-2); border-top: 0; white-space: normal; }
+.edge-why__text { margin-left: var(--s-1); }
+.edge-why__do { margin-left: var(--s-3); }
+.eyebrow { font-size: 0.72em; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-400); }
+.live { color: var(--live-text); }
+.edge-self.edge-node--alert circle { stroke: var(--live); stroke-width: 2; }
+
+/* MODELS (local_models.feature §8): the same plates and hairlines as the rest; red only for a
+   failed fetch's meter and the primary action, never decoration. */
+.models-facts { margin: var(--s-4) 0; max-width: 80ch; }
+.models-facts .kv > span { flex: 0 0 9rem; }
+.models-facts .kv > b { white-space: normal; text-align: left; font-weight: var(--weight-regular); }
+.models-card { border: 1px solid var(--hairline); border-radius: var(--r-md); padding: var(--s-3) var(--s-4); margin: var(--s-3) 0; max-width: 80ch; }
+.models-card .meter { margin: var(--s-2) 0; }
+.models-card pre { white-space: pre-wrap; margin: var(--s-2) 0 0; }
+.models-card-head { display: flex; align-items: baseline; gap: var(--s-3); flex-wrap: wrap; }
+.models-card-head .btn { margin-left: auto; }
+.models-h { font-family: var(--font-mono); font-size: var(--t-xs); letter-spacing: var(--tracking-label); color: var(--ink-400); margin: var(--s-5) 0 var(--s-2); }
+.models-search { display: flex; gap: var(--s-2); max-width: 60ch; }
+.models-search .inp { flex: 1; min-width: 0; }
+.models-repo { margin-top: var(--s-4); }
+.models-ctx { max-width: 24ch; }
+.models-table tr.is-serving td:first-child, .models-table tr.is-suggested td:first-child { color: var(--ink-900); font-weight: var(--weight-medium); }
+.ask-body { white-space: pre-wrap; max-height: 50vh; overflow: auto; }
+.models-facts .kv { justify-content: flex-start; }
+/* ROGER'S OWN ROWS in SHARE (local_models.feature §9): a hairline separates them from the detected
+   rows, and the get-a-model row is always last and always visible. */
+.share-roger tr:first-child td { border-top: 1px solid var(--hairline); }
+.share-roger tr.is-serving td:first-child { color: var(--ink-900); font-weight: var(--weight-medium); }
+.share-roger tr.is-fetch .meter { margin: var(--s-2) 0; max-width: 60ch; }
+.share-roger tr.is-get td { padding-top: var(--s-3); padding-bottom: var(--s-3); }
+.share-getmodel { border: 1px solid var(--hairline); border-radius: var(--r-md); padding: var(--s-3) var(--s-4); margin: var(--s-4) 0; }
+.share-roger td.col-model { white-space: normal; }
+.share-roger td.col-model .small { overflow-wrap: anywhere; max-width: 42ch; }
+
+/* roger's serving settings, one line under its rows (local_models.feature §11) */
+.share-settings {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2) var(--s-5);
+  align-items: center;
+  border-top: 1px solid var(--hairline);
+  border-bottom: 1px solid var(--hairline);
+  padding: var(--s-3) var(--s-2);
+  margin: 0 0 var(--s-4);
+  color: var(--ink-700);
+}
+.share-settings[hidden] { display: none; }
+.share-settings .set-item { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2); min-width: 0; }
+.share-settings .set-now { overflow-wrap: anywhere; min-width: 0; }
+.share-settings .inp.small { width: 8em; }
+.share-settings select.inp.small { width: auto; }
+.share-settings .set-says { flex: 1 0 100%; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--ink-500); font: inherit; }
+.share-settings .set-says[hidden] { display: none; }
+@media (max-width: 640px) {
+  .share-settings { flex-direction: column; align-items: stretch; }
+  .share-settings .set-item { justify-content: flex-start; }
+}
+/* end share-settings */
+
+/* The owner's Towers on the Edge tab (console-towers.js). */
+.edge-towers, .edge-invite { margin: 12px 0; }
+.edge-towers h3 { margin: 12px 0 4px; font-size: 12px; letter-spacing: 0.08em; }
+.tower-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.join-request { border: 1px solid var(--hairline-2); padding: 8px 12px; margin: 8px 0; }
+.join-request .btn { margin-right: 8px; }
+.join-line { display: block; overflow-wrap: anywhere; margin: 6px 0; }
+.join-qr { line-height: 1; font-size: 8px; background: var(--white); color: var(--ink-900); display: inline-block; padding: 8px; }
+
+/* The one-time welcome card (console-welcome.js): the TUI card's six lines as buttons. Tokens
+   only; the glyph wears the one red, the key reads as a key cap. */
+.welcome { border-top: 1px solid var(--hairline-2); border-bottom: 1px solid var(--hairline-2); padding: 12px 0; margin-bottom: 16px; }
+.welcome__eyebrow { color: var(--ink-400); letter-spacing: .08em; font-size: 12px; margin: 0; }
+.welcome__skip { color: var(--ink-500); margin: 2px 0 8px; }
+.welcome__list { list-style: none; margin: 0; padding: 0; }
+.welcome__opt { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; width: 100%; text-align: left; background: none; border: 0; padding: 6px 0; cursor: pointer; color: var(--ink-900); font: inherit; }
+.welcome__opt:hover, .welcome__opt:focus-visible { background: var(--paper-2); }
+.welcome__key { border: 1px solid var(--hairline-2); background: var(--paper-2); padding: 0 6px; font-weight: 600; }
+.welcome__glyph { color: var(--live); min-width: 3ch; }
+.welcome__label { font-weight: 600; }
+.welcome__what { color: var(--ink-500); }
+.welcome__term { color: var(--ink-700); }
+.welcome__close { background: none; border: 1px solid var(--hairline-2); padding: 2px 10px; cursor: pointer; color: var(--ink-700); font: inherit; }
+
+/* NEARBY (console-edge-nearby.js, empty_edge_simple.feature §7): the TUI's rows, Invite and Approve. */
+.edgenearby { padding: var(--s-3) 0; max-width: 72ch; }
+.edgenearby__head { margin: 0 0 6px; }
+.edgenearby__eyebrow { color: var(--ink-400); letter-spacing: .08em; font-size: 12px; }
+.edgenearby__actions { color: var(--ink-400); font-size: 12px; }
+.edgenearby__row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; padding: 4px 0; }
+.edgenearby__row--stale .edgenearby__facts { color: var(--ink-400); }
+.edgenearby__facts { color: var(--ink-700); font-family: var(--font-mono); font-size: 13px; overflow-wrap: anywhere; }
+.edgenearby__panel { margin: 4px 0 10px; padding-left: 8px; border-left: 3px solid var(--live); }
+.edgenearby__line, .edgenearby__run { display: block; overflow-wrap: anywhere; white-space: pre-wrap; }
+.edgenearby__qr { margin: 6px 0; }
+.edgenearby__phrase { display: block; font-size: 18px; margin: 6px 0; }
 /* category modal (features/categories/console_editor.feature): the server's refusal reason */
 #cat-err { color: var(--live); margin: 8px 0 0; }
 .cat-cell { white-space: nowrap; }

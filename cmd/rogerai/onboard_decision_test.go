@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	"rogerai.fm/roger/v6/internal/detect"
+	"rogerai.fm/roger/v7/internal/detect"
 )
 
 // These tests make features/onboarding/onboarding.feature's two TTY-gated scenarios
@@ -14,7 +14,8 @@ import (
 //     earnings/identity": Keep / Modify / Reset, and the INVARIANT that only the local
 //     share config is ever touched (the linked GitHub identity `User` + the earnings-side
 //     price config are left intact; earnings themselves live broker-side, never in cfg).
-//   - applyIntent       <- Scenario "First run onboards": the consume vs free vs earn
+//   - finishShare       <- `roger onboard`'s free vs earn (the consume choice moved into the
+//                          TUI's welcome card, features/onboarding/welcome_card.feature)
 //     decision the welcome menu produces.
 
 // TestApplyRerunChoice pins the re-run menu: keep ends the wizard untouched; reset forgets
@@ -92,29 +93,15 @@ func TestApplyRerunChoice(t *testing.T) {
 	}
 }
 
-// TestApplyIntent pins the welcome menu's outcome: consume just marks onboarded and
-// launches; free/earn hand off to finishShare (free = no price, earn = the default price);
-// an unknown intent is treated as consume. The linked identity survives every path.
-func TestApplyIntent(t *testing.T) {
+// TestFinishSharePaths pins `roger onboard`'s two share paths: free = no price, earn = the
+// default price. The linked identity survives both.
+func TestFinishSharePaths(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	stubDetectFull(t, []detect.Found{{BaseURL: "http://127.0.0.1:11434/v1", Models: []string{"wz"}}}, nil)
 	base := config{Broker: "https://b", User: "octocat"}
 
-	t.Run("consume marks onboarded and launches on defaults", func(t *testing.T) {
-		out, ran, err := applyIntent(base, "consume", wizardOpts{})
-		if err != nil || !ran || !out.Onboarded {
-			t.Fatalf("consume = ran %v onboarded %v err %v", ran, out.Onboarded, err)
-		}
-		if out.Share != nil {
-			t.Fatalf("consume is not a provider; no share config: %+v", out.Share)
-		}
-		if out.User != "octocat" {
-			t.Errorf("consume must not touch the linked identity: %q", out.User)
-		}
-	})
-
 	t.Run("free reconfigures share with no price, identity intact", func(t *testing.T) {
-		out, ran, err := applyIntent(base, "free", wizardOpts{yes: true})
+		out, ran, err := finishShare(base, false, wizardOpts{yes: true})
 		if err != nil || !ran || out.Share == nil {
 			t.Fatalf("free = ran %v err %v share %+v", ran, err, out.Share)
 		}
@@ -127,7 +114,7 @@ func TestApplyIntent(t *testing.T) {
 	})
 
 	t.Run("earn reconfigures share with the default price, identity intact", func(t *testing.T) {
-		out, ran, err := applyIntent(base, "earn", wizardOpts{yes: true})
+		out, ran, err := finishShare(base, true, wizardOpts{yes: true})
 		if err != nil || !ran || out.Share == nil {
 			t.Fatalf("earn = ran %v err %v share %+v", ran, err, out.Share)
 		}
@@ -136,13 +123,6 @@ func TestApplyIntent(t *testing.T) {
 		}
 		if out.User != "octocat" {
 			t.Errorf("earn must not touch the linked identity: %q", out.User)
-		}
-	})
-
-	t.Run("an unknown intent is treated as consume", func(t *testing.T) {
-		out, ran, err := applyIntent(base, "mystery", wizardOpts{})
-		if err != nil || !ran || !out.Onboarded || out.Share != nil {
-			t.Fatalf("unknown intent should behave like consume: ran %v onboarded %v share %+v err %v", ran, out.Onboarded, out.Share, err)
 		}
 	})
 }

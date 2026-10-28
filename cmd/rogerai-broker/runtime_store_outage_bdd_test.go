@@ -24,7 +24,7 @@ import (
 	"time"
 
 	"github.com/cucumber/godog"
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // rsoBackdate records that node last long-polled b at `at` (the broker's own record of where a

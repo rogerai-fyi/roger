@@ -3,14 +3,14 @@ package tui
 import (
 	"strings"
 
-	"rogerai.fm/roger/v6/internal/client"
+	"rogerai.fm/roger/v7/internal/client"
 )
 
 // BINDING THE BOOTH'S RULES TO ROUTING (MODEL-VARIANTS-DESIGN-2026-08-22 step 5, and the
 // routing-expression contract features/routing/ROUTING-EXPRESSION-CONTRACT.md §1/§5/§9).
 //
 // Bands are grouped by (model, quant), so a row on the dial IS a set of weights; the
-// operator's [3] CONFIG rules (an accepted quant set, a pref) and the U key (hide curated
+// operator's [4] CONFIG rules (an accepted quant set, a pref) and the U key (hide curated
 // supply) are things every request from the booth must carry, because an agent turn or a
 // guest on the live proxy runs while nobody is watching a dial. They travel as the consumer
 // ROUTING OBJECT in the request body, and the BROKER filters on them - which is what makes
@@ -41,12 +41,12 @@ func (m model) quantRuleRefusal(model, rowQuant string) string {
 		return ""
 	}
 	return rowQuant + " is outside your quant rule (" + strings.Join(lim.Quants, ", ") +
-		") - edit it in [3] CONFIG or pick another row"
+		") - edit it in [4] CONFIG or pick another row"
 }
 
 // routing is the consumer routing object every in-booth path sends for `model`: the
 // standing pref, the confidential toggle, hidden curated supply, and the quant choice.
-// It carries every key of the band's [3] CONFIG rule and the dial filters that bind: F as
+// It carries every key of the band's [4] CONFIG rule and the dial filters that bind: F as
 // `:free`, C as roger.confidential, U as roger.self_hosted_only.
 //
 // The band's limits (the out, in and per-request price caps, the min-tps and context floors,

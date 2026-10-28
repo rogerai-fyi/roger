@@ -12,12 +12,12 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"rogerai.fm/roger/v6/internal/bddtest"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strings"
 	"testing"
 
 	"github.com/cucumber/godog"
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 type anonBDD struct {
@@ -168,7 +168,7 @@ func TestCuratedAnonymizationFeature(t *testing.T) {
 			Paths: []string{"../../features/curated/curated_anonymization.feature"},
 		},
 	}
-	if bddtest.Run(t, &suite) != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("curated anonymization scenarios failed")
 	}
 }

@@ -15,7 +15,8 @@ import (
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/routingrules"
 )
 
 // dryWouldCodes are the refusals a dry run reports inside its document (`would`); every other
@@ -214,7 +215,7 @@ func (b *broker) offerReasonsLocked(n protocol.NodeRegistration, o protocol.Mode
 		retry = max(1, int(until.Sub(now).Seconds()+0.5))
 	}
 	req := f.req
-	if req.quants != nil && !req.quants[strings.ToLower(o.Quant)] && !(o.Quant == "" && req.quants[protocol.QuantUnknown]) {
+	if !routingrules.QuantAdmits(req.quants, o.Quant) {
 		add("quantizations")
 	}
 	for _, nf := range []netFilters{{paramsLo: req.paramsLo, paramsHi: req.paramsHi}, {minCtx: req.minCtx}} {

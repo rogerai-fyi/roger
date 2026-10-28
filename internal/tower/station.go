@@ -4,10 +4,16 @@ import (
 	"crypto/hmac"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"sort"
+	"strings"
 	"time"
+	"unicode"
 
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/servedfile"
+
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // The local Station registry. In standalone v1 a Tower routes ONLY to Stations it
@@ -32,6 +38,16 @@ type Station struct {
 	// local network. Mirrors the public broker's curated identity rule.
 	Curated         bool   `json:"curated,omitempty"`
 	CuratedProvider string `json:"curated_provider,omitempty"`
+	// Files is which exact file each routed model is, as the Station reported on its last poll
+	// (features/models/short_names_nearby.feature): the Station's word, never the Tower's. Empty
+	// for a Station that reports none, so nothing maps a name to a file from it.
+	Files map[string]servedfile.File `json:"files,omitempty"`
+	// Limit is what the owner allowed this Station to serve: the models typed when attaching it
+	// by hand, or an invite's --models. AnyModel marks a Station that joined with an unlimited
+	// invite. A record with neither (from before reports existed) is held to its current models,
+	// so a report never widens what the owner set (SetStationModels).
+	Limit    []string `json:"limit,omitempty"`
+	AnyModel bool     `json:"any_model,omitempty"`
 }
 
 // LocalReceipt records one locally routed request. It is NOT a RogerAI settlement
@@ -98,13 +114,35 @@ func (s *State) attachStation(id, keyHash string, models []string, curatedProvid
 	if bs.Operator == nil {
 		return Station{}, errors.New("this network has no local operator yet: consume a bootstrap invitation before attaching Stations")
 	}
+	st, err := s.attachLocked(bs, id, keyHash, models, curatedProvider)
+	if err != nil {
+		return Station{}, err
+	}
+	// The models the owner typed are what this Station may ever serve.
+	bs.Stations[id].Limit = append([]string(nil), models...)
+	st.Limit = bs.Stations[id].Limit
+	if err := s.saveBootstrap(bs); err != nil {
+		return Station{}, err
+	}
+	return st, nil
+}
+
+// ErrStationNameTaken is a Station id (its name) another Station's key already holds on this Tower.
+var ErrStationNameTaken = errors.New("that Station id is already attached under a different key")
+
+// attachLocked records a Station in bs; the caller holds bootstrapMu and saves. A Station
+// joining with the owner's invite needs no operator: the invite is the owner's authority.
+func (s *State) attachLocked(bs *Snapshot, id, keyHash string, models []string, curatedProvider string) (Station, error) {
+	if id == "" || keyHash == "" || len(models) == 0 {
+		return Station{}, errors.New("a Station needs an id, a key hash, and at least one offered model")
+	}
 	if bs.Stations == nil {
 		bs.Stations = map[string]*Station{}
 	}
 	// An existing id may only be updated by the SAME key, so a second Station cannot
 	// take over the first's identity by re-attaching under it.
 	if prev, ok := bs.Stations[id]; ok && !hmac.Equal([]byte(prev.KeyHash), []byte(keyHash)) {
-		return Station{}, errors.New("that Station id is already attached under a different key")
+		return Station{}, ErrStationNameTaken
 	}
 	// The broker's kind-flip guard, mirrored: an id that attached as a human Station
 	// cannot re-attach as a curated proxy (or the reverse) even under the same key -
@@ -123,10 +161,31 @@ func (s *State) attachStation(id, keyHash string, models []string, curatedProvid
 		CuratedProvider: curatedProvider,
 	}
 	bs.Stations[id] = st
-	if err := s.saveBootstrap(bs); err != nil {
-		return Station{}, err
-	}
 	return *st, nil
+}
+
+// RevokeStation is a standalone Tower's kill switch for one of its own Stations: it is removed
+// from the registry, so its next poll, completion or chunk is refused (the plane reads the
+// registry on every station request). A joined Tower's Stations are revoked through Roger Core.
+func (s *State) RevokeStation(id string) error {
+	if s.Mode != ModeStandalone {
+		return ErrNotStandalone
+	}
+	if id == "" {
+		return errors.New("revoking needs the Station id")
+	}
+	bootstrapMu.Lock()
+	defer bootstrapMu.Unlock()
+
+	bs, err := s.loadBootstrap()
+	if err != nil {
+		return err
+	}
+	if _, ok := bs.Stations[id]; !ok {
+		return fmt.Errorf("no Station %q is attached to this Tower", id)
+	}
+	delete(bs.Stations, id)
+	return s.saveBootstrap(bs)
 }
 
 // Stations lists the attached Stations, ordered by id so output is stable.
@@ -204,4 +263,103 @@ func (s *State) Route(clientKeyHash, model string) (LocalReceipt, error) {
 		Curated:         chosen.Curated,
 		CuratedProvider: chosen.CuratedProvider,
 	}, nil
+}
+
+// SetStationModels records what a Station reports it serves now, kept within what the owner allowed
+// it (features/join/invite.feature, "A station's model list follows what it actually serves"). It
+// returns the Station as the Tower now routes it, and whether that changed (an unchanged report
+// writes nothing).
+func (s *State) SetStationModels(id string, reported []string) (Station, bool, error) {
+	if err := checkStationModels(reported); err != nil {
+		return Station{}, false, err
+	}
+	bootstrapMu.Lock()
+	defer bootstrapMu.Unlock()
+	bs, err := s.loadBootstrap()
+	if err != nil {
+		return Station{}, false, err
+	}
+	st, ok := bs.Stations[id]
+	if !ok {
+		return Station{}, false, errors.New("no attached Station has that id")
+	}
+	allowed := st.Limit
+	if len(allowed) == 0 && !st.AnyModel {
+		allowed = st.Models // a record from before reports: held to what it serves today
+	}
+	var now []string
+	for _, m := range reported {
+		if m == "" || slices.Contains(now, m) || (!st.AnyModel && !slices.Contains(allowed, m)) {
+			continue
+		}
+		now = append(now, m)
+	}
+	slices.Sort(now)
+	cur := append([]string(nil), st.Models...)
+	slices.Sort(cur)
+	if slices.Equal(now, cur) {
+		return *st, false, nil
+	}
+	if !st.AnyModel && len(st.Limit) == 0 {
+		st.Limit = append([]string(nil), st.Models...) // remember the original limit before narrowing
+	}
+	st.Models = now
+	if err := s.saveBootstrap(bs); err != nil {
+		return Station{}, false, err
+	}
+	return *st, true, nil
+}
+
+// MaxStationModels bounds what one Station may report it serves (at a join and on every poll).
+const MaxStationModels = 64
+
+// maxStationModelID bounds one reported model id, as the routing contract bounds a model id.
+const maxStationModelID = 256
+
+// checkStationModels refuses a report that is too long or carries an id that is empty, padded,
+// overlong or has control characters: a Station cannot grow the registry without limit.
+func checkStationModels(models []string) error {
+	if len(models) > MaxStationModels {
+		return fmt.Errorf("a Station may report at most %d models", MaxStationModels)
+	}
+	for _, m := range models {
+		if m == "" || m != strings.TrimSpace(m) || len(m) > maxStationModelID ||
+			strings.IndexFunc(m, unicode.IsControl) >= 0 {
+			return fmt.Errorf("%q is not a model id", m)
+		}
+	}
+	return nil
+}
+
+// SetStationFiles records the files a Station reports behind the models it serves. Only a report for
+// a model the Tower routes it, and that names exactly one file, is kept; everything else is dropped.
+// It replaces the last report, so a Station that stops reporting a file maps nothing.
+func (s *State) SetStationFiles(id string, reported map[string]servedfile.File) (Station, error) {
+	bootstrapMu.Lock()
+	defer bootstrapMu.Unlock()
+	bs, err := s.loadBootstrap()
+	if err != nil {
+		return Station{}, err
+	}
+	st, ok := bs.Stations[id]
+	if !ok {
+		return Station{}, errors.New("no attached Station has that id")
+	}
+	var keep map[string]servedfile.File
+	for model, f := range reported {
+		if !slices.Contains(st.Models, model) {
+			continue
+		}
+		if c := servedfile.Clean(f); c != nil {
+			if keep == nil {
+				keep = map[string]servedfile.File{}
+			}
+			keep[model] = *c
+		}
+	}
+	if maps.Equal(keep, st.Files) {
+		return *st, nil
+	}
+	st.Files = keep
+	return *st, s.saveBootstrap(bs)
 }

@@ -12,11 +12,11 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"rogerai.fm/roger/v6/internal/client"
-	"rogerai.fm/roger/v6/internal/glyphs"
-	"rogerai.fm/roger/v6/internal/operator"
-	"rogerai.fm/roger/v6/internal/pricetier"
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/client"
+	"rogerai.fm/roger/v7/internal/glyphs"
+	"rogerai.fm/roger/v7/internal/operator"
+	"rogerai.fm/roger/v7/internal/pricetier"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // operator.go is the TUI glue for Guest Operators Phase 2 (THE DESK): the /operator
@@ -991,6 +991,9 @@ func (m model) onOperatorExec() (tea.Model, tea.Cmd) {
 		}
 	}
 	c := operator.Command(launch, h.det.Path, sess.Workdir, env)
+	// The guest holds the mic from here until operatorDoneMsg: every turn its endpoint
+	// relays meanwhile is the guest's session, not `roger use`'s.
+	m.mic.take(h.det.Guest.Name)
 	return m, operatorExec(c, func(err error) tea.Msg { return operatorDoneMsg{err: err} })
 }
 
@@ -998,6 +1001,7 @@ func (m model) onOperatorExec() (tea.Model, tea.Cmd) {
 // terminal reset, scratch cleanup, bridge unpark + status frame, balance refresh, and the
 // honest one-line summary read from the proxy accumulator (never the child's claims).
 func (m model) onOperatorDone(msg operatorDoneMsg) (tea.Model, tea.Cmd) {
+	m.mic.drop() // whatever else the return does, the mic is the desk's again
 	h := m.operatorHandoff
 	m.operatorHandoff = nil
 	if h == nil {

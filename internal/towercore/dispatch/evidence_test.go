@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"rogerai.fm/roger/v6/internal/towerobj"
+	"rogerai.fm/roger/v7/internal/towerobj"
 )
 
 func consumer(t *testing.T) (ed25519.PublicKey, ed25519.PrivateKey) {

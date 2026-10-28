@@ -8,7 +8,7 @@
 # authorize/ack/settle endpoints with one-use settlement and 70/10/20 splits at the node's
 # own pinned per-token price, the settle courier (retrying, spooled across restarts),
 # endpoint advertisement on the link, a first-party sealed consumer
-# (internal/edgeclient AuthorizeSealed/DoSealed/AckSealed, `roger-tower probe`), CANARIES
+# (internal/edgeclient AuthorizeSealed/DoSealed/AckSealed, `roger tower probe`; superseded 2026-10-07 by founder ruling (one binary)), CANARIES
 # (Core probes a Tower by using it, sealed, marker-free, acknowledged), SAMPLED TRANSCRIPT
 # AUDIT (Station-signed transcripts, sealed to Core's envelope key so the tower stays blind,
 # checked against the receipt digests) with the ADAPTIVE elevation (new stations and

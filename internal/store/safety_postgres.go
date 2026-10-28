@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // Postgres safety storage (safety.go): csam_incidents, reports, banned_nodes. Mirrors

@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/protocol"
 	"time"
 )
 
@@ -52,6 +52,13 @@ func loadAuth() (authState, bool) {
 		return authState{}, false
 	}
 	return a, true
+}
+
+// SignedIn reports this machine's roger sign-in (the account `roger login` recorded), so a
+// command that needs the same account can reuse it instead of running a second login.
+func SignedIn() (login string, ok bool) {
+	a, ok := loadAuth()
+	return a.GitHubLogin, ok
 }
 
 func saveAuth(a authState) error {
@@ -259,14 +266,14 @@ func Whoami() error {
 		fmt.Printf("  wallet:  your account wallet (one wallet: CLI + web)\n")
 		fmt.Printf("  pubkey:  %s\n", UserPubHex())
 		fmt.Printf("  tower client id: %s\n", protocol.UserIDFromPubkey(UserPubHex()))
-		fmt.Printf("    (give this to a standalone Tower operator: `roger-tower invite --client <id>`)\n")
+		fmt.Printf("    (to join a standalone Tower, ask its owner for an invite (roger tower invite), then run: roger join <invite>)\n")
 		return nil
 	}
 	fmt.Println("anonymous - not logged in")
 	fmt.Println("  free models and grant keys work; run `roger login` to use your wallet + earn")
 	fmt.Printf("  pubkey:  %s\n", UserPubHex())
 	fmt.Printf("  tower client id: %s\n", protocol.UserIDFromPubkey(UserPubHex()))
-	fmt.Printf("    (give this to a standalone Tower operator: `roger-tower invite --client <id>`)\n")
+	fmt.Printf("    (to join a standalone Tower, ask its owner for an invite (roger tower invite), then run: roger join <invite>)\n")
 	return nil
 }
 

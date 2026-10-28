@@ -6,8 +6,8 @@ import (
 	"sort"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/detect"
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/detect"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // discoverCacheKey / marketCacheKey are the ONE cache entry per public view. Nothing in either
@@ -193,7 +193,8 @@ func (b *broker) enrichOffersForNode(out []offerView, n protocol.NodeRegistratio
 	quality := tq.score()
 	ttft := tq.ttftMs
 	// verified means what routing's trust_min=verified means: a passed canary within the
-	// measurement freshness window (verifiedFreshLocked), so the feed and the pick agree.
+	// measurement freshness window (verifiedFreshLocked), so the feed and the pick agree. A
+	// declared probe minimum never extends the mark (verifiedFreshLocked checks it too).
 	verified := b.verifiedFreshLocked(n.NodeID, tq, now)
 	staleness := b.measurementStalenessLocked(n.NodeID, now)
 	capacity := capacityOf(b.concurrentTPS[n.NodeID], n.HW)

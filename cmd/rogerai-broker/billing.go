@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/client"
+	"rogerai.fm/roger/v7/internal/client"
 )
 
 // billing is the Stripe wallet top-up (prepaid credits). SDK-free: raw Stripe API

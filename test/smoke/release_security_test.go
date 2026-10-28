@@ -8,28 +8,28 @@ import (
 	"testing"
 )
 
-// TestBrokerAndClientFallbackVersionsMatch keeps the two binaries' UN-STAMPED fallbacks in
-// step. Both are overwritten by -ldflags at release time, so this is about the builds nobody
-// stamps - a `go build` from source, a developer's local run - where a client reporting one
-// version and a broker reporting another makes a bug report impossible to place.
-//
-// IT NO LONGER PINS A LITERAL. It used to also assert client == "5.7.1", added by
-// 6c9cecec as part of that release's contract. That served its purpose - v5.7.1 shipped and
-// is live - but a hardcoded version in a test that guards versioning fails on EVERY
-// subsequent bump, and the failure names the release it was written for rather than
-// anything wrong with the change in front of you. The durable property is that the two
-// agree; which value they agree on is decided by the tag and pinned against the manual by
-// the version-sync gate in cover-gate-fast.
-func TestBrokerAndClientFallbackVersionsMatch(t *testing.T) {
+// TestBrokerAndClientShareOneFallbackVersion keeps the binaries' UN-STAMPED version in step,
+// for the builds nobody stamps - a `go build` from source, a developer's local run - where a
+// client reporting one version and a broker another makes a bug report impossible to place.
+// They agree by construction now: both read internal/buildinfo.Version (features/packaging/
+// one_binary.feature, "one version"), so this pins that the shared fallback is shaped like a
+// tag and that neither binary declares a version of its own.
+func TestBrokerAndClientShareOneFallbackVersion(t *testing.T) {
 	root := repoRoot(t)
-	client := readVersionAssignment(t, filepath.Join(root, "cmd", "rogerai", "main.go"), "Version")
-	broker := readVersionAssignment(t, filepath.Join(root, "cmd", "rogerai-broker", "main.go"), "version")
-	if client != broker {
-		t.Fatalf("client fallback version %q != broker fallback version %q", client, broker)
-	}
-	if !regexp.MustCompile(`^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$`).MatchString(client) {
+	v := readVersionAssignment(t, filepath.Join(root, "internal", "buildinfo", "buildinfo.go"), "Version")
+	if !regexp.MustCompile(`^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$`).MatchString(v) {
 		t.Fatalf("fallback version %q is not a semver: -ldflags stamps a tag-derived value, "+
-			"so the fallback has to be shaped like one too", client)
+			"so the fallback has to be shaped like one too", v)
+	}
+	own := regexp.MustCompile(`(?m)^(?:const|var)\s+[Vv]ersion\s*=\s*"`)
+	for _, f := range []string{filepath.Join("cmd", "rogerai", "main.go"), filepath.Join("cmd", "rogerai-broker", "main.go")} {
+		b, err := os.ReadFile(filepath.Join(root, f))
+		if err != nil {
+			t.Fatalf("read %s: %v", f, err)
+		}
+		if own.Match(b) {
+			t.Fatalf("%s declares its own version instead of reading internal/buildinfo", f)
+		}
 	}
 }
 

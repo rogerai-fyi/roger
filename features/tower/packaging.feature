@@ -17,7 +17,8 @@ Feature: Operators can install the same verified Tower safely on Linux or Kubern
   Scenario Outline: Each supported host architecture gets one versioned static archive
     Given a released Tower version V built from commit C
     When the release assets are enumerated for "<os>" "<arch>"
-    Then a `roger-tower` archive, checksum entry, signature bundle, SBOM, provenance predicate, and versioned TUF target metadata exist
+    # superseded 2026-10-07 by founder ruling (one binary): the Tower ships inside the `roger` archive (with one-release `roger-tower` stand-ins).
+    Then a `roger` archive, checksum entry, signature bundle, SBOM, provenance predicate, and versioned TUF target metadata exist
     And the binary reports version V, commit C, protocol range, and build identity
 
     Examples:
@@ -40,7 +41,8 @@ Feature: Operators can install the same verified Tower safely on Linux or Kubern
 
   Scenario: Conflicting release views are detectable when an auditor compares them
     Given two official mirrors or clients retain the same claimed release-metadata version
-    When `roger-tower release audit` compares their root, targets, snapshot, timestamp, target digest, and recorded transparency-entry bytes
+    # superseded 2026-10-07 by founder ruling (one binary): `roger-tower release audit` was never built; this audit step is UNBUILT.
+    When the release audit step compares their root, targets, snapshot, timestamp, target digest, and recorded transparency-entry bytes
     Then a byte conflict under one role/version or an invalid inclusion/consistency proof is reported as a split-view incident
     And neither view is promoted until the incident is resolved
     And documentation does not claim two isolated clients detect a malicious split view without comparison, gossip, or a trusted witness
@@ -155,7 +157,8 @@ Feature: Operators can install the same verified Tower safely on Linux or Kubern
 
   Scenario: The Tower process runs without root privileges
     Given the host or OCI package is installed with defaults
-    When `roger-tower serve` starts
+    # superseded 2026-10-07 by founder ruling (one binary).
+    When `roger tower serve` starts
     Then its runtime user is non-root
     And private identity files remain readable only by that identity
     And it requests no privileged port, device, host namespace, or Linux capability

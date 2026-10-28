@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"rogerai.fm/roger/v6/internal/client"
+	"rogerai.fm/roger/v7/internal/client"
 )
 
 // The TUI's /topup carried a third private copy of the amount reader, with the original

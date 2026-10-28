@@ -56,6 +56,8 @@ Feature: Monthly-cap notices are mailed to the account that crossed the threshol
       | email-login                              | em@example.com       |
       | GitHub-linked with a separate verified email | both@example.com |
 
+  # corrected 2026-10-07 (founder ruling 2026-10-05): the 100% notice also covers a refused
+  # too-large request, so its subject reads "A paid request hit your monthly spend limit"
   Scenario Outline: An account reaching 100% of its monthly cap is mailed once at its own address
     Given a <kind> account "<address>" with a monthly cap of $10.00
     And the account has spent $10.00 this month

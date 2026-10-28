@@ -13,12 +13,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"rogerai.fm/roger/v6/internal/bddtest"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strings"
 	"testing"
 
 	"github.com/cucumber/godog"
-	"rogerai.fm/roger/v6/internal/harness"
+	"rogerai.fm/roger/v7/internal/harness"
 )
 
 type answersDisplayState struct {
@@ -303,7 +303,7 @@ func TestAnswersDisplayBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if bddtest.Run(t, &suite) != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("answers display scenarios failed (see godog output above)")
 	}
 }

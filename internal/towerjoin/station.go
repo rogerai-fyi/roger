@@ -27,7 +27,7 @@ import (
 	"encoding/json"
 	"errors"
 
-	"rogerai.fm/roger/v6/internal/tower"
+	"rogerai.fm/roger/v7/internal/tower"
 )
 
 // TowerStatus is what Core believes about one Tower.
@@ -80,7 +80,7 @@ func RevokeStation(st *tower.State, stationID string) error {
 		return errors.New("revoking needs the Station id")
 	}
 	if _, ok := LoadAdmission(st.Dir()); !ok {
-		return errors.New("this Tower is not registered yet - run `roger-tower register` first")
+		return errors.New("this Tower is not registered yet - run `roger tower register` first")
 	}
 	body, err := json.Marshal(map[string]string{"station_id": stationID})
 	if err != nil {
@@ -97,7 +97,7 @@ func RevokeStation(st *tower.State, stationID string) error {
 func SetOwnState(st *tower.State, state string) error {
 	adm, ok := LoadAdmission(st.Dir())
 	if !ok || adm.TowerID == "" {
-		return errors.New("this Tower is not registered yet - run `roger-tower register` first")
+		return errors.New("this Tower is not registered yet - run `roger tower register` first")
 	}
 	body, err := json.Marshal(map[string]string{"tower_id": adm.TowerID, "state": state})
 	if err != nil {

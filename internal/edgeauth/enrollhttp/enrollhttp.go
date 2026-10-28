@@ -1,0 +1,356 @@
+// Package enrollhttp is the WIRE under Edge enrollment: one POST, one JSON answer.
+//
+// It is a separate package from internal/edgeauth on purpose, and the separation is the
+// guarantee rather than tidiness. Everything that decides anything - the root, the
+// issuing, the checking - lives in edgeauth, which links no HTTP client and no
+// Core-dialing package and therefore CANNOT contact Core. The ability to make a network
+// call lives here, on its own, where a dependency-graph test can see it.
+//
+// ONE ENDPOINT SHAPE FOR BOTH AUTHORITIES. Core answers on the same path as a shed on a
+// plant network, over the same handler, with the same body. A node's enrollment code
+// does not branch on which kind it is talking to; it only knows an address.
+package enrollhttp
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"log"
+	"net/http"
+	"net/url"
+	"strings"
+	"time"
+
+	"rogerai.fm/roger/v7/internal/edgeauth"
+)
+
+// writeAuthError answers an enroll/claim failure. A SHAPED domain refusal (bad signature, not
+// adopted, stale, wrong account) is named, because the caller needs to know which "no" it was and
+// the message reveals nothing internal. Any OTHER error is unexpected and may wrap a filesystem path
+// or similar detail no unauthenticated caller should see: it is LOGGED locally and answered
+// generically with a 5xx (audit 2026-09-24).
+func writeAuthError(w http.ResponseWriter, what string, err error) {
+	switch {
+	case errors.Is(err, edgeauth.ErrBadSignature),
+		errors.Is(err, edgeauth.ErrStaleRequest),
+		errors.Is(err, edgeauth.ErrReplayed),
+		errors.Is(err, edgeauth.ErrKeyMismatch),
+		errors.Is(err, edgeauth.ErrMalformed),
+		errors.Is(err, edgeauth.ErrUnknownMachine),
+		errors.Is(err, edgeauth.ErrInviteForOther),
+		errors.Is(err, edgeauth.ErrForeignAccount),
+		errors.Is(err, edgeauth.ErrNotAdopted):
+		http.Error(w, err.Error(), http.StatusForbidden)
+	default:
+		log.Printf("edge %s failed: %v", what, err)
+		http.Error(w, "the "+what+" could not be completed", http.StatusInternalServerError)
+	}
+}
+
+// Path is where an authority answers an enrollment request.
+const Path = "/edge/enroll"
+
+// EdgeHeader carries the Edge's name (query-escaped) beside an enroll or claim answer, so a joiner
+// can say which Edge it joined while the answer's body stays exactly what an old joiner knows.
+const EdgeHeader = "Roger-Edge"
+
+// RevocationsPath is where a node refreshes what this authority has revoked.
+const RevocationsPath = "/edge/revocations"
+
+// SignedRevocationsPath is the same list signed by the Edge's root (features/edge/revocation.feature).
+// A path of its own, so a member from before signing keeps reading the plain one.
+const SignedRevocationsPath = "/edge/revocations/signed"
+
+// RevocationSigner is an authority that signs its revocation list with its root.
+type RevocationSigner interface {
+	SignedRevocations(at time.Time) (edgeauth.SignedRevocationsList, error)
+}
+
+// ErrNotSigned is an authority that answers no signed list (one from before signing).
+var ErrNotSigned = errors.New("this authority publishes no signed revocation list")
+
+// ClaimPath is where an ADOPTED candidate claims its certificate (features/edge/claim.feature).
+const ClaimPath = "/edge/claim"
+
+// RootPath is where an authority publishes its PUBLIC root. It is how a node already on
+// an Edge can tell, before it asks for anything, whether the authority in front of it is
+// the one that roots that Edge - and refuse a second one without spending a request or
+// minting a certificate nobody will use.
+const RootPath = "/edge/root"
+
+// maxBody bounds what an unauthenticated caller may make us hold. An enrollment request
+// is a few hundred bytes; a certificate answer is a few kilobytes.
+const maxBody = 64 << 10
+
+// Client is the HTTP client every enrollment call uses. It is Go's default, which verifies a
+// server's TLS certificate against the system's trusted roots and never skips that check - which
+// is what makes Core enrollment authenticated (features/edge/enrollment_root_trust.feature). It is
+// a variable only so a test can trust a test server's root; it must never skip verification.
+var Client = &http.Client{}
+
+// timeout bounds one enrollment attempt. Enrolling is interactive: the owner is
+// standing there, and a hung dial must become a message rather than a wait.
+const timeout = 15 * time.Second
+
+// Issuer is the signing side, as this package needs it. It is an interface only so a
+// local authority (which also records what it issued) and a bare Issuer can both be
+// served by the same handler.
+type Issuer interface {
+	Issue(edgeauth.Request) (edgeauth.Response, error)
+}
+
+// Revoker is an authority that can say what it has revoked. It returns an error so a handler can
+// refuse rather than serve a stale or unreadable list (fail closed).
+type Revoker interface {
+	Revocations() ([]string, error)
+}
+
+// Rooted is an authority that can show the PUBLIC root it signs under.
+type Rooted interface{ RootPEM() string }
+
+// Claimer is an authority that can issue a certificate to an adopted candidate.
+type Claimer interface {
+	Claim(edgeauth.ClaimRequest, time.Time) (edgeauth.Response, error)
+}
+
+// Handler answers enrollment for one authority.
+//
+// Every refusal is the same status - 403 - with the reason as text. The status is
+// deliberately uniform: a machine that is not on this Edge learns "no", not which of
+// the several possible "no"s it was, because the differences between them are facts
+// about the account and not about the caller.
+func Handler(iss Issuer) http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc(Path, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		body, err := io.ReadAll(io.LimitReader(r.Body, maxBody))
+		if err != nil {
+			http.Error(w, "that request could not be read", http.StatusBadRequest)
+			return
+		}
+		var req edgeauth.Request
+		if err := json.Unmarshal(body, &req); err != nil {
+			http.Error(w, "that is not an enrollment request", http.StatusBadRequest)
+			return
+		}
+		resp, err := iss.Issue(req)
+		if err != nil {
+			writeAuthError(w, "enrollment", err)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set(EdgeHeader, url.QueryEscape(resp.Edge))
+		_ = json.NewEncoder(w).Encode(resp)
+	})
+	mux.HandleFunc(RootPath, func(w http.ResponseWriter, r *http.Request) {
+		rooted, ok := iss.(Rooted)
+		if !ok {
+			http.Error(w, "this authority publishes no root", http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/x-pem-file")
+		_, _ = io.WriteString(w, rooted.RootPEM())
+	})
+	mux.HandleFunc(RevocationsPath, func(w http.ResponseWriter, r *http.Request) {
+		rev, ok := iss.(Revoker)
+		if !ok {
+			http.Error(w, "this authority publishes no revocation list", http.StatusNotFound)
+			return
+		}
+		list, err := rev.Revocations()
+		if err != nil {
+			http.Error(w, "the revocation list could not be read", http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(list)
+	})
+	mux.HandleFunc(SignedRevocationsPath, func(w http.ResponseWriter, r *http.Request) {
+		signer, ok := iss.(RevocationSigner)
+		if !ok {
+			http.Error(w, ErrNotSigned.Error(), http.StatusNotFound)
+			return
+		}
+		list, err := signer.SignedRevocations(time.Now())
+		if err != nil {
+			http.Error(w, "the revocation list could not be signed", http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(list)
+	})
+	mux.HandleFunc(ClaimPath, func(w http.ResponseWriter, r *http.Request) {
+		claimer, ok := iss.(Claimer)
+		if !ok {
+			http.Error(w, "this authority does not accept claims", http.StatusNotFound)
+			return
+		}
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		body, err := io.ReadAll(io.LimitReader(r.Body, maxBody))
+		if err != nil {
+			http.Error(w, "that claim could not be read", http.StatusBadRequest)
+			return
+		}
+		var req edgeauth.ClaimRequest
+		if err := json.Unmarshal(body, &req); err != nil {
+			http.Error(w, "that is not a claim", http.StatusBadRequest)
+			return
+		}
+		resp, err := claimer.Claim(req, time.Now())
+		if err != nil {
+			writeAuthError(w, "claim", err)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set(EdgeHeader, url.QueryEscape(resp.Edge))
+		_ = json.NewEncoder(w).Encode(resp)
+	})
+	return mux
+}
+
+// Claim POSTs a signed claim to the authority and decodes the certificate answer - the client half
+// of ClaimPath, for a node that was adopted.
+func Claim(ctx context.Context, endpoint string, req edgeauth.ClaimRequest) (edgeauth.Response, error) {
+	body, err := json.Marshal(req)
+	if err != nil {
+		return edgeauth.Response{}, err
+	}
+	raw, h, err := postH(ctx, endpoint, ClaimPath, body)
+	if err != nil {
+		return edgeauth.Response{}, err
+	}
+	var resp edgeauth.Response
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return edgeauth.Response{}, fmt.Errorf("%w: the authority's answer could not be read",
+			edgeauth.ErrMalformed)
+	}
+	resp.Edge = edgeName(h)
+	return resp, nil
+}
+
+// Enroll asks one authority - Core, or the machine in the shed - for a certificate.
+//
+// endpoint is a base address; the caller does not have to know the path. A refusal
+// comes back as an error naming what the authority said, and NOTHING is returned
+// alongside it: there is no half answer to half apply.
+func Enroll(ctx context.Context, endpoint string, req edgeauth.Request) (edgeauth.Response, error) {
+	body, err := json.Marshal(req)
+	if err != nil {
+		return edgeauth.Response{}, err
+	}
+	raw, h, err := postH(ctx, endpoint, Path, body)
+	if err != nil {
+		return edgeauth.Response{}, err
+	}
+	var resp edgeauth.Response
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return edgeauth.Response{}, fmt.Errorf("%w: the authority's answer could not be read",
+			edgeauth.ErrMalformed)
+	}
+	resp.Edge = edgeName(h)
+	return resp, nil
+}
+
+// SignedRevocations fetches the authority's revocation list with the root's signature, for the
+// caller to verify before using one serial. ErrNotSigned means the authority signs none.
+func SignedRevocations(ctx context.Context, endpoint string) (edgeauth.SignedRevocationsList, error) {
+	var out edgeauth.SignedRevocationsList
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, join(endpoint, SignedRevocationsPath), nil)
+	if err != nil {
+		return out, err
+	}
+	resp, err := Client.Do(req)
+	if err != nil {
+		return out, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return out, ErrNotSigned
+	}
+	if resp.StatusCode != http.StatusOK {
+		return out, fmt.Errorf("the authority answered %s", resp.Status)
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxBody)).Decode(&out); err != nil {
+		return out, fmt.Errorf("%w: the signed revocation list could not be read", edgeauth.ErrMalformed)
+	}
+	return out, nil
+}
+
+// Root fetches the PUBLIC root an authority signs under.
+func Root(ctx context.Context, endpoint string) (string, error) {
+	raw, err := get(ctx, endpoint, RootPath)
+	if err != nil {
+		return "", err
+	}
+	return string(raw), nil
+}
+
+func post(ctx context.Context, endpoint, path string, body []byte) ([]byte, error) {
+	raw, _, err := postH(ctx, endpoint, path, body)
+	return raw, err
+}
+
+// postH is post that also returns the answer's headers.
+func postH(ctx context.Context, endpoint, path string, body []byte) ([]byte, http.Header, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, join(endpoint, path),
+		bytes.NewReader(body))
+	if err != nil {
+		return nil, nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	return doH(req)
+}
+
+// edgeName is the Edge's name an answer's headers carry, or "".
+func edgeName(h http.Header) string {
+	name, err := url.QueryUnescape(h.Get(EdgeHeader))
+	if err != nil {
+		return ""
+	}
+	return edgeauth.EdgeLabel(name)
+}
+
+func get(ctx context.Context, endpoint, path string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, join(endpoint, path), nil)
+	if err != nil {
+		return nil, err
+	}
+	return do(req)
+}
+
+func do(req *http.Request) ([]byte, error) {
+	raw, _, err := doH(req)
+	return raw, err
+}
+
+func doH(req *http.Request) ([]byte, http.Header, error) {
+	ctx, cancel := context.WithTimeout(req.Context(), timeout)
+	defer cancel()
+	resp, err := Client.Do(req.WithContext(ctx))
+	if err != nil {
+		return nil, nil, err
+	}
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxBody))
+	if err != nil {
+		return nil, nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, nil, fmt.Errorf("the authority refused: %s", strings.TrimSpace(string(raw)))
+	}
+	return raw, resp.Header, nil
+}
+
+// join puts a path on a base address without caring how the caller spelled it.
+func join(endpoint, path string) string {
+	return strings.TrimRight(endpoint, "/") + path
+}

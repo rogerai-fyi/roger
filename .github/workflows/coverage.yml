@@ -72,6 +72,8 @@ jobs:
           psql "$ROGERAI_TEST_DATABASE_URL" -c "ALTER SYSTEM SET fsync = off" -c "ALTER SYSTEM SET synchronous_commit = off" -c "ALTER SYSTEM SET full_page_writes = off" -c "SELECT pg_reload_conf()"
 
       # 1) Tests + coverage profile. Fails the job only if TESTS fail (not on low coverage).
+      # 45m per package: the broker package (routing slices 0-6 + two-instance state suites) is
+      # large and shares the runner with every other package (founder-approved 2026-10-08).
       - name: test + coverage
         run: go test -timeout 45m -covermode=atomic -coverprofile=cover.out ./...
 

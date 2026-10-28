@@ -13,7 +13,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"rogerai.fm/roger/v6/internal/bddtest"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"sync"
 	"testing"
 
@@ -95,7 +95,7 @@ func TestRoutingPinsHarness(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if bddtest.Run(t, &suite) != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("features/routing/regression_pins.feature (@harness): failing scenarios")
 	}
 }

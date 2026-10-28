@@ -10,8 +10,12 @@ package client
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -21,6 +25,8 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"rogerai.fm/roger/v7/internal/coreclient"
+	"rogerai.fm/roger/v7/internal/lanmode"
 	"sort"
 	"strconv"
 	"strings"
@@ -28,9 +34,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/glyphs"
-	"rogerai.fm/roger/v6/internal/pricetier"
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/glyphs"
+	"rogerai.fm/roger/v7/internal/netbind"
+	"rogerai.fm/roger/v7/internal/pricetier"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // AlertFunc receives a human-readable line when the proxy can't recover (no
@@ -52,6 +59,7 @@ var ErrBrokerUnreachable = errors.New("couldn't reach the broker")
 // "logged out" / "$0" / "no offers". A decode error on a 2xx body is still ignored (the
 // caller validates fields).
 func getJSON(broker, path, user string, out any) error {
+	coreclient.Note("client: broker read")
 	req, _ := http.NewRequest(http.MethodGet, broker+path, nil)
 	// Wallet/dashboard reads are signed so the broker serves the verified identity
 	// (not whoever sets a header). Public reads (e.g. /discover) pass user="" and are
@@ -404,6 +412,33 @@ func TopupURL(broker, user string, usd float64) (string, error) {
 
 // ProxyOptions configures the local relay handler.
 type ProxyOptions struct {
+	// LAN mode (features/lan/routing_and_inference.feature): every turn goes to this
+	// machine's own serve, then an Edge member, then a LAN Tower, or it is refused. The
+	// market is never tried. LANSelf returns this machine's completions URL and its runtime key
+	// for a band ("" = none); LANTowers the Towers serving it, in order; LANHTTP/LANResolve/LANKey are seams.
+	LANMode bool
+	// LANEdgeOnly is `roger --lan --edge-only` (features/lan/edge_only.feature): the Tower rung is
+	// gone, whatever LANTowers says, and refusals say so.
+	LANEdgeOnly bool
+	LANSelf     func(band string) (url, key string)
+	LANTowers   func(band string) []string
+	// Routing constraints on the LAN ladder (features/lan/routing_and_inference.feature):
+	// LANSelfQuant is the quant label of this machine's own serve of a band ("" = unlabeled),
+	// LANSelfName the id provider.order may use for this machine (its Edge node id), and
+	// LANBands every band some local source serves, which a @class/ alias expands over.
+	LANSelfQuant func(band string) string
+	LANSelfName  string
+	LANBands     func() []string
+	// LANNotLocal is told when a configured LAN address answered a turn WITHOUT the standalone
+	// Tower's local marker; the CLI stops sending it turns until the owner re-adds it.
+	LANNotLocal func(addr string)
+	// lanOrdered: the Edge rung's peers are already in provider.order's order (relayLAN set
+	// it), so the measured-pace order does not replace it.
+	lanOrdered bool
+	LANHTTP    *http.Client
+	LANResolve lanmode.Resolver
+	LANKey     ed25519.PrivateKey
+
 	Broker, User string
 	Confidential bool
 	MinTPS       float64 // X-Roger-Min-TPS floor (0 = none)
@@ -475,6 +510,23 @@ type ProxyOptions struct {
 	// launch sets DefaultSessionBudget.
 	Budget float64
 	Alert  AlertFunc // surfaced when failover is exhausted (nil = silent)
+	// THE LADDER (features/edge/local_inference.feature). EdgePeers, when non-nil, lists
+	// the instances on this machine's Edge that serve a band, LAN-direct and verified;
+	// EdgePrefer is the owner's standing choice ("local" default, "market", "local-only");
+	// EdgeCert is this node's certificate, presented to a peer as the caller's identity;
+	// EdgeVerify checks a peer's local receipt against the certificate it served. A turn
+	// tries the Edge before the market unless EdgePrefer says otherwise, and under
+	// "local-only" never reaches the broker at all.
+	EdgePeers  func(band string) []EdgePeer
+	EdgePrefer string
+	EdgeCert   *tls.Certificate
+	EdgeVerify func(rec protocol.UsageReceipt, serving *x509.Certificate) bool
+	// OnReceipt, when non-nil, is handed each relayed response's decoded receipt (the
+	// broker's X-RogerAI-Receipt), once, before the body is streamed - the seam the Edge
+	// session layer records from. It never blocks or reshapes the relay, and a response
+	// with no receipt hands back nothing: a session is a request the relay receipted,
+	// never a claim. A refusal's voided receipt is handed back as-is.
+	OnReceipt func(protocol.UsageReceipt)
 	// ReasoningFallbackOff disables the reasoning->content fallback (founder ruling, option
 	// A, 2026-07-08). The fallback is ON by default (this flag's zero value): when an upstream
 	// reply leaves message.content EMPTY but carries reasoning (message.reasoning or
@@ -783,6 +835,7 @@ func ProxyHandler(opts ProxyOptions) http.Handler {
 // auth, a per-session spend budget, OpenAI-shaped JSON on every originated error, a 413 body
 // cap, Retry-After passthrough, dial/header stream bounds, and a "no band tuned" refusal.
 func ProxyHandlerLive(h *ProxyOptionsHolder) http.Handler {
+	coreclient.Note("client: relay proxy")
 	httpClient := newRelayClient()
 	policy := defaultPolicy()
 	defaultProfiles := NewProfileStore("")
@@ -878,6 +931,9 @@ func ProxyHandlerLive(h *ProxyOptionsHolder) http.Handler {
 		}
 		// Model rewrite + malformed-body guard (ruling 2): rewrite `model` to the band's, keep
 		// every other field; a non-object body is a 400 before any relay/hold.
+		if lanRefuseForeign(w, opts, body) {
+			return
+		}
 		// A resolved profile is the owner's explicit choice, like a carrier: its variant of the
 		// band (`band:free`) is kept rather than rewritten to the bare band.
 		rewritten, model, ok := rewriteModel(body, opts.Model, fromProfile)
@@ -985,6 +1041,43 @@ func readCappedBody(r io.Reader, limit int64) (body []byte, over bool) {
 // the streamed body has fully copied (streamed responses carry no cost header - the broker
 // flushes headers before output; the comment at stream end is the only meter).
 func relayWithFailover(ctx context.Context, w http.ResponseWriter, opts ProxyOptions, crit Criteria, body []byte, httpClient *http.Client, policy failoverPolicy, onServed, onStreamCost func(cost float64)) {
+	// RUNG 2 FIRST: a peer on this Edge that serves the band, before any broker. Under
+	// local-only a band nothing here serves is refused here, and the broker is never
+	// reached by this function at all.
+	if opts.LANMode {
+		// LAN MODE: the market is not a rung at all; relayLAN serves or refuses.
+		if onServed == nil {
+			onServed = func(float64) {}
+		}
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		relayLAN(ctx, w, opts, crit.Model, body, onServed)
+		return
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	// RUNG 1 outside LAN mode: what this machine serves itself (`roger use` and the front-end
+	// ladder set LANSelf; features/serving/edge_device_runtime.feature §3). A private band is a
+	// request for THAT band's stations, so the own serve stands aside, as `roger use --freq` does.
+	if opts.Freq != "" {
+		opts.LANSelf = nil
+	}
+	if served, failed := relaySelfFirst(ctx, w, opts, lanBand(crit.Model), body, onServed); served {
+		return
+	} else if failed != "" {
+		noteLANLeft(w, []string{failed})
+		if preferOf(opts.EdgePrefer) == "local-only" && opts.EdgePeers == nil {
+			// A session pinned to this machine with no Edge to fall to: say so in this machine's
+			// words, not an Edge's.
+			openAIError(w, http.StatusServiceUnavailable, "lan_error", "local_only", selfDownMessage(lanBand(crit.Model), failed))
+			return
+		}
+	}
+	if served, refused := relayEdgeFirst(ctx, w, opts, crit.Model, body, onServed); served || refused {
+		return
+	}
 	if onServed == nil {
 		onServed = func(float64) {}
 	}
@@ -1138,11 +1231,30 @@ func relayWithFailover(ctx context.Context, w http.ResponseWriter, opts ProxyOpt
 			// serialized. A response with no cost header accumulates nothing (fail-safe).
 			cost, _ := strconv.ParseFloat(resp.Header.Get("X-RogerAI-Cost"), 64)
 			onServed(cost)
+			// The receipt: a non-streamed response carries it as a header, a stream carries
+			// it as the `: rogerai-receipt=` comment at its end (beside the cost). One or the
+			// other hands it to OnReceipt, never both.
+			onReceipt := opts.OnReceipt
+			if resp.Header.Get("X-Roger-Local") == "1" {
+				// A standalone Tower as the broker setting answers as local and free: the turn is
+				// recorded that way, whether or not LAN mode is on (features/lan/regressions.feature).
+				w.Header().Set("X-RogerAI-Cost", "0")
+				if onReceipt != nil {
+					onReceipt(localTowerReceipt(opts.Broker, crit.Model, false))
+					onReceipt = nil
+				}
+			}
+			if onReceipt != nil {
+				if rec, derr := protocol.DecodeReceipt(resp.Header.Get("X-RogerAI-Receipt")); derr == nil && rec.RequestID != "" {
+					onReceipt(rec)
+					onReceipt = nil
+				}
+			}
 			// Streamed responses carry no cost header; copyRelayResponse scans the body for
 			// the broker's `: rogerai-cost=` SSE meter comment (passed through unchanged) and
 			// returns it - billed at stream END, per the ceiling (the crossing stream
 			// completes; the NEXT call is refused).
-			if sc := copyRelayResponse(w, resp, !opts.ReasoningFallbackOff); sc > 0 && onStreamCost != nil {
+			if sc := copyRelayResponse(w, resp, !opts.ReasoningFallbackOff, onReceipt); sc > 0 && onStreamCost != nil {
 				onStreamCost(sc)
 			}
 			resp.Body.Close()
@@ -1300,7 +1412,7 @@ func copyAllowedHeaders(w http.ResponseWriter, resp *http.Response) {
 	}
 }
 
-func copyRelayResponse(w http.ResponseWriter, resp *http.Response, reasoningFallbackOn bool) (sseCost float64) {
+func copyRelayResponse(w http.ResponseWriter, resp *http.Response, reasoningFallbackOn bool, onReceipt func(protocol.UsageReceipt)) (sseCost float64) {
 	ct := resp.Header.Get("Content-Type")
 	if ct == "" {
 		ct = "application/json"
@@ -1310,7 +1422,7 @@ func copyRelayResponse(w http.ResponseWriter, resp *http.Response, reasoningFall
 	w.WriteHeader(resp.StatusCode)
 
 	if strings.Contains(ct, "text/event-stream") {
-		return streamRelayBody(w, resp.Body, reasoningFallbackOn)
+		return streamRelayBody(w, resp.Body, reasoningFallbackOn, onReceipt)
 	}
 
 	// Non-streaming JSON: buffer (bounded), transform if enabled, forward. Billing is in the
@@ -1340,7 +1452,19 @@ type sseMeter struct {
 	line     []byte
 	overflow bool
 	cost     float64
+	// receipt is the broker's stream-end `: rogerai-receipt=` comment, decoded; hasReceipt
+	// says one arrived. A malformed comment is ignored the way a malformed cost is.
+	receipt    protocol.UsageReceipt
+	hasReceipt bool
 }
+
+// sseReceiptPrefix is the stream-end receipt comment the broker emits beside the cost
+// meter (cmd/rogerai-broker relayStream). A receipt is longer than a cost, so the meter's
+// line bound is sized for it.
+const (
+	sseReceiptPrefix = ": rogerai-receipt="
+	sseMeterLineMax  = 8 << 10
+)
 
 func (m *sseMeter) scan(p []byte) {
 	for _, c := range p {
@@ -1351,13 +1475,17 @@ func (m *sseMeter) scan(p []byte) {
 					if f, err := strconv.ParseFloat(strings.TrimSpace(v), 64); err == nil && f > 0 {
 						m.cost = f // a malformed / non-positive amount is ignored (fail-safe)
 					}
+				} else if v, ok := strings.CutPrefix(line, sseReceiptPrefix); ok {
+					if rec, err := protocol.DecodeReceipt(strings.TrimSpace(v)); err == nil && rec.RequestID != "" {
+						m.receipt, m.hasReceipt = rec, true
+					}
 				}
 			}
 			m.line = m.line[:0]
 			m.overflow = false
 			continue
 		}
-		if len(m.line) < 128 {
+		if len(m.line) < sseMeterLineMax {
 			m.line = append(m.line, c)
 		} else {
 			m.overflow = true
@@ -1484,9 +1612,16 @@ const maxSSELine = 1 << 20
 // delivered as a single consolidated delta at stream end, not re-chunked live as it arrives.
 // Everything else - the original reasoning deltas (the accepted double-mirror), the finish
 // chunk, [DONE], and the meter comment - passes through byte-for-byte.
-func streamRelayBody(w http.ResponseWriter, body io.Reader, reasoningFallbackOn bool) (sseCost float64) {
+func streamRelayBody(w http.ResponseWriter, body io.Reader, reasoningFallbackOn bool, onReceipt func(protocol.UsageReceipt)) (sseCost float64) {
 	flusher, _ := w.(http.Flusher)
 	meter := &sseMeter{}
+	// The stream-end receipt comment is handed back once the stream has fully passed
+	// through - after the caller's bytes, never instead of them.
+	defer func() {
+		if onReceipt != nil && meter.hasReceipt {
+			onReceipt(meter.receipt)
+		}
+	}()
 	write := func(p []byte) {
 		w.Write(p)
 		meter.scan(p)
@@ -1755,6 +1890,23 @@ func effectiveMaxOut(maxOut float64) float64 { return EffectiveMaxOut(maxOut) }
 
 // UseOptions are the resolved spend limits + flags for `roger use`.
 type UseOptions struct {
+	// LAN mode and pinned turns (features/lan/routing_and_inference.feature): the session
+	// opens on local sources only, with no market lookup, no balance and no price text.
+	// LANSources names what serves a band locally (empty = nothing does). Pinned is the
+	// label of an addressed node or Tower; its turns never consult the market either.
+	LANMode     bool
+	LANEdgeOnly bool
+	LANSelf     func(band string) (url, key string)
+	LANTowers   func(band string) []string
+	LANSources  func(band string) []LANSource
+	// See ProxyOptions: the LAN ladder's routing-constraint seams.
+	LANSelfQuant func(band string) string
+	LANSelfName  string
+	LANBands     func() []string
+	LANHTTP      *http.Client
+	LANResolve   lanmode.Resolver
+	Pinned       string
+
 	Port         int
 	Confidential bool
 	MaxIn        float64 // cap on $/1M input price (0 = none)
@@ -1769,11 +1921,24 @@ type UseOptions struct {
 	// disable the proxy already supported programmatically (ProxyOptions.ReasoningFallbackOff)
 	// but had no user-facing surface for - a caller that wants the untouched provider body.
 	Raw bool
+	// OnReceipt is handed each relayed turn's receipt (see ProxyOptions.OnReceipt): how
+	// `roger use` puts its turns on this machine's Edge as `roger use` sessions.
+	OnReceipt func(protocol.UsageReceipt)
+	// The dispatch ladder (features/edge/local_inference.feature): a peer on this Edge is
+	// tried before the market. See ProxyOptions for each field.
+	EdgePeers  func(band string) []EdgePeer
+	EdgePrefer string
+	EdgeCert   *tls.Certificate
+	EdgeVerify func(rec protocol.UsageReceipt, serving *x509.Certificate) bool
 	// Routing knobs (contract §1, §10): the pref profile, self-hosted-only, and the quant
 	// label set (a standing rule carries "unknown", a --quant flag does not).
 	Pref           string
 	SelfHostedOnly bool
 	Quantizations  []string
+	// Key is an account key the proxy relays with instead of the device signature.
+	Key string
+	// KeyNote, when set, is printed on the connect plate's KEY line (never the key itself).
+	KeyNote string
 	// Owner ceilings a guest may only tighten (contract §10 flags).
 	MaxCost      float64
 	Trust        string
@@ -1794,10 +1959,6 @@ type UseOptions struct {
 	RoutingLine string
 	// TunedProfile is the profile the session was tuned under (`--profile` or `@profile/`).
 	TunedProfile string
-	// Key is an account key the proxy relays with instead of the device signature.
-	Key string
-	// KeyNote, when set, is printed on the connect plate's KEY line (never the key itself).
-	KeyNote string
 }
 
 // limitsLine renders the connect plate's LIMITS line. An out cap at the network ceiling is
@@ -1860,7 +2021,14 @@ func Use(broker, user, model string, opt UseOptions) error {
 	// X-Roger-Freq. A wrong / off-air code returns the SAME uniform "no station" reply
 	// the broker gives (no oracle). The price-safety confirm + default cap still apply.
 	if opt.Freq != "" {
+		if opt.LANMode {
+			// a private band is broker-resolved, so nothing is resolved in LAN mode
+			return fmt.Errorf("private bands are on the network and LAN mode is on: tune a band this LAN serves (roger --lan search), or run without --lan to use the private band")
+		}
 		return useOnFreq(broker, user, model, opt, maxOut, typical, defaultedCap, in)
+	}
+	if opt.LANMode || opt.Pinned != "" {
+		return useLocal(broker, user, model, opt)
 	}
 
 	for {
@@ -1946,9 +2114,11 @@ func Use(broker, user, model string, opt UseOptions) error {
 		break
 	}
 
-	ln, err := useListen(opt.Port) // bound before the plate names it
-	if err != nil {
-		return err
+	// One bind: the endpoint printed below is the socket already held (netbind), never a port
+	// probed now and bound later, which another process could take in between.
+	ln, lerr := useListen(opt.Port)
+	if lerr != nil {
+		return lerr
 	}
 	addr := ln.Addr().String()
 	// The staged tune-in: scan -> lock -> lineage handshake -> CHANNEL OPEN, mirroring
@@ -1988,7 +2158,8 @@ func Use(broker, user, model string, opt UseOptions) error {
 		HeaderRouting:        NegotiateRouting(broker), // tune time: body carriers, or headers for an old broker
 		ReasoningFallbackOff: opt.Raw || rawReasoningEnv(), Alert: func(s string) {
 			fmt.Fprintln(os.Stderr, "rogerai: "+s)
-		}}
+		}, OnReceipt: opt.OnReceipt,
+		EdgePeers: opt.EdgePeers, EdgePrefer: opt.EdgePrefer, EdgeCert: opt.EdgeCert, EdgeVerify: opt.EdgeVerify}
 	warnOldBroker(opts)
 	return useServe(ln, newProxyHandler(opts))
 }
@@ -2028,10 +2199,10 @@ func sugarMark(model string) string {
 }
 
 // useStdin / useServe are seams over the two side effects Use can't run in a test: the
-// interactive confirm reader (default os.Stdin) and the blocking local-proxy listener
-// (default http.ListenAndServe). Tests point useStdin at an os.Pipe and useServe at a
+// interactive confirm reader (default os.Stdin) and serving the local proxy on its listener
+// (default http.Serve, which blocks). Tests point useStdin at an os.Pipe and useServe at a
 // capture func so every branch up to and including "channel open" is exercised without
-// reading the real terminal or binding a forever-blocking port.
+// reading the real terminal or blocking on a listener.
 var (
 	useStdin = os.Stdin
 	// useListen binds the local endpoint ONCE, before the plate names it; useServe serves on
@@ -2045,26 +2216,31 @@ var (
 	newProxyHandler = ProxyHandler
 )
 
+// SetUseServe points `roger use`'s listener at fn and returns the restore func. Only the CLI's
+// executable specs call it, so a scenario can drive the real proxy handler without holding a
+// port; production never does.
+func SetUseServe(fn func(ln net.Listener, h http.Handler) error) (restore func()) {
+	old := useServe
+	useServe = fn
+	return func() { useServe = old }
+}
+
 // DefaultUsePort is where `roger use` looks for a free local port when --port is not given
-// (the CLI's documented default, shown on the Integrations page).
+// (the CLI's documented default, shown on the Integrations page); a busy port moves it upward.
 const DefaultUsePort = 4141
 
-// listenUse binds the endpoint: the requested port exactly, or with port 0 the first free
-// port from DefaultUsePort up. The listener it returns is the one the relay serves on.
+// listenUse binds the endpoint ONCE (internal/netbind): the requested port exactly, or with
+// port 0 the first free port from DefaultUsePort up. The listener it returns is the one the
+// relay serves on.
 func listenUse(port int) (net.Listener, error) {
 	if port > 0 {
-		ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+		ln, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
 		if err != nil {
 			return nil, fmt.Errorf("port %d is not available (%v): pass another --port, or none to pick one", port, err)
 		}
 		return ln, nil
 	}
-	for p := DefaultUsePort; p < DefaultUsePort+200; p++ {
-		if ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", p)); err == nil {
-			return ln, nil
-		}
-	}
-	return nil, fmt.Errorf("no free TCP port in %d-%d (close some listeners or pass --port)", DefaultUsePort, DefaultUsePort+199)
+	return netbind.ListenFree(net.JoinHostPort("127.0.0.1", strconv.Itoa(DefaultUsePort)))
 }
 
 // RawReasoningEnv reports whether ROGERAI_REASONING_RAW asks for raw passthrough (the
@@ -2141,9 +2317,11 @@ func useOnFreq(broker, user, model string, opt UseOptions, maxOut float64, typic
 		}
 	}
 
-	ln, err := useListen(opt.Port) // bound before the plate names it
-	if err != nil {
-		return err
+	// One bind: the endpoint printed below is the socket already held (netbind), never a port
+	// probed now and bound later, which another process could take in between.
+	ln, lerr := useListen(opt.Port)
+	if lerr != nil {
+		return lerr
 	}
 	addr := ln.Addr().String()
 	fmt.Printf("\n  %s scanning frequency ... ok\n", glyphOnAir)
@@ -2167,7 +2345,8 @@ func useOnFreq(broker, user, model string, opt UseOptions, maxOut float64, typic
 		HeaderRouting:        NegotiateRouting(broker),
 		ReasoningFallbackOff: opt.Raw || rawReasoningEnv(), Alert: func(s string) {
 			fmt.Fprintln(os.Stderr, "rogerai: "+s)
-		}}
+		}, OnReceipt: opt.OnReceipt,
+		EdgePeers: opt.EdgePeers, EdgePrefer: opt.EdgePrefer, EdgeCert: opt.EdgeCert, EdgeVerify: opt.EdgeVerify}
 	warnOldBroker(opts)
 	return useServe(ln, newProxyHandler(opts))
 }
@@ -2274,6 +2453,12 @@ type ChatResult struct {
 	PriceIn   float64       // $/1M in for this turn (locked price)
 	PriceOut  float64       // $/1M out
 	Latency   time.Duration // wall-clock time of the served request (how long you waited)
+	// Receipt is the broker's signed receipt for this turn, as it arrived on the
+	// X-RogerAI-Receipt header (the zero value when the broker sent none). It is the
+	// SAME record the token counts above are read out of - carried on rather than
+	// discarded, so a surface that wants to show the turn as traffic (the Edge's session
+	// layer) derives it from the receipt instead of keeping a second set of books.
+	Receipt protocol.UsageReceipt
 }
 
 // FormatUSD is the ONE canonical money renderer for every consumer surface, so a cost or
@@ -2405,7 +2590,11 @@ func ChatTurnsRouting(broker, user, model string, turns []ChatTurn, maxOut float
 		}
 
 		start := time.Now()
-		resp, derr := httpClient.Do(req)
+		resp, inLAN := LANDo(req, reqBody)
+		var derr error
+		if !inLAN {
+			resp, derr = httpClient.Do(req)
+		}
 		if derr != nil {
 			// Transport timeout/drop: retryable. Keep a clean message in case we exhaust.
 			if ne, ok := derr.(interface{ Timeout() bool }); ok && ne.Timeout() {
@@ -2425,6 +2614,9 @@ func ChatTurnsRouting(broker, user, model string, turns []ChatTurn, maxOut float
 			raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 			resp.Body.Close()
 			lastErr = parseChatError(raw, resp.StatusCode)
+			if inLAN {
+				return ChatResult{}, lastErr // the LAN relay already tried every local source
+			}
 			continue
 		}
 
@@ -2465,6 +2657,7 @@ func ChatTurnsRouting(broker, user, model string, turns []ChatTurn, maxOut float
 		// stays zero and the renderer omits it). The signed receipt carries the BILLED token
 		// counts (broker re-count when present), the truthful in/out the user actually paid for.
 		if rec, derr := protocol.DecodeReceipt(resp.Header.Get("X-RogerAI-Receipt")); derr == nil {
+			res.Receipt = rec
 			res.TokensIn, res.TokensOut = rec.PromptTokens, rec.CompletionTokens
 			if rec.BrokerPromptTokens > 0 {
 				res.TokensIn = rec.BrokerPromptTokens
@@ -2530,4 +2723,163 @@ func parseChatError(raw []byte, status int) error {
 		return fmt.Errorf("the station returned status %d with no reply", status)
 	}
 	return fmt.Errorf("the station sent an empty response (status %d)", status)
+}
+
+// EdgePeer is one instance on this machine's Edge that serves a band: where to dial it,
+// the certificate fingerprint the fleet pinned for it, and who it is for the receipt.
+type EdgePeer struct {
+	Addr     string // host:port of the instance's LAN face
+	Pin      string // SHA-256 of the certificate it must present
+	Node     string
+	Instance string
+	Quant    string // the quant label its own serve record carries for the band ("" = unlabeled)
+}
+
+// preferOf is the effective preference: local unless the owner said otherwise.
+func preferOf(p string) string {
+	switch p {
+	case "market", "local-only":
+		return p
+	}
+	return "local"
+}
+
+// relayEdgeFirst walks rung 2. It returns served=true when a peer answered (the reply has
+// been written), refused=true when local-only stopped the turn here (the refusal has been
+// written), and false/false when the ladder should fall out to the market.
+func relayEdgeFirst(ctx context.Context, w http.ResponseWriter, opts ProxyOptions, band string, body []byte, onServed func(float64)) (served, refused bool) {
+	prefer := preferOf(opts.EdgePrefer)
+	if prefer == "market" || opts.EdgePeers == nil {
+		if prefer == "local-only" {
+			// local-only with no Edge wired at all: nothing here can serve, and nothing may leave
+			openAIError(w, http.StatusServiceUnavailable, "edge_error", "local_only",
+				"local-only: no instance on this Edge serves "+band+" and this roger will not go to the market - serve it here, or roger edge prefer local")
+			return false, true
+		}
+		return false, false
+	}
+	served, tried := tryEdgePeers(ctx, w, opts, band, body, onServed)
+	if served {
+		return true, false
+	}
+	if prefer == "local-only" {
+		msg := "local-only: no instance on this Edge serves " + band + " and this roger will not go to the market - serve it here, or roger edge prefer local"
+		if len(tried) > 0 {
+			msg = "local-only: every peer serving " + band + " failed (" + strings.Join(tried, "; ") + ") and this roger will not go to the market"
+		}
+		openAIError(w, http.StatusServiceUnavailable, "edge_error", "local_only", msg)
+		return false, true
+	}
+	return false, false
+}
+
+// tryEdgePeers sends the turn to each Edge peer serving band, over mutual TLS, until one
+// answers. A peer that answered is the answer, whatever it said. It reports whether a peer
+// served and how each one that did not failed.
+func tryEdgePeers(ctx context.Context, w http.ResponseWriter, opts ProxyOptions, band string, body []byte, onServed func(float64)) (bool, []string) {
+	if opts.EdgePeers == nil {
+		return false, nil
+	}
+	peers := opts.EdgePeers(band)
+	if opts.LANMode && !opts.lanOrdered {
+		peers = lanOrderPeers(peers) // within the rung, the member measured faster here goes first
+	}
+	var tried []string
+	for _, p := range peers {
+		start := time.Now()
+		resp, leaf, err := dialEdgePeer(ctx, p, body, opts)
+		if err != nil {
+			tried = append(tried, p.Node+"/"+p.Instance+": "+err.Error())
+			continue
+		}
+		lanPace.Store(lanPaceKey(p), time.Since(start))
+		if opts.LANMode {
+			noteLANLeft(w, tried)
+		}
+		// A peer that answered is the answer, whatever it said: a refusal from a machine
+		// the owner owns is drawn as what it was, not papered over by the market.
+		onServed(0)
+		if opts.OnReceipt != nil {
+			if rec, derr := protocol.DecodeReceipt(resp.Header.Get("X-RogerAI-Receipt")); derr == nil && rec.RequestID != "" {
+				if opts.EdgeVerify == nil || opts.EdgeVerify(rec, leaf) {
+					opts.OnReceipt(rec)
+				}
+			}
+		}
+		var onRec func(protocol.UsageReceipt)
+		if opts.OnReceipt != nil {
+			onRec = func(rec protocol.UsageReceipt) {
+				if opts.EdgeVerify == nil || opts.EdgeVerify(rec, leaf) {
+					opts.OnReceipt(rec)
+				}
+			}
+		}
+		if resp.Header.Get("X-RogerAI-Receipt") != "" {
+			onRec = nil // the header already fired
+		}
+		copyRelayResponse(w, resp, !opts.ReasoningFallbackOff, onRec)
+		resp.Body.Close()
+		return true, tried
+	}
+	return false, tried
+}
+
+// dialEdgePeer sends one turn to a peer's face over mutual TLS: this node's certificate
+// presented, the peer's checked against the pin the fleet recorded. It returns the reply
+// and the certificate the peer served, so the local receipt can be checked against it.
+func dialEdgePeer(ctx context.Context, p EdgePeer, body []byte, opts ProxyOptions) (*http.Response, *x509.Certificate, error) {
+	return dialEdgePath(ctx, p, "/edge/infer", body, opts.EdgeCert)
+}
+
+// dialEdgePath posts body to path on a peer's face over mutual TLS, the peer's certificate checked
+// against its pin before any byte is sent.
+func dialEdgePath(ctx context.Context, p EdgePeer, path string, body []byte, edgeCert *tls.Certificate) (*http.Response, *x509.Certificate, error) {
+	var leaf *x509.Certificate
+	tlsCfg := &tls.Config{
+		InsecureSkipVerify: true, // verified below, against the pin, before any byte is sent
+		MinVersion:         tls.VersionTLS12,
+		VerifyConnection: func(cs tls.ConnectionState) error {
+			if len(cs.PeerCertificates) == 0 {
+				return fmt.Errorf("the peer presented no certificate")
+			}
+			leaf = cs.PeerCertificates[0]
+			if fp := fmt.Sprintf("%x", sha256.Sum256(leaf.Raw)); fp != p.Pin {
+				return fmt.Errorf("the peer's certificate does not match its pin")
+			}
+			return nil
+		},
+	}
+	if edgeCert != nil {
+		tlsCfg.Certificates = []tls.Certificate{*edgeCert}
+	}
+	// Bound the TCP dial and the TLS handshake, so a dead or black-holed peer fails fast instead of
+	// stalling the whole provider ladder. The earlier code built a timeout context and then dropped
+	// it (the request used the parent ctx), so no dial timeout was ever applied (audit 2026-09-24).
+	tr := &http.Transport{TLSClientConfig: tlsCfg, DisableKeepAlives: true,
+		ResponseHeaderTimeout: proxyResponseHeaderTimeout,
+		DialContext:           (&net.Dialer{Timeout: proxyDialTimeout}).DialContext,
+		TLSHandshakeTimeout:   proxyDialTimeout}
+	defer tr.CloseIdleConnections()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://"+p.Addr+path, bytes.NewReader(body))
+	if err != nil {
+		return nil, nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Roger-Request", newRequestID())
+	resp, err := (&http.Client{Transport: tr}).Do(req)
+	if err != nil {
+		return nil, nil, err
+	}
+	if retryable(resp.StatusCode, nil) {
+		resp.Body.Close()
+		return nil, nil, fmt.Errorf("answered %d", resp.StatusCode)
+	}
+	return resp, leaf, nil
+}
+
+// newRequestID names a peer turn so its receipt binds to it.
+func newRequestID() string {
+	b := make([]byte, 8)
+	_, _ = rand.Read(b)
+	return "edge-" + hex.EncodeToString(b)
 }

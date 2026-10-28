@@ -9,9 +9,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // bareVoiceServer builds a stub that 404s GET /v1/models (like kokoro-fastapi) but serves the
@@ -279,5 +280,20 @@ func TestProbeVoice(t *testing.T) {
 	defer none.Close()
 	if got := probeVoice(none.URL + "/v1"); got != "" {
 		t.Errorf("probeVoice(none) = %q, want empty", got)
+	}
+}
+
+// An HTTPS-only port probed over plain http (roger's own Edge face, any TLS service) answers Go's
+// 400 "Client sent an HTTP request to an HTTPS server" to every path. That is not a live audio
+// route: classifying it as a bare voice server made a member share a phantom "voice" band
+// (found 2026-10-10, after a Pi restarted and its saved upstream was gone).
+func TestATLSPortIsNotAVoiceServer(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	plain := "http://" + strings.TrimPrefix(srv.URL, "https://")
+	if got := probeVoice(plain + "/v1"); got != "" {
+		t.Fatalf("probeVoice(TLS port over http) = %q, want \"\" (not a voice server)", got)
 	}
 }

@@ -13,7 +13,7 @@ import (
 	"sync"
 
 	"github.com/charmbracelet/lipgloss"
-	"rogerai.fm/roger/v6/internal/client"
+	"rogerai.fm/roger/v7/internal/client"
 )
 
 // GrantRow is a compact grant summary for the in-TUI /grant list.
@@ -39,7 +39,7 @@ type Limit struct {
 	// Pref is the routing preference knob (roger.pref): cheap, balanced, fast or reliable.
 	// Empty = balanced. A scoring knob, never a filter.
 	Pref string
-	// The rest of the routing body object a band's rule may hold ([3] CONFIG's plate,
+	// The rest of the routing body object a band's rule may hold ([4] CONFIG's plate,
 	// `roger config set-limit`; contract §10). Zero = unset.
 	MaxCost    float64   // provider.max_price.request, USD per request
 	Require    []string  // roger.require: tools / vision
@@ -70,7 +70,7 @@ type LimitStore struct {
 	TypicalOut int
 	Save       func(models map[string]Limit, def Limit) // persist (nil = no-op)
 	// Profiles are the named routing profiles of config.json (`roger profile`), re-read on
-	// change; nil = none. The booth lists them in [3] CONFIG and tunes under one.
+	// change; nil = none. The booth lists them in [4] CONFIG and tunes under one.
 	Profiles *client.ProfileStore
 	// gen counts writes, so a booth sharing the store with the browser console can tell an
 	// edit it did not make has landed (and re-point its live proxy).

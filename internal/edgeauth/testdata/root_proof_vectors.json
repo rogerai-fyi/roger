@@ -1,0 +1,147 @@
+{
+  "comment": "Golden vectors for the Edge root proof (features/edge/enrollment_root_trust.feature). Computed independently of the Go code (Python hashlib). Shared with roger-ios: both implementations must reproduce every proof, and a vector with any one field changed must fail.",
+  "domain": "rogerai-edge-root-proof/v1",
+  "iterations": 200000,
+  "key_bytes": 32,
+  "salt": "utf8(domain + \"\\n\" + nonce)",
+  "message": "utf8(domain + \"\\n\" + root_fp + \"\\n\" + account + \"\\n\" + node_id + \"\\n\" + nonce)",
+  "proof": "\"v1:\" + lowercase hex(HMAC-SHA256(key, message))",
+  "proofs": [
+    {
+      "code_typed": "7KQ2M-9XH4P",
+      "code": "7KQ2M9XH4P",
+      "root_fp": "5f0920045e1af32fd724bc3f3cc640a803ac9a16d30e268081f2fdc08539be4d",
+      "account": "edge-local",
+      "node_id": "n_3f9a1c2b7d4e5f60",
+      "nonce": "00112233445566778899aabbccddeeff",
+      "key": "b6f3e4472e65660b01bbc93eeb85a1b606fe90ce21c3a054d76e2d944a1dfafd",
+      "proof": "v1:a6510a9b012b00d275195f2960cef594e313ce6d250f7ee1bd633c9ffdb9404d"
+    },
+    {
+      "code_typed": "0000000000",
+      "code": "0000000000",
+      "root_fp": "5f0920045e1af32fd724bc3f3cc640a803ac9a16d30e268081f2fdc08539be4d",
+      "account": "edge-local",
+      "node_id": "n_0000000000000000",
+      "nonce": "ffffffffffffffffffffffffffffffff",
+      "key": "53b58aa2e060c61a0fec8de497259a79ddc4202a3fc8d34649c0c2a9fb7fd723",
+      "proof": "v1:27a0ce0bae6c13c3ac3f2a37a6f591e83421dc782ad4d4eab6147f432530854b"
+    },
+    {
+      "code_typed": "ZZZZZ-ZZZZZ",
+      "code": "ZZZZZZZZZZ",
+      "root_fp": "a702f86f60357ec0893f900c3145f152d10a8039e80b1f9b0eec836d4b45b6d9",
+      "account": "acct-1",
+      "node_id": "n_aaaaaaaaaaaaaaaa",
+      "nonce": "0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+      "key": "50817702c74e01aad884a60683f7be2fec11005ef338e76013ab69a802609f61",
+      "proof": "v1:9ad7111502278ba8aa65135d8aae8300f606b458c11331b113e3666f1d7cdc74"
+    },
+    {
+      "code_typed": "ab1cd-ef2gh",
+      "code": "AB1CDEF2GH",
+      "root_fp": "a702f86f60357ec0893f900c3145f152d10a8039e80b1f9b0eec836d4b45b6d9",
+      "account": "owner@example",
+      "node_id": "n_1234567890abcdef",
+      "nonce": "deadbeefdeadbeefdeadbeefdeadbeef",
+      "key": "061877fecb0509cbe4fc3dcbeb9cc1ea592dc41462543b5a7681a498574bc53b",
+      "proof": "v1:2411441f2b6db6354fd225dc5e66c585515f5ac327fe4adc1e9e961a05c2c543"
+    }
+  ],
+  "codes": [
+    {
+      "typed": "7KQ2M-9XH4P",
+      "canonical": "7KQ2M9XH4P"
+    },
+    {
+      "typed": "7kq2m-9xh4p",
+      "canonical": "7KQ2M9XH4P"
+    },
+    {
+      "typed": "7KQ2M 9XH4P",
+      "canonical": "7KQ2M9XH4P"
+    },
+    {
+      "typed": "7KQ2M9XH4P",
+      "canonical": "7KQ2M9XH4P"
+    },
+    {
+      "typed": "1LQ2M-9XH4P",
+      "canonical": "11Q2M9XH4P"
+    },
+    {
+      "typed": "O0Q2M-9XH4P",
+      "canonical": "00Q2M9XH4P"
+    },
+    {
+      "typed": "  7KQ2M-9XH4P  ",
+      "canonical": "7KQ2M9XH4P"
+    },
+    {
+      "typed": "7KQ2MO9XH4P",
+      "error": "length"
+    },
+    {
+      "typed": "7KQ2U-9XH4P",
+      "error": "symbol"
+    },
+    {
+      "typed": "7KQ2M-9XH4",
+      "error": "length"
+    },
+    {
+      "typed": "not-a-code",
+      "error": "length"
+    },
+    {
+      "typed": "",
+      "error": "length"
+    },
+    {
+      "typed": "7KQ2M_9XH4P",
+      "error": "symbol"
+    }
+  ],
+  "pins": [
+    {
+      "typed": "sha256:5f0920045e1af32fd724bc3f3cc640a803ac9a16d30e268081f2fdc08539be4d",
+      "pin": "5f0920045e1af32fd724bc3f3cc640a803ac9a16d30e268081f2fdc08539be4d"
+    },
+    {
+      "typed": "sha256:5F0920045E1AF32FD724BC3F3CC640A803AC9A16D30E268081F2FDC08539BE4D",
+      "pin": "5f0920045e1af32fd724bc3f3cc640a803ac9a16d30e268081f2fdc08539be4d"
+    },
+    {
+      "typed": "5f0920045e1af32fd724bc3f3cc640a803ac9a16d30e268081f2fdc08539be4d",
+      "pin": "5f0920045e1af32fd724bc3f3cc640a803ac9a16d30e268081f2fdc08539be4d"
+    },
+    {
+      "typed": "sha256:5f:09:20:04:5e:1a:f3:2f:d7:24:bc:3f:3c:c6:40:a8:03:ac:9a:16:d3:0e:26:80:81:f2:fd:c0:85:39:be:4d",
+      "pin": "5f0920045e1af32fd724bc3f3cc640a803ac9a16d30e268081f2fdc08539be4d"
+    },
+    {
+      "typed": "SHA256:5f09 2004 5e1a f32f d724 bc3f 3cc6 40a8 03ac 9a16 d30e 2680 81f2 fdc0 8539 be4d",
+      "pin": "5f0920045e1af32fd724bc3f3cc640a803ac9a16d30e268081f2fdc08539be4d"
+    },
+    {
+      "typed": "sha256:5f0920045e1af32f",
+      "error": "short"
+    },
+    {
+      "typed": "sha256:5f0920045e1af32fd724bc3f3cc640a803ac9a16d30e268081f2fdc08539be4",
+      "error": "length"
+    },
+    {
+      "typed": "sha256:5f0920045e1af32fd724bc3f3cc640a803ac9a16d30e268081f2fdc08539be4g",
+      "error": "hex"
+    },
+    {
+      "typed": "md5:5f0920045e1af32fd724bc3f3cc640a8",
+      "error": "hash"
+    },
+    {
+      "typed": "",
+      "error": "short"
+    }
+  ]
+}

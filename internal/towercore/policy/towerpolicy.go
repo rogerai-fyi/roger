@@ -40,8 +40,8 @@ import (
 	"sync"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/towercore/attach"
-	"rogerai.fm/roger/v6/internal/towercore/inv"
+	"rogerai.fm/roger/v7/internal/towercore/attach"
+	"rogerai.fm/roger/v7/internal/towercore/inv"
 )
 
 // Stations is the attachment registry read. Implemented by *attach.Registry.

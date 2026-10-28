@@ -36,7 +36,7 @@ import (
 	"log"
 	"math"
 	"net/http"
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/protocol"
 	"sort"
 	"strconv"
 	"strings"
@@ -44,7 +44,7 @@ import (
 	"time"
 	"unicode"
 
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 const (
@@ -81,6 +81,7 @@ type acctKeyState struct {
 	locks      [64]sync.Mutex // local per-key locks, striped by key id so they never grow
 	mgmt       *rateLimiter
 	miss       *rateLimiter      // per address: relays bearing a key that does not resolve (keyMissLimiter)
+	missGate   *keyMissGate      // reservations against miss, so live keys are never refused (keyMissGate)
 	logged     map[string]string // key id -> the window it was last logged at-limit in
 
 	bumpOwed     int       // epoch bumps that failed and are not yet re-sent
@@ -228,26 +229,32 @@ type keyRefusal struct {
 // resolveRelayKey authenticates a `Bearer rog-key_...` relay. ok=false with a nil refusal means
 // the request carries no key.
 // An address that keeps presenting keys that do not resolve is rate limited BEFORE the lookup
-// (keyMissLimiter), so it costs neither a store read nor memory; only a refused key draws from that
-// budget, so a working key is never slowed by it. The caller records the use (TouchAccountKey)
-// once the relay is admitted.
+// (keyMissLimiter), so it costs neither a store read nor memory. A token is reserved before the
+// read (keyMissGate), so concurrent requests cannot all pass one check and then all reach the
+// store; a key that turns out live gets its token back, and a relay that finds the bucket empty
+// while other reads are in flight waits for them rather than failing, so a working key is never
+// refused by the budget.
+// The caller records the use (TouchAccountKey) once the relay is admitted.
 func (b *broker) resolveRelayKey(r *http.Request) (store.AccountKey, bool, *keyRefusal) {
 	tok := acctKeyToken(r)
 	if tok == "" {
 		return store.AccountKey{}, false, nil
 	}
 	ip := clientIP(r)
-	if blocked, retry := b.keyMissLimiter().blocked(ip); blocked {
+	miss, gate := b.keyMissLimiter(), b.keyMissGate()
+	if ok, retry := gate.reserve(miss, ip); !ok {
 		return store.AccountKey{}, false, &keyRefusal{status: http.StatusTooManyRequests, code: "rate_limited", msg: "too many requests with keys that do not work - slow down", retry: retry}
 	}
 	k, found, err := b.keyLookup(true, acctKeyHash(tok))
 	if err != nil {
+		gate.release(miss, ip, true) // an outage is not this address's miss
 		return store.AccountKey{}, false, &keyRefusal{status: http.StatusServiceUnavailable, code: "key_lookup_failed", msg: "key lookup failed - try again shortly"}
 	}
 	if ref := keyStateRefusal(k, found, b.now()); ref != nil {
-		b.keyMissLimiter().allow(ip)
+		gate.release(miss, ip, false)
 		return store.AccountKey{}, false, ref
 	}
+	gate.release(miss, ip, true)
 	return k, true, nil
 }
 
@@ -368,7 +375,7 @@ func jsonErr402(w http.ResponseWriter, code, msg, source, hint string) {
 }
 
 const (
-	remedyMonthly = "raise it with `roger limit --monthly` (or [3] CONFIG), or wait until next month"
+	remedyMonthly = "raise it with `roger limit --monthly` (or [4] CONFIG), or wait until next month"
 	remedyCredits = "top up at /billing"
 )
 
@@ -538,6 +545,15 @@ func (b *broker) keyMissLimiter() *rateLimiter {
 		b.ak.miss = loadKeyMissRateLimiter()
 	}
 	return b.ak.miss
+}
+
+func (b *broker) keyMissGate() *keyMissGate {
+	b.ak.mu.Lock()
+	defer b.ak.mu.Unlock()
+	if b.ak.missGate == nil {
+		b.ak.missGate = newKeyMissGate()
+	}
+	return b.ak.missGate
 }
 
 func (b *broker) keyMgmtLimiter() *rateLimiter {

@@ -46,7 +46,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"rogerai.fm/roger/v6/internal/bddtest"
+	"rogerai.fm/roger/v7/internal/bddrun"
+	"rogerai.fm/roger/v7/internal/netbind"
 	"strconv"
 	"strings"
 	"sync"
@@ -55,7 +56,7 @@ import (
 	"time"
 
 	"github.com/cucumber/godog"
-	"rogerai.fm/roger/v6/internal/agent"
+	"rogerai.fm/roger/v7/internal/agent"
 )
 
 // ── built binaries (once per test run) ──────────────────────────────────────────────────
@@ -90,11 +91,11 @@ func rfBuild(t *testing.T) {
 	}
 }
 
-// rfFreePort reuses the production free-port scan (onboard.go freePort) from a random high
+// rfFreePort reuses the production free-port scan (netbind.SuggestPort) from a random high
 // start, rather than opening a listener of its own: the sharing path's listener call sites
 // are pinned as an exact set by web/test/broadcast-gpu-isolation.test.mjs.
 func rfFreePort(t *testing.T) int {
-	p, err := freePort(20000 + int(time.Now().UnixNano()%20000))
+	p, err := netbind.SuggestPort(20000 + int(time.Now().UnixNano()%20000))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1300,7 +1301,7 @@ func TestRoutingFlagsPins(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if bddtest.Run(t, &suite) != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("features/routing/regression_pins.feature (@cli): failing scenarios")
 	}
 }

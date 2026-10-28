@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/pgtest"
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/pgtest"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // serveSeq makes every serveAt request id unique (production ids always are), so the
@@ -65,7 +65,7 @@ func freshPostgres(t *testing.T, dsn string) *Postgres {
 		rogerai.recount_holds, rogerai.reports, rogerai.appeals, rogerai.csam_incidents, rogerai.moderation_flags,
 		rogerai.banned_nodes, rogerai.banned_owners, rogerai.owner_strikes,
 		rogerai.checkout_charges, rogerai.offer_overrides, rogerai.offer_meta_overrides, rogerai.private_bands,
-		rogerai.pending_holds, rogerai.account_keys, rogerai.idempotency_claims
+		rogerai.pending_holds, rogerai.edge_nodes, rogerai.account_keys, rogerai.idempotency_claims
 		RESTART IDENTITY CASCADE`); err != nil {
 		t.Fatalf("truncate tables: %v", err)
 	}

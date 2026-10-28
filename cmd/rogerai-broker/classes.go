@@ -6,38 +6,30 @@ package main
 // market always gives the same list.
 
 import (
-	"math"
 	"slices"
-	"sort"
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/routingrules"
 )
 
-const classPrefix = "@class/"
-
-// modelClasses is the built-in alias table, as data: a model is in a class when its params_b
-// (declared, else the id estimate) is inside [minB, maxB] and, when tools is set, some eligible
-// offer of it is tools-verified. A model with no known size is never in a size class.
-var modelClasses = map[string]struct {
-	minB, maxB float64
-	tools      bool
-}{
-	"coding-30b": {24, 40, true},
-	"small":      {0, 9, false},
-	"large":      {60, math.Inf(1), false},
-}
+const classPrefix = routingrules.ClassPrefix
 
 // classMaxModels caps an expansion (the models[] limit, §3).
 const classMaxModels = routingModelsMax
 
 // className returns the class a bare `@class/...` id names, or an unknown_model_class error.
-// Names are exact (lowercase, no further path).
+// Names are exact (lowercase, no further path); the table is routingrules', shared with the
+// LAN ladder.
 func className(bare string) (string, *routingError) {
-	name := strings.TrimPrefix(bare, classPrefix)
-	if _, ok := modelClasses[name]; !ok {
-		return "", &routingError{code: "unknown_model_class", msg: "unknown model class " + bare + " (known: @class/coding-30b, @class/small, @class/large)"}
+	name, ok := routingrules.ClassName(bare)
+	if !ok {
+		known := make([]string, 0, 3)
+		for _, n := range routingrules.ClassNames() {
+			known = append(known, classPrefix+n)
+		}
+		return "", &routingError{code: "unknown_model_class", msg: "unknown model class " + bare + " (known: " + strings.Join(known, ", ") + ")"}
 	}
 	return name, nil
 }
@@ -66,38 +58,19 @@ func (b *broker) expandClass(name string, scope map[string]bool) []string {
 // expandOffers is a class's expansion over a set of offers (the relay's visible set, or the
 // /v1/models feed): one rule for both, so the catalog shows what a request would get.
 func expandOffers(name string, offers []offerView) []string {
-	c := modelClasses[name]
-	cost := map[string]float64{}
-	tools := map[string]bool{}
+	cands := make([]routingrules.ClassCandidate, 0, len(offers))
 	for _, o := range offers {
-		if !o.Online || o.Modality != "chat" || o.ParamsEstimated == nil || o.ParamsB < c.minB || o.ParamsB > c.maxB {
+		if !o.Online || o.Modality != "chat" {
 			continue
 		}
-		tools[o.Model] = tools[o.Model] || slices.Contains(o.Capabilities, protocol.CapTools)
 		in, out := o.In, o.Out
 		if o.FreeNow {
 			in, out = 0, 0
 		}
-		if k, seen := cost[o.Model]; !seen || blendedPrice(in, out) < k {
-			cost[o.Model] = blendedPrice(in, out)
-		}
+		cands = append(cands, routingrules.ClassCandidate{Model: o.Model, ParamsB: o.ParamsB, ParamsKnown: o.ParamsEstimated != nil,
+			Tools: slices.Contains(o.Capabilities, protocol.CapTools), Cost: blendedPrice(in, out)})
 	}
-	ids := make([]string, 0, len(cost))
-	for id := range cost {
-		if !c.tools || tools[id] {
-			ids = append(ids, id)
-		}
-	}
-	sort.Slice(ids, func(i, j int) bool {
-		if cost[ids[i]] != cost[ids[j]] {
-			return cost[ids[i]] < cost[ids[j]]
-		}
-		return ids[i] < ids[j]
-	})
-	if len(ids) > classMaxModels {
-		ids = ids[:classMaxModels]
-	}
-	return ids
+	return routingrules.ExpandClass(name, cands, classMaxModels)
 }
 
 // classEntries lists each class that expands to something over offers as its own catalog
@@ -108,7 +81,7 @@ func classEntries(offers []offerView, data []modelEntry) []modelEntry {
 		byID[e.ID] = e
 	}
 	var out []modelEntry
-	for name := range modelClasses {
+	for _, name := range routingrules.ClassNames() {
 		ids := expandOffers(name, offers)
 		head, ok := byID[firstOr(ids)]
 		if !ok {

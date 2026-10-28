@@ -1,6 +1,6 @@
 package client
 
-// The routing values a person types (roger use flags, the TUI's [3] CONFIG plate), parsed one
+// The routing values a person types (roger use flags, the TUI's [4] CONFIG plate), parsed one
 // way for every first-party client (ROUTING-EXPRESSION-CONTRACT.md §10).
 
 import (

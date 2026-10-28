@@ -42,7 +42,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
-	"rogerai.fm/roger/v6/internal/bddtest"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strconv"
 	"strings"
 	"testing"
@@ -50,7 +50,7 @@ import (
 
 	"github.com/cucumber/godog"
 	messages "github.com/cucumber/messages/go/v21"
-	"rogerai.fm/roger/v6/internal/operator"
+	"rogerai.fm/roger/v7/internal/operator"
 )
 
 type cf4pResp struct {
@@ -1541,7 +1541,7 @@ func TestRoutingPassthroughFullBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if bddtest.Run(t, &suite) != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("features/proxy/routing_passthrough.feature (full): failing scenarios")
 	}
 }

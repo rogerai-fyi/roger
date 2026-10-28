@@ -16,8 +16,8 @@ import (
 	"strings"
 	"testing"
 
-	"rogerai.fm/roger/v6/internal/brief"
-	"rogerai.fm/roger/v6/internal/capsule"
+	"rogerai.fm/roger/v7/internal/brief"
+	"rogerai.fm/roger/v7/internal/capsule"
 )
 
 func TestBriefStillRecognisesTheRetrievedMarker(t *testing.T) {

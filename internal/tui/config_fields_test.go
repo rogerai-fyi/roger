@@ -6,10 +6,10 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/stretchr/testify/require"
-	"rogerai.fm/roger/v6/internal/harness"
+	"rogerai.fm/roger/v7/internal/harness"
 )
 
-// configModel is a [3] CONFIG screen with one band row, its quant rows on the dial, and a
+// configModel is a [4] CONFIG screen with one band row, its quant rows on the dial, and a
 // store that records saves.
 func configModel(t *testing.T) (*model, *int) {
 	t.Helper()

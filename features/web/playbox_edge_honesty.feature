@@ -4,8 +4,16 @@
 #     unframed they floor, framed they perform. Model + prompt ship as one unit.
 #   - ESCALATE is the models' strongest measured skill: it renders as a GOOD
 #     outcome, never as a warning state.
-#   - Naming truth: Wave Nano (350M) is the trained gateway-class brain; Roger
-#     Edge is the MCU classifier line with no trained artifact yet.
+#   - Naming truth: Wave Nano is the trained gateway-class brain.
+#   - NAMING CORRECTED 2026-09-12 (founder ruling): ROGER EDGE IS THE LAYER - the
+#     owner's devices discovered and enrolled into one fleet, from a board to a
+#     Jetson to a Mac. The MCU classifier line is ONE PRODUCT INSIDE that layer,
+#     and it still has no trained artifact. The earlier wording here named the
+#     layer when it meant the line. Nothing about the artifact honesty changes:
+#     there is still no trained MCU classifier, and this spec still says so.
+#     (The 2026-08-17 edge correction in web/test/playbox.test.mjs already read
+#     "Roger Edge is the sensing/glue layer, not a Wave tier" - this finishes
+#     that move rather than starting a new one.)
 Feature: The Edge simulator tells the whole truth
   In order to demonstrate contract models the way they actually work
   As a Playbox visitor on the Roger Edge surface
@@ -24,7 +32,7 @@ Feature: The Edge simulator tells the whole truth
 
   Scenario: the brain is named honestly
     Then the panel presents Wave Nano as the trained gateway-class brain
-    And Roger Edge as the MCU-class line that is in design with no trained artifact
+    And Roger Edge as the device layer, whose MCU classifier line is in design with no trained artifact
     And no copy calls Wave Nano "an in-development slot"
 
   Scenario: captured replays are labelled as recordings

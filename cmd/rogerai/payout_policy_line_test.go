@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"rogerai.fm/roger/v6/internal/client"
+	"rogerai.fm/roger/v7/internal/client"
 )
 
 func TestPayoutPolicyLineRendersTheReserveClause(t *testing.T) {

@@ -36,10 +36,10 @@ import (
 
 	"errors"
 
-	"rogerai.fm/roger/v6/internal/towercore/admit"
-	"rogerai.fm/roger/v6/internal/towercore/attach"
-	"rogerai.fm/roger/v6/internal/towercore/inv"
-	"rogerai.fm/roger/v6/internal/towercore/link"
+	"rogerai.fm/roger/v7/internal/towercore/admit"
+	"rogerai.fm/roger/v7/internal/towercore/attach"
+	"rogerai.fm/roger/v7/internal/towercore/inv"
+	"rogerai.fm/roger/v7/internal/towercore/link"
 )
 
 // maxInventoryBody bounds what a Tower may push in one request. towerinv enforces its own
@@ -434,7 +434,7 @@ func (b *broker) towerStationRevoke(w http.ResponseWriter, r *http.Request) {
 
 	owner, ok := b.towerOperator(r, body)
 	if !ok {
-		jsonErr(w, http.StatusUnauthorized, "revoking a Station requires a signed-in account - run `roger-tower login`")
+		jsonErr(w, http.StatusUnauthorized, "revoking a Station requires a signed-in account - run `roger tower login`")
 		return
 	}
 	ts := b.towerAvailable(w)
@@ -735,7 +735,7 @@ func (b *broker) towerSelfLifecycle(w http.ResponseWriter, r *http.Request) {
 	body := readTowerBody(r)
 	owner, ok := b.towerOperator(r, body)
 	if !ok {
-		jsonErr(w, http.StatusUnauthorized, "this needs a signed-in account - run `roger-tower login`")
+		jsonErr(w, http.StatusUnauthorized, "this needs a signed-in account - run `roger tower login`")
 		return
 	}
 	var req struct {

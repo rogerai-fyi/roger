@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"strings"
 
-	"rogerai.fm/roger/v6/internal/agent"
-	"rogerai.fm/roger/v6/internal/client"
+	"rogerai.fm/roger/v7/internal/agent"
+	"rogerai.fm/roger/v7/internal/client"
 )
 
 // PRIVATE BANDS IN THE CONSOLE.

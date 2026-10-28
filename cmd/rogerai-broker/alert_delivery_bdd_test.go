@@ -26,7 +26,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"rogerai.fm/roger/v6/internal/bddtest"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"sort"
 	"strconv"
 	"strings"
@@ -37,8 +37,8 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/cucumber/godog"
 	"github.com/stretchr/testify/require"
-	"rogerai.fm/roger/v6/internal/protocol"
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 // ---- fake clock -----------------------------------------------------------------
@@ -159,6 +159,7 @@ type emailProvider struct {
 	script    []scriptedResp
 	def       scriptedResp
 	hang      chan struct{} // non-nil: every POST blocks until closed
+	held      int           // POSTs blocked on hang right now
 	capPerSec int           // >0: 429 when more than capPerSec POSTs landed in the last second
 	first429  int           // >0: 429 the first N POSTs
 	served    int
@@ -215,7 +216,13 @@ func (p *emailProvider) handle(w http.ResponseWriter, r *http.Request) {
 	}
 	p.mu.Unlock()
 	if hang != nil {
+		p.mu.Lock()
+		p.held++
+		p.mu.Unlock()
 		<-hang
+		p.mu.Lock()
+		p.held--
+		p.mu.Unlock()
 	}
 
 	p.mu.Lock()
@@ -386,6 +393,7 @@ type adState struct {
 	tickDur     time.Duration
 	relayDur    time.Duration
 	relayCode   int
+	relayHeld   int // alert POSTs still held at the provider when the relay returned
 	live        map[string]any
 	drainDone   chan struct{}
 	markBefore  int // provider count before a "When" so a "Then" can look at the delta
@@ -1832,10 +1840,28 @@ func (s *adState) provider429ForeverAlertsFire(n int) error {
 	s.prov.mu.Lock()
 	s.prov.def = scriptedResp{status: 429}
 	s.prov.mu.Unlock()
+	// The worst storm: on top of 429 forever, every POST is held open until the scenario ends,
+	// so delivery never finishes while the relay runs. A relay that waited on any of it would
+	// never return.
+	if err := s.providerHangs(); err != nil {
+		return err
+	}
 	for i := 0; i < n; i++ {
 		b.adminAlert(fmt.Sprintf("storm:%d", i), fmt.Sprintf("storm %d", i), "Storm", nil, "body")
 	}
-	return nil
+	// The storm is under way once the provider holds a POST.
+	for deadline := time.Now().Add(10 * time.Second); ; {
+		s.prov.mu.Lock()
+		held := s.prov.held
+		s.prov.mu.Unlock()
+		if held > 0 {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("no alert POST reached the provider within 10s")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
 }
 
 func (s *adState) fundedConsumerRelays() error {
@@ -1885,6 +1911,9 @@ func (s *adState) fundedConsumerRelays() error {
 	b.relay(w, r)
 	s.relayDur = time.Since(st)
 	s.relayCode = w.Code
+	s.prov.mu.Lock()
+	s.relayHeld = s.prov.held
+	s.prov.mu.Unlock()
 	return nil
 }
 
@@ -1892,8 +1921,14 @@ func (s *adState) relayAtStationSpeed() error {
 	if s.relayCode != http.StatusOK {
 		return fmt.Errorf("relay = %d, want 200", s.relayCode)
 	}
-	if s.relayDur > time.Second {
-		return fmt.Errorf("relay took %v under an alert storm, want the station's speed (well under 1s)", s.relayDur)
+	// The decisive check: the relay returned while alert deliveries were still held open at the
+	// provider, so it did not wait on any of them. A raw wall-clock bound alone failed under gate
+	// CPU load without saying anything about waiting; the bound below only catches a hang.
+	if s.relayHeld == 0 {
+		return fmt.Errorf("no alert delivery was still held when the relay returned, so this run cannot show the relay did not wait on one")
+	}
+	if s.relayDur > 10*time.Second {
+		return fmt.Errorf("relay took %v under an alert storm: it is waiting on something", s.relayDur)
 	}
 	return nil
 }
@@ -2705,7 +2740,7 @@ func TestAlertDeliveryFeature(t *testing.T) {
 			TestingT: t, Strict: true,
 		},
 	}
-	if bddtest.Run(t, &suite) != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("alert_delivery.feature: scenarios failed")
 	}
 }

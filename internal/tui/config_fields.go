@@ -1,6 +1,6 @@
 package tui
 
-// THE [3] CONFIG ROUTING FIELDS (features/tui/routing_profiles.feature). The table keeps its
+// THE [4] CONFIG ROUTING FIELDS (features/tui/routing_profiles.feature). The table keeps its
 // two headline columns; every other routing key of a band's rule lives on the plate under the
 // table, walked with tab / shift+tab in one fixed order. Numbers and text are typed; the four
 // choice fields cycle with space (or enter); require toggles with t / v. Each field writes
@@ -12,7 +12,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"rogerai.fm/roger/v6/internal/client"
+	"rogerai.fm/roger/v7/internal/client"
 )
 
 type limFieldKind int
@@ -53,7 +53,7 @@ const (
 	lfRegion
 )
 
-// defaultLimitRow is the [3] CONFIG row that edits limits.default.
+// defaultLimitRow is the [4] CONFIG row that edits limits.default.
 const defaultLimitRow = "default"
 
 // limFocusLabel names the field the CONFIG cursor is on ("" off the band table).

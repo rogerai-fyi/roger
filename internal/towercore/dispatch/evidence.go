@@ -47,7 +47,7 @@ import (
 	"strconv"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/towerobj"
+	"rogerai.fm/roger/v7/internal/towerobj"
 )
 
 // TypeAck identifies the consumer's signed statement.

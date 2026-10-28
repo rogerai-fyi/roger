@@ -3,7 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
-	"rogerai.fm/roger/v6/internal/bddtest"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strings"
 	"testing"
 
@@ -269,7 +269,7 @@ func TestChatPromptBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if bddtest.Run(t, &suite) != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("chat prompt scenarios failed")
 	}
 }

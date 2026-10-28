@@ -1,0 +1,105 @@
+package edge
+
+// MAINTENANCE (features/edge/maintenance.feature): the smallest remote action that closes the
+// monitoring loop - START an agent the owner already marked persistent on that machine, from
+// another machine, when the screens say it is down.
+//
+// This file owns the vocabulary and the refusals that do not depend on the host: what an action is,
+// what it names, and which actions exist. WHAT actually happens lives in cmd/rogerai (the host
+// knows how to launch a roger); the face reaches it through Serving.Invoke like every other
+// capability, so the certificate check, the grant check, the revocation check, the nonce cache and
+// the receipts are the ones invoke already makes. Nothing new is opened.
+
+import (
+	"encoding/json"
+	"fmt"
+	"strings"
+)
+
+// MaintainAction is what a maintenance task asks for.
+type MaintainAction string
+
+const (
+	// MaintainStart launches a persistent agent that is not running.
+	MaintainStart MaintainAction = "start"
+	// MaintainLogs returns this roger's recent log lines, redacted (features/edge/logs.feature). It
+	// rides the maintenance path rather than a face path of its own, so it inherits every check the
+	// invoke path already makes - the certificate, the grant's signature, the revocation, the caller
+	// match, the capability scope, the owner's switch, the replay cache - and adds no new one.
+	MaintainLogs MaintainAction = "logs"
+	// MaintainStop asks a running persistent agent to stop: SIGTERM, never SIGKILL.
+	MaintainStop MaintainAction = "stop"
+	// MaintainRestart is a stop then a start, and says which half did what.
+	MaintainRestart MaintainAction = "restart"
+	// The actions that are NOT built. They are named so a caller is refused by name rather than
+	// with "unknown", and so nothing pretends they exist.
+	MaintainReboot   MaintainAction = "reboot"
+	MaintainShutdown MaintainAction = "shutdown"
+)
+
+// MaintainTask is the task payload of a maintenance invoke.
+type MaintainTask struct {
+	Action MaintainAction `json:"action"`
+	Target string         `json:"target,omitempty"` // the agent the action acts on; not used by logs
+	Lines  int            `json:"lines,omitempty"`  // logs only: how many lines, clamped by the ring
+}
+
+// MaintainResult is what the callee answers with.
+type MaintainResult struct {
+	Action  MaintainAction `json:"action"`
+	Target  string         `json:"target,omitempty"`
+	Changed bool           `json:"changed"` // false when it was already so
+	Says    string         `json:"says"`
+	// logs only: the lines, oldest first, ALREADY redacted on the serving side, and how many the
+	// ring holds in total.
+	Lines []string `json:"lines,omitempty"`
+	Held  int      `json:"held,omitempty"`
+}
+
+// notBuilt names the actions that are specified and deliberately not implemented, with the words
+// the caller is refused with.
+var notBuilt = map[MaintainAction]string{
+	MaintainReboot:   "rebooting a machine is not built yet",
+	MaintainShutdown: "shutting a machine down is not built yet",
+}
+
+// MaintainActs are the actions that act on a NAMED agent, so the task must name one.
+var MaintainActs = []MaintainAction{MaintainStart, MaintainStop, MaintainRestart}
+
+// ParseMaintainTask reads a maintenance task and refuses everything that cannot mean what it says,
+// before the host looks anything up. The returned string is the refusal, "" when the task is good.
+func ParseMaintainTask(raw json.RawMessage) (MaintainTask, string) {
+	var t MaintainTask
+	if json.Unmarshal(raw, &t) != nil {
+		return t, "that maintenance task could not be read"
+	}
+	t.Action = MaintainAction(strings.ToLower(strings.TrimSpace(string(t.Action))))
+	t.Target = strings.TrimSpace(t.Target)
+	if t.Action == "" {
+		return t, "a maintenance task names an action; the ones there are: start, stop, restart, logs"
+	}
+	if why, ok := notBuilt[t.Action]; ok {
+		return t, why
+	}
+	if t.Action == MaintainLogs {
+		return t, "" // it acts on the machine itself: no target, and the line count is clamped later
+	}
+	named := false
+	for _, a := range MaintainActs {
+		named = named || t.Action == a
+	}
+	if !named {
+		return t, fmt.Sprintf("%q is not a maintenance action; the ones there are: start, stop, restart, logs", string(t.Action))
+	}
+	if t.Target == "" {
+		return t, "a maintenance action names the agent it acts on"
+	}
+	if err := ValidInstanceName(t.Target); err != nil {
+		return t, "that is not an agent name: " + err.Error()
+	}
+	return t, ""
+}
+
+// MaintainOffReason is the refusal a machine gives when its owner has not turned maintenance on
+// there. It is the same sentence wherever it is said.
+const MaintainOffReason = "maintenance is off on that machine; its owner turns it on there with `roger edge maintenance on`"

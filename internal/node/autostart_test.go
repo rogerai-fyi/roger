@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/agent"
-	"rogerai.fm/roger/v6/internal/onair"
+	"rogerai.fm/roger/v7/internal/agent"
+	"rogerai.fm/roger/v7/internal/onair"
 )
 
 func TestSharingAModelArmsItForNextLaunch(t *testing.T) {

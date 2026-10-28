@@ -93,28 +93,26 @@ func (rl *rateLimiter) allow(key string) (ok bool, retryAfter int) {
 	return rl.allowAt(key, 0, 0)
 }
 
-// blocked reports, without drawing a token, whether key's local bucket is empty (and a
-// seconds hint). A key with no bucket yet is not blocked. It reads only the local buckets, so
-// it pairs with a limiter that has no shared backend.
-func (rl *rateLimiter) blocked(key string) (bool, int) {
+// refund returns one token drawn by allow to key's local bucket, capped at the burst. It is for a
+// budget that is reserved before work whose outcome decides whether it should have been charged
+// (the key-miss budget is drawn before the store read and given back when the key is live). It
+// touches only the local buckets, so it suits a limiter with no shared backend.
+func (rl *rateLimiter) refund(key string) {
 	if rl == nil || rl.rpm <= 0 {
-		return false, 0
+		return
+	}
+	burst := rl.burst
+	if burst <= 0 {
+		burst = rl.rpm
 	}
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
-	b := rl.buckets[key]
-	if b == nil {
-		return false, 0
+	if b := rl.buckets[key]; b != nil {
+		b.tokens++
+		if b.tokens > burst {
+			b.tokens = burst
+		}
 	}
-	tokens := b.tokens + time.Since(b.last).Seconds()*(rl.rpm/60.0)
-	if tokens >= 1 {
-		return false, 0
-	}
-	retry := int((1 - tokens) / (rl.rpm / 60.0))
-	if retry < 1 {
-		retry = 1
-	}
-	return true, retry
 }
 
 // allowAt is allow with a per-key rate override (rpm/burst). A zero rpm or burst

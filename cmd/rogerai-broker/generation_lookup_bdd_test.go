@@ -44,7 +44,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
-	"rogerai.fm/roger/v6/internal/bddtest"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strconv"
 	"strings"
 	"sync"
@@ -52,8 +52,8 @@ import (
 	"time"
 
 	"github.com/cucumber/godog"
-	"rogerai.fm/roger/v6/internal/protocol"
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 // gl3Who is one identity a lookup (or a relay) is made as.
@@ -2051,7 +2051,7 @@ func TestGenerationLookupBDD(t *testing.T) {
 				Tags: "~@cli && ~@tui && ~@proxy && ~@harness && ~@docs && ~@later && ~@web", TestingT: t, Strict: true,
 			},
 		}
-		if bddtest.Run(t, &suite) != 0 {
+		if bddrun.Run(suite) != 0 {
 			t.Fatal("generation_lookup scenarios failed")
 		}
 	})
@@ -2078,7 +2078,7 @@ func TestGenerationLookupBDD(t *testing.T) {
 				Tags: "@slice3", TestingT: t, Strict: true,
 			},
 		}
-		if bddtest.Run(t, &suite) != 0 {
+		if bddrun.Run(suite) != 0 {
 			t.Fatal("model_fallback_list @slice3 scenarios failed")
 		}
 	})

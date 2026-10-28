@@ -8,7 +8,7 @@ import (
 	"net/url"
 
 	"net/http/httptest"
-	"rogerai.fm/roger/v6/internal/towercore/envelope"
+	"rogerai.fm/roger/v7/internal/towercore/envelope"
 	"testing"
 	"time"
 

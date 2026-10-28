@@ -1,0 +1,4 @@
+bartowski/SmolLM2-135M-Instruct-GGUF:Q4_K_M: fits at 8K context by llama.cpp's own check: needs 630.0 MiB, leaving its margin free
+starting bartowski/SmolLM2-135M-Instruct-GGUF:Q4_K_M in the background...
+on the air locally: "smollm2-135m-instruct" - bartowski/SmolLM2-135M-Instruct-GGUF:Q4_K_M, 8192 context, at http://127.0.0.1:18932/v1
+  it keeps serving after this terminal closes. `roger model status` · `roger model stop`

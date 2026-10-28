@@ -22,14 +22,17 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"rogerai.fm/roger/v7/internal/coreclient"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/client"
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/client"
+	"rogerai.fm/roger/v7/internal/keyfile"
+	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/servedfile"
 )
 
 // shareFeeRate is the platform take used only to ESTIMATE the session's live
@@ -60,6 +63,16 @@ type Config struct {
 
 	Broker, Upstream, UpstreamKey string
 	NodeID, Region, HW, Model     string
+	// StationModels says what this station serves right now, for a standalone Tower's poll (nil:
+	// the poll names nothing and the Tower keeps the list it attached).
+	StationModels func() []string
+	// StationFiles says which exact file each of those models is, where this station knows (the
+	// models roger serves itself), so a Tower's clients can serve the same file by its name
+	// (features/models/short_names_nearby.feature). nil: no files are reported.
+	StationFiles func() map[string]servedfile.File
+	// StationUpstream routes a standalone Tower job's model to the local server that serves it, for
+	// a station that offers models from more than one server (nil or not ok: Upstream).
+	StationUpstream func(model string) (url, key string, ok bool)
 	// Station is the owner's persisted broadcast CALLSIGN (e.g. `brave-otter-37`) — the SAME one
 	// NodeID's first segment is derived from (ShareNodeID). Carried on the registration as the
 	// AUTHORITATIVE station the broker namespaces this node's public voices by, since the id's
@@ -159,9 +172,10 @@ type Session struct {
 	probeReqs     atomic.Int64 // UNBILLED broker probes served (kept out of servedReqs)
 	probeToks     atomic.Int64 // completion tokens spent on those probes
 	stop          chan struct{}
-	rereg         *reregistrar // shared self-healing re-register coordinator
-	inflight      inflightJobs // the jobs being served now, so a broker cancel can stop them
-	link          atomic.Int32 // LinkState: is the BROKER actually acknowledging us?
+	loops         sync.WaitGroup // the standalone Tower loops a LAN share runs (StartLAN)
+	rereg         *reregistrar   // shared self-healing re-register coordinator
+	inflight      inflightJobs   // the jobs being served now, so a broker cancel can stop them
+	link          atomic.Int32   // LinkState: is the BROKER actually acknowledging us?
 
 	// Private band: the broker-minted band id + the secret frequency code (the code is
 	// returned ONCE at the first register and stashed here so the caller - CLI/TUI -
@@ -405,6 +419,10 @@ func (s *Session) Node() string             { return s.cfg.NodeID }
 func (s *Session) Upstream() string         { return s.cfg.Upstream }
 
 // Stop ends the session's poll loops (best-effort; the process can also just exit).
+// Wait returns once every standalone Tower loop StartLAN started has ended (at once for a
+// session that runs none). Call it after Stop.
+func (s *Session) Wait() { s.loops.Wait() }
+
 func (s *Session) Stop() {
 	select {
 	case <-s.stop:
@@ -1072,6 +1090,7 @@ func effectivePriceFor(rr registerResult, model string, reqIn, reqOut float64) (
 }
 
 func register(broker string, reg protocol.NodeRegistration) (registerResult, error) {
+	coreclient.Note("agent: market registration")
 	b, _ := json.Marshal(reg)
 	req, _ := http.NewRequest(http.MethodPost, broker+"/nodes/register", bytes.NewReader(b))
 	req.Header.Set("Content-Type", "application/json")
@@ -1123,19 +1142,12 @@ func brokerErrMsg(body []byte) string {
 	return string(body)
 }
 
-func loadOrCreateKey() ed25519.PrivateKey {
+func loadOrCreateKey() ed25519.PrivateKey { return keyfile.MustLoadOrCreate(NodeKeyPath()) }
+
+// NodeKeyPath is where this machine's node identity (node.key) lives.
+func NodeKeyPath() string {
 	dir, _ := os.UserConfigDir()
-	path := filepath.Join(dir, "rogerai", "node.key")
-	if data, err := os.ReadFile(path); err == nil {
-		if raw, err := hex.DecodeString(string(bytes.TrimSpace(data))); err == nil && len(raw) == ed25519.PrivateKeySize {
-			return ed25519.PrivateKey(raw)
-		}
-	}
-	_, priv, _ := ed25519.GenerateKey(nil)
-	_ = os.MkdirAll(filepath.Dir(path), 0700)
-	_ = os.WriteFile(path, []byte(hex.EncodeToString(priv)), 0600)
-	log.Printf("generated node key at %s", path)
-	return priv
+	return filepath.Join(dir, "rogerai", "node.key")
 }
 
 func randHex(n int) string {

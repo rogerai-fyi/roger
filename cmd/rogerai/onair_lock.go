@@ -6,7 +6,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"rogerai.fm/roger/v6/internal/onair"
+	"rogerai.fm/roger/v7/internal/onair"
 )
 
 // On-air single-instance guard.

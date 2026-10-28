@@ -21,7 +21,7 @@ import (
 	"sort"
 	"strings"
 
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // continents is the vocabulary a table may use.

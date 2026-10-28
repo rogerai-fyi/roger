@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/protocol"
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 // Per-account MONTHLY SPEND CAP enforcement (a budget limit, modeled on Groq's "set a
@@ -192,12 +192,12 @@ func (b *broker) capRefusal(w http.ResponseWriter, r *http.Request, holder strin
 	if pending > 0 && spend+amount <= cap+store.CapEpsilon {
 		w.Header().Set("X-RogerAI-Monthly-Pending", ftoa(round6(pending)))
 		return http.StatusPaymentRequired, fmt.Sprintf(
-			"monthly spend limit reached: $%.2f spent and $%.2f held by requests still in progress, of $%.2f this month - retry when they finish, raise it with `roger limit --monthly` (or [3] CONFIG), or wait until next month",
+			"monthly spend limit reached: $%.2f spent and $%.2f held by requests still in progress, of $%.2f this month - retry when they finish, raise it with `roger limit --monthly` (or [4] CONFIG), or wait until next month",
 			round6(spend), round6(pending), round6(cap))
 	}
 	b.capNotify(r, holder, "100", spend, cap, now)
 	return http.StatusPaymentRequired, fmt.Sprintf(
-		"monthly spend limit reached: $%.2f of $%.2f this month - raise it with `roger limit --monthly` (or [3] CONFIG), or wait until next month",
+		"monthly spend limit reached: $%.2f of $%.2f this month - raise it with `roger limit --monthly` (or [4] CONFIG), or wait until next month",
 		round6(spend), round6(cap))
 }
 

@@ -16,12 +16,12 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"rogerai.fm/roger/v6/internal/bddtest"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strings"
 	"testing"
 
 	"github.com/cucumber/godog"
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 // gaOwner is one test identity: its signing key + how it is bound.
@@ -320,7 +320,7 @@ func TestGrantsAppleOwnerBDD(t *testing.T) {
 		},
 		Options: &godog.Options{Format: "pretty", Paths: []string{"../../features/grants/apple_owner_management.feature"}, TestingT: t, Strict: true},
 	}
-	if bddtest.Run(t, &suite) != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("grants/apple_owner_management behavior scenarios failed (see godog output above)")
 	}
 }

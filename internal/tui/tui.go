@@ -15,11 +15,11 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"reflect"
+	"rogerai.fm/roger/v7/internal/servedfile"
 	"runtime"
 	"sort"
 	"strconv"
@@ -34,16 +34,22 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/mattn/go-isatty"
-	"rogerai.fm/roger/v6/internal/agent"
-	"rogerai.fm/roger/v6/internal/capsule"
-	"rogerai.fm/roger/v6/internal/client"
-	"rogerai.fm/roger/v6/internal/detect"
-	"rogerai.fm/roger/v6/internal/glyphs"
-	"rogerai.fm/roger/v6/internal/harness"
-	"rogerai.fm/roger/v6/internal/node"
-	"rogerai.fm/roger/v6/internal/operator"
-	"rogerai.fm/roger/v6/internal/protocol"
-	"rogerai.fm/roger/v6/internal/session"
+	"rogerai.fm/roger/v7/internal/agent"
+	"rogerai.fm/roger/v7/internal/capsule"
+	"rogerai.fm/roger/v7/internal/client"
+	"rogerai.fm/roger/v7/internal/detect"
+	"rogerai.fm/roger/v7/internal/edge"
+	"rogerai.fm/roger/v7/internal/glyphs"
+	"rogerai.fm/roger/v7/internal/harness"
+	"rogerai.fm/roger/v7/internal/look"
+	"rogerai.fm/roger/v7/internal/modelview"
+	"rogerai.fm/roger/v7/internal/netbind"
+	"rogerai.fm/roger/v7/internal/node"
+	"rogerai.fm/roger/v7/internal/operator"
+	"rogerai.fm/roger/v7/internal/ownerjoin"
+	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/session"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 // Hooks lets the host (cmd/rogerai) supply the few platform/auth bits the TUI
@@ -51,6 +57,24 @@ import (
 // REAL actions (not "run it elsewhere") without the tui package importing the
 // host. All are optional; a nil hook degrades that flow to a labeled hint.
 type Hooks struct {
+	// LANTowers is set in LAN mode (features/lan/share_in_lan_mode.feature): the LAN Towers'
+	// consumer-plane base URLs SHARE serves as a standalone station, registering with nothing.
+	// Nil = LAN mode off.
+	LANTowers func() []string
+	// Owner is the owner's side of joining (owner_join.go): the Towers this user serves, their
+	// waiting join requests, invites and the Towers this machine joined. Nil = not offered.
+	Owner *ownerjoin.Hooks
+	// LANEdgeOnly is `roger --lan --edge-only` (features/lan/edge_only.feature): SHARE serves Edge
+	// members only (LANTowers lists none) and the console marks the mode.
+	LANEdgeOnly bool
+	// LANAddTower adds a candidate Tower to lan_towers the way `roger lan add` does, returning the
+	// line to show (features/lan/discovery_and_dial.feature). Nil = adding from the dial is off.
+	LANAddTower func(addr string) (string, error)
+
+	// Models is `roger model` for the MODELS screen (models.go), filled by cmd/rogerai from the
+	// CLI's own code so this screen cannot judge, fetch or serve differently. Zero = not offered.
+	Models modelview.Hooks
+
 	// Station is the owner's friendly, NON-SENSITIVE broadcast callsign (e.g.
 	// `brave-otter`). Every band's broker node id is derived as `<station>-<model>` via
 	// agent.ShareNodeID - so it carries the station, NEVER the hostname or a port, into
@@ -61,13 +85,20 @@ type Hooks struct {
 	// ConsoleURL is the tokenized URL of this run's browser node console ("" = no
 	// console this run, e.g. --no-webui). The console no longer auto-opens at launch
 	// (founder respec 2026-07-14); `w` in BROWSE and /webui in AGENT open it on demand.
-	ConsoleURL  string
-	HW          string  // hardware label for the offer
-	GitHubID    string  // public GitHub OAuth client id (device flow)
-	LinkedLogin string  // the locally-linked GitHub login at startup ("" = anonymous)
-	ShareModel  string  // saved onboarding model (default offer)
-	SharePriceI float64 // saved input price (0 = free)
-	SharePriceO float64 // saved output price (0 = free)
+	ConsoleURL string
+	// WelcomeDue opens the one-time welcome card over the dial on this launch
+	// (features/onboarding/welcome_card.feature). The host decides it: an interactive first
+	// launch, or `roger onboard --welcome`.
+	WelcomeDue bool
+	// SaveWelcomeSeen writes welcome_seen and nothing else, when the card closes in any way
+	// (the TUI does no disk I/O itself). Nil = in-session only.
+	SaveWelcomeSeen func() error
+	HW              string  // hardware label for the offer
+	GitHubID        string  // public GitHub OAuth client id (device flow)
+	LinkedLogin     string  // the locally-linked GitHub login at startup ("" = anonymous)
+	ShareModel      string  // saved onboarding model (default offer)
+	SharePriceI     float64 // saved input price (0 = free)
+	SharePriceO     float64 // saved output price (0 = free)
 	// ShareUpstream + ShareUpstreamKey seed the saved/verified local endpoint (and any
 	// bearer key it needs) from the host config, so a custom / key-protected upstream
 	// saved during onboarding is probed FIRST and reused on the TUI's first /share scan -
@@ -84,7 +115,142 @@ type Hooks struct {
 	// the ON AIR n/max slots and BLOCKS flipping another row on air at the cap. <=0 means
 	// "use the package default" (defaultShareMaxOnAir).
 	ShareMaxOnAir int
-	Login         func(broker, clientID string) (string, error) // device-flow login -> github login
+	// ROGER EDGE ([3] EDGE). The fleet the screen draws, and the two things that only
+	// the host can do with it. All optional: with no fleet wired the screen renders the
+	// honest empty Edge rather than a guess.
+	//
+	// EdgeSelf is what THIS instance is called on its own graph (it falls back to the
+	// station callsign); EdgeFleet is the account-scoped fleet; EdgeCandidates are the
+	// unenrolled peers discovery has seen on this LAN (never members - they are drawn
+	// with no edge to self); EdgeAdopt is the owner's explicit adoption of one.
+	EdgeSelf       string
+	EdgeFleet      *edge.Fleet
+	EdgeCandidates func() []store.EdgeNode
+	EdgeAdopt      func(id, name string) error
+	// EdgeName renames a node and EdgeForget removes it (revoking its certificate when this machine is
+	// the authority) - the host operations behind the CLI's `roger edge name`/`forget` and the
+	// console's Name/Forget actions. Nil when the build cannot manage the fleet.
+	EdgeName   func(id, name string) error
+	EdgeForget func(id string) error
+	// EdgeConfirmActuate is the owner saying yes to a node that can change the physical world
+	// (features/edge/node_identity.feature). It is the one capability nothing infers and no probe
+	// can verify, so it is granted by a person and the host records WHO. Nil when the build cannot
+	// perform the ceremony, and then no button for it is drawn.
+	EdgeConfirmActuate func(id string) error
+	// EdgeSetPrefer chooses where a turn goes first (local | market | local-only), the host-side of
+	// `roger edge prefer` and the console's Prefer control (features/edge/mode.feature).
+	EdgeSetPrefer func(want string) error
+	// EdgeGrants lists the authority-signed grants this owner issued; EdgeIssueGrant mints one (caller,
+	// capability, callee node id, duration like 7d); EdgeRevokeGrant revokes by id. The invoke fabric's
+	// grant surface (features/edge/control.feature), the host-side of `roger edge grant`.
+	EdgeGrants func() ([]store.Grant, error)
+	// EdgeDrift is where the fleet does NOT match what the owner said it should be
+	// (features/edge/drift.feature), by node id, each line naming what was expected and what was
+	// found. Nothing is inferred here: a unit with no expectation on it has no entry.
+	EdgeDrift func() map[string][]string
+	// EdgeAlerts is the alert rules firing right now, by node id, each as its rule wording
+	// ("cpu_temp > 85") - the fleet surface of health.feature §5. Nil = no alerting on this build.
+	EdgeAlerts func() map[string][]string
+	// EdgeFloor is the floor's raw facts for the console (the state log, the standing calls, the
+	// rate, the sign-off); EdgeRoger acknowledges a call, EdgeStandBy quiets one for a time.
+	EdgeFloor   func(now time.Time) (samples []edge.StateSample, calls []edge.TroubleCall, rate int, so edge.SignOffReport)
+	EdgeReads   func() map[string]int64 // node id -> when its Roger app last read the trouble feed
+	EdgeRoger   func(ruleID, nodeID string) error
+	EdgeStandBy func(ruleID, nodeID string, d time.Duration) error
+	// EdgeHealthLive says this binary can open the live Edge window (`roger edge fleet`); [3] then
+	// offers the live map (o) and a unit's health in it (h, --health), run as a child process like a
+	// guest operator.
+	EdgeHealthLive  bool
+	EdgeIssueGrant  func(caller, capability, callee, forDur string) (store.Grant, error)
+	EdgeRevokeGrant func(id string) error
+	// EdgeSessions is the account's live session ledger: the traffic this Edge really
+	// carried, derived by the relay path from its OWN receipts. The screen only READS
+	// it. There is no hook here that could open a session, because looking at the Edge
+	// must never be a way to cause one. nil = no session layer, and the screen draws
+	// the fleet exactly as it did before.
+	EdgeSessions *edge.Sessions
+	// EdgeStatus is what is true about THIS machine's place on its Edge - enrolled,
+	// authority, discovery - for the screen an owner sees before anything is set up.
+	// Nil = unknown, and the empty screen then names only the LAN path.
+	EdgeStatus func() edge.SelfStatus
+	// EdgeScan opens an on-request LAN scan of the given kind ("edge" while the [3] EDGE screen
+	// shows, "lan" while the LAN dial shows) and returns the function that closes it. A machine
+	// outside an Edge browses only while one is open (features/edge/scan_on_request.feature).
+	// Nil = the host does not gate scans, and the screens ask for nothing.
+	EdgeScan func(kind string) (end func())
+	// EdgeHousehold is the rogers running on THIS machine right now (this instance among
+	// them) - the local instance registry, read live. It is how [3] shows the owner's own
+	// instances and agents even on one machine, where mDNS cannot see loopback. Nil = unknown.
+	EdgeHousehold func() []edge.Instance
+	// EdgePersistentAgents are the agents the owner marked persistent (durable, features/edge/
+	// agents.feature): one that is not in the live household is drawn DARK with resume/remove.
+	EdgePersistentAgents func() []edge.PersistentAgent
+	// EdgeSelfInstance is THIS roger's own instance name, so [3] can mark which of the several
+	// rogers running here is the one you are looking at. "" when unknown.
+	EdgeSelfInstance func() string
+	// The in-place ACTIONS the [3] control panel performs on this machine, so the owner never has
+	// to leave the screen and type a command (features/edge/agents.feature, the manager). Each is
+	// nil when the build cannot do it, and the button then says so rather than lying.
+	//   EdgeAgentActive - is THIS roger an agent right now?
+	//   EdgeSetAgent    - make this roger an agent, or stop being one, at once.
+	//   EdgeAddAgent    - launch a NEW agent roger on this machine.
+	//   EdgeRenameSelf  - rename this roger among the rogers here.
+	//   EdgeResumeAgent - relaunch a DARK persistent agent by name.
+	//   EdgeRemoveAgent - forget a persistent agent (drop its durable record) by name.
+	EdgeAgentActive func() bool
+	EdgeSetAgent    func(on bool) error
+	EdgeAddAgent    func() error
+	EdgeRenameSelf  func(name string) error
+	EdgeResumeAgent func(name string) error
+	EdgeRemoveAgent func(name string) error
+	// EdgeAgentJobs is the durable ASSIGNMENTS on this Edge (features/edge/jobs.feature): each
+	// agent's bound model, its use/share posture, and its job. [3] reads it to show what each
+	// agent is DOING - the model it serves or uses, its job - instead of a bare "agent". nil when
+	// the build wired none; the detail then says "not assigned yet" honestly.
+	// EdgeAdopting is the nodes the owner has adopted (granted a claim) that have not yet claimed
+	// their certificate and checked in - shown as ADOPTING so a just-adopted phone does not vanish
+	// between adopt and membership. Each carries the friendly name from the grant. nil when none.
+	EdgeAdopting func() []store.EdgeNode
+	// EdgeAdoptCode is the live one-time enrollment code an adopted device enters to finish
+	// joining, and when it expires (features/edge/enrollment_root_trust.feature). ok=false when
+	// there is none (spent, expired, or this machine is not the authority).
+	EdgeAdoptCode func(id string) (code string, until time.Time, ok bool)
+	EdgeAgentJobs func() []edge.AgentJob
+	// EdgeSetAgentJob and EdgeClearAgentJob set/clear an agent's assignment in place, so the owner
+	// binds a model or a job from [3] without leaving the screen.
+	EdgeSetAgentJob func(j edge.AgentJob) error
+	// EdgeServeModel asks a member (by node id) to serve a model id, under a serve-control grant
+	// (features/edge/remote_model.feature). It returns the member's own answer.
+	EdgeServeModel    func(node, id string) (string, error)
+	EdgeClearAgentJob func(name string) error
+	// EdgeLadder fills the dispatch-ladder seams on the live proxy options, so the TUI
+	// booth tries a peer on this Edge before the market exactly as `roger use` does.
+	EdgeLadder func(o *client.ProxyOptions)
+	// EdgeAsk opens a prompt PINNED to a node's model (features/edge/addressed_inference.feature).
+	// Optional: when nil, the TUI shows the equivalent `roger use <node>` command instead.
+	EdgeAsk func(addr, model string) error
+	// EdgeSetup is the onboarding backend the [3] wizard drives (features/edge/onboard.
+	// feature): start a new Edge, join one, finish a missed step. Nil = this build cannot
+	// set up an Edge here, and the wizard says so rather than half-doing it. Wired by the
+	// host (edgesetup.go), single-sourced with the CLI, following the LoginBegin/LoginPoll
+	// precedent.
+	EdgeSetup   *EdgeSetup
+	EdgeSetupOf func() EdgeSetupState
+	// EdgeJoin is the empty state's j prompt backend: an invite or an address, with the rules
+	// of `roger join` (features/edge/empty_edge_simple.feature §4). Nil = this build cannot
+	// join from here, and j says so.
+	EdgeJoin *edge.JoinPrompt
+	// EdgeInviteFor mints an invite bound to ONE nearby device (features/edge/empty_edge_simple.feature
+	// §7, founder ruling 2026-10-12): the roger://join line only that node id can redeem, and when it
+	// expires. A claim-only device (no certificate: a phone) is granted its claim at the same time, so
+	// its own claim poll is answered too. Nil = this build cannot invite from here, and i says so.
+	EdgeInviteFor func(n store.EdgeNode) (line string, until time.Time, err error)
+	// EdgeHeartbeats carries a node id every time the host actually HEARD from that node
+	// (a verified discovery sighting). It is the ONLY thing that animates the graph: the
+	// TUI never invents a heartbeat on a timer, so a fleet with no traffic draws a still
+	// graph, and a still graph is information. nil = no live events.
+	EdgeHeartbeats <-chan string
+	Login          func(broker, clientID string) (string, error) // device-flow login -> github login
 	// LoginBegin starts the GitHub device flow and returns the URL + code to show
 	// (no polling); LoginPoll then blocks until the user authorizes and returns the
 	// linked login. Split so the TUI can render its own clean login panel + auto-open
@@ -115,6 +281,9 @@ type Hooks struct {
 	// SavedProbeMin seeds each model's declared minimum probe interval (config.json
 	// share_prices probe_min), so TUI and auto-started shares register it (nil = none).
 	SavedProbeMin map[string]time.Duration
+	// StationFiles is which file each model roger serves is, reported by a LAN station
+	// (features/models/short_names_nearby.feature); nil reports none.
+	StationFiles func() map[string]servedfile.File
 	// SavedVoices seeds each model's on-air voice identity (dj name / default voice /
 	// speed / language / sample clip URL) from the host's config.json share_voices block,
 	// so a saved identity - including the BOOTH-less sample_url - arms the offer without
@@ -398,10 +567,14 @@ func autoStartDetectCmd(extra, key string) tea.Cmd {
 }
 
 type offer struct {
-	NodeID string `json:"node_id"`
-	Region string `json:"region"`
-	HW     string `json:"hw"` // privacy-bucketed hardware class (multi-gpu/single-gpu/apple/cpu)
-	Model  string `json:"model"`
+	// LANSource names where a LAN-mode row is served ("this machine", "edge: jetson", "tower:
+	// 192.168.1.20"); LANSources are the rows' sources in full. Empty outside LAN mode.
+	LANSource  string             `json:"-"`
+	LANSources []client.LANSource `json:"-"`
+	NodeID     string             `json:"node_id"`
+	Region     string             `json:"region"`
+	HW         string             `json:"hw"` // privacy-bucketed hardware class (multi-gpu/single-gpu/apple/cpu)
+	Model      string             `json:"model"`
 	// Modality is what the station DOES: "chat" (the back-compat default), "tts" (speak), or
 	// "stt" (listen), carried from the broker's /discover feed. It is what lets the browser tell
 	// a VOICE band apart from a chat band so a voice station is offered as a PREVIEW, never
@@ -479,12 +652,14 @@ const (
 	modeConnectConfirm    // 3.2 cost confirmation (default DENY)
 	modeConnecting        // staged scan/lock/handshake/CHANNEL-OPEN sequence (the web's tune-in)
 	modeOverLimit         // 3.3 over-limit + inline edit-your-max
-	modeLimits            // 3.4 per-model spend limits
+	modeLimits            // [4] CONFIG: per-model spend limits
+	modeEdge              // [3] EDGE: the fleet topology - what is on my Edge, and how is it connected (edge.go)
 	modeShare             // k9s-style provider table: list local models, toggle on/off-air
 	modeBandCard          // private band code card: shows the one-time frequency code after going private
 	modeShareEditor       // per-model pricing + time-of-use schedule editor (login-gated)
 	modeShareMeta         // per-model category / tags editor (not login-gated)
 	modeShareSetup        // guided fallback: no local model detected, pick a tool / paste a URL
+	modeModels            // MODELS: fetch and serve a model with nothing else installed (models.go)
 	modeQuitConfirm       // on-air quit-guard: confirm before going off air on quit
 	modeAgent             // [0] AGENT: the embedded tool-capable agent harness (dj.md persona)
 	modeLogin             // [L] confirmable login/logout panel (never an instant action)
@@ -583,7 +758,7 @@ func (s *LimitStore) setLocked(model string, l Limit) {
 
 // Set is the exported mutator, for a SECOND front-end editing the same store.
 //
-// The browser console shows the same per-band caps [3] CONFIG does, and it must write to
+// The browser console shows the same per-band caps [4] CONFIG does, and it must write to
 // THIS store rather than a copy: two stores would let the terminal and the browser disagree
 // about what the operator is willing to pay, and the disagreement would only surface as an
 // unexplained refusal on some later turn. A zero value clears the cap rather than recording
@@ -695,6 +870,8 @@ type quote struct {
 }
 
 type model struct {
+	// lanAddSel is the candidate Tower the owner is being asked to add ("" = no confirm open).
+	lanAddSel    string
 	metaEditor          // the SHARE tab category editor (modeShareMeta)
 	fCat         string // the dial category filter (G): "" = off
 	broker, user string
@@ -721,6 +898,13 @@ type model struct {
 	// caratFrame stamps the frame the browse cursor last moved, so the selected-row `>` eases
 	// in for a beat (caratGutter) - a 1-cell motion cue. 0 = no pending slide.
 	caratFrame int
+	// marqKey / marqFrame drive the selected-cell MARQUEE: marqKey identifies the one cell
+	// that may scroll on the screen the operator is looking at, and marqFrame stamps the
+	// frame that cell became the selected one. Moving the selection changes the key, which
+	// re-anchors the scroll to frame zero. Kept on the model (not derived per view) so the
+	// scroll is a pure function of the carrier beat and nothing reads a wall clock.
+	marqKey   string
+	marqFrame int
 	// statusFrame stamps when the status line last changed, so the tick auto-dismisses it as a
 	// transient toast in the main views (A.6.6). Stamped centrally in Update. 0 = nothing fresh.
 	statusFrame int
@@ -832,6 +1016,10 @@ type model struct {
 	monthlySpend    float64 // month-to-date captured spend ($)
 	status          string
 	alert           *alertBox
+	// mic is who holds the TUI's endpoint right now: a guest's name from its exec to its
+	// return, empty otherwise. Shared by pointer so the live proxy options can ask it at
+	// receipt time (edge_attribution.go).
+	mic *edgeMic
 	// pricing UX state
 	limits *LimitStore
 	bands  []band // offers grouped by model (the band list, 3.1)
@@ -901,7 +1089,7 @@ type model struct {
 	// Since the curated work, every dial filter (this one, F/C/O, and U) also bounds what
 	// an unattended auto-tune may BIND: pickAutoBand reads visibleBands, because a turn
 	// silently bound to a band the operator asked not to see is the same bug whichever
-	// filter hid it. The standing [3] CONFIG preference remains the durable rule; a
+	// filter hid it. The standing [4] CONFIG preference remains the durable rule; a
 	// filter is session-scoped.
 	fQuant     string
 	browseTop  int    // first visible row index in the virtualized window
@@ -910,9 +1098,9 @@ type model struct {
 	editBuf    string // inline numeric edit buffer (over-limit + limits edit)
 	editDraft  bool   // the operator typed, deleted or nudged in the open field (see enter)
 	editField  int    // the limits editor field being EDITED (-1 = browsing the table)
-	limField   int    // the [3] CONFIG field the cursor is on (config_fields.go limFieldDefs)
+	limField   int    // the [4] CONFIG field the cursor is on (config_fields.go limFieldDefs)
 	editTyped  bool   // the edit buffer was typed into since the field was focused
-	limAdding  bool   // [3] CONFIG `a`: typing the model name of a new row into editBuf
+	limAdding  bool   // [4] CONFIG `a`: typing the model name of a new row into editBuf
 	// limProfileOpen shows the selected profile row's resolved keys (enter toggles).
 	limProfileOpen bool
 	// confirmProfile is the profile the TUNE IN confirm will tune under ("" = default);
@@ -1075,12 +1263,21 @@ type model struct {
 	updateLine string // "update available v<cur> -> v<new>" or "" (set by updateMsg)
 	upg        upgState
 	// in-TUI provider/account/money flows (TUI-V2-CRITIQUE D / audit C5)
-	hooks     Hooks          // host-supplied platform/auth bits (nil-safe)
-	share     *agent.Session // most-recently-shared in-process session (the panel's headline; nil = none)
-	onAir     bool           // ON AIR indicator + panel (true while any share is live)
-	ghLogin   string         // linked GitHub login (set at startup if linked, or once /login succeeds); "" = anonymous
-	loggedIn  bool           // true when the broker confirms a real account wallet (gates the balance display)
-	grantList []GrantRow     // last /grant list result
+	hooks Hooks     // host-supplied platform/auth bits (nil-safe)
+	own   ownerJoin // the owner's view of joins on the Towers this user serves (owner_join.go)
+	// scanEnds closes each on-request scan this model opened, by kind (scan.go).
+	scanEnds   map[string]func()
+	share      *agent.Session // most-recently-shared in-process session (the panel's headline; nil = none)
+	onAir      bool           // ON AIR indicator + panel (true while any share is live)
+	welcome    bool           // the one-time welcome card is open over the dial (welcome.go)
+	welcomeSel int            // the card's selected line
+	promoOn    *bool          // the broker's GET /promo: a starter credit is still offered (nil = not read)
+	welcomeErr string         // the card's welcome_seen could not be saved (shown, never blocking)
+	shareIntro bool           // SHARE was opened from the card: it says free vs earn in one line
+	earnShown  bool           // the earn disclosure is up in SHARE (an anonymous user asked to earn)
+	ghLogin    string         // linked GitHub login (set at startup if linked, or once /login succeeds); "" = anonymous
+	loggedIn   bool           // true when the broker confirms a real account wallet (gates the balance display)
+	grantList  []GrantRow     // last /grant list result
 	// BASE STATION / remote control (v5.0.0). rcBridge is the live HOST bridge for THIS
 	// machine's agent (nil unless /remote-control is on); rcInfo is its one-time enable info
 	// (for re-copy); rcSessions is the roster cache for modePrivate; rcCursor/rcErr drive the
@@ -1237,11 +1434,15 @@ type model struct {
 	// reaching the bottom again (or sending) re-sticks.
 	chatUnstuck  bool
 	agentUnstuck bool
-	// limReturn is where [3] CONFIG goes back to. It is normally the browser; when the
+	// limReturn is where [4] CONFIG goes back to. It is normally the browser; when the
 	// BAND CARD routed here to edit one field, it is the card - otherwise an operator who
 	// pressed `e` on a card would be dropped on a spend-limit table they never opened.
 	limReturn    mode
 	limReturnSet bool
+	// [3] EDGE: the fleet topology screen's whole state (edge.go), and its clock -
+	// injectable so a last-seen age is never a race against the wall clock.
+	edge      edgeState
+	edgeClock func() time.Time
 	// A LOCAL channel: the open CHANNEL runs DIRECT against a server on this machine
 	// (harness.LocalCompleter) instead of through the broker relay. Set by openLocalChannel
 	// when tuning one of your own private bands whose model runs here; cleared by
@@ -1276,9 +1477,10 @@ type model struct {
 	prices     map[string]Pricing // per-model saved pricing (in/out + schedule)
 	// guided-fallback share setup wizard (modeShareSetup): pick a tool for a
 	// one-liner, or paste a URL we verify with detect.ProbeKey.
-	setupCursor int    // selected option in the setup wizard
-	setupPaste  string // the pasted-URL buffer (when the "Other" option is chosen)
-	setupErr    string // last paste-verify error
+	mdl         modelsState // the MODELS screen (models.go)
+	setupCursor int         // selected option in the setup wizard
+	setupPaste  string      // the pasted-URL buffer (when the "Other" option is chosen)
+	setupErr    string      // last paste-verify error
 	// setupAwaitKey + setupKey drive the second input step when a pasted endpoint is
 	// reachable but KEY-PROTECTED (a 401/403): the input flips to collecting the API
 	// key, which we send as a Bearer to re-verify and then carry onto the share row.
@@ -1347,17 +1549,18 @@ func NewController(broker string, hooks Hooks) *node.Controller {
 	if station == "" {
 		station = agent.GenerateStation()
 	}
-	return node.New(node.Config{
+	ctrl := node.New(node.Config{
 		Broker: broker, HW: hooks.HW, Station: station,
 		ShareModel: hooks.ShareModel, SharePriceI: hooks.SharePriceI, SharePriceO: hooks.SharePriceO,
-		MaxOnAir:    hooks.ShareMaxOnAir,
-		Upstream:    hooks.ShareUpstream,
-		UpstreamKey: hooks.ShareUpstreamKey,
-		Prices:      hooks.SavedPrices,
-		Voices:      hooks.SavedVoices,
-		AutoStart:   hooks.SavedAutoStart,
-		Meta:        hooks.SavedMeta,
-		ProbeMin:    hooks.SavedProbeMin,
+		MaxOnAir:     hooks.ShareMaxOnAir,
+		Upstream:     hooks.ShareUpstream,
+		UpstreamKey:  hooks.ShareUpstreamKey,
+		Prices:       hooks.SavedPrices,
+		Voices:       hooks.SavedVoices,
+		AutoStart:    hooks.SavedAutoStart,
+		Meta:         hooks.SavedMeta,
+		ProbeMin:     hooks.SavedProbeMin,
+		StationFiles: hooks.StationFiles,
 		Hooks: node.Hooks{
 			SaveMeta:      hooks.SaveMeta,
 			SaveUpstream:  hooks.SaveUpstream,
@@ -1366,6 +1569,11 @@ func NewController(broker string, hooks Hooks) *node.Controller {
 			SaveAutoStart: hooks.SaveAutoStart,
 		},
 	})
+	if hooks.LANTowers != nil {
+		ctrl.SetLAN(hooks.LANTowers)
+		ctrl.SetLANEdgeOnly(hooks.LANEdgeOnly)
+	}
+	return ctrl
 }
 
 // NewWithHooks is NewWith plus the host-supplied hooks for the in-TUI provider /
@@ -1384,6 +1592,7 @@ func NewWithHooksController(broker, user string, limits *LimitStore, hooks Hooks
 	// before the first /balance comes back. The broker's logged_in flag (from the signed
 	// balance read) is the source of truth and confirms it.
 	m.ghLogin = hooks.LinkedLogin
+	m.welcome = hooks.WelcomeDue
 	m.ctrl = ctrl
 	m.ctrl.SetLoggedIn(m.loggedInState())
 	// Seed the windowshade compact mode from the saved config so the [m] choice sticks.
@@ -1450,7 +1659,7 @@ func newBase(broker, user string, limits *LimitStore) model {
 		// Independent transcript scroll regions (mouse-wheel enabled by viewport.New); sized
 		// from the window on the first WindowSizeMsg (refreshScroll).
 		chatVP: viewport.New(0, 0), agentVP: viewport.New(0, 0),
-		proxyAddr: "127.0.0.1:4141", status: "tuning in…", alert: &alertBox{}, limits: limits,
+		proxyAddr: "127.0.0.1:4141", status: "tuning in…", alert: &alertBox{}, mic: &edgeMic{}, limits: limits,
 		// Smart selection owns transcript drags by default: release copies exactly once and
 		// produces counted feedback. ctrl+o / /mouse restores native terminal selection.
 		mouseOff: false}
@@ -1467,6 +1676,10 @@ func (m model) Init() tea.Cmd {
 	if m.autoStartArmedAtLaunch() {
 		cmds = append(cmds, autoStartDetectCmd(m.shareUp, m.shareKey))
 	}
+	// The host's Edge heartbeats, drained from launch: a node heard from before the
+	// operator ever opens [3] EDGE still pulses when they get there.
+	cmds = append(cmds, waitEdgeHeartbeat(m.hooks.EdgeHeartbeats))
+	cmds = append(cmds, m.ownerJoinCmd())
 	return tea.Batch(cmds...)
 }
 
@@ -1507,6 +1720,15 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// terminal on the next message — most visibly the 160ms tick. Every TUI mutation also
 	// re-syncs locally, so this never fights an in-flight keystroke.
 	m.syncShareCache()
+	if nm, cmd, ok := m.onModelsMsg(msg); ok {
+		return nm, cmd
+	}
+	if nm, cmd, ok := m.onOwnerJoinMsg(msg); ok {
+		return nm, cmd
+	}
+	if sm, ok := msg.(edgeServeModelMsg); ok {
+		return m.onEdgeServeModelMsg(sm), nil
+	}
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
@@ -1542,6 +1764,35 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case smartCopyResultMsg:
 		return m.onSmartCopyResult(msg), nil
+	case edgeHeartbeatMsg:
+		// A REAL event: this node was heard from. It is the only thing that starts a
+		// pulse on the Edge graph. The drain over the host's channel is re-armed
+		// WHATEVER the pulse did - a heartbeat for a node this graph does not draw must
+		// not be the last one the screen ever hears.
+		mm, cmd := m.onEdgeHeartbeat(msg)
+		return mm, tea.Batch(cmd, waitEdgeHeartbeat(m.hooks.EdgeHeartbeats))
+	case edgeAnimMsg:
+		return m.onEdgeAnim()
+	case edgeSetupTickMsg:
+		// The onboarding handshake's OWN loop (features/edge/onboard.feature). It ticks
+		// only while an enroll is in flight and stops itself the instant it returns, so it
+		// never touches the fleet graph's pulse loop and a still fleet stays still.
+		return m.onEdgeSetupTick()
+	case edgeSetupDoneMsg:
+		return m.onEdgeSetupDone(msg)
+	case edgeSetupCodeMsg:
+		return m.onEdgeSetupCode(msg)
+	case edgeJoinStartedMsg:
+		return m.onEdgeJoinStarted(msg)
+	case edgeJoinDoneMsg:
+		return m.onEdgeJoinDone(msg)
+	case edgeJoinTickMsg:
+		return m.onEdgeJoinTick()
+	case edgeNearbyInviteMsg:
+		m.onEdgeNearbyInviteMsg(msg)
+		return m, nil
+	case edgeStatusTickMsg:
+		return m.onEdgeStatusTick()
 	case tickMsg:
 		// A stale tick chain (a kick bumped m.tickGen since this one was scheduled): let it die
 		// silently - do NOT advance the frame or reschedule, so only the newest chain survives.
@@ -1565,12 +1816,7 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// a transient toast clearing). When idle the frame FREEZES, so the rendered screen is
 		// byte-identical tick-to-tick - the terminal's native mouse selection survives (a repaint
 		// would wipe the highlight) and the idle UI reads calm + intentional rather than flickering.
-		// A TRANSIENT toast keeps the clock ticking only until it auto-dismisses (the dismiss
-		// window). Bounding to m.frame-m.statusFrame < toastFrames is what stops the PERSISTENT
-		// browse ambient summary (which also sets a non-empty status) from pinning animating ON
-		// forever - without this bound, browse/command never freeze and native selection is wiped.
-		toastPending := m.status != "" && m.statusFrame > 0 && m.frame-m.statusFrame < toastFrames &&
-			(m.mode == modeBrowse || m.mode == modeCommand || m.mode == modeChat || m.mode == modeAgent)
+		// (The toast bound, and the rest of the set, live in m.animating below.)
 		// The BROWSE tuning-dial pointer glides toward the tuned band's detent (harmonica).
 		// Under quiet/reduced-motion it SNAPS (no animation); otherwise it eases, and while
 		// it's still settling it keeps the animation clock on (so the fast tick drives it).
@@ -1584,8 +1830,7 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.dialPos, m.dialVel, dialSettling = dialGlide(m.dialPos, m.dialVel, target)
 			}
 		}
-		animating := m.relaying || m.agentBusy || m.shareLoading ||
-			m.mode == modeConnecting || m.mode == modePingWorld || toastPending || dialSettling
+		animating := m.animating(dialSettling)
 		if animating {
 			m.frame++
 		}
@@ -1678,6 +1923,13 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m.applyLocalVoices(msg), nil
+	case lanAddedMsg:
+		if msg.err != nil {
+			m.status = stEmber.Render("not added: " + msg.err.Error())
+			return m, nil
+		}
+		m.status = stLive.Render(msg.line)
+		return m, fetchOffers(m.broker) // the new Tower's bands come onto the dial
 	case rescanMsg:
 		// The reply to r on the confirm still open: its requote may offer the raise. A reply to
 		// an earlier confirm's r is just a scan to this one.
@@ -1823,6 +2075,7 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case chatMsg:
 		m.relaying = false
+		m.recordEdgeSession(msg.receipt)
 		m.sessCost += msg.cost
 		m.sessTokensIn += msg.tokensIn // running ↑ billed tokens (broker re-count), mirrors the AGENT meter
 		m.sessTokensOut += msg.tokensOut
@@ -1917,6 +2170,12 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = stDim.Render("waiting for GitHub authorization…")
 		openURL(m.loginDevice.VerificationURI)
 		return m, m.pollLoginCmd()
+	case promoMsg:
+		if msg.ok {
+			on := msg.active
+			m.promoOn = &on
+		}
+		return m, nil
 	case loginMsg:
 		m.ghLogin = string(msg)
 		m.loggedIn = true
@@ -1926,7 +2185,7 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.mode == modeLogin {
 			m.mode = m.loginReturn
 		}
-		m.status = stLive.Render(glyphLineage + " verified operator @" + string(msg) + " - wallet ready ($1 starter credit on first login), you can now earn as a provider")
+		m.status = stLive.Render(glyphLineage + " verified operator @" + string(msg) + " - wallet ready, you can now earn as a provider")
 		// Refresh the wallet so the header flips to @login · $balance right away, and
 		// (re)fetch the payout snapshot now that there is a signing identity to read it.
 		m.payoutFetched = true
@@ -2045,6 +2304,15 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.onOperatorExec()
 	case operatorDoneMsg: // the guest returned the terminal (every child outcome)
 		return m.onOperatorDone(msg)
+	case edgeHealthDoneMsg: // a live Edge screen returned the terminal
+		m.refreshEdge() // first: the refresh clears edge.err, so the screen's error must be set after it
+		if msg.err != nil {
+			m.edge.err = "the live screen ended with an error: " + msg.err.Error()
+		}
+		if !m.mouseOff { // bubbletea's RestoreTerminal never re-enables the mouse (operator.go does the same)
+			return m, tea.EnableMouseCellMotion
+		}
+		return m, nil
 	case remoteEnabledMsg:
 		return m.onRemoteEnabled(msg)
 	case remoteInboundMsg:
@@ -2317,7 +2585,9 @@ func (m *model) syncShareCache() {
 	m.shareKey = m.ctrl.UpstreamKey()
 	m.shareSavedUp, m.shareSavedKey = m.ctrl.SavedUpstream()
 	m.share, m.onAir = m.ctrl.Headline()
-	if m.shareCursor >= len(m.shareRows) {
+	// roger's own rows (local models, settings, get a model) follow the detected ones and are as much
+	// a place to rest as they are.
+	if m.shareCursor >= m.shareRowCount() {
 		m.shareCursor = 0
 	}
 }
@@ -2510,6 +2780,9 @@ func (m *model) quitNow() (tea.Model, tea.Cmd) {
 // setupOptions are the guided-fallback choices: a tool (with a start one-liner) or
 // the paste-a-URL path. Order is the on-screen order.
 var setupOptions = []struct{ key, label, oneLiner string }{
+	// First, because it needs nothing else installed (local_models.feature §9: when nothing at all
+	// was detected, getting a model is the first option offered).
+	{"roger", "Get a model - roger serves it itself, nothing else to install", "roger finds one that fits this machine, fetches it and the runtime, checks both, and serves it"},
 	{"ollama", "Ollama", "ollama serve   then:  ollama run llama3.2   (→ :11434)"},
 	{"lm-studio", "LM Studio", "LM Studio → Developer → Start Server   (→ :1234)"},
 	{"unsloth", "Unsloth Studio", "Unsloth Studio → load a model → Settings → API → copy endpoint + key   (→ :8888)"},
@@ -2845,10 +3118,10 @@ func freqLabelShort(display string) string {
 // model (the proxy rewrites incoming models to it). Budget stays 0 (the interactive TUI is a
 // single-user, hands-on flow; the guest-operator launch is where DefaultSessionBudget applies).
 func (m model) liveProxyOpts(o offer, alert *alertBox) client.ProxyOptions {
-	// The tuned row IS a quant, and the [3] CONFIG rules are rules: they ride the request
+	// The tuned row IS a quant, and the [4] CONFIG rules are rules: they ride the request
 	// body so the broker filters on them - the same routing every in-booth path sends.
 	rt := m.routing(o.Model, o.Quant)
-	return client.ProxyOptions{
+	opts := client.ProxyOptions{
 		Broker: m.broker, User: m.user, Model: o.Model, SessionKey: m.proxyKey,
 		Confidential: rt.Confidential,
 		// The band's caps composed with the tuned profile's, stricter wins (routing): the same
@@ -2870,7 +3143,14 @@ func (m model) liveProxyOpts(o offer, alert *alertBox) client.ProxyOptions {
 		// `roger use --raw`, so exporting it disables the reasoning->content fallback everywhere.
 		ReasoningFallbackOff: client.RawReasoningEnv(),
 		Alert:                func(s string) { alert.set(s) },
+		// Every receipted turn through this endpoint is a session on the Edge, attributed
+		// to the guest holding the mic or to `roger use` (edge_attribution.go).
+		OnReceipt: m.edgeReceiptSink(),
 	}
+	if m.hooks.EdgeLadder != nil {
+		m.hooks.EdgeLadder(&opts) // a peer on this Edge before the market
+	}
+	return opts
 }
 
 // bindChannel is the endpoint-binding half of tuning in, factored out of openChannel so
@@ -2889,7 +3169,7 @@ func (m *model) bindChannel(o offer) (warm bool, err error) {
 		// Auto-pick a free port instead of dead-ending if 4141 is taken (mirrors the CLI's
 		// freePort): scan upward from the configured port so a busy port never bounces the
 		// user back to browse with a bind error and no recovery.
-		ln, lerr := listenFreePort(m.proxyAddr)
+		ln, lerr := netbind.ListenFree(m.proxyAddr)
 		if lerr != nil {
 			return false, lerr
 		}
@@ -3110,7 +3390,7 @@ func (m *model) commitLimitField() bool {
 }
 
 // refreshLiveRouting re-points the live proxy at the connected band's CURRENT rule, so a
-// [3] CONFIG edit binds the next guest turn without a re-tune (the endpoint and bearer key
+// [4] CONFIG edit binds the next guest turn without a re-tune (the endpoint and bearer key
 // are unchanged: SetBand keeps them).
 func (m *model) refreshLiveRouting() {
 	// A local direct channel never goes through the broker proxy, which its disconnect left
@@ -3249,7 +3529,7 @@ func pulseWith(frame int, eyeStyle lipgloss.Style) string {
 // never ambiguous that RogerAI does both.
 func (m model) inShareSection() bool {
 	switch m.mode {
-	case modeShare, modeBandCard, modeShareEditor, modeShareMeta, modeShareSetup, modeShareVoice, modeVoicePicker:
+	case modeShare, modeBandCard, modeShareEditor, modeShareMeta, modeShareSetup, modeShareVoice, modeVoicePicker, modeModels:
 		// The SHARE VOICE BOOTH + its picker are reached FROM the SHARE table (via `p` on a tts
 		// row, same depth as the chat price editor), so they belong to the SHARE section.
 		return true
@@ -3298,6 +3578,8 @@ func (m model) modeName() string {
 		return "OVER LIMIT"
 	case modeLimits:
 		return "SPEND LIMITS"
+	case modeEdge:
+		return "EDGE"
 	case modeShare:
 		return "SHARE"
 	case modeShareEditor:
@@ -3306,6 +3588,8 @@ func (m model) modeName() string {
 		return "CATEGORY"
 	case modeShareSetup:
 		return "SET UP A MODEL"
+	case modeModels:
+		return "GET A MODEL"
 	default:
 		return "BROWSE"
 	}
@@ -3331,32 +3615,6 @@ var spectrumBlocks = []rune("▁▂▃▄▅▆▇█")
 // splitting an escape sequence. It is the compact strip's width clamp (ansi.Truncate
 // is display-width aware and ANSI-safe, so a colored segment is cut cleanly rather
 // than leaking a half escape).
-// listenFreePort binds the first free TCP port at/above the port in addr ("host:port"),
-// returning the open listener. It mirrors the CLI's freePort (cmd/rogerai/onboard.go):
-// the configured port (4141) is tried first; if it is busy the scan walks upward so the
-// TUI's tune-in never dead-ends on "address in use". It returns an error only when the
-// whole window is busy (never falls back to a known-busy port). A malformed/portless addr
-// degrades to letting the OS pick (":0").
-func listenFreePort(addr string) (net.Listener, error) {
-	host, portStr, err := net.SplitHostPort(addr)
-	if err != nil {
-		return net.Listen("tcp", addr)
-	}
-	start, perr := strconv.Atoi(portStr)
-	if perr != nil || start <= 0 {
-		// No usable start port: let the OS assign one rather than fail.
-		return net.Listen("tcp", net.JoinHostPort(host, "0"))
-	}
-	var lastErr error
-	for p := start; p < start+200; p++ {
-		ln, lerr := net.Listen("tcp", net.JoinHostPort(host, strconv.Itoa(p)))
-		if lerr == nil {
-			return ln, nil
-		}
-		lastErr = lerr
-	}
-	return nil, fmt.Errorf("no free TCP port in %d-%d (close some listeners): %v", start, start+199, lastErr)
-}
 
 // header is the PERSISTENT status bar, always visible: the brand lockup with the
 // live-red on-air eye + the current state. It COMPACTS to a thin one-line bar
@@ -3395,7 +3653,7 @@ func (m model) header(w int) string {
 		bar := stGold.Render(channelGlyph(o)) + " " + eye + stLive.Render(" on channel ") + stSelText.Render(o.NodeID) +
 			stDim.Render(" · ") + stKey.Render(o.Model) +
 			stDim.Render(" · ") + price +
-			stDim.Render(" · ") + m.accountTag(true) +
+			stDim.Render(" · ") + m.headerTag(true) +
 			// CONNECTED header: the in-flight count is the live load on the open channel, so
 			// the meter scans with real throughput while the channel is actively serving.
 			"  " + m.bandSMeter(m.frame, o.Signal, o.TPS, true, o.InFlight, 0, false)
@@ -3448,7 +3706,7 @@ func (m model) header(w int) string {
 		}
 		state = stGold.Render("  "+channelGlyph(m.connected)+" ") + stLive.Render("on channel ") + stSelText.Render(m.connected.NodeID) +
 			stDim.Render(" · ") + stKey.Render(m.connected.Model) +
-			stDim.Render(" · ") + m.accountTag(true) + hint
+			stDim.Render(" · ") + m.headerTag(true) + hint
 	} else {
 		// LLM (chat) stations on air — matches the LLM-only band list; voice stations are counted
 		// in the Booth (the "also on air: N voices" footnote), not the top-level "N on air".
@@ -3461,7 +3719,7 @@ func (m model) header(w int) string {
 		// header (TUI-V2-CRITIQUE C). The account lockup carries login state + balance;
 		// the balance only appears when logged in.
 		state = stDim.Render("  ") + stDim.Render(summary) +
-			stDim.Render(" · ") + m.accountTag(m.narrow())
+			stDim.Render(" · ") + m.headerTag(m.narrow())
 	}
 	return top + "\n" + state + "\n" + rule
 }
@@ -4679,6 +4937,17 @@ func (m model) footer(w int) string {
 			left = stDim.Render("↑↓ · ⏎ edit · tab · d · esc")
 		}
 		return modalFooter(m.effWidth(), left, m.accountTag(true), m.status)
+	case modeEdge:
+		left = stDim.Render("↑↓ select  ·  ⏎ detail  ·  i invite · a approve  ·  r re-read  ·  esc back")
+		if m.narrow() {
+			left = stDim.Render("↑↓ · ⏎ detail · i invite · a approve · esc")
+		}
+		if m.edgeEmptySimple() {
+			// Not set up yet: the footer offers the two ways in and back (a NEARBY row adds its own
+			// i invite · a approve beside it, §7).
+			left = stDim.Render(look.ActionsPlain(look.EmptyEdgeActions))
+		}
+		return modalFooter(m.effWidth(), left, m.accountTag(true), m.status)
 	case modeShare:
 		left = stDim.Render("↑↓ move  ·  ⏎/a on-air  ·  p price+schedule  ·  g category  ·  r re-detect  ·  s/esc tune in")
 		if m.narrow() {
@@ -4692,8 +4961,11 @@ func (m model) footer(w int) string {
 			left = stDim.Render("tab field · a/f/d · ⏎ save · esc")
 		}
 		return modalFooter(m.effWidth(), left, m.accountTag(true), m.status)
+	case modeModels:
+		left = stDim.Render(m.modelsKeys())
+		return modalFooter(m.effWidth(), left, m.accountTag(true), m.status)
 	case modeShareSetup:
-		left = stDim.Render("↑↓ pick  ·  ⏎ select/verify  ·  r re-scan  ·  s/esc tune in")
+		left = stDim.Render("↑↓ pick  ·  ⏎ select/verify  ·  r re-scan  ·  g serve one with roger  ·  s/esc tune in")
 		if m.narrow() {
 			left = stDim.Render("↑↓ · ⏎ · r · esc")
 		}
@@ -5184,9 +5456,25 @@ func fetchRescan(broker string, seq int) tea.Cmd {
 
 func fetchOffers(broker string) tea.Cmd {
 	return func() tea.Msg {
+		if LANMode() {
+			return lanOffers() // LAN mode never asks the broker for bands
+		}
 		resp, err := http.Get(broker + "/discover")
 		if err != nil {
 			return errMsg("broker unreachable: " + broker)
+		}
+		if resp.StatusCode == http.StatusUnauthorized {
+			// A standalone Tower gates /discover on an admitted signature: retry ONCE signed, as
+			// client.discover does, rather than drawing the Tower as "0 on air".
+			resp.Body.Close()
+			req, rerr := http.NewRequest(http.MethodGet, broker+"/discover", nil)
+			if rerr != nil {
+				return errMsg("broker unreachable: " + broker)
+			}
+			client.SignRequest(req, nil)
+			if resp, err = http.DefaultClient.Do(req); err != nil {
+				return errMsg("broker unreachable: " + broker)
+			}
 		}
 		defer resp.Body.Close()
 		var d struct {
@@ -5327,6 +5615,7 @@ func sendChat(broker, user, mdl, prompt string, maxOut float64, rt client.Routin
 			reply: r.Reply, status: r.Status, cost: r.Cost,
 			provider: r.Provider, tokensIn: r.TokensIn, tokensOut: r.TokensOut,
 			tps: r.TPS, priceIn: r.PriceIn, priceOut: r.PriceOut, latency: r.Latency,
+			receipt: r.Receipt,
 		}
 	}
 }
