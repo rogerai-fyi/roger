@@ -7,10 +7,8 @@ package detect
 
 import (
 	"io"
-	"net"
 	"net/http"
 	"net/http/httptest"
-	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -65,42 +63,4 @@ func TestABrokerIsNotFoundAsAVoiceServerEither(t *testing.T) {
 	require.NotContains(t, needKey, broker.URL+"/v1")
 	_, st := ProbeKey(broker.URL, "")
 	require.Equal(t, Unreachable, st)
-}
-
-// DisablePortScan drops the scan of this host's listening ports - the host is not even asked which
-// are open - and leaves the named defaults and the environment probed as before.
-func TestDisablePortScanDropsOnlyTheScan(t *testing.T) {
-	var scanned, named, fromEnv, bystander atomic.Int32
-	serve := func(n *atomic.Int32) *httptest.Server {
-		s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			n.Add(1)
-			w.WriteHeader(http.StatusNotFound)
-		}))
-		t.Cleanup(s.Close)
-		return s
-	}
-	namedSrv, envSrv, bySrv := serve(&named), serve(&fromEnv), serve(&bystander)
-	byPort := bySrv.Listener.Addr().(*net.TCPAddr).Port
-
-	prevPorts, prevEnv, prevProbes, prevOff := enumPorts, envCands, probes, portScanOff
-	t.Cleanup(func() { enumPorts, envCands, probes, portScanOff = prevPorts, prevEnv, prevProbes, prevOff })
-	probes = []struct{ name, base string }{{"named", namedSrv.URL + "/v1"}}
-	envCands = func() []candidate { return []candidate{{name: "env", base: envSrv.URL + "/v1"}} }
-	enumPorts = func() []int { scanned.Add(1); return []int{byPort} }
-
-	portScanOff = false
-	_, _ = DetectFull()
-	require.NotZero(t, bystander.Load(), "with the scan on, a listening port is probed")
-
-	scanned.Store(0)
-	named.Store(0)
-	fromEnv.Store(0)
-	bystander.Store(0)
-	DisablePortScan()
-	require.True(t, PortScanDisabled())
-	_, _ = DetectFull()
-	require.Zero(t, scanned.Load(), "the host is not asked for its ports")
-	require.Zero(t, bystander.Load(), "and no listening port is probed")
-	require.NotZero(t, named.Load(), "a named default is still probed")
-	require.NotZero(t, fromEnv.Load(), "and so is the environment")
 }

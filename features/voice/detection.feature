@@ -70,6 +70,24 @@ Feature: roger detects local voice/audio servers (TTS + STT), CPU or GPU alike
   # kokoro-fastapi on :8095 serves POST /v1/audio/speech and GET /health but 404s GET /v1/models,
   # so the /v1/models gate silently dropped it. A bare voice server must still be detected as ONE
   # offer synthesized from its capability (there is no model list to enumerate). VOICE-AUDIO-DESIGN.md §4.2.
+  # Amended 2026-10-28 (founder ruling: NAMED PORTS ONLY): detection no longer scans this host's
+  # listening ports, so a voice server is found on a named port (Kokoro :8095 and roggentoo :8790
+  # are named), through the environment, or at a URL the owner configured. One on any other port
+  # is configured by hand.
+  Scenario: Kokoro's and roggentoo's default ports are named voice ports
+    When roger lists the endpoints it probes by name
+    Then "kokoro" is probed at "http://127.0.0.1:8095/v1"
+    And "roggentoo" is probed at "http://127.0.0.1:8790/v1"
+
+  Scenario: A bare TTS server on a port nobody named is found only once it is configured
+    Given a local server that 404s GET /v1/models
+    And that server serves POST /v1/audio/speech
+    And that server listens on a port nobody named
+    When roger detects local models
+    Then no offer is synthesized
+    When roger detects local models with that server configured
+    Then one offer is synthesized with modality "tts"
+
   Scenario: A bare TTS server that 404s /v1/models is still detected as one tts offer
     Given a local server that 404s GET /v1/models
     And that server serves POST /v1/audio/speech

@@ -3,8 +3,9 @@
 // Unsloth Studio, llama.cpp, vLLM, Jan, LiteLLM, or anything else that serves
 // /v1/models.
 //
-// Detection v2 is grounded (no brute port scan, no assumptions about one fixed
-// setup). It gathers candidate base URLs from, in order:
+// Detection probes NAMED endpoints only (founder ruling 2026-10-28): it never asks this host
+// which ports are open and never probes a port nobody named. It gathers candidate base URLs
+// from, in order:
 //
 //	(a) documented default endpoints (Ollama 11434, LM Studio 1234, vLLM 8000,
 //	    llama.cpp 8080, Jan 1337, ...) - the `probes` table;
@@ -12,11 +13,9 @@
 //	    (OPENAI_BASE_URL / OPENAI_API_BASE, OLLAMA_HOST, LMSTUDIO_* );
 //	(c) native fleet discovery for Ollama (GET /api/tags + /api/ps) so models
 //	    that are installed-but-swapped-out still show up;
-//	(d) REAL listening-port enumeration (a build-tagged, cross-platform helper:
-//	    Linux /proc/net/tcp, macOS lsof, Windows netstat) that lists the actual
-//	    open localhost ports, so a model on any custom port (e.g. :8081) is found
-//	    WITHOUT a brute scan;
-//	(e) an explicit endpoint the caller passes in (--upstream / a saved config).
+//	(d) an explicit endpoint the caller passes in (--upstream / a saved config).
+//
+// A server on any other port is configured by hand (`roger share --upstream <url>`).
 //
 // Every candidate base URL is probed for GET /v1/models; only reachable,
 // OpenAI-compatible servers are returned. Results are de-duplicated by base URL.
@@ -105,6 +104,9 @@ var probes = []struct{ name, base string }{
 	{"cpu-bots", "http://127.0.0.1:8060/v1"},
 	{"llama.cpp/localai/llamafile", "http://127.0.0.1:8080/v1"},
 	{"mlx-lm", "http://127.0.0.1:8082/v1"},
+	// Voice servers by their default port (bare ones 404 /v1/models and are found by capability).
+	{"kokoro", "http://127.0.0.1:8095/v1"},
+	{"roggentoo", "http://127.0.0.1:8790/v1"},
 }
 
 // httpClient is the short-timeout probe client. Detection must be fast (it gates
@@ -141,51 +143,21 @@ func authPost(url, key, contentType string, body io.Reader) (*http.Response, err
 	return httpClient.Do(req)
 }
 
-// maxEnumPorts caps how many real listening ports the cross-platform enumerator
-// returns, so a host with hundreds of open ports can't blow up the probe fan-out.
-// The documented defaults + env vars already cover the common servers; this is the
-// "found it on a custom port" tail, which is small in practice.
-const maxEnumPorts = 64
-
 // candidate is a base URL to probe, with a friendly label for the source and an
 // optional sibling API key (e.g. OPENAI_API_KEY paired with OPENAI_BASE_URL) tried
 // first when the endpoint answers 401/403.
 type candidate struct{ name, base, key string }
 
-// enumPorts / envCands are indirections over the real listening-port enumerator
-// and the env-var source, so tests can make detection deterministic (the host's
-// own open ports must not leak into a unit test's result). Production uses the
-// real implementations.
+// envCands / envKeysFn are indirections over the env-var sources, so tests can make detection
+// deterministic. Production uses the real implementations.
 var (
-	enumPorts = listeningPorts
 	envCands  = envCandidates
 	envKeysFn = envKeys
 )
 
-// DisablePortScan turns off the scan of this host's listening ports for the rest of the process.
-// It exists for test binaries: the gate runs every package's tests at once, and a test that runs the
-// real detection would otherwise probe every other package's test servers (CI, 2026-10-28). The
-// named defaults, the environment and explicit URLs are still probed.
-func DisablePortScan() { portScanOff = true }
-
-// PortScanDisabled reports whether DisablePortScan was called, so a test binary can prove it was.
-func PortScanDisabled() bool { return portScanOff }
-
-var portScanOff bool
-
-// scanPorts is the listening ports to probe: none once the scan is off, and then the host is not
-// even asked which ports are open.
-func scanPorts() []int {
-	if portScanOff {
-		return nil
-	}
-	return enumPorts()
-}
-
 // DetectFull gathers candidate endpoints from every source - explicit extra base URLs
-// FIRST (the --upstream / saved-config (e) source, each normalized to a /v1 base and
-// winning de-dup so its friendly name is kept), then defaults, env, Ollama native, and
-// real listening ports - probes each for GET /v1/models, and returns the reachable
+// FIRST (the --upstream / saved-config (d) source, each normalized to a /v1 base and
+// winning de-dup so its friendly name is kept), then defaults, env and Ollama native - probes each for GET /v1/models, and returns the reachable
 // OpenAI-compatible servers (de-duplicated by base URL) PLUS the base URLs of servers
 // that are present but answered 401/403 with no usable key (the needKey list), so the
 // caller can prompt for an API key instead of reporting "nothing detected".
@@ -260,13 +232,6 @@ func detectWith(priority []candidate) (found []Found, needKey []string) {
 	}
 	// (b) environment variables the user's tooling already exports.
 	cands = append(cands, envCands()...)
-	// (d) real listening ports -> probe each on localhost for /v1/models. This is
-	// what finds a model on a CUSTOM port without a brute scan: the OS already
-	// knows which ports are open; we only probe those.
-	for _, port := range scanPorts() {
-		cands = append(cands, candidate{name: "port:" + strconv.Itoa(port), base: "http://127.0.0.1:" + strconv.Itoa(port) + "/v1"})
-	}
-
 	// Keys the user's tooling exports, tried (as Bearer) against any candidate that
 	// answers 401/403 - so a key-protected local server whose key is already in the
 	// environment is detected with zero extra config.
@@ -279,15 +244,10 @@ func detectWith(priority []candidate) (found []Found, needKey []string) {
 			continue
 		}
 		seen[base] = true
-		// Harvested env keys are retried (as Bearer) on a 401/403 - but ONLY against
-		// candidates we have a reason to trust: a configured / known-default / env-derived
-		// endpoint. A BLIND port-scan hit ("port:N") could be ANY local service, so we never
-		// spray the user's API keys at it; if it 401s we surface it via needKey instead, so
-		// the user explicitly supplies a key for a server they actually recognize.
+		// Harvested env keys are retried (as Bearer) on a 401/403. Every candidate is one we have
+		// a reason to trust - configured, a known default or env-derived - because nothing else
+		// is probed at all.
 		tryKeys := keys
-		if strings.HasPrefix(c.name, "port:") {
-			tryKeys = nil
-		}
 		// Same reasoning for Unsloth's default: :8888 is also JupyterLab's default
 		// port, and Jupyter answers 403 unauthenticated. A named candidate normally
 		// earns the harvested-key retry, but this one is a coin flip on what is

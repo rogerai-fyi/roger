@@ -29,6 +29,8 @@ type voiceDetectState struct {
 	endpointCode  map[string]int // per-path status override (default 400); a STUBBED route uses 501/405
 	protectedAuth bool
 	noModels      bool // the server 404s GET /v1/models (a BARE voice server: Kokoro/Whisper)
+	unnamed       bool // the server is on a port nobody named: it is not put in the probe table
+	named         []struct{ name, base string }
 	srv           *httptest.Server
 	found         []Found
 	needKey       []string
@@ -107,9 +109,35 @@ func (s *voiceDetectState) detect() error {
 	s.srv = httptest.NewServer(mux)
 	old := probes
 	probes = []struct{ name, base string }{{"test", s.srv.URL + "/v1"}}
+	if s.unnamed {
+		probes = nil // nothing names its port
+	}
 	s.found, s.needKey = DetectFull()
 	probes = old
 	return nil
+}
+
+func (s *voiceDetectState) onAnUnnamedPort() error { s.unnamed = true; return nil }
+
+// detectConfigured runs detection again with this server's URL configured, as `roger share
+// --upstream <url>` or the saved config would pass it.
+func (s *voiceDetectState) detectConfigured() error {
+	old := probes
+	probes = nil
+	s.found, s.needKey = DetectFull(s.srv.URL)
+	probes = old
+	return nil
+}
+
+func (s *voiceDetectState) listNamed() error { s.named = probes; return nil }
+
+func (s *voiceDetectState) probedAt(name, base string) error {
+	for _, p := range s.named {
+		if p.name == name && p.base == base {
+			return nil
+		}
+	}
+	return vdExpect(name + " to be probed by name at " + base)
 }
 
 func (s *voiceDetectState) modalityOf(model string) (string, bool) {
@@ -199,7 +227,6 @@ func TestEndpointExistsDead(t *testing.T) {
 }
 
 func TestVoiceDetectionBDD(t *testing.T) {
-	var oldEnum func() []int
 	var oldEnv func() []candidate
 	var oldKeys func() []string
 	suite := godog.TestSuite{
@@ -207,14 +234,13 @@ func TestVoiceDetectionBDD(t *testing.T) {
 			st := &voiceDetectState{}
 			sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
 				st.reset()
-				oldEnum, oldEnv, oldKeys = enumPorts, envCands, envKeysFn
-				enumPorts = func() []int { return nil }
+				oldEnv, oldKeys = envCands, envKeysFn
 				envCands = func() []candidate { return nil }
 				envKeysFn = func() []string { return nil }
 				return ctx, nil
 			})
 			sc.After(func(ctx context.Context, _ *godog.Scenario, _ error) (context.Context, error) {
-				enumPorts, envCands, envKeysFn = oldEnum, oldEnv, oldKeys
+				envCands, envKeysFn = oldEnv, oldKeys
 				if st.srv != nil {
 					st.srv.Close()
 				}
@@ -235,6 +261,10 @@ func TestVoiceDetectionBDD(t *testing.T) {
 			sc.Step(`^a local TTS server that answers 401 to an unauthenticated GET /v1/models$`, st.protectedTTS)
 			sc.Step(`^no usable key is present in the environment$`, st.noKey)
 			sc.Step(`^roger detects local models$`, st.detect)
+			sc.Step(`^that server listens on a port nobody named$`, st.onAnUnnamedPort)
+			sc.Step(`^roger detects local models with that server configured$`, st.detectConfigured)
+			sc.Step(`^roger lists the endpoints it probes by name$`, st.listNamed)
+			sc.Step(`^"([^"]*)" is probed at "([^"]*)"$`, st.probedAt)
 			sc.Step(`^"([^"]*)" is detected with modality "([^"]*)"$`, st.detectedModality)
 			sc.Step(`^"([^"]*)" is detected as "([^"]*)"$`, st.detectedModality)
 			sc.Step(`^"([^"]*)" is classified "([^"]*)"$`, st.detectedModality)

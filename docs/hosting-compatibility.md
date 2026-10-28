@@ -46,8 +46,10 @@ roger share --upstream http://127.0.0.1:9999/v1 \
 ```
 
 The key stays in the provider's local configuration and is sent only to that
-upstream. RogerAI does not send harvested keys to arbitrary services found
-during listening-port discovery.
+upstream. Detection probes named endpoints only: the known default ports, the
+environment variables above, and URLs you configure. It never scans this
+machine's listening ports, so a server on any other port is configured by hand
+with `--upstream`.
 
 Unsloth Studio serves its authenticated OpenAI-compatible API on
 `http://127.0.0.1:8888` with an `sk-unsloth-...` key, and documents
@@ -104,5 +106,5 @@ Checked 2026-07-30:
 | Unsloth exposes Models and Chat Completions | Source-backed | [Unsloth README](https://github.com/unslothai/unsloth#inference) and its API implementation | Supported |
 | Unsloth Studio defaults to port 8888 | Source-backed | [Unsloth launch documentation](https://github.com/unslothai/unsloth#launch) | Supported |
 | RogerAI accepts an authenticated Unsloth endpoint | Measured | `TestDetectUnslothWithItsEnvKey` against an authenticated HTTP conformance fixture | Passed |
-| Unknown listening ports do not receive harvested keys | Measured | `TestDetectDoesNotSprayEnvKeysToPortScans` | Passed |
+| A service on a port nobody named receives no request at all (ruling 2026-10-28) | Measured | `features/share/hosting_compatibility.feature`, `TestDetectionHasNoListeningPortEnumerator` | Passed |
 | Every nominally OpenAI-compatible host works without qualification | Unresolved and too broad | Requires per-host streaming and usage conformance tests | Do not claim |

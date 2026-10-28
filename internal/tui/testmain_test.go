@@ -6,8 +6,6 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
-
-	"rogerai.fm/roger/v7/internal/detect"
 )
 
 // TestMain isolates os.UserConfigDir for the WHOLE package run: the SHARE tests drive
@@ -30,7 +28,6 @@ func TestMain(m *testing.M) {
 	// never reach (and overwrite) the developer's real clipboard.
 	clipboardLookPath = func(string) (string, error) { return "", exec.ErrNotFound }
 	clipboardOut = io.Discard
-	detect.DisablePortScan() // no test probes this host's listening ports (CI, 2026-10-28)
 	code := m.Run()
 	_ = os.RemoveAll(dir)
 	os.Exit(code)

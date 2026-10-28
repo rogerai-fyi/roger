@@ -44,6 +44,7 @@ type hostingState struct {
 	wantKey  string // non-empty => the stub demands this bearer
 	models   []string
 	authSeen []string // every Authorization header the stub received
+	hits     int      // every request the stub received, credentialed or not
 
 	declared string // the URL the scenario declared, e.g. http://127.0.0.1:8888/v1
 	found    []Found
@@ -64,6 +65,7 @@ func (s *hostingState) reset(t *testing.T) {
 // credential-boundary scenarios can assert on real wire traffic rather than on internals.
 func (s *hostingState) stub() string {
 	s.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.hits++
 		if a := r.Header.Get("Authorization"); a != "" {
 			s.authSeen = append(s.authSeen, a)
 		}
@@ -163,15 +165,17 @@ func (s *hostingState) configuredEndpointRejectsTheKey() error {
 
 func (s *hostingState) unknownServiceOnAnOpenPort() error {
 	s.wantKey = "sk-something-else"
-	base := s.stub()
-	probes = nil
-	// Present it ONLY as a blind port-scan hit, which is the boundary under test.
-	port := base[strings.LastIndex(base, ":")+1:]
-	n, err := strconv.Atoi(port)
-	if err != nil {
-		return err
-	}
-	enumPorts = func() []int { return []int{n} }
+	s.stub()
+	// It is listening on this host and nobody named it. Detection runs exactly as it does in
+	// production: nothing here tells it about the port, and nothing may find it.
+	return nil
+}
+
+// hostOnAnUnnamedPort is a compatible host on a port no default, environment or config names.
+func (s *hostingState) hostOnAnUnnamedPort(string) error {
+	s.wantKey = ""
+	s.models = []string{"some-vendorless/model"}
+	s.stub()
 	return nil
 }
 
@@ -185,7 +189,7 @@ func (s *hostingState) hostImplementsModels(string) error {
 func (s *hostingState) hostImplementsChat(string) error { return nil }
 
 func (s *hostingState) hostRunsAtUserSuppliedURL() error {
-	probes, enumPorts = nil, func() []int { return nil }
+	probes = nil
 	return nil
 }
 
@@ -195,7 +199,7 @@ func (s *hostingState) compatibleHostSuppliedAs(input string) error {
 }
 
 func (s *hostingState) noHostDetected() error {
-	probes, enumPorts = nil, func() []int { return nil }
+	probes = nil
 	envCands = func() []candidate { return nil }
 	return nil
 }
@@ -204,6 +208,11 @@ func (s *hostingState) noHostDetected() error {
 
 func (s *hostingState) scan() error {
 	s.found, s.needKey = DetectFull()
+	return nil
+}
+
+func (s *hostingState) scanWithThatURLConfigured() error {
+	s.found, s.needKey = DetectFull(s.srvURL)
 	return nil
 }
 
@@ -309,12 +318,21 @@ func (s *hostingState) keyNotSentToUnknownService(key string) error {
 	return nil
 }
 
-func (s *hostingState) blindPortBoundaryUnchanged() error {
-	if len(s.authSeen) != 0 {
-		return hcErr("a blind port-scan hit received " + strconv.Itoa(len(s.authSeen)) +
-			" credential(s); it must receive none")
+func (s *hostingState) unknownServiceGotNothing() error {
+	if s.hits != 0 {
+		return hcErr("a service on a port nobody named received " + strconv.Itoa(s.hits) +
+			" request(s); detection must not touch it at all")
 	}
 	return nil
+}
+
+func (s *hostingState) thatHostIsDetected() error {
+	for _, f := range s.found {
+		if f.BaseURL == s.srvURL+"/v1" && len(f.Models) > 0 {
+			return nil
+		}
+	}
+	return hcErr("the configured host on an unusual port was not detected")
 }
 
 func (s *hostingState) sharesSelectedModel() error {
@@ -477,12 +495,11 @@ func TestHostingCompatibilityFeature(t *testing.T) {
 
 	suite := godog.TestSuite{
 		ScenarioInitializer: func(sc *godog.ScenarioContext) {
-			oldProbes, oldEnum, oldEnvCands := probes, enumPorts, envCands
+			oldProbes, oldEnvCands := probes, envCands
 			sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
 				st.reset(t)
 				// Quiet the developer's own machine: only what a scenario declares may be found.
 				probes = nil
-				enumPorts = func() []int { return nil }
 				envCands = func() []candidate { return nil }
 				for _, k := range []string{
 					"UNSLOTH_STUDIO_AUTH_TOKEN", "UNSLOTH_API_KEY", "UNSLOTH_STUDIO_URL",
@@ -498,7 +515,7 @@ func TestHostingCompatibilityFeature(t *testing.T) {
 					st.srv.Close()
 					st.srv = nil
 				}
-				probes, enumPorts, envCands = oldProbes, oldEnum, oldEnvCands
+				probes, envCands = oldProbes, oldEnvCands
 				return ctx, err
 			})
 
@@ -519,7 +536,8 @@ func TestHostingCompatibilityFeature(t *testing.T) {
 			sc.Step(`^no compatible local model host is detected$`, st.noHostDetected)
 
 			sc.Step(`^RogerAI scans for local model hosts$`, st.scan)
-			sc.Step(`^RogerAI scans listening ports$`, st.scan)
+			sc.Step(`^RogerAI scans for local model hosts with that URL configured$`, st.scanWithThatURLConfigured)
+			sc.Step(`^a model host implements GET "([^"]*)" on a port nobody named$`, st.hostOnAnUnnamedPort)
 			sc.Step(`^the provider runs "roger share --upstream <url>"$`, st.shareUpstream)
 			sc.Step(`^RogerAI prepares the upstream$`, st.prepareUpstream)
 			sc.Step(`^RogerAI opens guided provider setup$`, st.noop)
@@ -538,7 +556,8 @@ func TestHostingCompatibilityFeature(t *testing.T) {
 			sc.Step(`^the endpoint is reported as needing a key$`, st.endpointNeedsKey)
 			sc.Step(`^no Unsloth model is advertised$`, st.noUnslothModelAdvertised)
 			sc.Step(`^"([^"]*)" is not sent to the unknown service$`, st.keyNotSentToUnknownService)
-			sc.Step(`^the existing blind-port credential boundary is unchanged$`, st.blindPortBoundaryUnchanged)
+			sc.Step(`^the unknown service receives no request at all$`, st.unknownServiceGotNothing)
+			sc.Step(`^that host is detected with its models$`, st.thatHostIsDetected)
 			sc.Step(`^RogerAI verifies and shares the selected model$`, st.sharesSelectedModel)
 			sc.Step(`^the host brand is not required to appear in RogerAI's detector table$`, st.brandNotRequiredInTable)
 			sc.Step(`^the chat endpoint is "([^"]*)"$`, st.chatEndpointIs)
