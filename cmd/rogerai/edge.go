@@ -1018,7 +1018,7 @@ func cmdEdgeList(cfg config, args []string) error {
 			fmt.Println("  " + look.EmptyEdgeSay)
 			fmt.Printf("  %-36s%s\n", look.EmptyEdgeStart+":", look.EmptyEdgeCLIStart)
 			fmt.Printf("  %-36s%s\n", look.EmptyEdgeJoin+":", look.EmptyEdgeCLIJoin)
-			fmt.Printf("  %-14s%s\n", "DISCOVERY", self.DiscoveryLine(time.Now()))
+			fmt.Printf("  %-14s%s\n", "DISCOVERY", self.DiscoveryLine(edgeRenderNow()))
 			return nil
 		}
 		fmt.Println("your Edge: this machine is the only node.")
@@ -1037,7 +1037,7 @@ func cmdEdgeList(cfg config, args []string) error {
 		} else {
 			fact("THIS MACHINE", self.MachineLine())
 			fact("AUTHORITY", self.AuthorityLines()...)
-			fact("DISCOVERY", self.DiscoveryLine(time.Now()))
+			fact("DISCOVERY", self.DiscoveryLine(edgeRenderNow()))
 		}
 		fmt.Println("  find the others on this network:  roger edge scan")
 		fmt.Println("  then take one into the fleet:     roger edge adopt <node>")
@@ -2484,7 +2484,7 @@ func cmdEdgeDescribeInstance(addr string) error {
 		fmt.Printf("  serving       nothing on air\n")
 	}
 	if found.Started > 0 {
-		fmt.Printf("  started       %s ago\n", edge.Age(time.Since(time.Unix(found.Started, 0))))
+		fmt.Printf("  started       %s ago\n", edge.Age(edgeRenderNow().Sub(time.Unix(found.Started, 0))))
 	}
 	if r := found.Resources; r != nil {
 		if r.GPU != "" {
