@@ -397,15 +397,14 @@ func (m model) edgePulsing(it edgeNetItem) bool {
 }
 
 // edgeTrunc shortens s to at most w display cells, marking a cut with an ellipsis.
+// A width below 1 is taken as 1, so a cut always keeps its "…" (ansi.Truncate alone returns "" when
+// the width cannot hold the tail).
 func edgeTrunc(s string, w int) string {
-	if w < 1 {
-		w = 1
-	}
+	w = max(1, w)
 	if lipgloss.Width(s) <= w {
 		return s
 	}
-	// Cells, not runes: a wide character is two. w is at least 1 here, so a cut keeps its "…".
-	return ansi.Truncate(s, w, "…")
+	return ansi.Truncate(s, w, "…") // cells, not runes: a wide character is two
 }
 
 // edgeSelectedNet returns the node the map highlight is on, and its index. It is what the control
