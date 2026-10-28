@@ -55,6 +55,7 @@ func TestMain(m *testing.M) {
 	// No test probes this host's listening ports: the gate runs every package's tests at once, and
 	// the real scan landed unsigned probes on another package's test servers (CI, 2026-10-28).
 	detect.DisablePortScan()
+	edgeHostStarted = trackEdgeHost // no Edge host outlives the test that started it (config_isolation_test.go)
 	// No test hears the real LAN: a Tower advertising on the developer's network must never
 	// show up as a candidate in a test. Runners that test candidates set the seam themselves.
 	lanBrowseTowers = func(context.Context) (wire.BrowseResult, error) { return wire.BrowseResult{}, nil }

@@ -21,6 +21,7 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -970,8 +971,14 @@ func (h *edgeHost) start(ctx context.Context) bool {
 	h.cancel, h.done = cancel, done
 	h.mu.Unlock()
 	go func() { defer close(done); h.serve(ctx) }()
+	edgeHostStarted(h)
 	return true
 }
+
+// edgeHostStarted is told about every host whose serve loop started. Production does nothing with
+// it; a test binary uses it to stop every host before the test that started it ends, because the
+// loop reads its paths from the environment and would otherwise write into the next test's config.
+var edgeHostStarted = func(*edgeHost) {}
 
 // serve brings the engine up and paces the passes. A pass that fails is a pass: it is
 // retried on the NEXT interval, never in a tight loop.
@@ -1093,7 +1100,7 @@ func (h *edgeHost) runPass(ctx context.Context) edge.Report {
 	h.lastInEdge = len(rep.Verified) + rep.Foreign
 	err := h.st.save()
 	h.mu.Unlock()
-	if err != nil {
+	if err != nil && !errors.Is(err, errEdgeAccountMoved) { // a moved account is adoptEnrollment's to say
 		log.Println("edge: could not write the last-known Edge:", err)
 	}
 	// A VERIFIED sighting is a node this instance really heard from, over its own

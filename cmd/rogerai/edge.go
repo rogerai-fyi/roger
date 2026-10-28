@@ -674,6 +674,12 @@ func loadEdgeState() (*edgeState, error) {
 // loaded the file before somebody else adopted a device wrote that device straight out of existence,
 // and the host then forgot it for good - the founder's vanished phone (2026-09-27).
 func (s *edgeState) save() error {
+	// A state loaded under one account must not write once this machine belongs to another: a roger
+	// left running while the machine joined an Edge from another terminal would otherwise put its old
+	// account on the new Edge's file, and every reader discards that as somebody else's cache.
+	if s.account != edgeAccount() {
+		return errEdgeAccountMoved
+	}
 	unlock, err := edge.FileLock(edgeStatePath())
 	if err != nil {
 		return err
@@ -712,6 +718,10 @@ func (s *edgeState) save() error {
 	}
 	return nil
 }
+
+// errEdgeAccountMoved is a save refused because this machine now belongs to a different account than
+// the state was loaded under. The running roger picks the new Edge up itself (adoptEnrollment).
+var errEdgeAccountMoved = errors.New("this machine joined another Edge since this view was loaded, so it was not saved")
 
 // snapshotOnDisk is the file as it stands now, and whether there was one to read for this account.
 // Called under the lock on the write path, so what it returns cannot change before the write.
