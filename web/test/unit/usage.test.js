@@ -64,6 +64,16 @@ describe("the session check and the gate (the login-loop rule)", () => {
     mount({ "/account": ACCT, "/metrics/series": [500, {}] });
     await waitFor(() => expect(visible("allError")).toBe(true));
   });
+  it("a series the page cannot render (a bucket that is not an object, a slice that is not) is the error, never a dead card", async () => {
+    for (const daily of [[null], [{ bucket: "2026-10-01", models: [null] }], { bucket: "2026-10-01" }]) {
+      const p = mount({ "/account": ACCT, "/metrics/series": [200, { is_provider: true, is_consumer: true, daily }] });
+      await ready();
+      await waitFor(() => expect(visible("allError")).toBe(true));
+      expect(visible("gate")).toBe(false);
+      expect(el("logout")).toBeTruthy();
+      p.unmount();
+    }
+  });
   it("a 401 (the session really gone) still shows the gate and hides the card", async () => {
     mount({ "/account": ACCT, "/metrics/series": [401, {}] });
     await ready();

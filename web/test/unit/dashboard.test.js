@@ -135,15 +135,18 @@ describe("the login-loop rule", () => {
       expect(el("card").hidden).toBe(false);
     });
   }
-  it("a series that is not a list is the error state, never a blank card (the legacy render threw on it)", async () => {
-    broker({ "/account": acct(), "/metrics/series": [200, { daily: { bucket: "2026-10-01" }, is_consumer: true }] });
-    const navs = fakeLocation({ pathname: "/dashboard.html" });
-    render(DashboardApp);
-    await waitFor(() => expect(visible("dashError")).toBe(true));
-    expect(visible("dashEmpty")).toBe(false);
-    expect(navs).toEqual([]);
-    expect(el("card").hidden).toBe(false);
-  });
+  for (const [what, daily] of [["a series that is not a list", { bucket: "2026-10-01" }], ["a bucket that is not an object", [null]]]) {
+    it(`${what} is the error state, never a dead card (the legacy render threw into its catch)`, async () => {
+      broker({ "/account": acct(), "/metrics/series": [200, { daily, is_consumer: true }] });
+      const navs = fakeLocation({ pathname: "/dashboard.html" });
+      render(DashboardApp);
+      await waitFor(() => expect(visible("dashError")).toBe(true));
+      expect(visible("dashEmpty")).toBe(false);
+      expect(navs).toEqual([]);
+      expect(el("card").hidden).toBe(false);
+      expect(el("logout")).toBeTruthy();   // a visible card always has a working sign-out
+    });
+  }
   it("a script error after the session is confirmed shows the error inside the card, never a redirect", async () => {
     globalThis.fetch = async (url) => {
       const path = String(url).replace("https://broker.rogerai.fm", "");

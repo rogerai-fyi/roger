@@ -19,7 +19,7 @@
   import { api, getJSON, logout } from "#lib/api.js";
   import { n0, cr, num, kfmt, rfmt } from "#lib/format.js";
   import AccountNav from "#lib/ui/AccountNav.svelte";
-  import { rollupModels, rollupTotals } from "#lib/rollup.js";
+  import { rollupModels, rollupTotals, seriesOK } from "#lib/rollup.js";
   import Figure from "./Figure.svelte";
 
   let auth = $state("loading");   // loading | gate | in
@@ -77,7 +77,7 @@
       const r = await api("/metrics/series?days=" + encodeURIComponent(range));
       if (r.status === 401) return { ok: false, auth: false };
       if (!r.ok) return { ok: false };
-      try { return { ok: true, data: await r.json() }; } catch { return { ok: false }; }
+      try { const data = await r.json(); return seriesOK(data) ? { ok: true, data } : { ok: false }; } catch { return { ok: false }; }
     } catch { return { ok: false }; }
   }
   async function load(range) {

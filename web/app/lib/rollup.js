@@ -18,6 +18,17 @@ export function rollupModels(daily, unknown = "unknown", sorted = true) {
   return sorted ? rows.sort((a, b) => b.tokens - a.tokens) : rows;
 }
 
+// Whether a /metrics/series body has the shape the rollups read: daily (when present) a list of
+// bucket objects, each models (when present) a list of objects. A page checks this on arrival
+// and shows its error state otherwise, as the legacy pages did when their render threw into the
+// fetch chain's catch (a $derived that throws cannot be caught by the page's <svelte:boundary>).
+export function seriesOK(d) {
+  if (!d || typeof d !== "object") return false;
+  if (d.daily == null) return true;
+  return Array.isArray(d.daily) && d.daily.every((b) => b && typeof b === "object" &&
+    (b.models == null || (Array.isArray(b.models) && b.models.every((m) => m && typeof m === "object"))));
+}
+
 // The totals across the window, for the headline stats.
 export function rollupTotals(daily) {
   const t = { requests: 0, tokens_in: 0, tokens_out: 0, spend: 0, earned: 0 };

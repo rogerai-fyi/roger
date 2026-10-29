@@ -9,6 +9,7 @@
   import RogerFmt from "#lib/fmt.js";
   import { n0, cr, kfmt, rfmt } from "#lib/format.js";
   import { frontierAt, linePlot, axisLabels, savingsBars, rollupModels } from "./charts.js";
+  import { seriesOK } from "#lib/rollup.js";
   import AccountNav from "#lib/ui/AccountNav.svelte";
 
   const DAYS = 30;
@@ -54,8 +55,7 @@
       const r = await api("/metrics/series?days=" + DAYS);
       if (!r.ok) { status = "fault"; return; }
       const j = await r.json();
-      // a series that is not a list is a fault to show (the legacy render threw on it), never a crash
-      if (j && j.daily != null && !Array.isArray(j.daily)) throw new Error("malformed series");
+      if (!seriesOK(j)) throw new Error("malformed series");   // a fault to show, never a dead card
       d = j;
       status = "ready";
     } catch { status = "fault"; }
@@ -82,6 +82,10 @@
   <!-- loading / empty / error states for the whole feed -->
   <p class="ds-state" id="dashLoading" hidden={status !== "loading"}>Loading your numbers...</p>
   <p class="ds-state" id="dashError" hidden={status !== "fault"}>Could not load your dashboard. Try again shortly.</p>
+  <!-- a series the charts cannot draw is the fault state, as when the legacy render threw into
+       its fetch chain's catch; never a dead card (the shape itself is checked on arrival, seriesOK).
+       The sign-out below stays outside: a visible card always has one. -->
+  <svelte:boundary onerror={(e) => { console.error("dashboard: could not render the series", e); status = "fault"; }}>
   <section class="acct-state tint-panel" id="dashEmpty" hidden={!(status === "ready" && !hasData)}>
     <h2>No traffic yet</h2>
     <p>Nothing has moved through your account in the last 30 days. Tune in to a model and your tokens, spend and savings will chart here.</p>
@@ -177,6 +181,7 @@ roger login
 roger share</pre>
     <p class="fine">Once a node serves under your account, its activity shows on <a href="/console.html">the console</a>.</p>
   </section>
+  </svelte:boundary>
 
   <AccountNav current="dashboard" />
   <button id="logout" class="ghost" onclick={logout}>Sign out</button>
