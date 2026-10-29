@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { svgSelfClose, element } from "./_html.mjs";
+import { svgSelfClose, element, source } from "./_html.mjs";
 
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const DIST = path.join(WEB, "dist");
@@ -532,7 +532,7 @@ test("every legend row is a real control, so the link is not pointer-only", () =
 });
 
 test("the link is driven from focus as well as hover, and can be released", () => {
-  const js = read("js/scope.js");
+  const js = source("js/scope.js");   // the script as authored (shipped inside js/pages/research.js)
   for (const evt of ["mouseenter", "mouseleave", "focus", "blur", "click"]) {
     assert.match(js, new RegExp(`addEventListener\\("${evt}"`), `the scope handles ${evt}`);
   }
@@ -541,7 +541,7 @@ test("the link is driven from focus as well as hover, and can be released", () =
 });
 
 test("the scope stays readable with no script and with motion off", () => {
-  const js = read("js/scope.js");
+  const js = source("js/scope.js");
   const css = read("styles/research.css");
   // The drawn state is the DEFAULT: only the script hides anything, so JS-off is complete.
   assert.match(js, /classList\.add\("is-pending"\)/, "pending is added by script, never authored");

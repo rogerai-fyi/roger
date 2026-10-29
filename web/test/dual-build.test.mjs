@@ -6,7 +6,7 @@ import { readFileSync, readdirSync, existsSync, statSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { createHash } from "node:crypto";
-import { WEB, DIST, SRC, APP, read, allPages, pageSourcePath } from "./_html.mjs";
+import { WEB, DIST, SRC, APP, read, allPages, pageSourcePath, pageBundle, pageBundles, PAGE_TAG } from "./_html.mjs";
 import { transform } from "../scripts/gen-fmt.mjs";
 import { THEME_INLINE } from "../app/lib/head.js";
 
@@ -69,7 +69,7 @@ test("the site runtime is one bundle: built, loaded once by every page that asks
   const built = path.join(DIST, "js", "runtime.js");
   assert.ok(existsSync(built), "dist/js/runtime.js is built");
   assert.ok(statSync(built).size > 10_000, "and carries the scripts");
-  assert.doesNotMatch(read(built), /^\s*import\s/m, "the bundle imports nothing: one request");
+  assert.doesNotMatch(read(built), /^import[\s{"']/m, "the bundle imports nothing: one request");
   for (const page of owned) {
     const html = read(path.join(DIST, page));
     // a broadcast asks for it through its layout (lib/ui/BroadcastPost.svelte)
@@ -79,6 +79,29 @@ test("the site runtime is one bundle: built, loaded once by every page that asks
     assert.equal((html.match(/<script type="module" src="js\/runtime\.js\?v=[0-9a-f]{8}">/g) || []).length, wants ? 1 : 0, `${page}: ${wants ? "loads the runtime once" : "asks for no runtime and gets none"}`);
     for (const f of bundled) assert.doesNotMatch(html, new RegExp(`src="js/${f.replace(".", "\\.")}`), `${page}: never loads js/${f} beside the bundle`);
   }
+});
+
+test("a page's own scripts are one bundle: built, loaded once by that page and no other, its sources never shipped twice", () => {
+  const names = pageBundles();
+  assert.ok(names.length >= 9, "app/pages has the pages that carry their own scripts");
+  const page = (name) => (name === "index" ? "index.html" : `${name}.html`);
+  for (const name of names) {
+    const built = path.join(DIST, "js", "pages", `${name}.js`);
+    assert.ok(existsSync(built), `dist/js/pages/${name}.js is built`);
+    assert.doesNotMatch(read(built), /^import[\s{"']/m, `${name}: the bundle imports nothing`);
+    for (const f of pageBundle(name)) {
+      assert.ok(existsSync(path.join(SRC, "js", `${f}.js`)), `src/js/${f}.js is a source of pages/${name}`);
+      assert.ok(!existsSync(path.join(DIST, "js", `${f}.js`)), `dist/js/${f}.js is not shipped on its own`);
+    }
+    const html = read(path.join(DIST, page(name)));
+    assert.equal((html.match(PAGE_TAG(name)) || []).length, 1, `${page(name)} loads its bundle once`);
+    assert.ok(html.indexOf("js/runtime.js") < html.indexOf(`js/pages/${name}.js`), `${page(name)}: the runtime comes first`);
+    for (const other of readdirSync(DIST).filter((f) => f.endsWith(".html") && f !== page(name))) {
+      assert.doesNotMatch(read(path.join(DIST, other)), PAGE_TAG(name), `${other} does not load pages/${name}.js`);
+    }
+  }
+  // a redirect stub (bands.html) keeps its one sync script in the head: it must redirect before anything else loads
+  for (const p of owned) if (!/http-equiv="refresh"/.test(read(path.join(DIST, p)))) assert.doesNotMatch(read(path.join(DIST, p)), /<script src="js\/(?!theme-init|easter-egg)[\w-]+\.js/, `${p}: no classic page script beside the bundles`);
 });
 
 test("every island a page names is built and referenced, and every built island is used", () => {

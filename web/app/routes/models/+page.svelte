@@ -11,7 +11,7 @@
     desc: 'The live RogerAI model directory: every model is a band, every home GPU a station on air. Sweep the dial, read the signal, and pick up an endpoint. Pay per token on the CLI. Real data only - no station, no signal.',
     canonical: 'https://rogerai.fm/models.html',
     css: [...CSS_SHARED, 'models.css'],
-    scripts: [{ src: 'js/taxonomy.js', defer: true }, { src: 'js/bands.js', defer: true }, { src: 'js/report.js', defer: true }, { runtime: true }],
+    scripts: [{ runtime: true }, { page: "models" }],
   });
 </script>
 <svelte:head>{@html head}</svelte:head>

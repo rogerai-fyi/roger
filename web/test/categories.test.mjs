@@ -4,6 +4,7 @@
 // The tuner's rules live in ONE module (js/taxonomy.js, window.RogerTaxonomy), so they are
 // RUN here in a node:vm sandbox rather than matched as source text; the page wiring and the
 // manual are checked against the built dist.
+import { pageBundle, PAGE_TAG } from "./_html.mjs";
 import { test, before } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -15,12 +16,13 @@ import vm from "node:vm";
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const DIST = path.join(WEB, "dist");
 const read = (p) => readFileSync(path.join(DIST, p), "utf8");
+const srcjs = (p) => readFileSync(path.join(WEB, "src", p), "utf8");   // a script as authored (shipped inside its page bundle)
 
 let RT;
 before(() => {
   execFileSync("node", ["build.mjs"], { cwd: WEB });
   const win = {};
-  vm.runInNewContext(read("js/taxonomy.js"), { window: win });
+  vm.runInNewContext(srcjs("js/taxonomy.js"), { window: win });
   RT = win.RogerTaxonomy;
 });
 
@@ -138,17 +140,18 @@ test("taxonomy text is escaped when rendered", () => {
 // ---------------------------------------------------------------- page wiring
 test("the models page loads the rules and offers the category filter", () => {
   const html = read("models.html");
-  const t = html.indexOf('<script src="js/taxonomy.js'), b = html.indexOf('<script src="js/bands.js');
-  assert.ok(t > 0 && b > 0 && t < b, "taxonomy.js loads before bands.js");
+  assert.match(html, PAGE_TAG("models"), "the models page loads its own bundle");
+  const order = pageBundle("models");
+  assert.ok(order.indexOf("taxonomy") >= 0 && order.indexOf("taxonomy") < order.indexOf("bands"), "taxonomy.js loads before bands.js");
   assert.match(html, /<span class="tuner__k">CATEGORY<\/span>\s*<select id="bandCat"/, "a Category select");
-  const js = read("js/bands.js");
+  const js = srcjs("js/bands.js");
   assert.match(js, /BROKER \+ "\/categories"/, "bands.js reads /categories");
   assert.match(js, /RT\.fromMarketRow\(m\)/, "the /market row maps its category fields");
   assert.match(js, /taxonomy_source: o\.taxonomy_source/, "each /discover station keeps its category fields");
 });
 
 test("the band detail carries the moderation note for a graded band", () => {
-  assert.match(read("js/bands.js"), /RogerAI still screens every request/);
+  assert.match(srcjs("js/bands.js"), /RogerAI still screens every request/);
 });
 
 // ---------------------------------------------------------------- web_sharing_view (@web)

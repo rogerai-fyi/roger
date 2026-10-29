@@ -18,7 +18,7 @@
     ogimage: "https://rogerai.fm/assets/broadcasts/router-airwaves-hero.png",
     ogdesc: "Inside RogerAI's capacity-aware router: why the strongest healthy stations win without becoming traffic magnets, and where the next request goes when one fills up.",
     css: ["broadcast-routing.css"],
-    scripts: [{"src":"js/routing-demo.js","defer":true}],
+    scripts: [{ page: "broadcasts-how-rogerai-routes-models" }],   // the routing demo, app/pages/
     faq: [
       {"q":"Does RogerAI always choose the station with the highest signal?","a":"No. Signal is a public summary. The router first applies hard request constraints, scores healthy candidates with request-aware speed, reliability, price, capacity, and load, then uses power-of-two choices inside a reliable top band."},
       {"q":"What happens when the strongest station is full?","a":"Its capacity-normalized load rises and its routing score falls. A concurrent request is directed to another healthy station that still satisfies the same model, price, speed, privacy, and access constraints."},

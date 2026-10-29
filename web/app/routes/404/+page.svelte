@@ -12,7 +12,7 @@
     robots: "noindex",
     canonical: 'https://rogerai.fm/404.html',
     css: [...CSS_SHARED, 'notfound.css'],
-    scripts: [{ src: 'js/notfound.js', defer: true }, { runtime: true }],
+    scripts: [{ runtime: true }, { page: "404" }],
   });
 </script>
 <svelte:head>{@html head}</svelte:head>

@@ -50,8 +50,9 @@ export const CSS_ACCOUNT = [...CSS_SHARED, "account-base.css"];
 // og: "home" (the marketing block) | { type, title, desc, url, image } (a page's own card)
 // theme: "external" (js/theme-init.js, default) | "inline" (the homepage) | "none"
 // extra: a page's own head markup (its JSON-LD, preloads), inserted after the stylesheets
-// scripts: the page's scripts in document order, [{ src, defer }], with one { runtime: true }
-//          entry where the shared runtime goes (a page without one has none)
+// scripts: the page's scripts in document order: one { runtime: true } entry where the shared
+//          runtime goes (a page without one has none), { page: "<name>" } for the page's own
+//          scripts (app/pages/<name>.js, after the runtime), { src, defer } for a plain file
 export function siteHead({ title, desc, robots, canonical, og, css = CSS_SHARED, theme = "external", extra = "", scripts = [] }) {
   const out = [`<title>${esc(title)}</title>`];
   if (desc) out.push(`<meta name="description" content="${esc(desc)}" />`);
@@ -89,6 +90,7 @@ export function siteHead({ title, desc, robots, canonical, og, css = CSS_SHARED,
   if (extra) out.push(extra.trim());
   for (const sc of scripts) {
     if (sc.runtime) out.push(`<script type="module" src="${RUNTIME_SRC}"><\/script>`);
+    else if (sc.page) out.push(`<script type="module" src="js/pages/${sc.page}.js"><\/script>`);
     else out.push(`<script src="${sc.src}"${sc.defer ? " defer" : ""}><\/script>`);
   }
   return out.join("\n  ");

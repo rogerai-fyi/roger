@@ -17,7 +17,7 @@
     theme: "inline",
     og: "home",
     css: [...CSS_SHARED, 'home.css'],
-    scripts: [{ src: 'js/ping-eye.js', defer: true }, { src: 'js/edge-story.js', defer: true }, { src: 'js/terminal.js', defer: true }, { src: 'js/fmt.js', defer: true }, { src: 'js/market.js', defer: true }, { runtime: true }, { src: 'js/ping-chat.js', defer: true }],
+    scripts: [{ runtime: true }, { page: "index" }],
   });
 </script>
 <svelte:head>{@html head}</svelte:head>

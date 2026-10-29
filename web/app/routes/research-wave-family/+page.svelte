@@ -14,7 +14,7 @@
     desc: 'The Wave family on one SI scale - Pico to Exa, a board beside the machine to an exascale-class flagship - what each tier is for, how each is built, and the measurement that decides which tier can take which industrial job.',
     og: { type: 'article', title: 'The Wave Spectrum', desc: 'One family of industrial models on a single SI scale - what each tier is for, what it takes to run it, and which job each size is allowed to take.', url: 'https://rogerai.fm/research-wave-family.html', image: 'https://rogerai.fm/og-research.png' },
     css: [...CSS_SHARED, 'research.css', 'wave-family.css'],
-    scripts: [{ runtime: true }, { src: 'js/wave-mark.js', defer: true }, { src: 'js/wave-mark-spectrum.js', defer: true }, { src: 'js/wave-jobs.js', defer: true }],
+    scripts: [{ runtime: true }, { page: "research-wave-family" }],
   });
 </script>
 <svelte:head>{@html head}</svelte:head>

@@ -15,7 +15,7 @@
     desc: 'RogerAI Labs builds and optimizes models for practical inference on local hardware, from workstations to embedded devices.',
     og: { type: 'website', title: 'RogerAI Labs - models built for local constraints', desc: 'Right-sized model research for local hardware, with evidence and limitations published alongside every result.', url: 'https://rogerai.fm/research.html', image: 'https://rogerai.fm/og-research.png' },
     css: [...CSS_SHARED, 'research.css'],
-    scripts: [{ src: 'js/scope.js', defer: true }, { runtime: true }, { src: 'js/wave-mark-spectrum.js', defer: true }],
+    scripts: [{ runtime: true }, { page: "research" }],
   });
 </script>
 <svelte:head>{@html head}</svelte:head>

@@ -11,7 +11,7 @@
     desc: 'RogerAI has no price list: operators set their own per-token rates and many stations broadcast free. What is fixed is the rules - no subscription, a wallet debited per token, a 90/10 split in the operator\'s favor, a $25 minimum payout after a 30-day hold.',
     og: { type: 'website', title: 'RogerAI pricing - the rules, not a price list', desc: 'Per token, in and out, at a price the operator sets. No subscription, no seat, no minimum. Operators keep 90%. Free stations are normal, not a trial.', url: 'https://rogerai.fm/pricing.html', image: 'https://rogerai.fm/og-home.png' },
     css: [...CSS_SHARED, 'research.css', 'pricing.css'],
-    scripts: [{ src: 'js/fmt.js', defer: true }, { src: 'js/calc.js', defer: true }, { runtime: true }],
+    scripts: [{ runtime: true }, { page: "pricing" }],
   });
 </script>
 <svelte:head>{@html head}</svelte:head>

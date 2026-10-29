@@ -11,7 +11,7 @@
     desc: 'The live RogerAI voice directory: on-air text-to-speech voices, each one an operator\'s station. Read the roster, pick a voice, pay by the character on the CLI or in the app. Real data only - no station, no voice.',
     canonical: 'https://rogerai.fm/voices.html',
     css: [...CSS_SHARED, 'voices.css'],
-    scripts: [{ src: 'js/voices.js', defer: true }, { runtime: true }],
+    scripts: [{ runtime: true }, { page: "voices" }],
   });
 </script>
 <svelte:head>{@html head}</svelte:head>

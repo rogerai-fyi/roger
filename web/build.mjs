@@ -5,7 +5,8 @@
 //   app/lib/                         the chrome (ui/), the head (head.js), the broker client
 //                                    (api.js), the data-file facts (content.js), the islands
 //   app/islands/<name>.js            an island's entry, bundled to dist/js/islands/<name>.js
-//   app/runtime.js                   the site runtime (src/js, nine scripts) as one module, dist/js/runtime.js
+//   app/runtime.js                   the site runtime (src/js, the shared scripts) as one module, dist/js/runtime.js
+//   app/pages/<page>.js              a page's own scripts (src/js) as one module, dist/js/pages/<page>.js
 //   src/                             the static tree every page uses: js/ (the page scripts),
 //                                    styles/, assets/, data/ (build input), install.sh, roger/
 //
@@ -78,9 +79,11 @@ function appStamp(pages) {
   return h.digest("hex");
 }
 
-// The scripts app/runtime.js bundles (src/js/<name>.js): shipped as dist/js/runtime.js, not
-// as the files, so a page never loads them twice.
-const RUNTIME_SOURCES = [...readFileSync(join(APP, "runtime.js"), "utf8").matchAll(/import "\.\.\/src\/js\/([\w-]+\.js)"/g)].map((m) => join("js", m[1]));
+// The scripts the bundles carry (src/js/<name>.js, imported by app/runtime.js and
+// app/pages/<page>.js): shipped inside dist/js/runtime.js and dist/js/pages/<page>.js, not as
+// the files, so a page never loads one twice.
+const bundleEntries = [join(APP, "runtime.js"), ...readdirSync(join(APP, "pages")).filter((f) => f.endsWith(".js")).map((f) => join(APP, "pages", f))];
+const BUNDLED_SOURCES = [...new Set(bundleEntries.flatMap((e) => [...readFileSync(e, "utf8").matchAll(/import "\.\.\/(?:\.\.\/)?src\/js\/([\w-]+\.js)"/g)].map((m) => join("js", m[1]))))];
 
 // The bundles first (a page references its island by a fixed name, the runtime by its one
 // name), then the pages.
@@ -88,7 +91,8 @@ function buildApp(pages) {
   ensureToolchain();
   const stamp = appStamp(pages), stampFile = join(KIT_BUILD, ".stamp");
   const islandSources = readdirSync(join(APP, "islands")).filter((f) => f.endsWith(".js"));
-  const islandsBuilt = [...islandSources, "runtime.js"].every((f) => existsSync(join(ISLANDS_OUT, f)));
+  const pageSources = readdirSync(join(APP, "pages")).filter((f) => f.endsWith(".js")).map((f) => join("pages", f));
+  const islandsBuilt = [...islandSources, "runtime.js", ...pageSources].every((f) => existsSync(join(ISLANDS_OUT, f)));
   if (existsSync(stampFile) && readFileSync(stampFile, "utf8") === stamp && islandsBuilt && pages.every((p) => existsSync(join(KIT_BUILD, p)))) return;
   rmSync(ISLANDS_OUT, { recursive: true, force: true });
   vite(["build", "--config", "vite.islands.config.mjs", "--logLevel", "warn"]);
@@ -106,7 +110,7 @@ function copyAssets(dir) {
     const rel = relative(SRC, abs);
     if (rel === join("data", "wave-status.json") || rel === join("data", "capabilities.json")) continue;   // build input, rendered into pages
     if (rel === join("data", "model-cards.json")) continue;   // build input, rendered into the model pages
-    if (RUNTIME_SOURCES.includes(rel)) continue;   // bundled into js/runtime.js
+    if (BUNDLED_SOURCES.includes(rel)) continue;   // inside js/runtime.js or a js/pages/ bundle
     if (!rel.includes("/") && ent.name.endsWith(".html")) throw new Error(`web/src/${rel}: a page is an app route (app/routes), not a file in src/`);
     const dest = join(DIST, rel);
     mkdirSync(dirname(dest), { recursive: true });
@@ -139,6 +143,7 @@ function assetHash(rel) {
     const data = rel.endsWith(".css") ? cssOut(rel)
       : rel.startsWith("js/islands/") ? readFileSync(join(ISLANDS_OUT, rel.slice("js/islands/".length)))
       : rel === "js/runtime.js" ? readFileSync(join(ISLANDS_OUT, "runtime.js"))
+      : rel.startsWith("js/pages/") ? readFileSync(join(ISLANDS_OUT, "pages", rel.slice("js/pages/".length)))
       : readFileSync(join(SRC, rel));
     h = createHash("sha256").update(data).digest("hex").slice(0, 8);
   } catch { /* missing/external: leave it unversioned rather than break the build */ }
@@ -396,6 +401,7 @@ function build() {
   // has them) and the island bundles under js/islands/
   if (existsSync(join(KIT_BUILD, "_app"))) copyTree(join(KIT_BUILD, "_app"), join(DIST, "_app"));
   for (const f of existsSync(ISLANDS_OUT) ? readdirSync(ISLANDS_OUT) : []) {
+    if (f === "pages") { copyTree(join(ISLANDS_OUT, f), join(DIST, "js", "pages")); continue; }   // a page's own scripts
     copyOut(join(ISLANDS_OUT, f), f === "runtime.js" ? join(DIST, "js", f) : join(DIST, "js", "islands", f));
   }
   const n = writeSitemap(indexable);

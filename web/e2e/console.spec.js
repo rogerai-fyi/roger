@@ -13,7 +13,8 @@ test("console: the island hydrates the prerendered card and renders the operator
     if (path === "/account") return json(route, 200, { github_login: "ada", provider: "github" });
     if (path === "/console") return json(route, 200, { role: "owner",
       counters: { requests_today: 4321, earned_today: 2.5, active_nodes: 1, active_bands: 2 },
-      events: [{ request_id: "req_abcdefghijklmnop", ts: Math.floor(Date.now() / 1000) - 45, model: "gpt-oss-120b", node: "K6ABC", tokens_in: 900, tokens_out: 1800, earned: 0.01, success: true }] });
+      // 100 s ago reads "1m" for the next 20 s, so the wall clock cannot flip the label mid-test (45 s read "46s" once)
+      events: [{ request_id: "req_abcdefghijklmnop", ts: Math.floor(Date.now() / 1000) - 100, model: "gpt-oss-120b", node: "K6ABC", tokens_in: 900, tokens_out: 1800, earned: 0.01, success: true }] });
     if (path === "/provider/models") return json(route, 200, { ceiling_in: 50, ceiling_out: 100,
       models: [{ node: "K6ABC", model: "gpt-oss-120b", online: true, price_in: 0.1, price_out: 0.4, free: false, schedule: [], overridden: false, category: "chat", taxonomy_source: "declared" }] });
     return json(route, 404, {});
@@ -28,7 +29,7 @@ test("console: the island hydrates the prerendered card and renders the operator
   await expect(page.locator("#role")).toHaveText("Operator console");
   await expect(page.locator("#colMoney")).toHaveText("Earned");
   await expect(page.locator("tr.cn-row")).toHaveCount(1);
-  await expect(page.locator("tr.cn-row .cn-time")).toHaveText("45s");
+  await expect(page.locator("tr.cn-row .cn-time")).toHaveText("1m");
   await expect(page.locator("#ctrReq")).toHaveText(/4\.3k|4,321/);
   await expect(page.locator(".md-card .md-name")).toHaveText("gpt-oss-120b");
   // the price editor is live: add a window, it appears

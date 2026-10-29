@@ -14,6 +14,7 @@
 // with only a Content-Type header (playbox.js ~1224); there is no routing drawer, no routing
 // storage key, no usage-chunk footer, and relay errors render through relayErrorText.
 // Run: node --test web/test/playbox-routing.test.mjs
+import { pageBundle, PAGE_TAG } from "./_html.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -59,8 +60,8 @@ function needSendWiring() {
   assert.match(js.slice(i, i + 600), /PlayboxRoute\.body\(ROUTE, model, body, \{ loggedIn: STATE\.loggedIn, routed:/,
     "routingBody does not hand the drawer state to PlayboxRoute.body");
   // the page's scripts ride its head call, in order; the built page is the proof
-  const at = built().indexOf('src="js/playbox-route.js?v=');
-  assert.ok(at >= 0 && at < built().indexOf('src="js/playbox.js?v='), "playbox.html does not load playbox-route.js before playbox.js");
+  const order = pageBundle("playbox");
+  assert.ok(order.indexOf("playbox-route") >= 0 && order.indexOf("playbox-route") < order.indexOf("playbox"), "playbox.html does not load playbox-route.js before playbox.js");
 }
 // the built page, once (build.mjs is incremental for the app half)
 let builtPage;
@@ -362,7 +363,8 @@ test("prefers-reduced-motion disables the drawer's open animation", () => {
 });
 
 test("The drawer's script adds no parser-blocking work and stays inside the page's weight budget", () => {
-  assert.match(built(), /<script src="js\/playbox\.js\?v=[0-9a-f]+" defer>/, "playbox.js is no longer deferred");
+  assert.match(built(), PAGE_TAG("playbox"), "the Playbox scripts ship as the page's module (deferred by the spec)");
+  assert.ok(pageBundle("playbox").includes("playbox"), "and that module carries playbox.js");
   needDrawer();
 });
 

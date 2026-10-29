@@ -144,3 +144,8 @@ export function element(html, open, tag) {
 // tag a built page carries for the bundle (js/runtime.js, a module, cache-busted).
 export const runtimeScripts = () => [...readFileSync(path.join(APP, "runtime.js"), "utf8").matchAll(/import "\.\.\/src\/js\/([\w-]+)\.js"/g)].map((m) => m[1]);
 export const RUNTIME_TAG = /<script type="module" src="js\/runtime\.js\?v=[0-9a-f]+"><\/script>/;
+// A page's own bundle: the scripts app/pages/<name>.js carries (src/js/<name>.js, in order), and
+// the tag a built page carries for it.
+export const pageBundle = (name) => [...readFileSync(path.join(APP, "pages", `${name}.js`), "utf8").matchAll(/import "\.\.\/\.\.\/src\/js\/([\w-]+)\.js"/g)].map((m) => m[1]);
+export const pageBundles = () => readdirSync(path.join(APP, "pages")).filter((f) => f.endsWith(".js")).map((f) => f.replace(/\.js$/, "")).sort();
+export const PAGE_TAG = (name) => new RegExp(`<script type="module" src="js/pages/${name}\\.js\\?v=[0-9a-f]+"><\\/script>`);

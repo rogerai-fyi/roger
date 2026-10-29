@@ -545,12 +545,12 @@ style and no colour literal in an article (guarded).
 
 1. `app/routes/<page>/+page.svelte`: a `siteHead({...})` call in `<svelte:head>`,
    `<Nav variant="marketing" />`, the content, `<Footer anchors="/" />`; the page's
-   scripts and `{ runtime: true }` ride the head call. A page without the promo strip passes
-   `promo={false}` to `Nav`, which leaves the strip out; `promo.js` (inside the runtime) does
-   nothing on a page without one.
-   Every script is deferred (the runtime is a module), so they run in document order: a page
-   script written before the runtime entry runs before site.js, one written after it runs
-   after. Page scripts that need site.js to have run go after the entry.
+   `{ runtime: true }` rides the head call, and a page with scripts of its own lists them in
+   `app/pages/<page>.js` (plain scripts in `src/js`, imported in order) and asks for them with
+   `{ page: "<page>" }` after the runtime: one module per page, run after the runtime (so
+   `site.js` and `RogerFmt` are there), in document order. A page without the promo strip
+   passes `promo={false}` to `Nav`, which leaves the strip out; `promo.js` (inside the
+   runtime) does nothing on a page without one.
 2. List its sheets in the page's `siteHead({ css: [...CSS_SHARED, "<page>.css"] })` call.
    or `[...CSS_ACCOUNT, ...]`. The build fails if you forget.
 3. Build it from components first. Page CSS only for what no other page will need, with

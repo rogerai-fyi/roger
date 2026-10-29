@@ -11,7 +11,7 @@
     desc: 'Open the console: chat with broker-hosted stations, explore what the models can do (text, audio, vision, tools, embed, guard), and drop plant events on a Roger Edge device to read its structured decision. Live where the browser can reach it, honestly labelled everywhere else.',
     og: { type: 'website', title: 'RogerAI Playbox - open the console', desc: 'Chat with live stations, explore the capability surfaces, and run the Roger Edge device on real industrial events. Live data only; examples labelled.', url: 'https://rogerai.fm/playbox.html', image: 'https://rogerai.fm/og-home.png' },
     css: [...CSS_SHARED, 'playbox.css', 'wave-patch.css', 'wave-factory.css'],
-    scripts: [{ runtime: true }, { src: 'js/playbox-route.js', defer: true }, { src: 'js/playbox.js', defer: true }, { src: 'js/wave-patch.js', defer: true }, { src: 'js/wave-factory.js', defer: true }],
+    scripts: [{ runtime: true }, { page: "playbox" }],
   });
 </script>
 <svelte:head>{@html head}</svelte:head>

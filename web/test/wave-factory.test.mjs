@@ -4,6 +4,7 @@
 // matter most are the honesty ones: what Pico and Nano say has to come out of
 // the committed bench export - including their misses - while the plant itself
 // (cookies, coins, bands, wear) is game simulation and says so on the surface.
+import { pageBundle } from "./_html.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -34,7 +35,7 @@ function loadHook() {
 test("factory: it is a third deck of its own", () => {
   assert.match(html, /id="pgModeFactory"[^>]+aria-controls="pgFactoryView"/);
   assert.match(html, /id="pgFactoryView"[^>]+aria-labelledby="pgModeFactory"/);
-  assert.match(html, /js\/wave-factory\.js/);
+  assert.ok(pageBundle("playbox").includes("wave-factory"), "the Playbox bundle carries wave-factory.js");
   assert.match(css, /--tier-pico/, "the deck carries the Spectrum hues, scoped to itself");
 });
 

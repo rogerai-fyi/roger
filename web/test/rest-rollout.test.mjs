@@ -129,12 +129,12 @@ test("(c) a page's own scripts keep their order relative to each other and to th
   for (const page of PRODUCT) assert.deepEqual(order(page), ["theme-init", "runtime"], page);   // an island page's logic is js/islands/<name>.js, a module after these
 });
 
-test("(c) the page runtime has one form: one module, the nine scripts in their order", () => {
+test("(c) the page runtime has one form: one module, the shared scripts in their order", () => {
   // app/lib/head.js emits the runtime where a page puts its { runtime: true } entry
   const head = siteHead({ title: "x", scripts: [{ runtime: true }] });
   assert.equal((head.match(new RegExp(`<script type="module" src="${RUNTIME_SRC}"><\\/script>`, "g")) || []).length, 1, "the runtime ships once, as a module");
   for (const m of head.matchAll(/<script src="js\/[^"]+"[^>]*>/g)) if (!/theme-init/.test(m[0])) assert.match(m[0], /\sdefer\b/, m[0]);
-  assert.deepEqual(RUNTIME, ["lets-talk", "site", "session", "promo", "tuner", "scrub", "anchor-hold", "range-twin", "cycle"], "app/runtime.js bundles the nine, in the order they ran");
+  assert.deepEqual(RUNTIME, ["fmt", "lets-talk", "site", "session", "promo", "tuner", "scrub", "anchor-hold", "range-twin", "cycle"], "app/runtime.js bundles the shared scripts in the order they ran, the formatter first");
 });
 
 /* ---- (d) tokens ---------------------------------------------------------------------- */

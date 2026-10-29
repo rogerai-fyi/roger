@@ -15,6 +15,7 @@
 // falsifiable claim on the one page whose argument is that we do not do that. The
 // consumer side asks what you pay today instead, which is also more accurate than
 // anything we could quote.
+import { pageBundle, PAGE_TAG } from "./_html.mjs";
 import { test, before } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -39,7 +40,8 @@ const section = () => read("pricing.html").match(/<section[^>]*id="calc"[\s\S]*?
 test("calculator: the pricing page carries it, with its own script", () => {
   const page = read("pricing.html");
   assert.ok(section(), "the pricing page has a calculator section");
-  assert.match(page, /js\/calc\.js/, "and loads the behavior");
+  assert.match(page, PAGE_TAG("pricing"), "and loads its own bundle");
+  assert.ok(pageBundle("pricing").includes("calc"), "which carries calc.js");
 });
 
 test("calculator: both sides are there - what you would earn, and what you pay now", () => {

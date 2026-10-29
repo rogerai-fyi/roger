@@ -14,7 +14,7 @@
     desc: 'The Wave family and Roger Edge mapped onto real boards: ESP32, Arduino, Raspberry Pi Pico and Pi 5, Jetson, Mac Studio and DGX Spark. Which tier each board is a target for, what stage that tier is at, and what you can actually run today.',
     og: { type: 'website', title: 'RogerAI hardware - the board you own, and what it is meant to carry', desc: 'From a sensor microcontroller to a desktop datacenter: the model tier each class of board is a target for, with the honest stage of each one.', url: 'https://rogerai.fm/research-hardware.html', image: 'https://rogerai.fm/og-research.png' },
     css: [...CSS_SHARED, 'research.css', 'research-hardware.css'],
-    scripts: [{ runtime: true }, { src: 'js/hardware.js', defer: true }],
+    scripts: [{ runtime: true }, { page: "research-hardware" }],
   });
 </script>
 <svelte:head>{@html head}</svelte:head>

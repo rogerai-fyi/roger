@@ -13,7 +13,8 @@ files, each pulling chrome from include markers, became routes of one SvelteKit 
 the chrome as components, the head as one function, the broker client in one module and
 the data-file facts behind one resolver. Every signed-in page is a Svelte island (its card a
 component tree under `app/lib/<page>/`, its behavior a vitest file), and the nine page
-scripts every page ran ship as one module (`app/runtime.js`, built to `js/runtime.js`). The
+scripts every page ran ship as one module (`app/runtime.js`, built to `js/runtime.js`), and a
+page's own scripts as one more (`app/pages/<page>.js`). The
 output is the same static tree (every route prerendered, nothing hydrates through
 SvelteKit), on the same host, under the same edge CSP, inside the same weight budgets. The plan and
 the spike numbers are in the private docs (WEB-SVELTEKIT-MIGRATION-PLAN.md and the
