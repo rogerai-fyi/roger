@@ -20,6 +20,17 @@ export async function account() {
   return r.ok ? r.json() : null;
 }
 
+// A feed read: the body, or null on any failure (a refused or unreachable feed shows as
+// honest-empty, never as a number). The legacy page scripts each carried this as get().
+export async function getJSON(path) {
+  try {
+    const r = await api(path);
+    return r.ok ? await r.json() : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function logout() {
   try { await api("/auth/logout", { method: "POST" }); } catch { /* leaving anyway */ }
   location.replace("/login.html");

@@ -37,7 +37,7 @@ Feature: Signed-in pages are honest about identity and empty states
     When a signed-in person with no operator account opens payouts
     Then they see why, and the page makes none of the operator-only requests
     And an older broker that omits the operator flag still shows the full page
-    # test: web/test/payouts-states.test.mjs
+    # test: web/test/unit/payouts.test.js
 
   Scenario: A failed feed reads unavailable, never a real-looking number or a signed-out gate
     Then a failed spend-today feed shows "-" not "$0.00"

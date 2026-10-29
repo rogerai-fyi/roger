@@ -15,6 +15,18 @@ export function ago(ts, now = Date.now()) {
   if (s < 7 * 86400) return Math.floor(s / 86400) + "d";
   return new Date(n0(ts) * 1000).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
+// A unix timestamp as the viewer's short date, "" for none.
+export const when = (ts) => (ts ? new Date(ts * 1000).toLocaleDateString() : "");
+// A release date relative to today: "in 12 days", "tomorrow", "today", "yesterday", "3 days ago".
+export function rel(ts, now = Date.now()) {
+  if (!ts) return "";
+  const days = Math.round((ts * 1000 - now) / 86400000);
+  if (days > 1) return "in " + days + " days";
+  if (days === 1) return "tomorrow";
+  if (days === 0) return "today";
+  if (days === -1) return "yesterday";
+  return Math.abs(days) + " days ago";
+}
 export const shortId = (id) => (!id ? "-" : id.length > 12 ? id.slice(0, 12) : id);
 // "2026-06-01" -> "Jun 1"
 export function dayLabel(b) {

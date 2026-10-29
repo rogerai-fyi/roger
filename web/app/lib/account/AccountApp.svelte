@@ -7,6 +7,7 @@
   import { api, postJSON, logout } from "#lib/api.js";
   import { bootGet, reason } from "./boot.js";
   import RogerFmt from "#lib/fmt.js";
+  import { when } from "#lib/format.js";
   import AccountNav from "#lib/ui/AccountNav.svelte";
 
   let status = $state("loading");   // loading | fault | ready
@@ -24,7 +25,6 @@
   let token = "", addr = "";
 
   const cr = (n) => (typeof n === "number" && isFinite(n) ? RogerFmt.usdSigned(n) : "-");
-  const when = (ts) => (ts ? new Date(ts * 1000).toLocaleDateString() : "");
   const showLink = $derived(!!a && (a.provider === "github" || a.provider === "apple"));
   const linkNeedsLogin = $derived(showLink && a.operator === false);
   const signin = $derived(a ? ({ github: "GitHub", apple: "Apple", email: "Email" }[a.provider] || (a.github_id ? "GitHub" : "-")) : "-");

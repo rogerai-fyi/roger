@@ -1,15 +1,14 @@
 // A signed-in person is sent to login ONLY when the broker says 401. A 5xx / network fault on
 // the page's first feed shows an error with the card and a working logout - never a redirect
 // (login would bounce them to the dashboard and lose their place). Run: node --test test/boot-faults.test.mjs
-// The account hub is an island (app/lib/account/AccountApp.svelte, app/lib/account/boot.js); its rows
-// are in test/unit/account.test.js.
+// The account hub and payouts are islands (app/lib/account/AccountApp.svelte, PayoutsApp.svelte,
+// over app/lib/account/boot.js); their rows are in test/unit/account.test.js and payouts.test.js.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { page, settle } from "./_pagevm.mjs";
 
 const PAGES = [
   { name: "billing", file: "js/billing.js", path: "/billing.html", feed: "/billing", ok: { balance: 1, derived: 1, checkout_ready: false, topups: [] } },
-  { name: "payouts", file: "js/payouts.js", path: "/payouts.html", feed: "/account", ok: { github_login: "octocat", operator: true, earnings: {} } },
 ];
 
 for (const pg of PAGES) {
@@ -37,7 +36,7 @@ for (const pg of PAGES) {
     assert.equal(p.els.pageError.hidden, false);
   });
   test(`${pg.name}: a good feed shows no error`, async () => {
-    const p = page(pg.path, { [pg.feed]: { status: 200, body: pg.ok }, "/payouts/earnings": { status: 200, body: {} }, "/payouts/history": { status: 200, body: {} }, "/connect/status": { status: 200, body: {} }, "/tower/status": { status: 200, body: {} }, "/metrics/provider": { status: 200, body: {} } });
+    const p = page(pg.path, { [pg.feed]: { status: 200, body: pg.ok } });
     p.run(pg.file); await settle();
     assert.equal(p.els.pageError.hidden, true);
     assert.equal(p.els.card.hidden, false);

@@ -18,7 +18,7 @@ export function broker(routes) {
 // The page's location, with navigations recorded (location.replace / href assignments).
 export function fakeLocation({ pathname = "/", search = "", hash = "" } = {}) {
   const navs = [];
-  const loc = { pathname, search, hash, replace: (u) => navs.push(u), origin: "http://localhost" };
+  const loc = { pathname, search, hash, replace: (u) => navs.push(u), reload: () => navs.push("<reload>"), origin: "http://localhost" };
   Object.defineProperty(loc, "href", { get: () => "http://localhost" + pathname + search + hash, set: (u) => navs.push(u) });
   Object.defineProperty(window, "location", { configurable: true, value: loc });
   return navs;
