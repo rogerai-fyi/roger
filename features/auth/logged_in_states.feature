@@ -43,7 +43,7 @@ Feature: Signed-in pages are honest about identity and empty states
     Then a failed spend-today feed shows "-" not "$0.00"
     And a 403 on the usage feed is an error, not the signed-out gate
     And a 403 on private bands says no machine is linked, not "sign in"
-    # test: web/test/honest-feeds.test.mjs
+    # test: web/test/unit/billing.test.js,web/test/unit/usage.test.js,web/test/unit/private.test.js
 
   Scenario: A new customer's dashboard says what to do next
     When a new customer opens an empty dashboard

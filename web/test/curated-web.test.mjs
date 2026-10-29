@@ -46,16 +46,19 @@ test("the usage history names the band, the provider and the split", () => {
   assert.match(html, /<th>Band<\/th>/, "it names the band");
   assert.match(html, /<th>Routing<\/th>/, "and the routing");
 
-  const js = read("js/metrics.js");
+  // the usage page is an island (app/lib/usage/UsageApp.svelte)
+  const js = readFileSync(path.join(WEB, "app", "lib", "usage", "UsageApp.svelte"), "utf8");
   assert.match(js, /curated_provider/, "a curated row names its provider");
   assert.match(js, /upstream \+ /, "and shows the split: list plus fee");
   assert.match(js, /curated_list/, "the list comes from the server, which knows the markup");
 });
 
 test("the history read is credentialed - no other account can see it", () => {
-  const js = read("js/metrics.js");
-  assert.match(js, /fetch\(BROKER \+ "\/usage", \{ credentials: "include" \}\)/,
-    "the /usage read carries the caller's own credentials and nothing else");
+  const js = readFileSync(path.join(WEB, "app", "lib", "usage", "UsageApp.svelte"), "utf8");
+  assert.match(js, /getJSON\("\/usage"\)/, "the /usage read goes through the one broker client, with nothing else on it");
+  const client = readFileSync(path.join(WEB, "app", "lib", "api.js"), "utf8");
+  assert.match(client, /fetch\(BROKER \+ path, \{ \.\.\.opts, credentials: "include" \}\)/,
+    "and that client carries the caller's own credentials on every call");
 });
 
 // --- Scenario: the operator's earnings page shows pass-through, not profit ------

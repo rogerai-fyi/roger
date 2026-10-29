@@ -1,198 +1,21 @@
 <script>
   // Metrics - RogerAI
-  // Ported from web/src/usage.html (2026-10-29); the copy is the legacy copy.
+  // Ported from web/src/usage.html (2026-10-29); the copy is the legacy copy, the card and the
+  // sign-in gate are the metrics island (lib/usage/UsageApp.svelte).
   import { siteHead, CSS_SHARED, CSS_ACCOUNT } from "#lib/head.js";
-  import AccountNav from "#lib/ui/AccountNav.svelte";
   import Footer from "#lib/ui/Footer.svelte";
+  import Island from "#lib/ui/Island.svelte";
+  import UsageApp from "#lib/usage/UsageApp.svelte";
   import Nav from "#lib/ui/Nav.svelte";
   const head = siteHead({
     title: 'Metrics - RogerAI',
     robots: "noindex",
     canonical: 'https://rogerai.fm/usage.html',
     css: [...CSS_ACCOUNT, 'metrics.css'],
-    scripts: [{ src: 'js/fmt.js', defer: true }, { src: 'js/metrics.js', defer: true }, { runtime: true }],
+    scripts: [{ runtime: true }],
   });
 </script>
 <svelte:head>{@html head}</svelte:head>
   <Nav variant='lean' home='/' />
-  <div class="authwrap tint-panel">
-  <main class="card" id="card" hidden>
-    <h1>Metrics</h1>
-    <p class="sub">An explorable, time-aware view of what you host and earn, and what you consume and spend - over time and per model.</p>
-
-    <!-- Range selector (shared by both views): re-fetches /metrics/series and redraws. -->
-    <div class="mx-range" role="group" aria-label="Time range">
-      <span class="mx-range__k">Range</span>
-      <button type="button" class="mx-range__opt" data-days="7">7d</button>
-      <button type="button" class="mx-range__opt is-active" data-days="30">30d</button>
-      <button type="button" class="mx-range__opt" data-days="90">90d</button>
-    </div>
-
-    <!-- ============ PROVIDER METRICS (what you host / earn) ============ -->
-    <section class="panel" id="provider" hidden>
-      <h2>Provider metrics</h2>
-      <p class="fine">Tokens you served and earnings accrued across the models on your nodes.</p>
-
-      <dl class="stats mx-totals" id="provTotals" hidden>
-        <div><dt>Requests</dt><dd id="provReq">-</dd></div>
-        <div><dt>Tokens out</dt><dd id="provTokOut">-</dd></div>
-        <div><dt>Earned</dt><dd id="provEarn">-</dd></div>
-      </dl>
-
-      <!-- time-series: earned per day -->
-      <figure class="mx-ts" id="provEarnTs" hidden>
-        <figcaption class="mx-ts__head">
-          <span class="mx-ts__title">Earned over time</span>
-          <span class="mx-ts__read" id="provEarnRead" aria-live="polite"></span>
-        </figcaption>
-        <div class="mx-ts__plot" id="provEarnPlot"></div>
-      </figure>
-
-      <!-- time-series: tokens in/out per day -->
-      <figure class="mx-ts" id="provTokTs" hidden>
-        <figcaption class="mx-ts__head">
-          <span class="mx-ts__title">Tokens served over time</span>
-          <span class="mx-legend" aria-hidden="true">
-            <span class="mx-legend__sw mx-legend__sw--out"></span>out
-            <span class="mx-legend__sw mx-legend__sw--in"></span>in
-          </span>
-          <span class="mx-ts__read" id="provTokRead" aria-live="polite"></span>
-        </figcaption>
-        <div class="mx-ts__plot" id="provTokPlot"></div>
-      </figure>
-
-      <!-- time-series: requests per day -->
-      <figure class="mx-ts" id="provReqTs" hidden>
-        <figcaption class="mx-ts__head">
-          <span class="mx-ts__title">Requests over time</span>
-          <span class="mx-ts__read" id="provReqRead" aria-live="polite"></span>
-        </figcaption>
-        <div class="mx-ts__plot" id="provReqPlot"></div>
-      </figure>
-
-      <!-- per-model breakdown: stacked bars of tokens-out share by model -->
-      <div class="mx-chart" id="provChart" hidden>
-        <div class="mx-chart__head">
-          <span class="mx-chart__title">Tokens out by model</span>
-        </div>
-        <ul class="mx-bars" id="provBars"></ul>
-      </div>
-
-      <div class="mx-tablewrap" id="provTableWrap" hidden>
-        <table class="mx-table">
-          <thead>
-            <tr>
-              <th scope="col">Model</th>
-              <th scope="col" class="num">Requests</th>
-              <th scope="col" class="num">Tokens out</th>
-              <th scope="col" class="num">Earned</th>
-            </tr>
-          </thead>
-          <tbody id="provRows"></tbody>
-        </table>
-      </div>
-
-      <p class="mx-state" id="provLoading">Loading provider metrics...</p>
-      <p class="mx-state" id="provEmpty" hidden>No activity in this range. Put a GPU on air with <code>roger share</code> to start earning.</p>
-      <p class="mx-state" id="provError" hidden>Could not load provider metrics. Try again shortly.</p>
-    </section>
-
-    <!-- ============ YOUR USAGE (what you consume / spend) ============ -->
-    <section class="panel" id="usage" hidden>
-      <h2>Your usage</h2>
-      <p class="fine">Tokens you consumed and what they cost across the models you tuned in.</p>
-
-      <dl class="stats mx-totals" id="useTotals" hidden>
-        <div><dt>Requests</dt><dd id="useReq">-</dd></div>
-        <div><dt>Tokens</dt><dd id="useTok">-</dd></div>
-        <div><dt>Spend</dt><dd id="useSpend">-</dd></div>
-      </dl>
-
-      <!-- time-series: spend per day -->
-      <figure class="mx-ts" id="useSpendTs" hidden>
-        <figcaption class="mx-ts__head">
-          <span class="mx-ts__title">Spend over time</span>
-          <span class="mx-ts__read" id="useSpendRead" aria-live="polite"></span>
-        </figcaption>
-        <div class="mx-ts__plot" id="useSpendPlot"></div>
-      </figure>
-
-      <!-- time-series: tokens in/out per day -->
-      <figure class="mx-ts" id="useTokTs" hidden>
-        <figcaption class="mx-ts__head">
-          <span class="mx-ts__title">Tokens consumed over time</span>
-          <span class="mx-legend" aria-hidden="true">
-            <span class="mx-legend__sw mx-legend__sw--out"></span>out
-            <span class="mx-legend__sw mx-legend__sw--in"></span>in
-          </span>
-          <span class="mx-ts__read" id="useTokRead" aria-live="polite"></span>
-        </figcaption>
-        <div class="mx-ts__plot" id="useTokPlot"></div>
-      </figure>
-
-      <!-- time-series: requests per day -->
-      <figure class="mx-ts" id="useReqTs" hidden>
-        <figcaption class="mx-ts__head">
-          <span class="mx-ts__title">Requests over time</span>
-          <span class="mx-ts__read" id="useReqRead" aria-live="polite"></span>
-        </figcaption>
-        <div class="mx-ts__plot" id="useReqPlot"></div>
-      </figure>
-
-      <!-- per-model breakdown: stacked bars of total tokens share by model -->
-      <div class="mx-chart" id="useChart" hidden>
-        <div class="mx-chart__head">
-          <span class="mx-chart__title">Tokens by model</span>
-        </div>
-        <ul class="mx-bars" id="useBars"></ul>
-      </div>
-
-      <div class="mx-tablewrap" id="useTableWrap" hidden>
-        <table class="mx-table">
-          <thead>
-            <tr>
-              <th scope="col">Model</th>
-              <th scope="col" class="num">Requests</th>
-              <th scope="col" class="num">Tokens</th>
-              <th scope="col" class="num">Spend</th>
-            </tr>
-          </thead>
-          <tbody id="useRows"></tbody>
-        </table>
-      </div>
-
-      <p class="mx-state" id="useLoading">Loading your usage...</p>
-      <p class="mx-state" id="useEmpty" hidden>No usage in this range. Tune in with <code>roger use &lt;model&gt;</code>.</p>
-      <p class="mx-state" id="useError" hidden>Could not load your usage. Try again shortly.</p>
-
-      <!-- Recent requests: the private routing history. Curated rows name the provider
-           and the split (upstream pass-through vs routing fee); only your own account
-           can read this - the read is credentialed. -->
-      <div class="mx-tablewrap" id="useRecentWrap" hidden>
-        <h3>Recent requests</h3>
-        <table class="mx-table">
-          <thead><tr><th>Band</th><th>Routing</th><th class="num">Tokens</th><th class="num">Cost</th></tr></thead>
-          <tbody id="useRecentRows"></tbody>
-        </table>
-      </div>
-    </section>
-
-    <p class="mx-state" id="allLoading">Loading metrics...</p>
-    <p class="mx-state" id="allError" hidden>Could not load metrics. Try again shortly.</p>
-
-    <AccountNav current='metrics' />
-    <button id="logout" class="ghost">Sign out</button>
-  </main>
-
-  <!-- Logged-out gate: shown when the broker says we are not signed in. -->
-  <main class="card" id="gate" hidden>
-    <h1>Metrics</h1>
-    <p class="sub">Log in to see your provider earnings and usage.</p>
-    <section class="acct-state tint-panel">
-      <h2>Signed out</h2>
-      <p>Sign in to view per-model tokens over time, earnings and spend.</p>
-      <p class="research-actions research-actions--lead"><a class="research-button" href="/login.html">Log in</a></p>
-    </section>
-  </main>
-  </div>
+  <Island name="usage" component={UsageApp} />
   <Footer anchors='/' />

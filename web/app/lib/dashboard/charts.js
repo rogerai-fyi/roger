@@ -51,13 +51,4 @@ export function savingsBars(daily) {
 }
 
 // Per-model breakdown: roll the daily models[] up over the window, biggest first
-export function rollupModels(daily) {
-  const by = {};
-  for (const d of daily) for (const m of d.models || []) {
-    const k = m.model || "unknown";
-    const r = by[k] || (by[k] = { model: k, requests: 0, tokens_in: 0, tokens_out: 0, spend: 0, earned: 0 });
-    r.requests += n0(m.requests); r.tokens_in += n0(m.tokens_in); r.tokens_out += n0(m.tokens_out);
-    r.spend += n0(m.spend); r.earned += n0(m.earned);
-  }
-  return Object.values(by).map((r) => ({ ...r, tokens: r.tokens_in + r.tokens_out })).sort((a, b) => b.tokens - a.tokens);
-}
+export { rollupModels } from "#lib/rollup.js";
