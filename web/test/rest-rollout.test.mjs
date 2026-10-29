@@ -126,7 +126,7 @@ test("(c) a page's own scripts keep their order relative to each other and to th
   // deferred the order is the document order, so the source order must be unchanged
   const order = (page) => [...dist(page).matchAll(/<script\b[^>]*\bsrc="\/?js\/([\w-]+)\.js/g)].map((m) => m[1])
     .filter((n) => !["easter-egg", "lets-talk", "promo", "tuner", "scrub", "anchor-hold", "range-twin", "cycle", "session"].includes(n));
-  assert.deepEqual(order("login.html"), ["theme-init", "fmt", "auth", "site", "login-next", "email-login"]);
+  assert.deepEqual(order("login.html"), ["theme-init", "site"]);   // an island page: its logic is js/islands/login.js, a module
   assert.deepEqual(order("account.html"), ["theme-init", "fmt", "account", "site"]);
   assert.deepEqual(order("billing.html"), ["theme-init", "fmt", "billing", "billing-help", "site"]);
   assert.deepEqual(order("keys.html"), ["theme-init", "account-keys", "keys", "site"]);

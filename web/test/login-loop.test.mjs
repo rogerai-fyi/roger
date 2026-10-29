@@ -34,16 +34,20 @@ test("dashboard: a genuinely logged-out visitor (/account 401) still goes to log
 });
 
 test("login <-> dashboard cannot ping-pong when the feed 401s: total navigations stay bounded", async () => {
+  // The login half is an island now (app/lib/account/LoginApp.svelte): signed in, it goes to
+  // /dashboard.html and nowhere else (test/unit/login.test.js). So the loop is bounded iff the
+  // dashboard, arrived at signed in with a 401 feed, stays put: that hop runs here for real.
   const routes = { "/account": SIGNED_IN, "/metrics/series": { status: 401, body: {} }, "/me": SIGNED_IN };
-  let hops = 0, at = "/login.html";
+  let hops = 0, at = "/dashboard.html";
   for (; hops < 10; hops++) {
     const p = page(at, routes);
-    p.run(at.startsWith("/login") ? "js/auth.js" : "js/dashboard.js");
+    assert.ok(!at.startsWith("/login"), "the dashboard must not send a signed-in person back to login");
+    p.run("js/dashboard.js");
     await settle();
     if (!p.navs.length) break;
     at = p.navs[0];
   }
-  assert.ok(hops <= 2, `settled after ${hops} navigations (a loop never settles)`);
+  assert.ok(hops <= 1, `settled after ${hops} navigations (a loop never settles)`);
 });
 
 test("an email address is shown as the address, never '@a@b.com'", () => {
@@ -54,7 +58,7 @@ test("an email address is shown as the address, never '@a@b.com'", () => {
 });
 
 test("every page that shows the signed-in name uses the shared handle formatter", () => {
-  for (const f of ["js/dashboard.js", "js/account.js", "js/auth.js"]) {
+  for (const f of ["js/dashboard.js", "js/account.js"]) {
     assert.doesNotMatch(src(f), /"@" \+ \((?:acct|a|me)\.github_login/, `${f} must not hand-roll "@"+login`);
   }
 });
