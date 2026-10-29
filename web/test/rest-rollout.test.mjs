@@ -128,7 +128,7 @@ test("(c) a page's own scripts keep their order relative to each other and to th
     .filter((n) => !["easter-egg", "lets-talk", "promo", "tuner", "scrub", "anchor-hold", "range-twin", "cycle", "session"].includes(n));
   assert.deepEqual(order("login.html"), ["theme-init", "site"]);   // an island page: its logic is js/islands/login.js, a module
   assert.deepEqual(order("account.html"), ["theme-init", "site"]);   // an island page: js/islands/account.js
-  assert.deepEqual(order("billing.html"), ["theme-init", "fmt", "billing", "billing-help", "site"]);
+  assert.deepEqual(order("billing.html"), ["theme-init", "site"]);   // an island page: js/islands/billing.js
   assert.deepEqual(order("keys.html"), ["theme-init", "site"]);   // an island page: js/islands/keys.js
   assert.deepEqual(order("private.html"), ["theme-init", "site", "private"]);
   assert.deepEqual(order("r.html"), ["theme-init", "site"]);   // an island page: its logic is js/islands/link.js, a module

@@ -76,13 +76,25 @@ export function pageSourcePath(page) {
   throw new Error(`${page}: no source under web/src or web/app/routes`);
 }
 // A route that mounts islands (<Island name=... component={X} />) reads with the island
-// components' sources appended: the markup a page shows is the markup of both.
+// components' sources appended, and the components those import in turn (an island is a
+// tree: the billing card composes its spend-limit panel, its top-up and its help modal): the
+// markup a page shows is the markup of all of them. The chrome in lib/ui (nav, footer, the
+// account sub-nav) stays what a partial was, read with component().
+const resolveSvelte = (spec, from) => (spec.startsWith("#lib/") ? path.join(APP, "lib", spec.slice(5)) : path.resolve(path.dirname(from), spec));
 export function pageSource(page) {
   const route = readFileSync(pageSourcePath(page), "utf8");
   const parts = [route];
+  const seen = new Set();
+  const add = (file) => {
+    if (seen.has(file) || file.startsWith(path.join(APP, "lib", "ui") + path.sep)) return;
+    seen.add(file);
+    const src = readFileSync(file, "utf8");
+    parts.push(src);
+    for (const [, spec] of src.matchAll(/import \w+ from "([^"]+\.svelte)"/g)) add(resolveSvelte(spec, file));
+  };
   for (const [, name] of route.matchAll(/<Island\b[^>]*component=\{(\w+)\}/g)) {
     const imp = route.match(new RegExp(`import ${name} from "#lib/([^"]+)"`));
-    if (imp) parts.push(readFileSync(path.join(APP, "lib", imp[1]), "utf8"));
+    if (imp) add(path.join(APP, "lib", imp[1]));
   }
   return parts.join("\n");
 }

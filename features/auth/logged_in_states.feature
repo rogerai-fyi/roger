@@ -82,7 +82,7 @@ Feature: Signed-in pages are honest about identity and empty states
     When the first feed of the account, billing or payouts page returns 5xx or the network drops
     Then the page shows an error with its card and a working logout, and does not redirect
     And only a 401 sends the person to login
-    # test: web/test/boot-faults.test.mjs,web/test/unit/account.test.js,web/test/unit/payouts.test.js
+    # test: web/test/unit/account.test.js,web/test/unit/payouts.test.js,web/test/unit/billing.test.js
 
   Scenario: Filed appeals are visible after a reload, and an expired session says so
     When an account with marks opens the stations page after filing an appeal

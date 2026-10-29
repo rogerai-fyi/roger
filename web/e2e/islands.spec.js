@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 
 const BROKER = "https://broker.rogerai.fm";
 const PAGES = { console: "/console.html", link: "/r.html", device: "/device.html", login: "/login.html", account: "/account.html",
-  stations: "/stations.html", dashboard: "/dashboard.html", keys: "/keys.html", payouts: "/payouts.html" };
+  stations: "/stations.html", dashboard: "/dashboard.html", keys: "/keys.html", payouts: "/payouts.html", billing: "/billing.html" };
 const islands = readdirSync(fileURLToPath(new URL("../app/islands", import.meta.url))).map((f) => f.replace(/\.js$/, ""));
 
 test("every island in app/islands has a page in this check", () => {

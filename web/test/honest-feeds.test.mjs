@@ -1,28 +1,11 @@
 // A failed feed must read as "unavailable", never as a real number or a signed-out gate.
 // Run: node --test test/honest-feeds.test.mjs
+// Billing is an island (app/lib/billing/BillingApp.svelte): its rows are in test/unit/billing.test.js.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { page, settle } from "./_pagevm.mjs";
 
 const ACCT = { status: 200, body: { github_login: "octocat", github_id: 7, balance: 5 } };
-const BILLING = { status: 200, body: { balance: 5, derived: 5, checkout_ready: false, topups: [] } };
-
-test("billing: a failed /console shows '-' for spend today, not $0.00", async () => {
-  const p = page("/billing.html", { "/billing": BILLING, "/account": ACCT, "/metrics/series": { status: 200, body: { daily: [] } },
-    "/console": { status: 500, body: {} }, "/account/limit": { status: 200, body: {} } });
-  p.run("js/billing.js");
-  await settle();
-  assert.equal(p.els.spendToday.textContent, "-");
-});
-
-test("billing: a working /console still shows the real figure", async () => {
-  const p = page("/billing.html", { "/billing": BILLING, "/account": ACCT, "/metrics/series": { status: 200, body: { daily: [] } },
-    "/console": { status: 200, body: { counters: { spend_today: 1.5 }, events: [] } }, "/account/limit": { status: 200, body: {} } });
-  p.run("js/billing.js");
-  await settle();
-  assert.notEqual(p.els.spendToday.textContent, "-");
-  assert.match(p.els.spendToday.textContent, /1\.5/);
-});
 
 test("usage: a 403 from the series feed is an error, not the signed-out gate", async () => {
   const p = page("/metrics.html", { "/account": ACCT, "/metrics/series": { status: 403, body: {} } });

@@ -160,6 +160,8 @@ test("the account sub-nav links are 24px targets on every pointer, on every page
   }
   // the fault state keeps the sub-nav in view (it is the page nav), so it must be a real target there too
   assert.match(c, /\.card\.is-fault > \*:not\(h1\)[^{]*:not\(\.acctsubnav\) \{ display: none; \}/);
+  // and it hides the "Signed in as -" subtitle (nothing to name when the feed failed)
+  assert.doesNotMatch(c.match(/\.card\.is-fault > [^{]+\{[^}]*\}/)[0], /:not\(\.sub\)/, "the .sub line is not exempt from the fault-state hiding");
 });
 
 /* ---- 7. focus you can see ------------------------------------------------------------- */
