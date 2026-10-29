@@ -7,7 +7,8 @@ export function broker(routes) {
   globalThis.fetch = vi.fn(async (url, opts = {}) => {
     const path = String(url).replace("https://broker.rogerai.fm", "");
     calls.push({ path, opts, body: opts.body ? JSON.parse(opts.body) : undefined });
-    const hit = Object.entries(routes).find(([k]) => path.startsWith(k));
+    // the longest matching prefix wins ("/account/delete" is not "/account")
+    const hit = Object.entries(routes).filter(([k]) => path.startsWith(k)).sort((x, y) => y[0].length - x[0].length)[0];
     const [status, body] = hit ? (typeof hit[1] === "function" ? hit[1]() : hit[1]) : [404, {}];
     return { ok: status >= 200 && status < 300, status, json: async () => body };
   });

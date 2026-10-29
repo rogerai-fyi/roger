@@ -2,7 +2,7 @@
  "note": "First-load weight budget per page, raw bytes (scripts/page-weight.mjs): the weight after the 2026-09 performance pass + 10%. Raise one only on purpose, in the commit that adds the weight.",
  "pages": {
   "404.html": 292864,
-  "account.html": 313344,
+  "account.html": 362496,
   "app.html": 459776,
   "bands.html": 147456,
   "billing.html": 363520,

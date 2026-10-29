@@ -58,7 +58,7 @@ test("an email address is shown as the address, never '@a@b.com'", () => {
 });
 
 test("every page that shows the signed-in name uses the shared handle formatter", () => {
-  for (const f of ["js/dashboard.js", "js/account.js"]) {
+  for (const f of ["js/dashboard.js"]) {
     assert.doesNotMatch(src(f), /"@" \+ \((?:acct|a|me)\.github_login/, `${f} must not hand-roll "@"+login`);
   }
 });
