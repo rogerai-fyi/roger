@@ -1,0 +1,80 @@
+# cask-audit: run the EXACT checks Homebrew/homebrew-cask runs on a new submission against
+# our stub (packaging/homebrew-cask/roger.rb), on a real macOS runner. This is how we see
+# which submission gates still fail (today: Developer-ID signing) without a Mac in the loop.
+#
+# It never publishes anything. The stub is dropped into a throwaway LOCAL tap because
+# `brew audit --cask --new` only accepts a cask that lives in a tap. The audit step is
+# allowed to fail so the job's summary - not its colour - tells you where things stand.
+name: cask-audit
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - packaging/homebrew-cask/**
+      - scripts/gen-brew-formula.sh
+      - .github/workflows/cask-audit.yml
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: macos-latest
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_INSTALL_CLEANUP: "1"
+      # The notability check (stars/forks/watchers) hits the GitHub API; a token avoids
+      # the anonymous rate limit turning into a bogus audit failure.
+      HOMEBREW_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: stage the stub in a throwaway local tap
+        run: |
+          set -euo pipefail
+          brew tap-new --no-git rogerai/cask-audit
+          tap="$(brew --repository rogerai/cask-audit)"
+          mkdir -p "$tap/Casks"
+          cp packaging/homebrew-cask/roger.rb "$tap/Casks/roger.rb"
+          # Homebrew 6 refuses to load a non-official tap until it is trusted (older
+          # versions have no such command, hence the fallback).
+          brew trust rogerai/cask-audit || true
+          echo "staged $tap/Casks/roger.rb"
+
+      - name: brew style
+        id: style
+        continue-on-error: true
+        run: brew style --cask rogerai/cask-audit/roger
+
+      - name: brew audit --cask --new (the submission gate)
+        id: audit
+        continue-on-error: true
+        run: brew audit --cask --new --online --strict rogerai/cask-audit/roger
+
+      - name: brew install from the stub, then run it
+        id: install
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          brew install --cask rogerai/cask-audit/roger
+          roger version
+
+      - name: summary
+        if: always()
+        run: |
+          {
+            echo "## homebrew-cask submission gates"
+            echo
+            echo "| check | result |"
+            echo "|---|---|"
+            echo "| brew style | ${{ steps.style.outcome }} |"
+            echo "| brew audit --cask --new | ${{ steps.audit.outcome }} |"
+            echo "| brew install + roger version | ${{ steps.install.outcome }} |"
+            echo
+            echo "An audit failure that reads \`Signature verification failed\` means the darwin"
+            echo "binaries are not Developer-ID signed yet - the MACOS_* release secrets are not"
+            echo "set. The same gate shows up in the install step as \`roger version\` being"
+            echo "Killed or blocked: a cask download is quarantined, and Gatekeeper refuses an"
+            echo "ad-hoc-signed binary. Any OTHER failure is ours to fix in the stub. See"
+            echo "packaging/homebrew-cask/README.md."
+          } >> "$GITHUB_STEP_SUMMARY"

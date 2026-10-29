@@ -61,6 +61,7 @@ the tap on every non-prerelease `v*` tag. To (re)generate by hand for the curren
 
 ```sh
 scripts/gen-brew-formula.sh 5.2.1 > Formula/roger.rb   # or pass a local checksums.txt as $2
+scripts/gen-brew-formula.sh --cask 5.2.1 "" packaging/homebrew-cask/roger.rb   # the homebrew-cask stub
 ```
 
 > **The `brew trust` step is unavoidable from a third-party tap.** Homebrew 6+ requires a
@@ -69,7 +70,7 @@ scripts/gen-brew-formula.sh 5.2.1 > Formula/roger.rb   # or pass a local checksu
 > one-liner, bare `brew upgrade roger` / `brew uninstall roger` work, since the tap is then
 > trusted.)
 
-The zero-trust upgrade path (`brew install --cask roger`, no tap) is to get into the official
+The zero-trust upgrade path (`brew install roger`, no tap) is to get into the official
 `Homebrew/homebrew-cask` - the same tap `claude-code` uses for a proprietary CLI binary. Not
 `homebrew-core` (it needs an OSI license + build-from-source; PolyForm is neither). A ready-to-
 submit cask + the live gate status live in [`homebrew-cask/`](homebrew-cask/). Notability is
