@@ -120,3 +120,33 @@ describe("web_card_editor: the category editor is a front-end on POST /provider/
     for (const f of readdirSync(dir)) expect(readFileSync(path.join(dir, f), "utf8"), f).not.toMatch(/\{@html/);
   });
 });
+
+describe("the models panel's cards", () => {
+  it("two rows with the same node and model both get a card, and a reload rebuilds every card from the fresh rows", async () => {
+    let rows = [MODEL, MODEL];
+    broker({ "/provider/models": () => [200, { models: rows, ceiling_in: 50, ceiling_out: 100 }] });
+    const { component } = render(ModelsPanel);
+    await waitFor(() => expect(document.querySelectorAll(".md-card").length).toBe(2));
+    rows = [{ ...MODEL, price_in: 0.25 }];
+    await component.load();
+    await waitFor(() => expect(document.querySelectorAll(".md-card").length).toBe(1));
+    expect(document.querySelector(".md-card .md-in").value).toBe("0.25");   // the stored price, not a stale card
+  });
+  it("closing the category editor keeps its edits for the next open", async () => {
+    broker({ "/categories": [200, { categories: [{ name: "language" }] }] });
+    render(ModelCard, { m: MODEL, ceil: { in: 50, out: 100 }, onreload: () => {} });
+    const edit = () => document.querySelector(".md-catedit");
+    await fireEvent.click(edit());
+    const tags = () => document.querySelector(".md-cattext");
+    await fireEvent.input(tags(), { target: { value: "fast, cheap" } });
+    await fireEvent.click(edit());
+    expect(document.querySelector(".md-catbox").hidden).toBe(true);
+    await fireEvent.click(edit());
+    expect(document.querySelector(".md-catbox").hidden).toBe(false);
+    expect(tags().value).toBe("fast, cheap");
+  });
+  it("a zero ceiling sets no max on the price inputs (the legacy set max only for a real ceiling)", () => {
+    render(ModelCard, { m: { ...MODEL, schedule: [{ days: [], start: "00:00", end: "06:00", price_in: 0, price_out: 0, free: false }] }, ceil: { in: 0, out: 0 }, onreload: () => {} });
+    expect([...document.querySelectorAll("input.md-in")].every((i) => !i.hasAttribute("max"))).toBe(true);
+  });
+});

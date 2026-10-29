@@ -14,6 +14,7 @@
   let busy = $state(false);
   let msg = $state({ cls: "", text: "" });
   let catOpen = $state(false);
+  let catBuilt = $state(false);     // the editor exists from the first open on, hidden in between
 
   function toRow(w) {
     w = w || { days: [], start: "00:00", end: "00:00", price_in: 0, price_out: 0, free: false };
@@ -69,13 +70,13 @@
   <div class="md-base md-cat">
     <span class="md-lbl">Category</span>
     <span class="md-catv">{catText}</span>
-    <button class="ghost md-catedit" type="button" onclick={() => (catOpen = !catOpen)}>Edit category</button>
+    <button class="ghost md-catedit" type="button" onclick={() => { catOpen = !catOpen; catBuilt = true; }}>Edit category</button>
   </div>
-  {#if catOpen}<CatEditor {m} onsaved={onreload} />{/if}
+  {#if catBuilt}<CatEditor {m} onsaved={onreload} hidden={!catOpen} />{/if}
   <div class="md-base">
     <span class="md-lbl">Base $/1M</span>
-    <span class="md-io">in</span><input class="md-in" type="number" min="0" step="0.01" max={ceil.in} placeholder="in" bind:value={priceIn} disabled={free} />
-    <span class="md-io">out</span><input class="md-in" type="number" min="0" step="0.01" max={ceil.out} placeholder="out" bind:value={priceOut} disabled={free} />
+    <span class="md-io">in</span><input class="md-in" type="number" min="0" step="0.01" max={ceil.in || null} placeholder="in" bind:value={priceIn} disabled={free} />
+    <span class="md-io">out</span><input class="md-in" type="number" min="0" step="0.01" max={ceil.out || null} placeholder="out" bind:value={priceOut} disabled={free} />
     <label class="md-free"><input type="checkbox" bind:checked={free} /><span>free</span></label>
   </div>
   <div class="md-sched">

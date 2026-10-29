@@ -28,7 +28,9 @@
     try {
       const r = await api("/console");
       if (!r.ok) { status = "fault"; return; }
-      data = await r.json();
+      const j = await r.json();
+      if (!j || typeof j !== "object") throw new Error("no console body");   // nothing to render honestly
+      data = j;
       status = "ready";
     } catch { status = "fault"; }
   });
@@ -42,6 +44,9 @@
   {#if status === "fault"}<p class="cn-state" id="cnError">Could not reach the console. Try again shortly.</p>{/if}
 
   {#if status === "ready"}
+  <!-- a feed the view cannot render (a row that is not a receipt) is the fault state, as it was
+       when the legacy render threw into its fetch chain's catch; never a dead card -->
+  <svelte:boundary onerror={(e) => console.error("console: could not render the feed", e)}>
   <dl class="stats cn-counters" id="counters">
     <div><dt>Requests today</dt><dd id="ctrReq" use:rfmt={n0(c.requests_today)}>{num(n0(c.requests_today))}</dd></div>
     <div><dt id="ctrMoneyK">{isOwner ? "Earned today" : "Spend today"}</dt><dd id="ctrMoney">{cr(n0(isOwner ? c.earned_today : c.spend_today))}</dd></div>
@@ -91,6 +96,8 @@
   {/if}
 
   {#if isOwner}<ModelsPanel />{/if}
+  {#snippet failed()}<p class="cn-state" id="cnError">Could not reach the console. Try again shortly.</p>{/snippet}
+  </svelte:boundary>
   {/if}
 
   <section class="panel">

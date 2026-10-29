@@ -10,7 +10,7 @@
   // POST /provider/meta. The broker validates, so a refusal shows the server's reason.
   import { untrack } from "svelte";
   import { BROKER, postJSON } from "#lib/api.js";
-  let { m, onsaved } = $props();
+  let { m, onsaved, hidden = false } = $props();   // hidden between opens: the edits survive a close
 
   let catList = $state(cached);
   async function loadCatList() {
@@ -61,7 +61,7 @@
   });
   const clear = () => send({ node: m.node, model: m.model, clear: true });
 </script>
-<div class="md-catbox">
+<div class="md-catbox" {hidden}>
   <label class="md-catrow"><span class="md-lbl">Category</span>
     <select class="md-catsel" bind:value={category} onchange={() => (subcategory = "")}>
       <option value="">(none)</option>

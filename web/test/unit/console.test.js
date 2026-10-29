@@ -7,6 +7,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/svelte";
 import Console from "#lib/console/ConsoleApp.svelte";
+import words from "../fixtures/console-words.json";
 
 function broker(routes) {
   const calls = [];
@@ -111,5 +112,92 @@ describe("console boot", () => {
     document.getElementById("logout").click();
     await waitFor(() => expect(replaced).toEqual(["/login.html"]));
     expect(calls.at(-1)).toMatchObject({ path: "/auth/logout", opts: { method: "POST", credentials: "include" } });
+  });
+});
+
+// The legacy page carried every state's words in its HTML, so the rest-pages copy pin held them
+// all; the island renders a state at a time, so each state is rendered here and its words
+// compared with the legacy copy (fixtures/console-words.json, captured from web/src/console.html
+// and console.js at the fork). A reworded sentence fails here.
+const sq = (s) => s.replace(/\s+/g, " ").trim();
+const el = (id) => document.getElementById(id);
+const txt = (id) => sq(el(id).textContent);
+const dts = () => [...document.querySelectorAll("#counters dt")].map((d) => sq(d.textContent));
+const OWNER = { role: "owner", events: [], counters: { requests_today: 0, earned_today: 0, active_nodes: 0, active_bands: 0 } };
+const MODEL = { node: "K6ABC", model: "gpt-oss-120b", online: true, price_in: 0.1, price_out: 0.4, free: false, schedule: [] };
+
+describe("the console's words are the legacy page's, state by state", () => {
+  it("tuning in, then a fault", async () => {
+    broker({ "/account": [200, { github_login: "ada" }], "/console": [500, {}] });
+    render(Console);
+    expect(txt("cnLoading")).toBe(words.cnLoading);
+    await waitFor(() => expect(el("cnError")).toBeTruthy());
+    expect(txt("cnError")).toBe(words.cnError);
+  });
+  it("a consumer with nothing yet", async () => {
+    broker({ "/account": [200, { github_login: "ada" }], "/console": [200, { role: "consumer", events: [], counters: { requests_today: 0, spend_today: 0 } }] });
+    render(Console);
+    await waitFor(() => expect(txt("role")).toBe(words.role[0]));
+    expect(dts()).toEqual([words.counters[0], words.counters[1]]);
+    expect(txt("logEmptyConsumer")).toBe(words.logEmptyConsumer);
+  });
+  it("an owner with nothing yet, and the models panel reading", async () => {
+    globalThis.fetch = async (url) => {
+      const path = String(url).replace("https://broker.rogerai.fm", "");
+      if (path === "/account") return { ok: true, status: 200, json: async () => ({ github_login: "ada" }) };
+      if (path === "/console") return { ok: true, status: 200, json: async () => OWNER };
+      return new Promise(() => {});   // /provider/models never answers: the panel keeps reading
+    };
+    render(Console);
+    await waitFor(() => expect(txt("role")).toBe(words.role[1]));
+    expect(dts()).toEqual([words.counters[0], words.counters[2], words.counters[3], words.counters[4]]);
+    expect(txt("logEmptyOwner")).toBe(words.logEmptyOwner);
+    expect(sq(document.querySelector("#modelsWrap h2").textContent)).toBe(words["modelsWrap.h2"]);
+    expect(sq(document.querySelector("#modelsWrap > p").textContent)).toBe(words["modelsWrap.lede"]);
+    expect(txt("mdLoading")).toBe(words.mdLoading);
+    expect(txt("mdCatNote")).toBe(words.mdCatNote);
+  });
+  it("the models panel refused, empty, and priced", async () => {
+    const routes = { "/account": [200, { github_login: "ada" }], "/console": [200, OWNER] };
+    broker({ ...routes, "/provider/models": [500, {}] });
+    const a = render(Console);
+    await waitFor(() => expect(el("mdError")).toBeTruthy());
+    expect(txt("mdError")).toBe(words.mdError);
+    a.unmount();
+    broker({ ...routes, "/provider/models": [200, { models: [] }] });
+    const b = render(Console);
+    await waitFor(() => expect(el("mdEmpty")).toBeTruthy());
+    expect(txt("mdEmpty")).toBe(words.mdEmpty);
+    b.unmount();
+    broker({ ...routes, "/provider/models": [200, { models: [MODEL], ceiling_in: 50, ceiling_out: 100 }] });
+    render(Console);
+    await waitFor(() => expect(el("mdCeil")).toBeTruthy());
+    expect(txt("mdCeil")).toBe(words.mdCeil);
+  });
+  it("an owner with receipts: the table's words", async () => {
+    broker({ "/account": [200, { github_login: "ada" }], "/console": [200, { ...OWNER,
+      events: [{ request_id: "r1", ts: 1700000000, model: "gpt-oss-120b", node: "K6ABC", tokens_in: 10, tokens_out: 20, earned: 0.01, success: true }] }] });
+    render(Console);
+    await waitFor(() => expect(el("logWrap")).toBeTruthy());
+    expect(sq(document.querySelector("#logWrap h2").textContent)).toBe(words["logWrap.h2"]);
+    expect([...document.querySelectorAll("#logWrap th")].map((t) => sq(t.textContent))).toEqual(words["logWrap.th"].map((t, i) => (i === 4 ? words.colMoney[1] : t)));
+    expect(sq(document.querySelector("#logWrap p.fine").textContent)).toBe(words["logWrap.fine"]);
+  });
+});
+
+describe("a broken feed is the fault state, never a dead card (the legacy render threw into its catch)", () => {
+  it("a row that is not an object", async () => {
+    broker({ "/account": [200, { github_login: "ada" }], "/console": [200, { role: "consumer", events: [null], counters: { requests_today: 3 } }] });
+    render(Console);
+    await waitFor(() => expect(el("cnError")).toBeTruthy());
+    expect(el("card").hidden).toBe(false);
+    expect(replaced).toEqual([]);
+  });
+  it("a 200 with no body", async () => {
+    broker({ "/account": [200, { github_login: "ada" }], "/console": [200, null] });
+    render(Console);
+    await waitFor(() => expect(el("cnError")).toBeTruthy());
+    expect(el("counters")).toBeNull();   // no fabricated zeros
+    expect(replaced).toEqual([]);
   });
 });
