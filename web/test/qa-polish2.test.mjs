@@ -146,8 +146,9 @@ test("touch: lists of text links get 44px rows, and form fields are 44px tall", 
 // (its h2), the page's own words, and its existing action (a Log in link) as the lead row's
 // primary. Words, ids and scripts are unchanged; the rest-rollout text fixture holds the words.
 const ACCOUNT_STATES = [
-  { page: "keys.html", id: null, within: /<main class="card" id="gate" hidden>[\s\S]*?<\/main>/, action: true },
-  { page: "usage.html", id: null, within: /<main class="card" id="gate" hidden>[\s\S]*?<\/main>/, action: true },
+  // the gate card's hidden flag is bare on a legacy page, an expression on an island
+  { page: "keys.html", id: null, within: /<main class="card" id="gate" hidden(?:=\{[^}]*\})?>[\s\S]*?<\/main>/, action: true },
+  { page: "usage.html", id: null, within: /<main class="card" id="gate" hidden(?:=\{[^}]*\})?>[\s\S]*?<\/main>/, action: true },
   { page: "stations.html", id: "stEmpty" },
   { page: "dashboard.html", id: "dashEmpty" },
   { page: "private.html", id: "gate" },
