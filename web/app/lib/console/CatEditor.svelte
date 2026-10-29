@@ -1,3 +1,10 @@
+<script module>
+  // GET /categories is read once per page: every card's editor shares the list (legacy: the
+  // module-level catList in console.js). Only a good list is cached; a failed read is retried
+  // by the next editor. forgetCategories() is for tests, which mount many pages in one module.
+  let cached = null;
+  export function forgetCategories() { cached = null; }
+</script>
 <script>
   // The category editor (features/categories/web_card_editor.feature): a front-end on
   // POST /provider/meta. The broker validates, so a refusal shows the server's reason.
@@ -5,14 +12,13 @@
   import { BROKER, postJSON } from "#lib/api.js";
   let { m, onsaved } = $props();
 
-  // GET /categories, fetched once per page; only a good list is cached.
-  let catList = $state(null);
+  let catList = $state(cached);
   async function loadCatList() {
-    if (catList) return catList;
+    if (cached) { catList = cached; return cached; }
     try {
       const r = await fetch(BROKER + "/categories", { cache: "no-store" });
       const d = r.ok ? await r.json() : null;
-      if (d && d.categories) catList = d.categories;
+      if (d && d.categories) cached = catList = d.categories;
       return (d && d.categories) || [];
     } catch { return []; }
   }

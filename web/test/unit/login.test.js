@@ -99,5 +99,10 @@ describe("sign in", () => {
     await fireEvent.click(el("email-again"));
     await waitFor(() => expect(visible("email-step")).toBe(true));
     expect(el("email-note").textContent).toBe("");
+    // a code sent to a different address: the code step names THAT address
+    await fireEvent.input(el("email-input"), { target: { value: "grace@example.com" } });
+    await fireEvent.submit(el("email-form"));
+    await waitFor(() => expect(visible("code-step")).toBe(true));
+    expect(el("email-sent-to").textContent).toBe("grace@example.com");
   });
 });

@@ -96,6 +96,28 @@ describe("states", () => {
   });
 });
 
+describe("the hero's figures", () => {
+  it("until the baseline is clicked the hero is the broker's own headline (the figures /billing shows); a click moves to the reference table", async () => {
+    // the broker's savings_est carries its own rounding: the headline shows it as sent, not a client re-computation
+    broker({ "/account": acct(), "/metrics/series": [200, { is_consumer: true, is_provider: false,
+      savings: { baseline_model: "gpt-4o", spend_usd: 4, frontier_est: 10, savings_est: 5.5,
+        reference: [{ model: "gpt-4o", frontier_est: 10.000004 }, { model: "claude-opus-4-8", frontier_est: 30 }] },
+      daily: [{ bucket: "2026-10-01", requests: 1, tokens_in: 10, tokens_out: 20, spend: 4, savings_est: 5.5, models: [] }] }] });
+    fakeLocation({ pathname: "/dashboard.html" });
+    render(DashboardApp);
+    await waitFor(() => expect(visible("hero")).toBe(true));
+    expect(el("heroAmt").textContent).toBe("$5.50");
+    expect(el("heroFrontier").textContent).toBe("$10.00");
+    expect(el("heroBase").textContent).toBe("gpt-4o");
+    await fireEvent.click(el("heroBase"));
+    expect(el("heroBase").textContent).toBe("claude-opus-4-8");
+    expect(el("heroAmt").textContent).toBe("$26.00");
+    await fireEvent.click(el("heroBase"));   // back round to the baseline: the reference row's figures now
+    expect(el("heroBase").textContent).toBe("gpt-4o");
+    expect(el("heroAmt").textContent).toBe("$6.00");
+  });
+});
+
 describe("the login-loop rule", () => {
   it("logged out (/account fails) goes to login", async () => {
     broker({ "/account": [401, {}] });
@@ -113,6 +135,15 @@ describe("the login-loop rule", () => {
       expect(el("card").hidden).toBe(false);
     });
   }
+  it("a series that is not a list is the error state, never a blank card (the legacy render threw on it)", async () => {
+    broker({ "/account": acct(), "/metrics/series": [200, { daily: { bucket: "2026-10-01" }, is_consumer: true }] });
+    const navs = fakeLocation({ pathname: "/dashboard.html" });
+    render(DashboardApp);
+    await waitFor(() => expect(visible("dashError")).toBe(true));
+    expect(visible("dashEmpty")).toBe(false);
+    expect(navs).toEqual([]);
+    expect(el("card").hidden).toBe(false);
+  });
   it("a script error after the session is confirmed shows the error inside the card, never a redirect", async () => {
     globalThis.fetch = async (url) => {
       const path = String(url).replace("https://broker.rogerai.fm", "");

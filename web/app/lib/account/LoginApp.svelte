@@ -11,7 +11,7 @@
   let step = $state("email");        // email | code
   let email = $state("");
   let code = $state("");
-  let address = "";                  // the address a code was sent to
+  let address = $state("");          // the address a code was sent to (the code step names it)
   let busy = $state(false);
   let note = $state("");
   let bad = $state(false);

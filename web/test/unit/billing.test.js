@@ -349,7 +349,7 @@ describe("the top-up (test/topup-bounds.test.mjs pins the bounds to the broker's
     await waitFor(() => expect(p.navs).toEqual(["https://checkout.stripe.com/c/x"]));
     expect(p.calls.at(-1)).toMatchObject({ path: "/billing/checkout", opts: { method: "POST" }, body: { usd: 12.34 } });
   });
-  it("a refusal shows the broker's reason, a missing link or an unreachable broker a plain one, and the button comes back", async () => {
+  it("a refusal shows the broker's reason, a missing link (or a 2xx that is not JSON) or an unreachable broker a plain one, and the button comes back", async () => {
     const p = checkout({ "/billing/checkout": [400, { error: { message: "checkout is paused" } }] });
     await ready();
     await fireEvent.click(el("topup"));
@@ -357,6 +357,9 @@ describe("the top-up (test/topup-bounds.test.mjs pins the bounds to the broker's
     expect(el("topup").disabled).toBe(false);
     expect(p.navs).toEqual([]);
     globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => ({}) });
+    await fireEvent.click(el("topup"));
+    await waitFor(() => expect(el("topupMsg").textContent).toBe(" could not start checkout"));
+    globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => { throw new Error("not json"); } });
     await fireEvent.click(el("topup"));
     await waitFor(() => expect(el("topupMsg").textContent).toBe(" could not start checkout"));
     globalThis.fetch = async () => ({ ok: false, status: 500, json: async () => { throw new Error("not json"); } });

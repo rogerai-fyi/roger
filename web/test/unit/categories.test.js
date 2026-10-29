@@ -7,6 +7,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import ModelsPanel from "#lib/console/ModelsPanel.svelte";
 import ModelCard from "#lib/console/ModelCard.svelte";
+import { forgetCategories } from "#lib/console/CatEditor.svelte";
 
 const MODEL = { node: "K6ABC", model: "gpt-oss-120b", online: true, price_in: 0.1, price_out: 0.4, free: false, schedule: [], overridden: false };
 
@@ -22,7 +23,7 @@ function broker(routes) {
   return calls;
 }
 const text = () => document.body.textContent;
-beforeEach(() => { Object.defineProperty(window, "confirm", { configurable: true, value: () => true }); });
+beforeEach(() => { forgetCategories(); Object.defineProperty(window, "confirm", { configurable: true, value: () => true }); });
 
 describe("web_sharing_view: the console shows the category and says where to change it", () => {
   it("each model card shows a Category line; the panel names the node, the TUI and the local console", async () => {
@@ -59,6 +60,16 @@ describe("web_card_editor: the category editor is a front-end on POST /provider/
     expect(calls.map((c) => c.path)).toEqual(["/categories"]);
     const cat = document.querySelector(".md-catsel");
     expect([...cat.options].map((o) => o.value)).toEqual(["", "language", "vision"]);
+  });
+  it("the category list is read once per page: a second card's editor reuses it", async () => {
+    const calls = broker({ "/categories": [200, { categories: [{ name: "language" }, { name: "vision" }] }] });
+    render(ModelCard, { m: MODEL, ceil: { in: 50, out: 100 }, onreload: () => {} });
+    render(ModelCard, { m: { ...MODEL, model: "qwen3-coder-30b" }, ceil: { in: 50, out: 100 }, onreload: () => {} });
+    for (const b of document.querySelectorAll(".md-catedit")) await fireEvent.click(b);
+    const saves = () => [...document.querySelectorAll("button")].filter((b) => b.textContent === "Save category");
+    await waitFor(() => expect(saves().map((b) => b.disabled)).toEqual([false, false]));
+    expect(calls.filter((c) => c.path === "/categories").length).toBe(1);
+    expect([...document.querySelectorAll(".md-catsel")].filter((s) => s.options.length === 3).length).toBe(2);   // both editors list it
   });
   it("a failed category list is not cached and Save stays disabled", async () => {
     let n = 0;

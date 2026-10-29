@@ -30,7 +30,7 @@
     try {
       const r = await api("/billing/checkout", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ usd }) });
       if (r.ok) {
-        const j = await r.json();
+        const j = await r.json().catch(() => null);   // a 2xx without a link: checkout did not start
         if (j && j.url) { location.href = j.url; return; }
         msg = " could not start checkout";
       } else {

@@ -34,8 +34,10 @@
   const ref = $derived((Array.isArray(sv.reference) ? sv.reference : []).filter((r) => r && r.model && typeof r.frontier_est === "number" && isFinite(r.frontier_est)));
   const toggles = $derived(ref.length >= 2);
   const baseIndex = $derived(Math.max(0, ref.findIndex((r) => r.model === (sv.baseline_model || "gpt-4o"))));
-  const hero = $derived(toggles ? frontierAt(ref, n0(sv.spend_usd), baseIndex + step)
-    : { model: sv.baseline_model || "gpt-4o", frontier: n0(sv.frontier_est), savings: n0(sv.savings_est) });
+  // the headline is the broker's own figures (the same ones /billing shows); a click moves to the
+  // reference table, as the legacy toggle did (it applied only on a click)
+  const headline = $derived({ model: sv.baseline_model || "gpt-4o", frontier: n0(sv.frontier_est), savings: n0(sv.savings_est) });
+  const hero = $derived(toggles && step > 0 ? frontierAt(ref, n0(sv.spend_usd), baseIndex + step) : headline);
   const models = $derived(rollupModels(daily));
   const moneySeries = $derived([
     ...(isConsumer ? [{ key: "spend", color: "var(--ink-900)", fill: "var(--paper-3)" }] : []),
@@ -51,7 +53,10 @@
     try {
       const r = await api("/metrics/series?days=" + DAYS);
       if (!r.ok) { status = "fault"; return; }
-      d = await r.json();
+      const j = await r.json();
+      // a series that is not a list is a fault to show (the legacy render threw on it), never a crash
+      if (j && j.daily != null && !Array.isArray(j.daily)) throw new Error("malformed series");
+      d = j;
       status = "ready";
     } catch { status = "fault"; }
   });
