@@ -36,3 +36,21 @@ describe("console cell formatters (ported from console.js)", () => {
     expect(daysStr([0, 6])).toBe("0,6");
   });
 });
+
+import RogerFmt from "#lib/fmt.js";
+describe("RogerFmt identity (from test/login-loop.test.mjs and test/dashboard-states.test.mjs)", () => {
+  it("handle: an email address is shown as the address, never '@a@b.com'", () => {
+    expect(RogerFmt.handle("someone@rogerai.fm")).toBe("someone@rogerai.fm");
+    expect(RogerFmt.handle("octocat")).toBe("@octocat");
+    expect(RogerFmt.handle("")).toBe("@you");
+    expect(RogerFmt.handle(undefined)).toBe("@you");
+  });
+  it("who: provider-aware identity", () => {
+    expect(RogerFmt.who({ provider: "github", github_login: "octocat" })).toBe("@octocat (GitHub)");
+    expect(RogerFmt.who({ provider: "apple", github_login: "a@b.com" })).toBe("a@b.com (Apple)");
+    expect(RogerFmt.who({ provider: "apple", github_login: "apple" })).toBe("your Apple account");
+    expect(RogerFmt.who({ provider: "email", github_login: "me@rogerai.fm" })).toBe("me@rogerai.fm");
+    expect(RogerFmt.who({ github_login: "octocat" })).toBe("@octocat");
+    expect(RogerFmt.who(null)).toBe("your account");
+  });
+});
