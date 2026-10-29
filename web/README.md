@@ -100,7 +100,10 @@ web/
   app/                      the SvelteKit app (SvelteKit 3, Svelte 5, Vite 8)
     app.html                the shell: the two CSP-hashed inline scripts, nothing else
     routes/<page>/+page.svelte   one route per page; routes/+page.svelte is the homepage
-    routes/<post>/+page.md       a broadcast as Markdown, laid out by lib/ui/BroadcastPost.svelte
+    routes/<post>/+page.md       a broadcast as Markdown with frontmatter, on lib/ui/BroadcastPost.svelte
+    routes/broadcasts-*/+page.svelte   the earlier broadcasts: their body as written, on the same layout
+                            (a `post` object for the head and header, <Faq/> for the questions
+                            and the FAQPage schema from one list, <Signoff/> for the plate)
     lib/head.js             the per-page <head>: siteHead({ title, desc, og, css, scripts })
     lib/ui/*.svelte         the chrome, once: Nav, Footer, Rail, Brand, OnAir, InstallBox, ...
     lib/api.js              the one broker client (credentialed fetch, getJSON, logout, the login-gate rule)

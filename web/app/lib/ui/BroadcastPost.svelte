@@ -1,20 +1,29 @@
 <script>
-  // The broadcast post layout (mdsvex). Sixteen legacy posts carried this chrome by copy;
-  // a post is now Markdown with frontmatter and this one layout.
+  // The broadcast post layout: one chrome for every post, where sixteen legacy posts carried
+  // it by copy. A Markdown post (+page.md, `layout: broadcast`) passes its frontmatter; a post
+  // whose body is Svelte markup passes a `post` object and places its own <Faq/> and
+  // <Signoff/> (renderFaq={false} signoff={false}). The layout writes the head (with the
+  // FAQPage JSON-LD from `faq`), the rail, the nav, the article wrap with the back link, the
+  // header (number, kind, date, title, dek, the post's meta block if it passes one as a snippet), an optional hero figure,
+  // the body, then (unless the post places them) the FAQ and the sign-off, and the footer.
   import { siteHead, CSS_SHARED } from "#lib/head.js";
   import Nav from "#lib/ui/Nav.svelte";
   import Footer from "#lib/ui/Footer.svelte";
   import Rail from "#lib/ui/Rail.svelte";
   import OnAir from "#lib/ui/OnAir.svelte";
-  import InstallBox from "#lib/ui/InstallBox.svelte";
-  let { title, desc, number, kind = "FIELD GUIDE", date, dateLabel, slug, ogimage, dek, hero, heroAlt, heroCaption, faq = [], faqNo = 0, ogdesc, css = [], children } = $props();
+  import Faq from "#lib/ui/Faq.svelte";
+  import Signoff from "#lib/ui/Signoff.svelte";
+  // title is the <title> and the card; heading is the h1 when a post words it apart
+  // ogtitle is the card's title when a post words it apart from the <title>
+  let { title, heading, ogtitle, desc, number, kind = "FIELD GUIDE", date, dateLabel, railHead = "RogerAI · Field Guide", slug, ogimage, dek, meta,
+    hero, heroAlt, heroCaption, faq = [], faqNo = 0, faqTitle, faqLabel, renderFaq = true, signoff = true, ogdesc, css = [], scripts = [], children } = $props();
   const url = $derived(`https://rogerai.fm/${slug}.html`);
-  const head = $derived(siteHead({ title, desc, og: { type: "article", title, desc: ogdesc || desc, url, image: ogimage }, css: [...CSS_SHARED, "broadcasts.css", ...css], scripts: [{ runtime: true }] }));
+  const head = $derived(siteHead({ title, desc, og: { type: "article", title: ogtitle || title, desc: ogdesc || desc, url, image: ogimage }, css: [...CSS_SHARED, "broadcasts.css", ...css], scripts: [{ runtime: true }, ...scripts] }));
   const faqLd = $derived(JSON.stringify({ "@context": "https://schema.org", "@type": "FAQPage",
-    mainEntity: faq.map((q) => ({ "@type": "Question", name: q.q, acceptedAnswer: { "@type": "Answer", text: q.a } })) }));
+    mainEntity: faq.filter((q) => q.schema !== false).map((q) => ({ "@type": "Question", name: q.q, acceptedAnswer: { "@type": "Answer", text: q.a } })) }));
 </script>
 <svelte:head>{@html head}{#if faq.length}{@html '<script type="application/ld+json">' + faqLd + '<\/script>'}{/if}</svelte:head>
-<Rail head="RogerAI · Field Guide" rev="Rev. {dateLabel.rev} · ((•))" orange />
+<Rail head={railHead} rev="Rev. {dateLabel.rev} · ((•))" orange />
 
 <Nav variant="marketing" />
 
@@ -25,12 +34,13 @@
       <header class="bc-post__head" data-reveal>
         <span class="hero__eyebrow">
           <OnAir />
-          <span class="hero__callsign">BROADCAST {number} &middot; {kind}</span>
+          <span class="hero__callsign">BROADCAST {number}{kind ? " \u00b7 " + kind : ""}</span>
           <span class="hero__sep" aria-hidden="true">&middot;</span>
           <time datetime={date}>{dateLabel.text}</time>
         </span>
-        <h1 class="bc-post__title">{title}</h1>
-        <p class="bc-post__dek">{dek}</p>
+        <h1 class="bc-post__title">{@html heading || title}</h1>
+        <p class="bc-post__dek">{@html dek}</p>
+        {#if meta}{@render meta()}{/if}
       </header>
       {#if hero}
       <figure class="figure figure--plate" data-reveal>
@@ -39,22 +49,8 @@
       </figure>
       {/if}
       {@render children?.()}
-      {#if faq.length}
-      <section class="bc-sec" id="s{faqNo}" data-reveal>
-        <span class="bc-sec__no">&sect;{faqNo} &middot; FAQ</span>
-        <h2>Frequently asked questions</h2>
-        <dl class="bc-faq">
-          {#each faq as q}<dt><b>{q.q}</b></dt><dd>{@html q.aHtml || q.a}</dd>{/each}
-        </dl>
-      </section>
-      {/if}
-      <aside class="tint-panel bc-signoff">
-        <span class="tint-panel__tag">roger that</span>
-        <p>Start your own station or just tune in - install the set:</p>
-        <div class="install">
-          <InstallBox id="signoffInstall">curl <span class="tok">-fsSL</span> <span class="tok">https://rogerai.fm/install.sh</span> <span class="tok">| sh</span></InstallBox>
-        </div>
-      </aside>
+      {#if renderFaq && faq.length}<Faq no={faqNo} items={faq} title={faqTitle} label={faqLabel} />{/if}
+      {#if signoff}<Signoff />{/if}
     </div>
   </article>
 </main>

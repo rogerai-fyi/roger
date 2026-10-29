@@ -135,7 +135,7 @@ test("economics: the chart is described for a reader who cannot see it", () => {
 });
 
 test("economics: it is registered for its own stylesheet", () => {
-  assert.match(src(PAGE), new RegExp(`'${"broadcast-economics"}\\.css'`), "the page lists its sheet in its head call");
+  assert.match(src(PAGE), /['"]broadcast-economics\.css['"]/, "the page lists its sheet (css: in its post object, on the shared layout)");
   assert.match(read(PAGE), /styles\/broadcast-economics\.css/, "and links it");
 });
 

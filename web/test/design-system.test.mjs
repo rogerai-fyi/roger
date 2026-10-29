@@ -62,12 +62,14 @@ test("every page is assembled from the head, nav and footer partials", () => {
   for (const page of PAGES) {
     if (STUBS[page]) continue;
     const src = read(page);
-    if (/^layout: broadcast$/m.test(src)) continue;   // a Markdown post: its layout (BroadcastPost) carries the chrome
+    if (/^layout: broadcast$/m.test(src) || /<BroadcastPost\b/.test(src)) continue;   // a broadcast: its layout (BroadcastPost, checked below) carries the chrome
     // the app route: siteHead() for the head, the Nav and Footer components for the chrome
     for (const [what, re] of [["the head (siteHead)", /\bsiteHead\(/], ["the nav (<Nav>)", /<Nav\b/], ["the footer (<Footer>)", /<Footer\b/]]) {
       assert.match(src, re, `${page} is assembled from ${what}`);
     }
   }
+  const layout = component("BroadcastPost");
+  for (const re of [/\bsiteHead\(/, /<Nav\b/, /<Footer\b/]) assert.match(layout, re, "the post layout carries the chrome for every broadcast");
 });
 
 test("every page runs the shared page runtime as the one bundle, never a hand-copied tail", () => {
@@ -78,8 +80,8 @@ test("every page runs the shared page runtime as the one bundle, never a hand-co
       assert.doesNotMatch(src, new RegExp(`<script src="js/${js}\\.js"`), `${page} loads js/${js}.js by hand; use { runtime: true } in its siteHead`);
     }
     if (STUBS[page] || OWN_RUNTIME[page]) continue;
-    if (!/^layout: broadcast$/m.test(read(page)))
-      assert.match(read(page), /\{ runtime: true/, `${page} runs the shared runtime (scripts: [{ runtime: true }] in its siteHead)`);
+    const onLayout = /^layout: broadcast$/m.test(read(page)) || /<BroadcastPost\b/.test(read(page));
+    assert.match(onLayout ? component("BroadcastPost") : read(page), /\{ runtime: true/, `${page} runs the shared runtime (scripts: [{ runtime: true }] in its siteHead${onLayout ? ", through the post layout" : ""})`);
     // ...so every component module ships with it, and a page gets a behaviour by markup alone
     assert.match(dist(page), RUNTIME_TAG, `${page} ships js/runtime.js`);
     for (const js of ["site", "tuner", "scrub", "anchor-hold", "range-twin", "cycle"]) assert.ok(shared.includes(js), `the runtime bundle carries js/${js}.js`);

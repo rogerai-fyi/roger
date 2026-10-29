@@ -1,20 +1,34 @@
 <script>
   // The wall between your GPU and your files is four API calls wide.
   // Ported from web/src/broadcasts-sharing-your-gpu-is-safe.html (2026-10-29); the copy is the legacy copy.
-  import { siteHead, CSS_SHARED, CSS_ACCOUNT } from "#lib/head.js";
-  import Footer from "#lib/ui/Footer.svelte";
-  import Nav from "#lib/ui/Nav.svelte";
-  import OnAir from "#lib/ui/OnAir.svelte";
-  import Rail from "#lib/ui/Rail.svelte";
-  const head = siteHead({
-    title: 'The wall between your GPU and your files is four API calls wide.',
-    desc: 'When you share a model on RogerAI, only four fixed endpoints ever reach your machine, chat and voice, nothing that reads a file or runs a command. The code that does that lives on the other computer entirely. Traced through the actual wire protocol.',
-    og: { type: 'article', title: 'The wall between your GPU and your files is four API calls wide.', desc: 'Sharing your GPU is not sharing your computer. Here is the actual wall, traced through RogerAI\'s wire protocol and source code, not asserted.', url: 'https://rogerai.fm/broadcasts-sharing-your-gpu-is-safe.html', image: 'https://rogerai.fm/assets/broadcasts/gpu-wall-og.png' },
-    css: [...CSS_SHARED, 'broadcasts.css', 'broadcast-gpu-isolation.css'],
-    scripts: [{ runtime: true }],
-  });
+  // A broadcast on the one post layout (lib/ui/BroadcastPost.svelte): the head and the header
+  // from `post`, the FAQ from post.faq (the page and the FAQPage schema from one list), the
+  // body as the post wrote it.
+  import BroadcastPost from "#lib/ui/BroadcastPost.svelte";
+  import Faq from "#lib/ui/Faq.svelte";
+  import Signoff from "#lib/ui/Signoff.svelte";
+  const post = {
+    slug: "broadcasts-sharing-your-gpu-is-safe",
+    number: "014",
+    title: "The wall between your GPU and your files is four API calls wide.",
+    desc: "When you share a model on RogerAI, only four fixed endpoints ever reach your machine, chat and voice, nothing that reads a file or runs a command. The code that does that lives on the other computer entirely. Traced through the actual wire protocol.",
+    dek: "Share a model on RogerAI and the worry is reasonable: does the person using it get anywhere near your computer? We traced the actual wire protocol and source to give a precise answer instead of a reassuring one.",
+    date: "2026-09-20",
+    dateLabel: {"text":"SEPTEMBER 2026","rev":"2026.09"},
+    ogimage: "https://rogerai.fm/assets/broadcasts/gpu-wall-og.png",
+    ogdesc: "Sharing your GPU is not sharing your computer. Here is the actual wall, traced through RogerAI's wire protocol and source code, not asserted.",
+    css: ["broadcast-gpu-isolation.css"],
+    faq: [
+      {"q":"If I share my GPU, can someone see my files?","a":"No. The message format your station receives has no field for a file path or a command, only a chat or voice request matched against a fixed list of four allowed endpoints. There is nothing to see with, because there is nothing that lets a request reach your filesystem in the first place."},
+      {"q":"What if someone tricks the model into asking for a file?","a":"A model can only ever write text describing what it would like to happen. Turning that text into a real action requires a tool-calling harness, and RogerAI's harness runs on the requester's own machine, never on the station serving the model. A tool call a model writes to your station is, to your station, indistinguishable from any other sentence.","aHtml":"A model can only ever write text describing what it would like to happen. Turning that text into a real action requires a tool-calling harness, and RogerAI's harness runs on the requester's own machine, never on the station serving the model. A \"tool call\" a model writes to your station is, to your station, indistinguishable from any other sentence."},
+      {"q":"Does sharing open a port on my network?","a":"No. The connection is outbound-only: your machine polls the broker for work the same way a browser polls a page for updates. Nothing is listening for an inbound connection, so there is nothing to scan or connect to from outside."},
+      {"q":"Is the model server itself sandboxed by RogerAI?","a":"RogerAI does not run your model at all. You already run a local OpenAI-compatible server (Ollama, llama.cpp, LM Studio, vLLM) for yourself; roger share relays requests to it unread, the way it already answers you. Sharing adds a forwarding layer, not a new capability.","aHtml":"RogerAI does not run your model at all. You already run a local OpenAI-compatible server (Ollama, llama.cpp, LM Studio, vLLM) for yourself; <code>roger share</code> relays requests to it unread, the way it already answers you. Sharing adds a forwarding layer, not a new capability."},
+      {"q":"Where does file access actually get sandboxed, then?","a":"On the requester's own machine, inside RogerAI's harness: file reads and writes are restricted to the working directory they launched in. A read runs on its own; writing a file or running a shell command asks for explicit confirmation, showing the literal command, by default, unless the requester has chosen a fully permissive mode for their own session."},
+      {"q":"Is my API key or identity exposed to whoever I'm serving?","a":"No. Your upstream key is stripped before anything is relayed back, and stations are identified by an anonymous callsign, never a hostname or account."},
+    ],
+  };
 </script>
-<svelte:head>{@html head}</svelte:head>
+<BroadcastPost {...post} renderFaq={false} signoff={false}>
 <!-- Broadcast 014: the model/harness isolation explainer. Every technical claim in this
      page was verified directly against the shipped Go source in this repo (not asserted
      from memory) - see the inline citations in comments near each claim. A pre-push audit
@@ -57,36 +71,14 @@
          ~549-555), even under require=1, and the lean-pass posture explicitly allows S2/S7/S8
          codes through. The page states this as a real but non-absolute layer, not a guarantee 
      (the page's doc comment, from the legacy file; its CSS bundle is the css: list above) -->
-  <Rail head='RogerAI &middot; Field Guide' rev='Rev. 2026.09 &middot; ((&bull;))' orange />
-
-  <Nav variant='marketing' home='/' />
-
-  <main id="top">
-  <article class="bc-post gpu-post">
-    <div class="wrap bc-post__wrap">
-
-      <a class="bc-post__back mono" href="/broadcasts.html">&larr; all broadcasts</a>
-
-      <header class="bc-post__head" data-reveal>
-        <span class="hero__eyebrow">
-          <OnAir />
-          <span class="hero__callsign">BROADCAST 014 &middot; FIELD GUIDE</span>
-          <span class="hero__sep" aria-hidden="true">&middot;</span>
-          <time datetime="2026-09-20">SEPTEMBER 2026</time>
-        </span>
-        <h1 class="bc-post__title">The wall between your GPU and your files is four API calls wide.</h1>
-        <p class="bc-post__dek">
-          Share a model on RogerAI and the worry is reasonable: does the
-          person using it get anywhere near your computer? We traced the
-          actual wire protocol and source to give a precise answer instead
-          of a reassuring one.
-        </p>
+  {#snippet meta()}
         <div class="bc-post__meta mono">
           <span>What crosses: <b>chat or voice, fixed set</b></span>
           <span>Inbound ports: <b>zero, sharing-side</b></span>
           <span>Tool execution: <b>never on a shared station</b></span>
         </div>
-      </header>
+  {/snippet}
+
 
       <figure class="figure figure--plate" data-reveal>
         <img src="assets/broadcasts/gpu-wall-hero.webp" srcset="assets/broadcasts/gpu-wall-hero-800.webp 800w, assets/broadcasts/gpu-wall-hero.webp 1600w" sizes="(max-width: 1000px) 100vw, 960px" width="1600" height="896"
@@ -300,63 +292,9 @@
         </section>
 
         <!-- §5 faq -->
-        <section class="bc-sec" id="s5" data-reveal>
-          <span class="bc-sec__no">&sect;5 &middot; FAQ</span>
-          <h2>Questions people actually ask</h2>
-          <dl class="bc-faq">
-            <dt><b>If I share my GPU, can someone see my files?</b></dt>
-            <dd>No. The message format your station receives has no field
-              for a file path or a command, only a chat or voice request
-              matched against a fixed list of four allowed endpoints.
-              There is nothing to see with, because there is nothing that
-              lets a request reach your filesystem in the first place.</dd>
-            <dt><b>What if someone tricks the model into asking for a file?</b></dt>
-            <dd>A model can only ever write text describing what it would
-              like to happen. Turning that text into a real action requires
-              a tool-calling harness, and RogerAI's harness runs on the
-              requester's own machine, never on the station serving the
-              model. A "tool call" a model writes to your station is, to
-              your station, indistinguishable from any other sentence.</dd>
-            <dt><b>Does sharing open a port on my network?</b></dt>
-            <dd>No. The connection is outbound-only: your machine polls the
-              broker for work the same way a browser polls a page for
-              updates. Nothing is listening for an inbound connection, so
-              there is nothing to scan or connect to from outside.</dd>
-            <dt><b>Is the model server itself sandboxed by RogerAI?</b></dt>
-            <dd>RogerAI does not run your model at all. You already run a
-              local OpenAI-compatible server (Ollama, llama.cpp, LM Studio,
-              vLLM) for yourself; <code>roger share</code> relays requests
-              to it unread, the way it already answers you. Sharing adds a
-              forwarding layer, not a new capability.</dd>
-            <dt><b>Where does file access actually get sandboxed, then?</b></dt>
-            <dd>On the requester's own machine, inside RogerAI's harness:
-              file reads and writes are restricted to the working directory
-              they launched in. A read runs on its own; writing a file or
-              running a shell command asks for explicit confirmation,
-              showing the literal command, by default, unless the
-              requester has chosen a fully permissive mode for their own
-              session.</dd>
-            <dt><b>Is my API key or identity exposed to whoever I'm serving?</b></dt>
-            <dd>No. Your upstream key is stripped before anything is
-              relayed back, and stations are identified by an anonymous
-              callsign, never a hostname or account.</dd>
-          </dl>
-        </section>
+        <Faq no={5} items={post.faq} title="Questions people actually ask" />
 
-        <aside class="tint-panel bc-signoff">
-          <span class="tint-panel__tag">roger that</span>
-          Ready to see it yourself? <code class="cmd-words"><span>curl</span> <span>-fsSL</span> <span>https://rogerai.fm/install.sh</span> <span>|</span> <span>sh</span></code>,
-          then <code class="cmd-words"><span>roger</span> <span>share</span></code>. Full technical posture:
-          <a class="tlink" href="/security.html">Security</a>.
-        </aside>
+        <Signoff lead={"Ready to see it yourself? <code class=\"cmd-words\"><span>curl</span> <span>-fsSL</span> <span>https://rogerai.fm/install.sh</span> <span>|</span> <span>sh</span></code>, then <code class=\"cmd-words\"><span>roger</span> <span>share</span></code>. Full technical posture: <a class=\"tlink\" href=\"/security.html\">Security</a>."} install={false} />
 
       </div>
-
-    </div>
-  </article>
-
-  </main>
-
-  <Footer anchors='/' />
-
-  {@html `<script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"If I share my GPU, can someone see my files?","acceptedAnswer":{"@type":"Answer","text":"No. The message format your station receives has no field for a file path or a command, only a chat or voice request matched against a fixed list of four allowed endpoints. There is nothing to see with, because there is nothing that lets a request reach your filesystem in the first place."}},{"@type":"Question","name":"What if someone tricks the model into asking for a file?","acceptedAnswer":{"@type":"Answer","text":"A model can only ever write text describing what it would like to happen. Turning that text into a real action requires a tool-calling harness, and RogerAI's harness runs on the requester's own machine, never on the station serving the model. A tool call a model writes to your station is, to your station, indistinguishable from any other sentence."}},{"@type":"Question","name":"Does sharing open a port on my network?","acceptedAnswer":{"@type":"Answer","text":"No. The connection is outbound-only: your machine polls the broker for work the same way a browser polls a page for updates. Nothing is listening for an inbound connection, so there is nothing to scan or connect to from outside."}},{"@type":"Question","name":"Is the model server itself sandboxed by RogerAI?","acceptedAnswer":{"@type":"Answer","text":"RogerAI does not run your model at all. You already run a local OpenAI-compatible server (Ollama, llama.cpp, LM Studio, vLLM) for yourself; roger share relays requests to it unread, the way it already answers you. Sharing adds a forwarding layer, not a new capability."}},{"@type":"Question","name":"Where does file access actually get sandboxed, then?","acceptedAnswer":{"@type":"Answer","text":"On the requester's own machine, inside RogerAI's harness: file reads and writes are restricted to the working directory they launched in. A read runs on its own; writing a file or running a shell command asks for explicit confirmation, showing the literal command, by default, unless the requester has chosen a fully permissive mode for their own session."}},{"@type":"Question","name":"Is my API key or identity exposed to whoever I'm serving?","acceptedAnswer":{"@type":"Answer","text":"No. Your upstream key is stripped before anything is relayed back, and stations are identified by an anonymous callsign, never a hostname or account."}}]}</script>`}
+</BroadcastPost>

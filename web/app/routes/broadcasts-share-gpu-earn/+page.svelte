@@ -1,50 +1,40 @@
 <script>
   // How to share your GPU for AI and earn
   // Ported from web/src/broadcasts-share-gpu-earn.html (2026-10-29); the copy is the legacy copy.
-  import { siteHead, CSS_SHARED, CSS_ACCOUNT } from "#lib/head.js";
-  import Footer from "#lib/ui/Footer.svelte";
-  import InstallBox from "#lib/ui/InstallBox.svelte";
-  import Nav from "#lib/ui/Nav.svelte";
-  import OnAir from "#lib/ui/OnAir.svelte";
-  import Rail from "#lib/ui/Rail.svelte";
-  const head = siteHead({
-    title: 'How to share your GPU for AI and earn',
-    desc: 'Set up an idle GPU as a private AI node that can earn, with one command. What roger share does, how pricing and 90% Stripe payouts work, whether it\'s safe, and free vs. earn - the provider\'s field guide.',
-    og: { type: 'article', title: 'How to share your GPU for AI and earn', desc: 'Set up an idle GPU as an AI node that can earn, with one command. Pricing, 90% payouts, safety, and free vs. earn - the provider\'s guide.', url: 'https://rogerai.fm/broadcasts-share-gpu-earn.html', image: 'https://rogerai.fm/assets/broadcasts/share-hero.png' },
-    css: [...CSS_SHARED, 'broadcasts.css'],
-    scripts: [{ runtime: true }],
-  });
+  // A broadcast on the one post layout (lib/ui/BroadcastPost.svelte): the head and the header
+  // from `post`, the FAQ from post.faq (the page and the FAQPage schema from one list), the
+  // body as the post wrote it.
+  import BroadcastPost from "#lib/ui/BroadcastPost.svelte";
+  import Faq from "#lib/ui/Faq.svelte";
+  import Signoff from "#lib/ui/Signoff.svelte";
+  const post = {
+    slug: "broadcasts-share-gpu-earn",
+    number: "004",
+    title: "How to share your GPU for AI and earn",
+    heading: "How to share your GPU for AI - and earn",
+    desc: "Set up an idle GPU as a private AI node that can earn, with one command. What roger share does, how pricing and 90% Stripe payouts work, whether it's safe, and free vs. earn - the provider's field guide.",
+    dek: "That spare local model can answer for the whole band. Here is how to put it on the air with one command, what you can earn, and why it is safe to do.",
+    date: "2026-07-07",
+    dateLabel: {"text":"JULY 2026","rev":"2026.07"},
+    ogimage: "https://rogerai.fm/assets/broadcasts/share-hero.png",
+    ogdesc: "Set up an idle GPU as an AI node that can earn, with one command. Pricing, 90% payouts, safety, and free vs. earn - the provider's guide.",
+    faq: [
+      {"q":"Do I need a GPU to share?","a":"You need a machine running a local OpenAI-compatible model server (Ollama, LM Studio, llama.cpp, vLLM, and others). A GPU is what makes it fast and worth sharing; the model server is the actual requirement."},
+      {"q":"Is sharing my GPU free, or do I earn?","a":"Your choice. The default is free and needs no login. Set a price (dollars per million tokens, input and output) to earn instead - you keep 90%."},
+      {"q":"How much can I earn sharing my GPU?","a":"You set the price, so it depends on your rate, how in-demand your model is, and your uptime. The earn wizard suggests $0.20 in / $0.30 out per million tokens to start, and you keep 90% of what your node bills."},
+      {"q":"Is it safe to let strangers use my GPU?","a":"Yes. The connection is outbound-only - no inbound ports, no shell, no file access - and exposes only your model's port. Every prompt is moderated by the broker before it reaches you, your API key never leaves your machine, and your callsign is anonymous."},
+      {"q":"When do I get paid?","a":"Payouts run on Stripe Connect with a $25 minimum, a 30-day hold (a 10% slice stays reserved to day 90), and monthly release. Earning requires a one-time roger login, approved on rogerai.fm with GitHub, Apple, or an emailed code, plus Stripe identity verification; earnings accrue in the meantime.","aHtml":"Payouts run on Stripe Connect with a $25 minimum, a 30-day hold (a 10% slice stays reserved to day 90), and monthly release. Earning requires a one-time <code>roger login</code> - approved on rogerai.fm with GitHub, Apple, or an emailed code - and Stripe identity verification; earnings accrue in the meantime."},
+      {"q":"Can I stop sharing anytime?","a":"Yes - just stop roger share. If you restart, your node comes back under the same anonymous callsign, and shares survive broker restarts automatically.","aHtml":"Yes - just stop <code>roger share</code>. If you restart, your node comes back under the same anonymous callsign, and shares survive broker restarts automatically."},
+    ],
+  };
 </script>
-<svelte:head>{@html head}</svelte:head>
+<BroadcastPost {...post} renderFaq={false} signoff={false}>
 <!-- Field-guide broadcast 004 (supply side). SEO/AEO format: Quick Answer + question-H2s + FAQ
      schema + internal links to /manual, /models, /payouts. Assets: a Flux GPU-transmitter-tower
      hero + a Flux "community tunes in" figure + an inline theme-adaptive SVG flow diagram.
      Registered in build.mjs CSS_BUNDLES; listed atop broadcasts.html. 
      (the page's doc comment, from the legacy file; its CSS bundle is the css: list above) -->
-  <Rail head='RogerAI · Field Guide' rev='Rev. 2026.07 · ((•))' orange />
 
-  <Nav variant='marketing' home='/' />
-
-  <main id="top">
-
-  <article class="bc-post">
-    <div class="wrap bc-post__wrap">
-
-      <a class="bc-post__back mono" href="/broadcasts.html">&larr; all broadcasts</a>
-
-      <header class="bc-post__head" data-reveal>
-        <span class="hero__eyebrow">
-          <OnAir />
-          <span class="hero__callsign">BROADCAST 004 &middot; FIELD GUIDE</span>
-          <span class="hero__sep" aria-hidden="true">&middot;</span>
-          <time datetime="2026-07-07">JULY 2026</time>
-        </span>
-        <h1 class="bc-post__title">How to share your GPU for AI - and earn</h1>
-        <p class="bc-post__dek">
-          That spare local model can answer for the whole band. Here is how to put it on the air with one
-          command, what you can earn, and why it is safe to do.
-        </p>
-      </header>
 
       <figure class="figure figure--plate" data-reveal>
         <img src="assets/broadcasts/share-hero.webp" srcset="assets/broadcasts/share-hero-800.webp 800w, assets/broadcasts/share-hero.webp 1280w" sizes="(max-width: 1000px) 100vw, 960px" width="1280" height="720"
@@ -219,40 +209,9 @@
           </p>
         </section>
 
-        <section class="bc-sec" id="s7" data-reveal>
-          <span class="bc-sec__no">&sect;7 &middot; FAQ</span>
-          <h2>Frequently asked questions</h2>
-          <dl class="bc-faq">
-            <dt><b>Do I need a GPU to share?</b></dt>
-            <dd>You need a machine running a local OpenAI-compatible model server (Ollama, LM Studio, llama.cpp, vLLM, and others). A GPU is what makes it fast and worth sharing; the model server is the actual requirement.</dd>
-            <dt><b>Is sharing my GPU free, or do I earn?</b></dt>
-            <dd>Your choice. The default is free and needs no login. Set a price (dollars per million tokens, input and output) to earn instead - you keep 90%.</dd>
-            <dt><b>How much can I earn sharing my GPU?</b></dt>
-            <dd>You set the price, so it depends on your rate, how in-demand your model is, and your uptime. The earn wizard suggests $0.20 in / $0.30 out per million tokens to start, and you keep 90% of what your node bills.</dd>
-            <dt><b>Is it safe to let strangers use my GPU?</b></dt>
-            <dd>Yes. The connection is outbound-only - no inbound ports, no shell, no file access - and exposes only your model's port. Every prompt is moderated by the broker before it reaches you, your API key never leaves your machine, and your callsign is anonymous.</dd>
-            <dt><b>When do I get paid?</b></dt>
-            <dd>Payouts run on Stripe Connect with a $25 minimum, a 30-day hold (a 10% slice stays reserved to day 90), and monthly release. Earning requires a one-time <code>roger login</code> - approved on rogerai.fm with GitHub, Apple, or an emailed code - and Stripe identity verification; earnings accrue in the meantime.</dd>
-            <dt><b>Can I stop sharing anytime?</b></dt>
-            <dd>Yes - just stop <code>roger share</code>. If you restart, your node comes back under the same anonymous callsign, and shares survive broker restarts automatically.</dd>
-          </dl>
-        </section>
+        <Faq no={7} items={post.faq} />
 
-        <aside class="tint-panel bc-signoff">
-          <span class="tint-panel__tag">roger that</span>
-          <p>Put your spare local model on the air - install the set and go live:</p>
-          <div class="install">
-            <InstallBox id='signoffInstall'>curl <span class="tok">-fsSL</span> <span class="tok">https://rogerai.fm/install.sh</span> <span class="tok">| sh</span></InstallBox>
-          </div>
-        </aside>
+        <Signoff lead={"<p>Put your spare local model on the air - install the set and go live:</p>"}>curl <span class="tok">-fsSL</span> <span class="tok">https://rogerai.fm/install.sh</span> <span class="tok">| sh</span></Signoff>
 
       </div>
-
-    </div>
-  </article>
-
-  </main>
-
-  <Footer anchors='/' />
-
-  {@html `<script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"Do I need a GPU to share?","acceptedAnswer":{"@type":"Answer","text":"You need a machine running a local OpenAI-compatible model server (Ollama, LM Studio, llama.cpp, vLLM, and others). A GPU is what makes it fast and worth sharing; the model server is the actual requirement."}},{"@type":"Question","name":"Is sharing my GPU free, or do I earn?","acceptedAnswer":{"@type":"Answer","text":"Your choice. The default is free and needs no login. Set a price (dollars per million tokens, input and output) to earn instead - you keep 90%."}},{"@type":"Question","name":"How much can I earn sharing my GPU?","acceptedAnswer":{"@type":"Answer","text":"You set the price, so it depends on your rate, how in-demand your model is, and your uptime. The earn wizard suggests $0.20 in / $0.30 out per million tokens to start, and you keep 90% of what your node bills."}},{"@type":"Question","name":"Is it safe to let strangers use my GPU?","acceptedAnswer":{"@type":"Answer","text":"Yes. The connection is outbound-only - no inbound ports, no shell, no file access - and exposes only your model's port. Every prompt is moderated by the broker before it reaches you, your API key never leaves your machine, and your callsign is anonymous."}},{"@type":"Question","name":"When do I get paid?","acceptedAnswer":{"@type":"Answer","text":"Payouts run on Stripe Connect with a $25 minimum, a 30-day hold (a 10% slice stays reserved to day 90), and monthly release. Earning requires a one-time roger login, approved on rogerai.fm with GitHub, Apple, or an emailed code, plus Stripe identity verification; earnings accrue in the meantime."}},{"@type":"Question","name":"Can I stop sharing anytime?","acceptedAnswer":{"@type":"Answer","text":"Yes - just stop roger share. If you restart, your node comes back under the same anonymous callsign, and shares survive broker restarts automatically."}}]}</script>`}
+</BroadcastPost>

@@ -1,22 +1,34 @@
 <script>
   // Jev decides about text. Wave decides about machines.
   // Ported from web/src/broadcasts-jev-vs-wave.html (2026-10-29); the copy is the legacy copy.
-  import { siteHead, CSS_SHARED, CSS_ACCOUNT } from "#lib/head.js";
+  // A broadcast on the one post layout (lib/ui/BroadcastPost.svelte): the head and the header
+  // from `post`, the FAQ from post.faq (the page and the FAQPage schema from one list), the
+  // body as the post wrote it.
+  import BroadcastPost from "#lib/ui/BroadcastPost.svelte";
+  import Faq from "#lib/ui/Faq.svelte";
+  import Signoff from "#lib/ui/Signoff.svelte";
   import { content } from "#lib/content.js";
-  import Footer from "#lib/ui/Footer.svelte";
-  import Nav from "#lib/ui/Nav.svelte";
-  import OnAir from "#lib/ui/OnAir.svelte";
-  import Rail from "#lib/ui/Rail.svelte";
-  const facts = content('broadcasts-jev-vs-wave.html');
-  const head = siteHead({
-    title: 'Jev decides about text. Wave decides about machines.',
-    desc: 'TypeSafe\'s Jev made decision models a category last week: text in, a calibrated yes, no or score out, no chat. We build the same idea for industrial telemetry, from a 293M model that runs beside the pump to a 27B that reasons across a plant. A map of where each fits.',
-    og: { type: 'article', title: 'Jev decides about text. Wave decides about machines.', desc: 'A decision model for text just launched. Ours reads the machine. Where Jev, chat models, time-series models and the Wave family each fit, and why we build for the plant floor.', url: 'https://rogerai.fm/broadcasts-jev-vs-wave.html', image: 'https://rogerai.fm/assets/broadcasts/jev-wave-og.png' },
-    css: [...CSS_SHARED, 'broadcasts.css'],
-    scripts: [{ runtime: true }],
-  });
+  const facts = content("broadcasts-jev-vs-wave.html");
+  const post = {
+    slug: "broadcasts-jev-vs-wave",
+    number: "015",
+    title: "Jev decides about text. Wave decides about machines.",
+    desc: "TypeSafe's Jev made decision models a category last week: text in, a calibrated yes, no or score out, no chat. We build the same idea for industrial telemetry, from a 293M model that runs beside the pump to a 27B that reasons across a plant. A map of where each fits.",
+    dek: "Last week TypeSafe shipped Jev and made \"decide, don't chat\" a category overnight: hand it text and a question, get back a calibrated yes, no or score in under a second. We have been building the same idea for a different input. Here is the map of model types, where Jev sits on it, and where Wave does.",
+    date: "2026-09-22",
+    dateLabel: {"text":"SEPTEMBER 2026","rev":"2026.09"},
+    ogimage: "https://rogerai.fm/assets/broadcasts/jev-wave-og.png",
+    ogdesc: "A decision model for text just launched. Ours reads the machine. Where Jev, chat models, time-series models and the Wave family each fit, and why we build for the plant floor.",
+    faq: [
+      {"q":"Is Wave a competitor to Jev?","a":"No. Both are decision models, but Jev reads text and runs in TypeSafe's cloud; Wave reads what machines emit and runs on hardware you own, down to a single-board computer beside the machine. A plant could reasonably use both: Jev to route the maintenance ticket, Wave to read the pump that raised it."},
+      {"q":"Can Jev read sensor data?","a":"Not as designed. It takes text, and its own documentation lists counting, arithmetic and dates as weak spots. A decision model never trained on telemetry has no idea what a vibration spectrum or a Modbus register looks like. That is the gap the scratch-trained Wave tiers exist to close.","aHtml":"Not as designed. It takes text, and its own documentation lists counting, arithmetic and dates as weak spots. You could paste numbers into it as text, but a decision model that was never trained on telemetry has no idea what a vibration spectrum or a Modbus register looks like. That is the gap the scratch-trained Wave tiers exist to close."},
+      {"q":"Can I use a Wave model today?","a":"Yes. Wave Pico (293M) is on air right now as a free band on RogerAI: roger search lists it as wave-pico-293m, and roger use wave-pico-293m gives your tools a local OpenAI-style endpoint that reaches it. The weights themselves are not published yet; Wave Giga (27B) has passed its release gate on an Apache-2.0 base and its public checkpoint waits on the founder sign-off.","aHtml":"Yes. Wave Pico (293M) is on air right now as a free band on RogerAI: run <code>roger search</code> and it is listed as <code>wave-pico-293m</code>, then <code>roger use wave-pico-293m</code> gives your tools a local OpenAI-style endpoint that reaches it. Send it a window of telemetry and get a verdict back. The weights themselves are not published yet; Wave Giga (27B) has passed its release gate on an Apache-2.0 base and its public checkpoint waits on the founder's sign-off."},
+      {"q":"Why train small models from scratch instead of fine-tuning?","a":"Because the input is not language. A pretrained base has learned the web's vocabulary and would have to unlearn it to read a raw telemetry window. Below about 1.5B parameters scratch training on machine data is healthy and nothing is lost by skipping the web. From Giga up, a model is expected to converse and reason in general too, so those tiers start from a strong open base and get industrial training on top.","aHtml":"Because the input is not language. A pretrained base has learned the web's vocabulary and would have to unlearn it to read a raw telemetry window. Below about 1.5B parameters we measured that scratch training on machine data is healthy and nothing is lost by skipping the web. From Giga up the calculus flips: at 27B a model is expected to converse and reason in general too, so those tiers start from a strong open base and get industrial training on top."},
+      {"q":"Where does RogerAI come in?","a":"Every Wave tier is a model you host: on the board beside the machine, on a server in the plant, or on your own GPU at home. A model you run locally can also go on air as a band with roger share, which is how anything on RogerAI is reached remotely, and how wave-pico-293m is on air today.","aHtml":"Every Wave tier is a model you host: on the board beside the machine, on a server in the plant, or on your own GPU at home. A model you run locally can also go on air as a band with <code>roger share</code>, which is how anything on RogerAI is reached remotely, and exactly how <code>wave-pico-293m</code> is on air today from our station. Local or remote is a deployment choice, not a different product."},
+    ],
+  };
 </script>
-<svelte:head>{@html head}</svelte:head>
+<BroadcastPost {...post} renderFaq={false} signoff={false}>
 <!-- Broadcast 015: Jev vs the Wave family. A field guide to decision models: what TypeSafe's
      Jev is (facts from its own docs and launch coverage, 2026-09-15/20), where it sits on the
      map of model types, and where Wave sits. Every Wave number here is an engineering fact or
@@ -28,37 +40,14 @@
      hero (brandlocked, one red) + two inline theme-adaptive SVG figures. Registered in
      build.mjs CSS_BUNDLES; listed atop broadcasts.html. 
      (the page's doc comment, from the legacy file; its CSS bundle is the css: list above) -->
-  <Rail head='RogerAI &middot; Field Guide' rev='Rev. 2026.09 &middot; ((&bull;))' orange />
-
-  <Nav variant='marketing' home='/' />
-
-  <main id="top">
-  <article class="bc-post">
-    <div class="wrap bc-post__wrap">
-
-      <a class="bc-post__back mono" href="/broadcasts.html">&larr; all broadcasts</a>
-
-      <header class="bc-post__head" data-reveal>
-        <span class="hero__eyebrow">
-          <OnAir />
-          <span class="hero__callsign">BROADCAST 015 &middot; FIELD GUIDE</span>
-          <span class="hero__sep" aria-hidden="true">&middot;</span>
-          <time datetime="2026-09-22">SEPTEMBER 2026</time>
-        </span>
-        <h1 class="bc-post__title">Jev decides about text. Wave decides about machines.</h1>
-        <p class="bc-post__dek">
-          Last week TypeSafe shipped Jev and made "decide, don't chat" a
-          category overnight: hand it text and a question, get back a
-          calibrated yes, no or score in under a second. We have been
-          building the same idea for a different input. Here is the map of
-          model types, where Jev sits on it, and where Wave does.
-        </p>
+  {#snippet meta()}
         <div class="bc-post__meta mono">
           <span>Jev: <b>hosted API, text in, closed weights</b></span>
           <span>Wave Pico: <b>{@html facts.wave('pico.jev-vs-wave.meta')}</b></span>
           <span>Wave Giga: <b>{@html facts.wave('giga.jev-vs-wave.meta')}</b></span>
         </div>
-      </header>
+  {/snippet}
+
 
       <figure class="figure figure--plate" data-reveal>
         <img src="assets/broadcasts/jev-wave-hero.webp" srcset="assets/broadcasts/jev-wave-hero-800.webp 800w, assets/broadcasts/jev-wave-hero.webp 1600w" sizes="(max-width: 1000px) 100vw, 960px" width="1600" height="896"
@@ -479,65 +468,9 @@
         </section>
 
         <!-- §6 FAQ -->
-        <section class="bc-sec" id="s6" data-reveal>
-          <span class="bc-sec__no">&sect;6 &middot; FAQ</span>
-          <h2>Questions people actually ask</h2>
-          <dl class="bc-faq">
-            <dt><b>Is Wave a competitor to Jev?</b></dt>
-            <dd>No. Both are decision models, but Jev reads text and runs in
-              TypeSafe's cloud; Wave reads what machines emit and runs on
-              hardware you own, down to a single-board computer beside the
-              machine. A plant could reasonably use both: Jev to route the
-              maintenance ticket, Wave to read the pump that raised it.</dd>
-            <dt><b>Can Jev read sensor data?</b></dt>
-            <dd>Not as designed. It takes text, and its own documentation
-              lists counting, arithmetic and dates as weak spots. You could
-              paste numbers into it as text, but a decision model that was
-              never trained on telemetry has no idea what a vibration
-              spectrum or a Modbus register looks like. That is the gap the
-              scratch-trained Wave tiers exist to close.</dd>
-            <dt><b>Can I use a Wave model today?</b></dt>
-            <dd>Yes. Wave Pico (293M) is on air right now as a free band on
-              RogerAI: run <code>roger search</code> and it is listed as
-              <code>wave-pico-293m</code>, then <code>roger use wave-pico-293m</code>
-              gives your tools a local OpenAI-style endpoint that reaches it.
-              Send it a window of telemetry and get a verdict back. The
-              weights themselves are not published yet; Wave Giga (27B) has
-              passed its release gate on an Apache-2.0 base and its public
-              checkpoint waits on the founder's sign-off.</dd>
-            <dt><b>Why train small models from scratch instead of fine-tuning?</b></dt>
-            <dd>Because the input is not language. A pretrained base has
-              learned the web's vocabulary and would have to unlearn it to
-              read a raw telemetry window. Below about 1.5B parameters we
-              measured that scratch training on machine data is healthy and
-              nothing is lost by skipping the web. From Giga up the calculus
-              flips: at 27B a model is expected to converse and reason in
-              general too, so those tiers start from a strong open base and
-              get industrial training on top.</dd>
-            <dt><b>Where does RogerAI come in?</b></dt>
-            <dd>Every Wave tier is a model you host: on the board beside the
-              machine, on a server in the plant, or on your own GPU at home.
-              A model you run locally can also go on air as a band with
-              <code>roger share</code>, which is how anything on RogerAI is
-              reached remotely, and exactly how <code>wave-pico-293m</code> is
-              on air today from our station. Local or remote is a deployment
-              choice, not a different product.</dd>
-          </dl>
-        </section>
+        <Faq no={6} items={post.faq} title="Questions people actually ask" />
 
-        <aside class="tint-panel bc-signoff">
-          <span class="tint-panel__tag">roger that</span>
-          Tune in to Wave Pico now: <code class="cmd-words"><span>curl</span> <span>-fsSL</span> <span>https://rogerai.fm/install.sh</span> <span>|</span> <span>sh</span></code>, then <code class="cmd-words"><span>roger</span> <span>use</span> <span>wave-pico-293m</span></code>.
-          The full family guide, with the jobs table and the mesh: <a class="tlink" href="/research-wave-family.html">The Wave Spectrum</a>.
-        </aside>
+        <Signoff lead={"Tune in to Wave Pico now: <code class=\"cmd-words\"><span>curl</span> <span>-fsSL</span> <span>https://rogerai.fm/install.sh</span> <span>|</span> <span>sh</span></code>, then <code class=\"cmd-words\"><span>roger</span> <span>use</span> <span>wave-pico-293m</span></code>. The full family guide, with the jobs table and the mesh: <a class=\"tlink\" href=\"/research-wave-family.html\">The Wave Spectrum</a>."} install={false} />
 
       </div>
-
-    </div>
-  </article>
-
-  </main>
-
-  <Footer anchors='/' />
-
-  {@html `<script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"Is Wave a competitor to Jev?","acceptedAnswer":{"@type":"Answer","text":"No. Both are decision models, but Jev reads text and runs in TypeSafe's cloud; Wave reads what machines emit and runs on hardware you own, down to a single-board computer beside the machine. A plant could reasonably use both: Jev to route the maintenance ticket, Wave to read the pump that raised it."}},{"@type":"Question","name":"Can Jev read sensor data?","acceptedAnswer":{"@type":"Answer","text":"Not as designed. It takes text, and its own documentation lists counting, arithmetic and dates as weak spots. A decision model never trained on telemetry has no idea what a vibration spectrum or a Modbus register looks like. That is the gap the scratch-trained Wave tiers exist to close."}},{"@type":"Question","name":"Can I use a Wave model today?","acceptedAnswer":{"@type":"Answer","text":"Yes. Wave Pico (293M) is on air right now as a free band on RogerAI: roger search lists it as wave-pico-293m, and roger use wave-pico-293m gives your tools a local OpenAI-style endpoint that reaches it. The weights themselves are not published yet; Wave Giga (27B) has passed its release gate on an Apache-2.0 base and its public checkpoint waits on the founder sign-off."}},{"@type":"Question","name":"Why train small models from scratch instead of fine-tuning?","acceptedAnswer":{"@type":"Answer","text":"Because the input is not language. A pretrained base has learned the web's vocabulary and would have to unlearn it to read a raw telemetry window. Below about 1.5B parameters scratch training on machine data is healthy and nothing is lost by skipping the web. From Giga up, a model is expected to converse and reason in general too, so those tiers start from a strong open base and get industrial training on top."}},{"@type":"Question","name":"Where does RogerAI come in?","acceptedAnswer":{"@type":"Answer","text":"Every Wave tier is a model you host: on the board beside the machine, on a server in the plant, or on your own GPU at home. A model you run locally can also go on air as a band with roger share, which is how anything on RogerAI is reached remotely, and how wave-pico-293m is on air today."}}]}</script>`}
+</BroadcastPost>

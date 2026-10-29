@@ -133,8 +133,11 @@ test("(c) every article sign-off is an inset panel; a closing install command is
   for (const page of ARTICLES) {
     const html = src(page);
     assert.doesNotMatch(html, /man-note--live/, `${page}: the pink sign-off box is gone`);
-    panels += (html.match(/<aside class="tint-panel bc-signoff"/g) || []).length;
-    pills += (html.match(/<InstallBox id='signoffInstall'/g) || []).length;
+    // a post on the layout signs off with <Signoff> (the inset panel; the pill unless install={false});
+    // a Markdown post gets the layout's default sign-off, pill included
+    const md = /^layout: broadcast$/m.test(html);
+    panels += (html.match(/<aside class="tint-panel bc-signoff"|<Signoff\b/g) || []).length + (md ? 1 : 0);
+    pills += (html.match(/<InstallBox id='signoffInstall'|<Signoff\b(?![^>]*install=\{false\})/g) || []).length + (md ? 1 : 0);
   }
   assert.ok(panels >= 14, `${panels} articles sign off in an inset panel`);
   assert.ok(pills >= 9, `the install command is the shared pill in ${pills} sign-offs`);
@@ -150,7 +153,9 @@ test("index: the founder telegram folds on a phone and stays whole without JS", 
 
 /* ---- contents tuners on the long pages ----------------------------------------------- */
 
-const NUMBERED = (html) => [...mainOf(html).matchAll(/class="(?:sectionno|bc-sec__no[^"]*)">(?:&sect;|§)(\d+)/g)].map((m) => "§" + m[1]);
+// a numbered section: its label in a built page or a route; on a post route the FAQ section is
+// its <Faq no={N}/>, and the route has no <main> of its own (the post layout carries it)
+const NUMBERED = (html) => [...(/<main\b/.test(html) ? mainOf(html) : html).matchAll(/class="(?:sectionno|bc-sec__no[^"]*)">(?:&sect;|§)(\d+)|<Faq no=\{(\d+)\}/g)].map((m) => "§" + (m[1] || m[2]));
 // Every research-section page with four or more numbered sections is long (the "one role,
 // one pattern" rule), so that part of the list is derived, not hand-kept; the hand list
 // holds pages that carry one anyway (Hardware has three sections and a tuner).

@@ -1,51 +1,43 @@
 <script>
   // Connect your bots and services to RogerAI (OpenAI-compatible)
   // Ported from web/src/broadcasts-connect-bots-openai-api.html (2026-10-29); the copy is the legacy copy.
-  import { siteHead, CSS_SHARED, CSS_ACCOUNT } from "#lib/head.js";
-  import Footer from "#lib/ui/Footer.svelte";
-  import InstallBox from "#lib/ui/InstallBox.svelte";
-  import Nav from "#lib/ui/Nav.svelte";
-  import OnAir from "#lib/ui/OnAir.svelte";
-  import Rail from "#lib/ui/Rail.svelte";
-  const head = siteHead({
-    title: 'Connect your bots and services to RogerAI (OpenAI-compatible)',
-    desc: 'RogerAI speaks the OpenAI API, so any bot or service that uses the OpenAI SDK works with a two-line change. How to mint a key, point your base_url, choose a model, and use streaming, tools, and vision.',
-    og: { type: 'article', title: 'Connect your bots to RogerAI (OpenAI-compatible)', desc: 'Any OpenAI-SDK bot or service works with a two-line change: mint a grant key, point base_url at RogerAI, pass a model id. Streaming, tools, and vision included.', url: 'https://rogerai.fm/broadcasts-connect-bots-openai-api.html', image: 'https://rogerai.fm/assets/broadcasts/connect-hero.png' },
-    css: [...CSS_SHARED, 'broadcasts.css'],
-    scripts: [{ runtime: true }],
-  });
+  // A broadcast on the one post layout (lib/ui/BroadcastPost.svelte): the head and the header
+  // from `post`, the FAQ from post.faq (the page and the FAQPage schema from one list), the
+  // body as the post wrote it.
+  import BroadcastPost from "#lib/ui/BroadcastPost.svelte";
+  import Faq from "#lib/ui/Faq.svelte";
+  import Signoff from "#lib/ui/Signoff.svelte";
+  const post = {
+    slug: "broadcasts-connect-bots-openai-api",
+    number: "007",
+    title: "Connect your bots and services to RogerAI (OpenAI-compatible)",
+    heading: "Connect your bots and services to RogerAI",
+    desc: "RogerAI speaks the OpenAI API, so any bot or service that uses the OpenAI SDK works with a two-line change. How to mint a key, point your base_url, choose a model, and use streaming, tools, and vision.",
+    dek: "If it speaks the OpenAI API, it already speaks RogerAI. Repatch two lines - a base URL and a key - and your bot is running on community GPUs.",
+    date: "2026-07-08",
+    dateLabel: {"text":"JULY 2026","rev":"2026.07"},
+    ogimage: "https://rogerai.fm/assets/broadcasts/connect-hero.png",
+    ogtitle: "Connect your bots to RogerAI (OpenAI-compatible)",
+    ogdesc: "Any OpenAI-SDK bot or service works with a two-line change: mint a grant key, point base_url at RogerAI, pass a model id. Streaming, tools, and vision included.",
+    faq: [
+      {"q":"Is RogerAI OpenAI-compatible?","a":"Yes. It serves the OpenAI chat-completions API (plus audio), so any OpenAI-SDK bot or service works by changing only the base URL and API key."},
+      {"q":"What base URL do I use?","a":"Either the hosted endpoint https://broker.rogerai.fm/v1 with a grant key, or the http://127.0.0.1:<port>/v1 endpoint that roger use prints on your own machine.","aHtml":"Either the hosted endpoint <code>https://broker.rogerai.fm/v1</code> with a grant key, or the <code>http://127.0.0.1:&lt;port&gt;/v1</code> endpoint that <code>roger use</code> prints on your own machine."},
+      {"q":"Can a remote bot use someone else's model with just a grant key?","a":"No - a grant key is confined to your own nodes, so it can't reach another operator's hardware. To use the wider market from a remote or headless bot, run the roger CLI there (roger use): its signed identity can reach any band. Both paths still go through the broker.","schema":false,"aHtml":"No - a grant key is confined to your own nodes, so it can't reach another operator's hardware. To use the wider market from a remote or headless bot, run the <code>roger</code> CLI there (<code>roger use</code>): its signed identity can reach any band. Both paths still go through the broker."},
+      {"q":"How do I get an API key?","a":"Run roger grant create --name my-bots. It mints a rog-grant_ key; the owner signs in once to create it, and the bot then uses it with no login. It is shown only once.","aHtml":"Run <code>roger grant create --name my-bots</code>. It mints a <code>rog-grant_</code> key; the owner signs in once to create it, and the bot then uses it with no login. It's shown only once."},
+      {"q":"Does streaming and function calling work?","a":"Yes - stream=true streams over SSE, and tool/function calling works on nodes that pass the tool-call capability check. Vision (image inputs) works on nodes that accept images.","aHtml":"Yes - <code>stream=true</code> streams over SSE, and tool/function calling works on nodes that pass the tool-call capability check. Vision (image inputs) works on nodes that accept images."},
+      {"q":"Which model id do I pass?","a":"An exact id from the live market, such as gpt-oss-120b. Find current ids with roger search or on the model directory; the broker routes your request to the cheapest node serving that model.","aHtml":"An exact id from the live market, such as <code>gpt-oss-120b</code>. Find current ids with <code>roger search</code> or on the model directory; the broker routes your request to the cheapest node serving that model."},
+      {"q":"Are there rate limits?","a":"Yes. Roughly 120 requests per minute per identity by default, and each grant key has its own rate limit plus daily and monthly token caps that you configure."},
+    ],
+  };
 </script>
-<svelte:head>{@html head}</svelte:head>
+<BroadcastPost {...post} renderFaq={false} signoff={false}>
 <!-- Field-guide broadcast 007 (developer integration). SEO/AEO format: Quick Answer + question-H2s
      + FAQ schema + internal links. Modern-color turn (alternating with 006's character style):
      a Flux patch-panel/switchboard hero + an inline theme-adaptive SVG "point your base_url here"
      diagram. Registered in build.mjs CSS_BUNDLES; listed atop broadcasts.html. Facts grounded in the
      broker + CLI (grant keys, /v1 routes, roger use). 
      (the page's doc comment, from the legacy file; its CSS bundle is the css: list above) -->
-  <Rail head='RogerAI · Field Guide' rev='Rev. 2026.07 · ((•))' orange />
 
-  <Nav variant='marketing' home='/' />
-
-  <main id="top">
-
-  <article class="bc-post">
-    <div class="wrap bc-post__wrap">
-
-      <a class="bc-post__back mono" href="/broadcasts.html">&larr; all broadcasts</a>
-
-      <header class="bc-post__head" data-reveal>
-        <span class="hero__eyebrow">
-          <OnAir />
-          <span class="hero__callsign">BROADCAST 007 &middot; FIELD GUIDE</span>
-          <span class="hero__sep" aria-hidden="true">&middot;</span>
-          <time datetime="2026-07-08">JULY 2026</time>
-        </span>
-        <h1 class="bc-post__title">Connect your bots and services to RogerAI</h1>
-        <p class="bc-post__dek">
-          If it speaks the OpenAI API, it already speaks RogerAI. Repatch two lines - a base URL and
-          a key - and your bot is running on community GPUs.
-        </p>
-      </header>
 
       <figure class="figure figure--plate" data-reveal>
         <img src="assets/broadcasts/connect-hero.webp" srcset="assets/broadcasts/connect-hero-800.webp 800w, assets/broadcasts/connect-hero.webp 1280w" sizes="(max-width: 1000px) 100vw, 960px" width="1280" height="720"
@@ -219,42 +211,9 @@ resp = client.chat.completions.create(
           </ul>
         </section>
 
-        <section class="bc-sec" id="s6" data-reveal>
-          <span class="bc-sec__no">&sect;6 &middot; FAQ</span>
-          <h2>Frequently asked questions</h2>
-          <dl class="bc-faq">
-            <dt><b>Is RogerAI OpenAI-compatible?</b></dt>
-            <dd>Yes. It serves the OpenAI chat-completions API (plus audio), so any OpenAI-SDK bot or service works by changing only the base URL and API key.</dd>
-            <dt><b>What base URL do I use?</b></dt>
-            <dd>Either the hosted endpoint <code>https://broker.rogerai.fm/v1</code> with a grant key, or the <code>http://127.0.0.1:&lt;port&gt;/v1</code> endpoint that <code>roger use</code> prints on your own machine.</dd>
-            <dt><b>Can a remote bot use someone else's model with just a grant key?</b></dt>
-            <dd>No - a grant key is confined to your own nodes, so it can't reach another operator's hardware. To use the wider market from a remote or headless bot, run the <code>roger</code> CLI there (<code>roger use</code>): its signed identity can reach any band. Both paths still go through the broker.</dd>
-            <dt><b>How do I get an API key?</b></dt>
-            <dd>Run <code>roger grant create --name my-bots</code>. It mints a <code>rog-grant_</code> key; the owner signs in once to create it, and the bot then uses it with no login. It's shown only once.</dd>
-            <dt><b>Does streaming and function calling work?</b></dt>
-            <dd>Yes - <code>stream=true</code> streams over SSE, and tool/function calling works on nodes that pass the tool-call capability check. Vision (image inputs) works on nodes that accept images.</dd>
-            <dt><b>Which model id do I pass?</b></dt>
-            <dd>An exact id from the live market, such as <code>gpt-oss-120b</code>. Find current ids with <code>roger search</code> or on the model directory; the broker routes your request to the cheapest node serving that model.</dd>
-            <dt><b>Are there rate limits?</b></dt>
-            <dd>Yes. Roughly 120 requests per minute per identity by default, and each grant key has its own rate limit plus daily and monthly token caps that you configure.</dd>
-          </dl>
-        </section>
+        <Faq no={6} items={post.faq} />
 
-        <aside class="tint-panel bc-signoff">
-          <span class="tint-panel__tag">roger that</span>
-          <p>Mint a key and repatch your bot - install the set:</p>
-          <div class="install">
-            <InstallBox id='signoffInstall'>curl <span class="tok">-fsSL</span> <span class="tok">https://rogerai.fm/install.sh</span> <span class="tok">| sh</span></InstallBox>
-          </div>
-        </aside>
+        <Signoff lead={"<p>Mint a key and repatch your bot - install the set:</p>"}>curl <span class="tok">-fsSL</span> <span class="tok">https://rogerai.fm/install.sh</span> <span class="tok">| sh</span></Signoff>
 
       </div>
-
-    </div>
-  </article>
-
-  </main>
-
-  <Footer anchors='/' />
-
-  {@html `<script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"Is RogerAI OpenAI-compatible?","acceptedAnswer":{"@type":"Answer","text":"Yes. It serves the OpenAI chat-completions API (plus audio), so any OpenAI-SDK bot or service works by changing only the base URL and API key."}},{"@type":"Question","name":"What base URL do I use?","acceptedAnswer":{"@type":"Answer","text":"Either the hosted endpoint https://broker.rogerai.fm/v1 with a grant key, or the http://127.0.0.1:<port>/v1 endpoint that roger use prints on your own machine."}},{"@type":"Question","name":"How do I get an API key?","acceptedAnswer":{"@type":"Answer","text":"Run roger grant create --name my-bots. It mints a rog-grant_ key; the owner signs in once to create it, and the bot then uses it with no login. It is shown only once."}},{"@type":"Question","name":"Does streaming and function calling work?","acceptedAnswer":{"@type":"Answer","text":"Yes - stream=true streams over SSE, and tool/function calling works on nodes that pass the tool-call capability check. Vision (image inputs) works on nodes that accept images."}},{"@type":"Question","name":"Which model id do I pass?","acceptedAnswer":{"@type":"Answer","text":"An exact id from the live market, such as gpt-oss-120b. Find current ids with roger search or on the model directory; the broker routes your request to the cheapest node serving that model."}},{"@type":"Question","name":"Are there rate limits?","acceptedAnswer":{"@type":"Answer","text":"Yes. Roughly 120 requests per minute per identity by default, and each grant key has its own rate limit plus daily and monthly token caps that you configure."}}]}</script>`}
+</BroadcastPost>

@@ -99,7 +99,8 @@ test("install pill: the pipe and what it feeds stay together on a phone", () => 
   const PAGES = allPages();
   let n = 0;
   for (const p of PAGES) {
-    for (const m of source(p).matchAll(/<InstallBox\b[^>]*>([\s\S]*?)<\/InstallBox>/g)) {   // the pill's command is its children markup
+    // the pill's command is its children markup: an InstallBox, or a broadcast's Signoff (the pill inside)
+    for (const m of source(p).matchAll(/<(?:InstallBox|Signoff)\b[^>]*>([\s\S]*?)<\/(?:InstallBox|Signoff)>/g)) {
       if (!m[1].includes("|")) continue;
       // app.html's own spec (app-page.test.mjs) pins its command as one plain run of text
       if (p === "app.html") continue;

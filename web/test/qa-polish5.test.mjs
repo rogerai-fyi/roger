@@ -27,7 +27,7 @@ test("deepseek: the warm hero takes the greyscale treatment; the og:image stays 
   assert.ok(lead, "the hero figure");
   assert.match(lead[1], /\bfigure--plate\b/);
   assert.match(lead[1], /\bfigure--mono\b/, "the hero carries .figure--mono");
-  assert.match(html, /image: 'https:\/\/rogerai\.fm\/assets\/broadcasts\/mtp-hero\.png'/);
+  assert.match(html, /ogimage: "https:\/\/rogerai\.fm\/assets\/broadcasts\/mtp-hero\.png"/);
 });
 
 /* ---- the App screenshots on the dark site: adapt, don't invert --------------------- */

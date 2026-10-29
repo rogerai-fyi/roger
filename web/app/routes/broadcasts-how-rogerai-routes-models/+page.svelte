@@ -1,47 +1,38 @@
 <script>
   // Ten stations. One model. No single point of waiting.
   // Ported from web/src/broadcasts-how-rogerai-routes-models.html (2026-10-29); the copy is the legacy copy.
-  import { siteHead, CSS_SHARED, CSS_ACCOUNT } from "#lib/head.js";
-  import Footer from "#lib/ui/Footer.svelte";
-  import Nav from "#lib/ui/Nav.svelte";
-  import OnAir from "#lib/ui/OnAir.svelte";
-  import Rail from "#lib/ui/Rail.svelte";
-  const head = siteHead({
-    title: 'Ten stations. One model. No single point of waiting.',
-    desc: 'How RogerAI routes requests across many independent stations serving the same open model: hard eligibility filters, reliability, request-aware speed, capacity-normalized load, exploration, and power-of-two choices.',
-    og: { type: 'article', title: 'Ten stations. One model. No single point of waiting.', desc: 'Inside RogerAI\'s capacity-aware router: why the strongest healthy stations win without becoming traffic magnets, and where the next request goes when one fills up.', url: 'https://rogerai.fm/broadcasts-how-rogerai-routes-models.html', image: 'https://rogerai.fm/assets/broadcasts/router-airwaves-hero.png' },
-    css: [...CSS_SHARED, 'broadcasts.css', 'broadcast-routing.css'],
-    scripts: [{ runtime: true }, { src: 'js/routing-demo.js', defer: true }],
-  });
+  // A broadcast on the one post layout (lib/ui/BroadcastPost.svelte): the head and the header
+  // from `post`, the FAQ from post.faq (the page and the FAQPage schema from one list), the
+  // body as the post wrote it.
+  import BroadcastPost from "#lib/ui/BroadcastPost.svelte";
+  import Faq from "#lib/ui/Faq.svelte";
+  import Signoff from "#lib/ui/Signoff.svelte";
+  const post = {
+    slug: "broadcasts-how-rogerai-routes-models",
+    number: "009",
+    title: "Ten stations. One model. No single point of waiting.",
+    desc: "How RogerAI routes requests across many independent stations serving the same open model: hard eligibility filters, reliability, request-aware speed, capacity-normalized load, exploration, and power-of-two choices.",
+    dek: "If ten people put DeepSeek or Qwen3.6 on the air, which GPU gets your prompt? The answer is not “the fastest one, forever.” It is a small, measured decision made again for every request.",
+    date: "2026-07-28",
+    dateLabel: {"text":"JULY 2026","rev":"2026.07"},
+    ogimage: "https://rogerai.fm/assets/broadcasts/router-airwaves-hero.png",
+    ogdesc: "Inside RogerAI's capacity-aware router: why the strongest healthy stations win without becoming traffic magnets, and where the next request goes when one fills up.",
+    css: ["broadcast-routing.css"],
+    scripts: [{"src":"js/routing-demo.js","defer":true}],
+    faq: [
+      {"q":"Does RogerAI always choose the station with the highest signal?","a":"No. Signal is a public summary. The router first applies hard request constraints, scores healthy candidates with request-aware speed, reliability, price, capacity, and load, then uses power-of-two choices inside a reliable top band."},
+      {"q":"What happens when the strongest station is full?","a":"Its capacity-normalized load rises and its routing score falls. A concurrent request is directed to another healthy station that still satisfies the same model, price, speed, privacy, and access constraints."},
+      {"q":"Can a small home GPU ever receive traffic?","a":"Yes. Capacity normalization prevents a laptop from being judged like a four-GPU rig, while canary-gated exploration gives newly verified stations a chance to build real serving evidence."},
+      {"q":"Can a cheaper station beat a more reliable one?","a":"Price is only a bounded modifier inside the user's allowed range. Reliability is multiplicative, so repeated failure cannot be erased by being free or unusually cheap."},
+      {"q":"Does failover silently change my model?","a":"No. Failover re-selects an alternative that satisfies the original routing constraints and exact requested model. It never silently crosses confidentiality, price, or minimum-speed boundaries."},
+    ],
+  };
 </script>
-<svelte:head>{@html head}</svelte:head>
+<BroadcastPost {...post} renderFaq={false} signoff={false}>
 <!-- Broadcast 009: capacity-aware model routing. The animated plate is explicitly a
      simulation, grounded in router.go + tunnel.go. No live/fabricated market data. 
      (the page's doc comment, from the legacy file; its CSS bundle is the css: list above) -->
-  <Rail head='RogerAI &middot; Field Guide' rev='Rev. 2026.07 &middot; ((&bull;))' orange />
 
-  <Nav variant='marketing' home='/' />
-
-  <main id="top">
-  <article class="bc-post route-post">
-    <div class="wrap bc-post__wrap">
-
-      <a class="bc-post__back mono" href="/broadcasts.html">&larr; all broadcasts</a>
-
-      <header class="bc-post__head" data-reveal>
-        <span class="hero__eyebrow">
-          <OnAir />
-          <span class="hero__callsign">BROADCAST 009 &middot; FIELD GUIDE</span>
-          <span class="hero__sep" aria-hidden="true">&middot;</span>
-          <time datetime="2026-07-28">JULY 2026</time>
-        </span>
-        <h1 class="bc-post__title">Ten stations. One model. No single point of waiting.</h1>
-        <p class="bc-post__dek">
-          If ten people put DeepSeek or Qwen3.6 on the air, which GPU gets your prompt?
-          The answer is not “the fastest one, forever.” It is a small, measured decision
-          made again for every request.
-        </p>
-      </header>
 
       <figure class="figure figure--plate" data-reveal>
         <img src="assets/broadcasts/router-airwaves-hero.webp" srcset="assets/broadcasts/router-airwaves-hero-800.webp 800w, assets/broadcasts/router-airwaves-hero.webp 1600w, assets/broadcasts/router-airwaves-hero-1920.webp 1700w" sizes="(max-width: 1000px) 100vw, 960px" width="1700" height="925"
@@ -267,33 +258,8 @@
           </p>
         </section>
 
-        <section class="bc-sec" id="s7" data-reveal>
-          <span class="bc-sec__no">&sect;7 &middot; FAQ</span>
-          <h2>Frequently asked questions</h2>
-          <dl class="bc-faq">
-            <dt><b>Does RogerAI always choose the station with the highest signal?</b></dt>
-            <dd>No. Signal is a public summary. The router first applies hard request constraints, scores healthy candidates with request-aware speed, reliability, price, capacity, and load, then uses power-of-two choices inside a reliable top band.</dd>
-            <dt><b>What happens when the strongest station is full?</b></dt>
-            <dd>Its capacity-normalized load rises and its routing score falls. A concurrent request is directed to another healthy station that still satisfies the same model, price, speed, privacy, and access constraints.</dd>
-            <dt><b>Can a small home GPU ever receive traffic?</b></dt>
-            <dd>Yes. Capacity normalization prevents a laptop from being judged like a four-GPU rig, while canary-gated exploration gives newly verified stations a chance to build real serving evidence.</dd>
-            <dt><b>Can a cheaper station beat a more reliable one?</b></dt>
-            <dd>Price is only a bounded modifier inside the user's allowed range. Reliability is multiplicative, so repeated failure cannot be erased by being free or unusually cheap.</dd>
-            <dt><b>Does failover silently change my model?</b></dt>
-            <dd>No. Failover re-selects an alternative that satisfies the original routing constraints and exact requested model. It never silently crosses confidentiality, price, or minimum-speed boundaries.</dd>
-          </dl>
-        </section>
+        <Faq no={7} items={post.faq} />
 
-        <aside class="tint-panel bc-signoff">
-          <span class="tint-panel__tag">roger that</span>
-          Put another station on the band, or tune your app into the network:
-          <code class="cmd-words"><span>roger</span> <span>share</span> <span>&lt;model&gt;</span></code> &middot; <code class="cmd-words"><span>roger</span> <span>use</span> <span>&lt;model&gt;</span></code>
-        </aside>
+        <Signoff lead={"Put another station on the band, or tune your app into the network: <code class=\"cmd-words\"><span>roger</span> <span>share</span> <span>&lt;model&gt;</span></code> &middot; <code class=\"cmd-words\"><span>roger</span> <span>use</span> <span>&lt;model&gt;</span></code>"} install={false} />
       </div>
-    </div>
-  </article>
-  </main>
-
-  <Footer anchors='/' />
-
-  {@html `<script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"Does RogerAI always choose the station with the highest signal?","acceptedAnswer":{"@type":"Answer","text":"No. Signal is a public summary. The router first applies hard request constraints, scores healthy candidates with request-aware speed, reliability, price, capacity, and load, then uses power-of-two choices inside a reliable top band."}},{"@type":"Question","name":"What happens when the strongest station is full?","acceptedAnswer":{"@type":"Answer","text":"Its capacity-normalized load rises and its routing score falls. A concurrent request is directed to another healthy station that still satisfies the same model, price, speed, privacy, and access constraints."}},{"@type":"Question","name":"Can a small home GPU ever receive traffic?","acceptedAnswer":{"@type":"Answer","text":"Yes. Capacity normalization prevents a laptop from being judged like a four-GPU rig, while canary-gated exploration gives newly verified stations a chance to build real serving evidence."}},{"@type":"Question","name":"Can a cheaper station beat a more reliable one?","acceptedAnswer":{"@type":"Answer","text":"Price is only a bounded modifier inside the user's allowed range. Reliability is multiplicative, so repeated failure cannot be erased by being free or unusually cheap."}},{"@type":"Question","name":"Does failover silently change my model?","acceptedAnswer":{"@type":"Answer","text":"No. Failover re-selects an alternative that satisfies the original routing constraints and exact requested model. It never silently crosses confidentiality, price, or minimum-speed boundaries."}}]}</script>`}
+</BroadcastPost>

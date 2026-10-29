@@ -1,52 +1,44 @@
 <script>
   // How LLMs actually work, in pictures.
   // Ported from web/src/broadcasts-how-llms-work.html (2026-10-29); the copy is the legacy copy.
-  import { siteHead, CSS_SHARED, CSS_ACCOUNT } from "#lib/head.js";
-  import Footer from "#lib/ui/Footer.svelte";
-  import InstallBox from "#lib/ui/InstallBox.svelte";
-  import Nav from "#lib/ui/Nav.svelte";
-  import OnAir from "#lib/ui/OnAir.svelte";
-  import Rail from "#lib/ui/Rail.svelte";
-  const head = siteHead({
-    title: 'How LLMs actually work, in pictures.',
-    desc: 'A large language model does one thing: it guesses the next piece of text. How it reads, how it learns from its mistakes, how it becomes an assistant, and why the same trick can learn the language of a machine. Illustrated, in plain words.',
-    og: { type: 'article', title: 'How LLMs actually work, in pictures.', desc: 'One trick, repeated: guess the next piece. How a language model reads, learns and gets taught, and why a small one can learn a machine\'s language. An illustrated field guide.', url: 'https://rogerai.fm/broadcasts-how-llms-work.html', image: 'https://rogerai.fm/assets/broadcasts/llm-works-og.png' },
-    css: [...CSS_SHARED, 'broadcasts.css', 'broadcast-how-llms-work.css'],
-    scripts: [{ runtime: true }],
-  });
+  // A broadcast on the one post layout (lib/ui/BroadcastPost.svelte): the head and the header
+  // from `post`, the FAQ from post.faq (the page and the FAQPage schema from one list), the
+  // body as the post wrote it.
+  import BroadcastPost from "#lib/ui/BroadcastPost.svelte";
+  import Faq from "#lib/ui/Faq.svelte";
+  import Signoff from "#lib/ui/Signoff.svelte";
+  const post = {
+    slug: "broadcasts-how-llms-work",
+    number: "016",
+    title: "How LLMs actually work, in pictures.",
+    desc: "A large language model does one thing: it guesses the next piece of text. How it reads, how it learns from its mistakes, how it becomes an assistant, and why the same trick can learn the language of a machine. Illustrated, in plain words.",
+    dek: "One trick, repeated: guess the next piece of text. Here is the trick, how a model learns it, and why the same trick can learn the language of a machine.",
+    date: "2026-10-12",
+    dateLabel: {"text":"OCTOBER 2026","rev":"2026.10"},
+    ogimage: "https://rogerai.fm/assets/broadcasts/llm-works-og.png",
+    ogdesc: "One trick, repeated: guess the next piece. How a language model reads, learns and gets taught, and why a small one can learn a machine's language. An illustrated field guide.",
+    css: ["broadcast-how-llms-work.css"],
+    faq: [
+      {"q":"What is a token in an LLM?","a":"A piece of text the model reads and writes: a whole word, part of a word, a number fragment or punctuation. A model works with a fixed vocabulary of them, usually tens of thousands to a few hundred thousand, and writes its answer one token at a time."},
+      {"q":"Does an LLM look things up on the internet?","a":"Not by itself. A plain model answers from patterns stored in its settings during training. Some apps give it a search tool and paste the results into its context, which is a separate step around the model."},
+      {"q":"Why do LLMs make things up?","a":"Because they are trained to produce a likely next piece, not a checked fact. When the pattern is weak, a fluent guess still comes out. Grounding it in real documents and asking it to cite them helps."},
+      {"q":"How long does it take to train an LLM?","a":"The largest models train for weeks to months on thousands of GPUs. A small specialist model, trained on one narrow kind of data, can be trained on far less hardware."},
+      {"q":"Can I run an LLM on my own computer?","a":"Yes. Smaller open models run on a laptop or a gaming GPU, and quantized versions shrink them further. Our VRAM guide shows what fits on which card, and RogerAI lets you reach bigger models other people share."},
+      {"q":"Why train a model on manufacturing data instead of using a chatbot?","a":"A machine's readings are a language of their own, and a model trained on them learns what normal sounds like for that machine. It can be small enough to run on site, offline, as an adviser beside the control system rather than in place of it."},
+    ],
+  };
 </script>
-<svelte:head>{@html head}</svelte:head>
+<BroadcastPost {...post} renderFaq={false} signoff={false}>
 <!-- Broadcast 016: how an LLM works, in pictures. Tests: test/broadcast-how-llms-work.test.mjs, test/voice.test.mjs. 
      (the page's doc comment, from the legacy file; its CSS bundle is the css: list above) -->
-  <Rail head='RogerAI &middot; Field Guide' rev='Rev. 2026.10 &middot; ((&bull;))' orange />
-
-  <Nav variant='marketing' home='/' />
-
-  <main id="top">
-  <article class="bc-post llm-post">
-    <div class="wrap bc-post__wrap">
-
-      <a class="bc-post__back mono" href="/broadcasts.html">&larr; all broadcasts</a>
-
-      <header class="bc-post__head" data-reveal>
-        <span class="hero__eyebrow">
-          <OnAir />
-          <span class="hero__callsign">BROADCAST 016 &middot; FIELD GUIDE</span>
-          <span class="hero__sep" aria-hidden="true">&middot;</span>
-          <time datetime="2026-10-12">OCTOBER 2026</time>
-        </span>
-        <h1 class="bc-post__title">How LLMs actually work, in pictures.</h1>
-        <p class="bc-post__dek">
-          One trick, repeated: guess the next piece of text. Here is the trick,
-          how a model learns it, and why the same trick can learn the language
-          of a machine.
-        </p>
+  {#snippet meta()}
         <div class="bc-post__meta mono">
           <span>The trick: <b>guess the next piece</b></span>
           <span>How it learns: <b>guess, check, nudge</b></span>
           <span>Reading: <b>mostly pictures</b></span>
         </div>
-      </header>
+  {/snippet}
+
 
       <figure class="figure figure--plate" data-reveal>
         <img src="assets/broadcasts/llm-works-hero.webp" srcset="assets/broadcasts/llm-works-hero-800.webp 800w, assets/broadcasts/llm-works-hero.webp 1600w" sizes="(max-width: 1000px) 100vw, 960px" width="1600" height="896"
@@ -666,41 +658,9 @@
         </section>
 
         <!-- §12 faq -->
-        <section class="bc-sec" id="s12" data-reveal>
-          <span class="bc-sec__no">&sect;12 &middot; FAQ</span>
-          <h2>Questions people actually ask</h2>
-          <dl class="bc-faq">
-            <dt><b>What is a token in an LLM?</b></dt>
-            <dd>A piece of text the model reads and writes: a whole word, part of a word, a number fragment or punctuation. A model works with a fixed vocabulary of them, usually tens of thousands to a few hundred thousand, and writes its answer one token at a time.</dd>
-            <dt><b>Does an LLM look things up on the internet?</b></dt>
-            <dd>Not by itself. A plain model answers from patterns stored in its settings during training. Some apps give it a search tool and paste the results into its context, which is a separate step around the model.</dd>
-            <dt><b>Why do LLMs make things up?</b></dt>
-            <dd>Because they are trained to produce a likely next piece, not a checked fact. When the pattern is weak, a fluent guess still comes out. Grounding it in real documents and asking it to cite them helps.</dd>
-            <dt><b>How long does it take to train an LLM?</b></dt>
-            <dd>The largest models train for weeks to months on thousands of GPUs. A small specialist model, trained on one narrow kind of data, can be trained on far less hardware.</dd>
-            <dt><b>Can I run an LLM on my own computer?</b></dt>
-            <dd>Yes. Smaller open models run on a laptop or a gaming GPU, and quantized versions shrink them further. Our VRAM guide shows what fits on which card, and RogerAI lets you reach bigger models other people share.</dd>
-            <dt><b>Why train a model on manufacturing data instead of using a chatbot?</b></dt>
-            <dd>A machine's readings are a language of their own, and a model trained on them learns what normal sounds like for that machine. It can be small enough to run on site, offline, as an adviser beside the control system rather than in place of it.</dd>
-          </dl>
-        </section>
+        <Faq no={12} items={post.faq} title="Questions people actually ask" />
 
-        <aside class="tint-panel bc-signoff">
-          <span class="tint-panel__tag">roger that</span>
-          <p>To talk to one, install the set, then <code class="cmd-words"><span>roger</span> <span>search</span></code> to see what is on the band, or <code class="cmd-words"><span>roger</span> <span>use</span> <span>wave-pico-293m</span></code> to hear a model that learned a machine&rsquo;s language.</p>
-          <div class="install">
-            <InstallBox id='signoffInstall'>curl <span class="tok">-fsSL</span> <span class="tok">https://rogerai.fm/install.sh</span> <span class="tok">| sh</span></InstallBox>
-          </div>
-          <p>Before you pick a model for your own card, read <a href="/broadcasts-vram-for-llm.html">how much VRAM you need</a>.</p>
-        </aside>
+        <Signoff lead={"<p>To talk to one, install the set, then <code class=\"cmd-words\"><span>roger</span> <span>search</span></code> to see what is on the band, or <code class=\"cmd-words\"><span>roger</span> <span>use</span> <span>wave-pico-293m</span></code> to hear a model that learned a machine&rsquo;s language.</p>"} tail={"<p>Before you pick a model for your own card, read <a href=\"/broadcasts-vram-for-llm.html\">how much VRAM you need</a>.</p>"}>curl <span class="tok">-fsSL</span> <span class="tok">https://rogerai.fm/install.sh</span> <span class="tok">| sh</span></Signoff>
 
       </div>
-
-    </div>
-  </article>
-
-  </main>
-
-  <Footer anchors='/' />
-
-  {@html `<script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"What is a token in an LLM?","acceptedAnswer":{"@type":"Answer","text":"A piece of text the model reads and writes: a whole word, part of a word, a number fragment or punctuation. A model works with a fixed vocabulary of them, usually tens of thousands to a few hundred thousand, and writes its answer one token at a time."}},{"@type":"Question","name":"Does an LLM look things up on the internet?","acceptedAnswer":{"@type":"Answer","text":"Not by itself. A plain model answers from patterns stored in its settings during training. Some apps give it a search tool and paste the results into its context, which is a separate step around the model."}},{"@type":"Question","name":"Why do LLMs make things up?","acceptedAnswer":{"@type":"Answer","text":"Because they are trained to produce a likely next piece, not a checked fact. When the pattern is weak, a fluent guess still comes out. Grounding it in real documents and asking it to cite them helps."}},{"@type":"Question","name":"How long does it take to train an LLM?","acceptedAnswer":{"@type":"Answer","text":"The largest models train for weeks to months on thousands of GPUs. A small specialist model, trained on one narrow kind of data, can be trained on far less hardware."}},{"@type":"Question","name":"Can I run an LLM on my own computer?","acceptedAnswer":{"@type":"Answer","text":"Yes. Smaller open models run on a laptop or a gaming GPU, and quantized versions shrink them further. Our VRAM guide shows what fits on which card, and RogerAI lets you reach bigger models other people share."}},{"@type":"Question","name":"Why train a model on manufacturing data instead of using a chatbot?","acceptedAnswer":{"@type":"Answer","text":"A machine's readings are a language of their own, and a model trained on them learns what normal sounds like for that machine. It can be small enough to run on site, offline, as an adviser beside the control system rather than in place of it."}}]}</script>`}
+</BroadcastPost>

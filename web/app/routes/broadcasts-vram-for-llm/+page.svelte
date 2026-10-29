@@ -1,49 +1,40 @@
 <script>
   // How much VRAM do you need to run an LLM? (2026)
   // Ported from web/src/broadcasts-vram-for-llm.html (2026-10-29); the copy is the legacy copy.
-  import { siteHead, CSS_SHARED, CSS_ACCOUNT } from "#lib/head.js";
-  import Footer from "#lib/ui/Footer.svelte";
-  import InstallBox from "#lib/ui/InstallBox.svelte";
-  import Nav from "#lib/ui/Nav.svelte";
-  import OnAir from "#lib/ui/OnAir.svelte";
-  import Rail from "#lib/ui/Rail.svelte";
-  const head = siteHead({
-    title: 'How much VRAM do you need to run an LLM? (2026)',
-    desc: 'A clear, chart-first guide to LLM VRAM: how much video memory each model size needs at 4-bit, what actually fills it, which GPU to buy, and what to do when a model is bigger than your card.',
-    og: { type: 'article', title: 'How much VRAM do you need to run an LLM?', desc: 'A chart-first guide to LLM VRAM by model size, what fills it, which GPU to buy, and what to do when the model is bigger than your card.', url: 'https://rogerai.fm/broadcasts-vram-for-llm.html', image: 'https://rogerai.fm/assets/broadcasts/vram-hero.png' },
-    css: [...CSS_SHARED, 'broadcasts.css'],
-    scripts: [{ runtime: true }],
-  });
+  // A broadcast on the one post layout (lib/ui/BroadcastPost.svelte): the head and the header
+  // from `post`, the FAQ from post.faq (the page and the FAQPage schema from one list), the
+  // body as the post wrote it.
+  import BroadcastPost from "#lib/ui/BroadcastPost.svelte";
+  import Faq from "#lib/ui/Faq.svelte";
+  import Signoff from "#lib/ui/Signoff.svelte";
+  const post = {
+    slug: "broadcasts-vram-for-llm",
+    number: "003",
+    title: "How much VRAM do you need to run an LLM? (2026)",
+    heading: "How much VRAM do you need to run an LLM?",
+    desc: "A clear, chart-first guide to LLM VRAM: how much video memory each model size needs at 4-bit, what actually fills it, which GPU to buy, and what to do when a model is bigger than your card.",
+    dek: "Video memory is the real limit when you run a model locally - not clock speed. Here is the chart, the math behind it, and what to do when a model is bigger than your card.",
+    date: "2026-07-06",
+    dateLabel: {"text":"JULY 2026","rev":"2026.07"},
+    ogimage: "https://rogerai.fm/assets/broadcasts/vram-hero.png",
+    ogtitle: "How much VRAM do you need to run an LLM?",
+    ogdesc: "A chart-first guide to LLM VRAM by model size, what fills it, which GPU to buy, and what to do when the model is bigger than your card.",
+    faq: [
+      {"q":"How much VRAM do I need to run a 7B model?","a":"About 5-6 GB at 4-bit, so an 8 GB GPU runs a 7-8B model comfortably with room for context.","aHtml":"About 5-6&nbsp;GB at 4-bit, so an 8&nbsp;GB GPU runs a 7-8B model comfortably with room for context."},
+      {"q":"How much VRAM for a 70B model?","a":"Roughly 42 GB at 4-bit, which is beyond a single consumer GPU. You need two 24 GB cards, a pro card, or you route the request to a bigger GPU over RogerAI.","aHtml":"Roughly 42&nbsp;GB at 4-bit, which is beyond a single consumer GPU. You need two 24&nbsp;GB cards, a pro card, or you route the request to a bigger GPU over RogerAI."},
+      {"q":"Is VRAM or GPU speed more important for LLMs?","a":"VRAM. If the model doesn't fit in video memory it spills to system RAM and runs many times slower, no matter how fast the chip is. Fit first, then speed."},
+      {"q":"Does quantization reduce quality?","a":"Only slightly at the common 4-bit (Q4) level, which cuts memory about 4x versus 16-bit while keeping almost all quality. Q5/Q6 are sharper; below Q4 the loss becomes noticeable."},
+      {"q":"Can I run a big model without a big GPU?","a":"Yes - offload to system RAM (slow), or keep your workflow and route to a community GPU that can fit it: roger use <model> proxies over the same OpenAI API, free models included.","aHtml":"Yes - offload to system RAM (slow), or keep your workflow and route to a community GPU that can fit it: <code>roger use &lt;model&gt;</code> proxies over the same OpenAI API, free models included."},
+      {"q":"How do I calculate VRAM for a model?","a":"Rule of thumb at 4-bit: ~0.6 GB per billion parameters for the weights, plus a few GB for the KV cache. Double the per-param figure for 8-bit.","aHtml":"Rule of thumb at 4-bit: ~0.6&nbsp;GB per billion parameters for the weights, plus a few GB for the KV cache (more for long contexts). Double the per-param figure for 8-bit."},
+    ],
+  };
 </script>
-<svelte:head>{@html head}</svelte:head>
+<BroadcastPost {...post} renderFaq={false} signoff={false}>
 <!-- Field-guide broadcast 003. SEO/AEO format: Quick Answer + question-H2s + FAQ schema + internal
      links. Assets: an inline theme-adaptive SVG VRAM chart + a Flux-generated hero (brandlocked).
      Registered in build.mjs CSS_BUNDLES; listed atop broadcasts.html. 
      (the page's doc comment, from the legacy file; its CSS bundle is the css: list above) -->
-  <Rail head='RogerAI · Field Guide' rev='Rev. 2026.07 · ((•))' orange />
 
-  <Nav variant='marketing' home='/' />
-
-  <main id="top">
-
-  <article class="bc-post">
-    <div class="wrap bc-post__wrap">
-
-      <a class="bc-post__back mono" href="/broadcasts.html">&larr; all broadcasts</a>
-
-      <header class="bc-post__head" data-reveal>
-        <span class="hero__eyebrow">
-          <OnAir />
-          <span class="hero__callsign">BROADCAST 003 &middot; FIELD GUIDE</span>
-          <span class="hero__sep" aria-hidden="true">&middot;</span>
-          <time datetime="2026-07-06">JULY 2026</time>
-        </span>
-        <h1 class="bc-post__title">How much VRAM do you need to run an LLM?</h1>
-        <p class="bc-post__dek">
-          Video memory is the real limit when you run a model locally - not clock speed. Here is
-          the chart, the math behind it, and what to do when a model is bigger than your card.
-        </p>
-      </header>
 
       <figure class="figure figure--plate" data-reveal>
         <img src="assets/broadcasts/vram-hero.webp" srcset="assets/broadcasts/vram-hero-800.webp 800w, assets/broadcasts/vram-hero.webp 1280w" sizes="(max-width: 1000px) 100vw, 960px" width="1280" height="560"
@@ -189,40 +180,9 @@
           </p>
         </section>
 
-        <section class="bc-sec" id="s6" data-reveal>
-          <span class="bc-sec__no">&sect;6 &middot; FAQ</span>
-          <h2>Frequently asked questions</h2>
-          <dl class="bc-faq">
-            <dt><b>How much VRAM do I need to run a 7B model?</b></dt>
-            <dd>About 5-6&nbsp;GB at 4-bit, so an 8&nbsp;GB GPU runs a 7-8B model comfortably with room for context.</dd>
-            <dt><b>How much VRAM for a 70B model?</b></dt>
-            <dd>Roughly 42&nbsp;GB at 4-bit, which is beyond a single consumer GPU. You need two 24&nbsp;GB cards, a pro card, or you route the request to a bigger GPU over RogerAI.</dd>
-            <dt><b>Is VRAM or GPU speed more important for LLMs?</b></dt>
-            <dd>VRAM. If the model doesn't fit in video memory it spills to system RAM and runs many times slower, no matter how fast the chip is. Fit first, then speed.</dd>
-            <dt><b>Does quantization reduce quality?</b></dt>
-            <dd>Only slightly at the common 4-bit (Q4) level, which cuts memory about 4x versus 16-bit while keeping almost all quality. Q5/Q6 are sharper; below Q4 the loss becomes noticeable.</dd>
-            <dt><b>Can I run a big model without a big GPU?</b></dt>
-            <dd>Yes - offload to system RAM (slow), or keep your workflow and route to a community GPU that can fit it: <code>roger use &lt;model&gt;</code> proxies over the same OpenAI API, free models included.</dd>
-            <dt><b>How do I calculate VRAM for a model?</b></dt>
-            <dd>Rule of thumb at 4-bit: ~0.6&nbsp;GB per billion parameters for the weights, plus a few GB for the KV cache (more for long contexts). Double the per-param figure for 8-bit.</dd>
-          </dl>
-        </section>
+        <Faq no={6} items={post.faq} />
 
-        <aside class="tint-panel bc-signoff">
-          <span class="tint-panel__tag">roger that</span>
-          <p>Model too big for your card? Route it to a bigger GPU - install the set and tune in:</p>
-          <div class="install">
-            <InstallBox id='signoffInstall'>curl <span class="tok">-fsSL</span> <span class="tok">https://rogerai.fm/install.sh</span> <span class="tok">| sh</span></InstallBox>
-          </div>
-        </aside>
+        <Signoff lead={"<p>Model too big for your card? Route it to a bigger GPU - install the set and tune in:</p>"}>curl <span class="tok">-fsSL</span> <span class="tok">https://rogerai.fm/install.sh</span> <span class="tok">| sh</span></Signoff>
 
       </div>
-
-    </div>
-  </article>
-
-  </main>
-
-  <Footer anchors='/' />
-
-  {@html `<script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"How much VRAM do I need to run a 7B model?","acceptedAnswer":{"@type":"Answer","text":"About 5-6 GB at 4-bit, so an 8 GB GPU runs a 7-8B model comfortably with room for context."}},{"@type":"Question","name":"How much VRAM for a 70B model?","acceptedAnswer":{"@type":"Answer","text":"Roughly 42 GB at 4-bit, which is beyond a single consumer GPU. You need two 24 GB cards, a pro card, or you route the request to a bigger GPU over RogerAI."}},{"@type":"Question","name":"Is VRAM or GPU speed more important for LLMs?","acceptedAnswer":{"@type":"Answer","text":"VRAM. If the model doesn't fit in video memory it spills to system RAM and runs many times slower, no matter how fast the chip is. Fit first, then speed."}},{"@type":"Question","name":"Does quantization reduce quality?","acceptedAnswer":{"@type":"Answer","text":"Only slightly at the common 4-bit (Q4) level, which cuts memory about 4x versus 16-bit while keeping almost all quality. Q5/Q6 are sharper; below Q4 the loss becomes noticeable."}},{"@type":"Question","name":"Can I run a big model without a big GPU?","acceptedAnswer":{"@type":"Answer","text":"Yes - offload to system RAM (slow), or keep your workflow and route to a community GPU that can fit it: roger use <model> proxies over the same OpenAI API, free models included."}},{"@type":"Question","name":"How do I calculate VRAM for a model?","acceptedAnswer":{"@type":"Answer","text":"Rule of thumb at 4-bit: ~0.6 GB per billion parameters for the weights, plus a few GB for the KV cache. Double the per-param figure for 8-bit."}}]}</script>`}
+</BroadcastPost>

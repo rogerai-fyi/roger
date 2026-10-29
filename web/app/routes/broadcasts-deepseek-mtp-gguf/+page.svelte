@@ -1,50 +1,39 @@
 <script>
   // The 284B had a second brain. Every GGUF threw it away.
   // Ported from web/src/broadcasts-deepseek-mtp-gguf.html (2026-10-29); the copy is the legacy copy.
-  import { siteHead, CSS_SHARED, CSS_ACCOUNT } from "#lib/head.js";
-  import Footer from "#lib/ui/Footer.svelte";
-  import InstallBox from "#lib/ui/InstallBox.svelte";
-  import Nav from "#lib/ui/Nav.svelte";
-  import OnAir from "#lib/ui/OnAir.svelte";
-  import Rail from "#lib/ui/Rail.svelte";
-  const head = siteHead({
-    title: 'The 284B had a second brain. Every GGUF threw it away.',
-    desc: 'DeepSeek-V4 ships a built-in speculative decoder that no GGUF keeps and llama.cpp could not run. We built the missing converter and MTP graph, measured when speculation pays on a spill-bound MoE, and found the best DeepSeek file was the conversion master itself.',
-    og: { type: 'article', title: 'The 284B had a second brain. Every GGUF threw it away.', desc: 'We built the first DeepSeek-V4-Flash GGUFs with the MTP head intact, and learned the best file was the un-requantized master all along: 88.3 MMLU at old-production speed.', url: 'https://rogerai.fm/broadcasts-deepseek-mtp-gguf.html', image: 'https://rogerai.fm/assets/broadcasts/mtp-hero.png' },
-    css: [...CSS_SHARED, 'broadcasts.css'],
-    scripts: [{ runtime: true }],
-  });
+  // A broadcast on the one post layout (lib/ui/BroadcastPost.svelte): the head and the header
+  // from `post`, the FAQ from post.faq (the page and the FAQPage schema from one list), the
+  // body as the post wrote it.
+  import BroadcastPost from "#lib/ui/BroadcastPost.svelte";
+  import Faq from "#lib/ui/Faq.svelte";
+  import Signoff from "#lib/ui/Signoff.svelte";
+  const post = {
+    slug: "broadcasts-deepseek-mtp-gguf",
+    number: "008",
+    title: "The 284B had a second brain. Every GGUF threw it away.",
+    desc: "DeepSeek-V4 ships a built-in speculative decoder that no GGUF keeps and llama.cpp could not run. We built the missing converter and MTP graph, measured when speculation pays on a spill-bound MoE, and found the best DeepSeek file was the conversion master itself.",
+    dek: "DeepSeek-V4 has a built-in speculative decoder. Every GGUF strips it. We built the missing piece, and the best DeepSeek file turned out to be one we already had.",
+    date: "2026-07-13",
+    dateLabel: {"text":"JULY 2026","rev":"2026.07"},
+    ogimage: "https://rogerai.fm/assets/broadcasts/mtp-hero.png",
+    ogdesc: "We built the first DeepSeek-V4-Flash GGUFs with the MTP head intact, and learned the best file was the un-requantized master all along: 88.3 MMLU at old-production speed.",
+    faq: [
+      {"q":"What is an MTP head?","a":"A multi-token-prediction head: an extra network some models (DeepSeek-V4, Qwen3.6) are trained with that predicts the token after next. At inference it acts as a built-in speculative-decoding draft model, so the main model can accept pre-drafted tokens and decode faster with no quality change. Accepted tokens are verified by the full model."},
+      {"q":"Why doesn't my DeepSeek GGUF support MTP?","a":"Because every public DeepSeek-V4-Flash GGUF strips the MTP tensors: llama.cpp's converter dropped them and its C++ had no code to run them. The head is a full extra transformer layer, and nobody had implemented it. Our patches live on our public fork (llama.cpp's maintainers have native V4 MTP support on their roadmap), and our GGUFs ship with the head intact."},
+      {"q":"Does speculative decoding always speed a model up?","a":"No. It assumes verifying drafted tokens is nearly free, which holds when the model lives in VRAM. If an MoE's experts spill to system RAM, verifying N tokens costs about N times the expert reads, and long drafts make the model slower. On a spill-bound MoE a draft length of 1 was our sweet spot, and the payoff grows as spill shrinks."},
+      {"q":"Does quantization hurt a mixture-of-experts model?","a":"Where you spend the bits matters more than the average. Starving the routed experts to about 2 bits cost our 284B five MMLU points and a big slice of its tool-calling. Requantizing sideways costs quality too: MXFP4 experts re-encoded as Q4_K, which is what community Q4 files are, lose measurable quality while the file gets bigger. Quantize downward to shrink, never sideways."},
+      {"q":"Why is 100% draft acceptance not suspicious?","a":"At temperature 0 with a draft length of 1, the MTP head is doing exactly the job it was trained for: predicting the single next token. Every draft is checked by the full model before it is kept. At draft lengths 2 and 3, acceptance drops to 89% and 78%, as expected."},
+      {"q":"Can I run a 284B model at home?","a":"Yes, with roughly 128 GB of VRAM plus system RAM for the spill. Or skip the hardware and tune in to a station already serving one over RogerAI."},
+    ],
+  };
 </script>
-<svelte:head>{@html head}</svelte:head>
+<BroadcastPost {...post} renderFaq={false} signoff={false}>
 <!-- Field-guide broadcast 008. The DeepSeek-V4 MTP GGUF build story: quick answer +
      question-H2s + FAQ schema. Assets: Flux hero + 5 site-theme charts (regenerated from
      the research repo's make_charts.py with THEME=site).
      Registered in build.mjs CSS_BUNDLES; listed atop broadcasts.html. 
      (the page's doc comment, from the legacy file; its CSS bundle is the css: list above) -->
-  <Rail head='RogerAI · Field Guide' rev='Rev. 2026.07 · ((•))' orange />
 
-  <Nav variant='marketing' home='/' />
-
-  <main id="top">
-
-  <article class="bc-post">
-    <div class="wrap bc-post__wrap">
-
-      <a class="bc-post__back mono" href="/broadcasts.html">&larr; all broadcasts</a>
-
-      <header class="bc-post__head" data-reveal>
-        <span class="hero__eyebrow">
-          <OnAir />
-          <span class="hero__callsign">BROADCAST 008 &middot; FIELD GUIDE</span>
-          <span class="hero__sep" aria-hidden="true">&middot;</span>
-          <time datetime="2026-07-13">JULY 2026</time>
-        </span>
-        <h1 class="bc-post__title">The 284B had a second brain. Every GGUF threw it away.</h1>
-        <p class="bc-post__dek">
-          DeepSeek-V4 has a built-in speculative decoder. Every GGUF strips it. We built the
-          missing piece, and the best DeepSeek file turned out to be one we already had.
-        </p>
-      </header>
 
       <figure class="figure figure--plate figure--mono" data-reveal>
         <img src="assets/broadcasts/mtp-hero.webp" srcset="assets/broadcasts/mtp-hero-800.webp 800w, assets/broadcasts/mtp-hero.webp 1600w" sizes="(max-width: 1000px) 100vw, 960px" width="1600" height="870"
@@ -229,40 +218,9 @@
           </p>
         </section>
 
-        <section class="bc-sec" id="s8" data-reveal>
-          <span class="bc-sec__no">&sect;8 &middot; FAQ</span>
-          <h2>Frequently asked questions</h2>
-          <dl class="bc-faq">
-            <dt><b>What is an MTP head?</b></dt>
-            <dd>A multi-token-prediction head: an extra network some models (DeepSeek-V4, Qwen3.6) are trained with that predicts the token after next. At inference it acts as a built-in speculative-decoding draft model, so the main model can accept pre-drafted tokens and decode faster with no quality change. Accepted tokens are verified by the full model.</dd>
-            <dt><b>Why doesn't my DeepSeek GGUF support MTP?</b></dt>
-            <dd>Because every public DeepSeek-V4-Flash GGUF strips the MTP tensors: llama.cpp's converter dropped them and its C++ had no code to run them. The head is a full extra transformer layer, and nobody had implemented it. Our patches live on our public fork (llama.cpp's maintainers have native V4 MTP support on their roadmap), and our GGUFs ship with the head intact.</dd>
-            <dt><b>Does speculative decoding always speed a model up?</b></dt>
-            <dd>No. It assumes verifying drafted tokens is nearly free, which holds when the model lives in VRAM. If an MoE's experts spill to system RAM, verifying N tokens costs about N times the expert reads, and long drafts make the model slower. On a spill-bound MoE a draft length of 1 was our sweet spot, and the payoff grows as spill shrinks.</dd>
-            <dt><b>Does quantization hurt a mixture-of-experts model?</b></dt>
-            <dd>Where you spend the bits matters more than the average. Starving the routed experts to about 2 bits cost our 284B five MMLU points and a big slice of its tool-calling. Requantizing sideways costs quality too: MXFP4 experts re-encoded as Q4_K, which is what community Q4 files are, lose measurable quality while the file gets bigger. Quantize downward to shrink, never sideways.</dd>
-            <dt><b>Why is 100% draft acceptance not suspicious?</b></dt>
-            <dd>At temperature 0 with a draft length of 1, the MTP head is doing exactly the job it was trained for: predicting the single next token. Every draft is checked by the full model before it is kept. At draft lengths 2 and 3, acceptance drops to 89% and 78%, as expected.</dd>
-            <dt><b>Can I run a 284B model at home?</b></dt>
-            <dd>Yes, with roughly 128 GB of VRAM plus system RAM for the spill. Or skip the hardware and tune in to a station already serving one over RogerAI.</dd>
-          </dl>
-        </section>
+        <Faq no={8} items={post.faq} />
 
-        <aside class="tint-panel bc-signoff">
-          <span class="tint-panel__tag">roger that</span>
-          <p>This box is on the air with the model this broadcast is about. Run your own station, or tune in to one:</p>
-          <div class="install">
-            <InstallBox id='signoffInstall'>curl <span class="tok">-fsSL</span> <span class="tok">https://rogerai.fm/install.sh</span> <span class="tok">| sh</span></InstallBox>
-          </div>
-        </aside>
+        <Signoff lead={"<p>This box is on the air with the model this broadcast is about. Run your own station, or tune in to one:</p>"}>curl <span class="tok">-fsSL</span> <span class="tok">https://rogerai.fm/install.sh</span> <span class="tok">| sh</span></Signoff>
 
       </div>
-
-    </div>
-  </article>
-
-  </main>
-
-  <Footer anchors='/' />
-
-  {@html `<script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"What is an MTP head?","acceptedAnswer":{"@type":"Answer","text":"A multi-token-prediction head: an extra network some models (DeepSeek-V4, Qwen3.6) are trained with that predicts the token after next. At inference it acts as a built-in speculative-decoding draft model, so the main model can accept pre-drafted tokens and decode faster with no quality change. Accepted tokens are verified by the full model."}},{"@type":"Question","name":"Why doesn't my DeepSeek GGUF support MTP?","acceptedAnswer":{"@type":"Answer","text":"Because every public DeepSeek-V4-Flash GGUF strips the MTP tensors: llama.cpp's converter dropped them and its C++ had no code to run them. The head is a full extra transformer layer, and nobody had implemented it. Our patches live on our public fork (llama.cpp's maintainers have native V4 MTP support on their roadmap), and our GGUFs ship with the head intact."}},{"@type":"Question","name":"Does speculative decoding always speed a model up?","acceptedAnswer":{"@type":"Answer","text":"No. It assumes verifying drafted tokens is nearly free, which holds when the model lives in VRAM. If an MoE's experts spill to system RAM, verifying N tokens costs about N times the expert reads, and long drafts make the model slower. On a spill-bound MoE a draft length of 1 was our sweet spot, and the payoff grows as spill shrinks."}},{"@type":"Question","name":"Does quantization hurt a mixture-of-experts model?","acceptedAnswer":{"@type":"Answer","text":"Where you spend the bits matters more than the average. Starving the routed experts to about 2 bits cost our 284B five MMLU points and a big slice of its tool-calling. Requantizing sideways costs quality too: MXFP4 experts re-encoded as Q4_K, which is what community Q4 files are, lose measurable quality while the file gets bigger. Quantize downward to shrink, never sideways."}},{"@type":"Question","name":"Why is 100% draft acceptance not suspicious?","acceptedAnswer":{"@type":"Answer","text":"At temperature 0 with a draft length of 1, the MTP head is doing exactly the job it was trained for: predicting the single next token. Every draft is checked by the full model before it is kept. At draft lengths 2 and 3, acceptance drops to 89% and 78%, as expected."}},{"@type":"Question","name":"Can I run a 284B model at home?","acceptedAnswer":{"@type":"Answer","text":"Yes, with roughly 128 GB of VRAM plus system RAM for the spill. Or skip the hardware and tune in to a station already serving one over RogerAI."}}]}</script>`}
+</BroadcastPost>

@@ -524,14 +524,20 @@ ink panel's inset geometry (64px outside the text column, never closer than
 `--panel-inset`), no top/bottom rules. Used by the research pages for their set-apart
 sections instead of full-bleed ruled bands.
 
-### The article kit (broadcasts.css)
-Every `broadcasts-*.html` reads the same way: one measure (`--bc-measure`, 42rem), one
-body size, the lead step, quiet section numbers (`.bc-sec__no`: muted mono, only the
-section mark red), `.bc-answer` for a Quick Answer (prose face, 2px red rule), the FAQ
-`<dl class="bc-faq">` (its `<dt><b>` mirrors the FAQPage JSON-LD, tested), a sign-off
-`<aside class="tint-panel bc-signoff">` whose closing install command is the
-`InstallBox` (`id="signoffInstall"`), `.bc-table` for a data table in a
-`.figure > .scroll-box`, and the shared `.figure`/`.code-block`. Every piece with 4+ numbered sections carries the
+### The article kit (broadcasts.css, lib/ui/BroadcastPost.svelte)
+Every broadcast is on the one post layout, `BroadcastPost`: the head (title, card, the
+FAQPage JSON-LD), the rail, the nav, the article wrap with the back link, the header
+(number, kind, date, title, dek), the footer. A new post is Markdown with frontmatter
+(`routes/<slug>/+page.md`, `layout: broadcast`); the earlier posts are Svelte routes that
+pass a `post` object and keep their body as written. Every post reads the same way: one
+measure (`--bc-measure`, 42rem), one body size, the lead step, quiet section numbers
+(`.bc-sec__no`: muted mono, only the section mark red), `.bc-answer` for a Quick Answer
+(prose face, 2px red rule), the FAQ as `<Faq no={N} items={post.faq} />` (the
+`<dl class="bc-faq">` and the schema from ONE list, so a question is never in one and not
+the other; a `schema: false` item is on the page only), the sign-off as `<Signoff>` (the
+`tint-panel bc-signoff` plate; its lead is the post's own, its closing install command the
+`InstallBox` `id="signoffInstall"` unless `install={false}`), `.bc-table` for a data table in
+a `.figure > .scroll-box`, and the shared `.figure`/`.code-block`. Every piece with 4+ numbered sections carries the
 toc-tuner above the body, one station per numbered `.bc-sec` (`id="sN"`). No inline
 style and no colour literal in an article (guarded).
 

@@ -1,21 +1,28 @@
 <script>
   // Independence Release Broadcast · v5.0.0 - RogerAI
   // Ported from web/src/broadcasts-independence-v5.html (2026-10-29); the copy is the legacy copy.
-  import { siteHead, CSS_SHARED, CSS_ACCOUNT } from "#lib/head.js";
-  import Footer from "#lib/ui/Footer.svelte";
-  import InstallBox from "#lib/ui/InstallBox.svelte";
-  import Nav from "#lib/ui/Nav.svelte";
-  import OnAir from "#lib/ui/OnAir.svelte";
-  import Rail from "#lib/ui/Rail.svelte";
-  const head = siteHead({
-    title: 'Independence Release Broadcast · v5.0.0 - RogerAI',
-    desc: 'RogerAI v5.0.0, the Independence Release, on the air July 4: own your GPU and your models, no lock-in, signed receipts you hold, run your own station - independent from metered Big-AI clouds.',
-    og: { type: 'article', title: 'Independence Release Broadcast · v5.0.0', desc: 'Own your GPU. Own your models. On the air July 4 - the RogerAI release that cuts the cord to metered Big-AI clouds.', url: 'https://rogerai.fm/broadcasts-independence-v5.html', image: 'https://rogerai.fm/assets/broadcasts/independence-v5-og.png' },
-    css: [...CSS_SHARED, 'broadcasts.css'],
-    scripts: [{ runtime: true }],
-  });
+  // A broadcast on the one post layout (lib/ui/BroadcastPost.svelte): the head and the header
+  // from `post`, the FAQ from post.faq (the page and the FAQPage schema from one list), the
+  // body as the post wrote it.
+  import BroadcastPost from "#lib/ui/BroadcastPost.svelte";
+  import Signoff from "#lib/ui/Signoff.svelte";
+  const post = {
+    slug: "broadcasts-independence-v5",
+    number: "001",
+    kind: "",
+    title: "Independence Release Broadcast · v5.0.0 - RogerAI",
+    heading: "Independence Release Broadcast · v5.0.0",
+    desc: "RogerAI v5.0.0, the Independence Release, on the air July 4: own your GPU and your models, no lock-in, signed receipts you hold, run your own station - independent from metered Big-AI clouds.",
+    dek: "Own your GPU. Own your models. Hold your own signed receipts. The v5.0.0 release is about independence from metered Big-AI clouds - your station, your band, your terms.",
+    date: "2026-07-04",
+    dateLabel: {"text":"JULY 4","rev":"2026.06"},
+    railHead: "RogerAI · Broadcast 001",
+    ogimage: "https://rogerai.fm/assets/broadcasts/independence-v5-og.png",
+    ogtitle: "Independence Release Broadcast · v5.0.0",
+    ogdesc: "Own your GPU. Own your models. On the air July 4 - the RogerAI release that cuts the cord to metered Big-AI clouds.",
+  };
 </script>
-<svelte:head>{@html head}</svelte:head>
+<BroadcastPost {...post} renderFaq={false} signoff={false}>
 <!-- =====================================================================
      BROADCAST TEMPLATE - clone this file for a new broadcast.
      ---------------------------------------------------------------------
@@ -30,42 +37,15 @@
        4. Add a <li class="bc-row"> for it at the TOP of broadcasts.html.
      ===================================================================== 
      (the page's doc comment, from the legacy file; its CSS bundle is the css: list above) -->
-  <!-- ===== running head: this page is one bound document ===== -->
-  <Rail head='RogerAI · Broadcast 001' rev='Rev. 2026.06 · ((•))' orange />
-
-  <!-- ============================ NAV ============================ -->
-  <Nav variant='marketing' home='/' />
-
-  <main id="top">
-
-  <!-- ============================ POST ============================ -->
-  <article class="bc-post">
-    <div class="wrap bc-post__wrap">
-
-      <!-- ---- back to the log ---- -->
-      <a class="bc-post__back mono" href="/broadcasts.html">&larr; all broadcasts</a>
-
-      <!-- ---- header ---- -->
-      <header class="bc-post__head" data-reveal>
-        <span class="hero__eyebrow">
-          <OnAir />
-          <span class="hero__callsign">BROADCAST 001</span>
-          <span class="hero__sep" aria-hidden="true">·</span>
-          <time datetime="2026-07-04">JULY 4</time>
-        </span>
-        <h1 class="bc-post__title">Independence Release Broadcast · v5.0.0</h1>
-        <p class="bc-post__dek">
-          Own your GPU. Own your models. Hold your own signed receipts. The v5.0.0
-          release is about independence from metered Big-AI clouds - your station,
-          your band, your terms.
-        </p>
+  {#snippet meta()}
         <div class="bc-post__meta mono">
           <span>Release: <b data-cli-version>v5.0.0</b></span>
           <span>On air: <b>July 4</b></span>
           <span>Set: <b>rogerai</b></span>
           <span>Broker: <b>broker.rogerai.fm</b></span>
         </div>
-      </header>
+  {/snippet}
+
 
       <!-- ---- the video (headline) ---- -->
       <figure class="figure figure--plate bc-video" data-reveal data-reveal-delay="60">
@@ -208,20 +188,7 @@
         </section>
 
         <!-- a boxed dispatch note (reuses the shared .man-note plate) -->
-        <aside class="tint-panel bc-signoff">
-          <span class="tint-panel__tag">roger that</span>
-          <p>Ready to go independent? Install the set and put your GPU on air:</p>
-          <div class="install">
-            <InstallBox id='signoffInstall'>curl <span class="tok">-fsSL</span> <span class="tok">https://rogerai.fm/install.sh</span> <span class="tok">| sh</span></InstallBox>
-          </div>
-        </aside>
+        <Signoff lead={"<p>Ready to go independent? Install the set and put your GPU on air:</p>"}>curl <span class="tok">-fsSL</span> <span class="tok">https://rogerai.fm/install.sh</span> <span class="tok">| sh</span></Signoff>
 
       </div>
-
-    </div>
-  </article>
-
-  </main>
-
-  <!-- ============================ FOOTER ============================ -->
-  <Footer anchors='/' />
+</BroadcastPost>

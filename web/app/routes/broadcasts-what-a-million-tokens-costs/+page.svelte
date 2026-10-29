@@ -1,20 +1,35 @@
 <script>
   // What a million tokens costs, and what you can sell it for
   // Ported from web/src/broadcasts-what-a-million-tokens-costs.html (2026-10-29); the copy is the legacy copy.
-  import { siteHead, CSS_SHARED, CSS_ACCOUNT } from "#lib/head.js";
-  import Footer from "#lib/ui/Footer.svelte";
-  import Nav from "#lib/ui/Nav.svelte";
-  import OnAir from "#lib/ui/OnAir.svelte";
-  import Rail from "#lib/ui/Rail.svelte";
-  const head = siteHead({
-    title: 'What a million tokens costs, and what you can sell it for',
-    desc: 'Rent an interruptible GPU for a cent and a half an hour, serve an open model on it, and sell a million tokens for four times what the hour cost. The spread, the arithmetic behind it, and the one number that decides whether it works.',
-    og: { type: 'article', title: 'What a million tokens costs, and what you can sell it for', desc: 'A spot RTX 3060 costs $0.015/hr. At half duty that is a $0.08 break-even per million output tokens, against a market charging $0.455. The whole trade, with every input printed beside the answer.', url: 'https://rogerai.fm/broadcasts-what-a-million-tokens-costs.html', image: 'https://rogerai.fm/og-home.png' },
-    css: [...CSS_SHARED, 'broadcasts.css', 'broadcast-economics.css'],
-    scripts: [{ runtime: true }],
-  });
+  // A broadcast on the one post layout (lib/ui/BroadcastPost.svelte): the head and the header
+  // from `post`, the FAQ from post.faq (the page and the FAQPage schema from one list), the
+  // body as the post wrote it.
+  import BroadcastPost from "#lib/ui/BroadcastPost.svelte";
+  import Faq from "#lib/ui/Faq.svelte";
+  import Signoff from "#lib/ui/Signoff.svelte";
+  const post = {
+    slug: "broadcasts-what-a-million-tokens-costs",
+    number: "011",
+    title: "What a million tokens costs, and what you can sell it for",
+    heading: "What a million tokens costs,<br>and what you can sell it for",
+    desc: "Rent an interruptible GPU for a cent and a half an hour, serve an open model on it, and sell a million tokens for four times what the hour cost. The spread, the arithmetic behind it, and the one number that decides whether it works.",
+    dek: "You can rent a GPU for a cent and a half an hour. You can sell what it produces on an open market. Those two prices are nowhere near each other, and the gap is the whole business.",
+    date: "2026-08-31",
+    dateLabel: {"text":"AUGUST 2026","rev":"2026.08"},
+    ogimage: "https://rogerai.fm/og-home.png",
+    ogdesc: "A spot RTX 3060 costs $0.015/hr. At half duty that is a $0.08 break-even per million output tokens, against a market charging $0.455. The whole trade, with every input printed beside the answer.",
+    css: ["broadcast-economics.css"],
+    faq: [
+      {"q":"How much can you make renting a GPU and serving models?","a":"An interruptible RTX 3060 rents for about $0.015 an hour. Serving an 8B model at 120 aggregate tokens a second, busy half the time, a million output tokens breaks even at $0.08 including the 10% platform fee. The market rate for that class is $0.455, so charging $0.35 leaves 4.4 times cover. Doubling throughput halves the break-even.","aHtml":"An interruptible RTX 3060 rents for about $0.015 an hour. Serving an 8B model at 120 aggregate tokens a second, busy half the time, a million output tokens breaks even at $0.08 including the 10% platform fee. The market rate for that class is $0.455, so charging $0.35 leaves 4.4 times cover. Double the throughput and the break-even halves."},
+      {"q":"Is renting a GPU to serve on RogerAI actually allowed?","a":"Yes. A station is a machine running a model; nothing cares whose data centre it sits in or whether the hour was rented. Price it, serve it, and you keep the same 90% of every request.","aHtml":"Yes. A station is a machine running a model; nothing cares whose data centre it sits in or whether the hour was rented. Price it, serve it, keep the same 90%."},
+      {"q":"Why is the platform's 10% inside the break-even?","a":"Because an operator keeps 90% of what a request is charged, so covering a $0.07 hour needs $0.08 of charges, not $0.07. Leaving the fee out puts every break-even 11% too low.","aHtml":"Because you keep 90% of what a request is charged, so covering a $0.07 hour needs $0.08 of charges, not $0.07. Leaving the fee out puts every break-even here 11% too low."},
+      {"q":"Is 150 tokens a second realistic for a 27B model?","a":"As an aggregate across concurrent requests on a dedicated 24GB card at 4-bit, yes. Single-stream on that hardware is more like 35 to 45 tokens a second. A station serves several people at once, and it is the aggregate that pays the rent.","aHtml":"As an aggregate across concurrent requests on a dedicated 24GB card at 4-bit, yes. Single-stream on that hardware is more like 35 to 45. The distinction is the whole article: a station serves several people at once, and it is the aggregate that pays the rent."},
+      {"q":"Does an interrupted spot instance break anything?","a":"No. A station that disappears stops being routed to, and requests go to another station serving the same model. The network already assumes machines come and go, which is why interruptible rental is a reasonable thing to build on.","aHtml":"Not for the network. A station that disappears stops being routed to, and the request goes to another station serving the same model. Interruptible rental works here precisely because the system already assumes machines come and go."},
+      {"q":"What if nobody sends me work?","a":"Then duty falls and the trade falls with it, which is why duty is a column here rather than a footnote. On rented hardware the rent runs whether or not requests do, so start on an hourly instance you can drop, measure your real duty, and size the commitment to it."},
+    ],
+  };
 </script>
-<svelte:head>{@html head}</svelte:head>
+<BroadcastPost {...post} renderFaq={false} signoff={false}>
 <!-- Broadcast 011: one trade, explained. Rent an interruptible GPU by the hour, serve a
      model on it, sell the tokens for more than the hour cost. The spread IS the article,
      so there is one table of it and the rest is what moves it.
@@ -24,30 +39,7 @@
      OpenRouter's public model API, both read 2026-08-31 and both dated on the page.
      Registered in build.mjs CSS_BUNDLES. 
      (the page's doc comment, from the legacy file; its CSS bundle is the css: list above) -->
-  <Rail head='RogerAI &middot; Field Guide' rev='Rev. 2026.08 &middot; ((&bull;))' orange />
 
-  <Nav variant='marketing' home='/' />
-
-  <main id="top">
-  <article class="bc-post ec-post">
-    <div class="wrap bc-post__wrap">
-
-      <a class="bc-post__back mono" href="/broadcasts.html">&larr; all broadcasts</a>
-
-      <header class="bc-post__head" data-reveal>
-        <span class="hero__eyebrow">
-          <OnAir />
-          <span class="hero__callsign">BROADCAST 011 &middot; FIELD GUIDE</span>
-          <span class="hero__sep" aria-hidden="true">&middot;</span>
-          <time datetime="2026-08-31">AUGUST 2026</time>
-        </span>
-        <h1 class="bc-post__title">What a million tokens costs,<br>and what you can sell it for</h1>
-        <p class="bc-post__dek">
-          You can rent a GPU for a cent and a half an hour. You can sell what it produces
-          on an open market. Those two prices are nowhere near each other, and the gap is
-          the whole business.
-        </p>
-      </header>
 
       <!-- contents: the shared toc-tuner; its names repeat the section labels below -->
       <nav class="toc-tuner" data-tuner aria-label="Sections">
@@ -353,38 +345,9 @@
         </section>
 
         <!-- ---------- FAQ ---------- -->
-        <section class="bc-sec" id="s6" data-reveal>
-          <span class="bc-sec__no mono">&sect;6 &middot; QUESTIONS</span>
-          <h2>The ones people ask first.</h2>
-          <dl class="bc-faq">
-            <dt><b>How much can you make renting a GPU and serving models?</b></dt>
-            <dd>An interruptible RTX 3060 rents for about $0.015 an hour. Serving an 8B model at 120 aggregate tokens a second, busy half the time, a million output tokens breaks even at $0.08 including the 10% platform fee. The market rate for that class is $0.455, so charging $0.35 leaves 4.4 times cover. Double the throughput and the break-even halves.</dd>
-            <dt><b>Is renting a GPU to serve on RogerAI actually allowed?</b></dt>
-            <dd>Yes. A station is a machine running a model; nothing cares whose data centre it sits in or whether the hour was rented. Price it, serve it, keep the same 90%.</dd>
-            <dt><b>Why is the platform's 10% inside the break-even?</b></dt>
-            <dd>Because you keep 90% of what a request is charged, so covering a $0.07 hour needs $0.08 of charges, not $0.07. Leaving the fee out puts every break-even here 11% too low.</dd>
-            <dt><b>Is 150 tokens a second realistic for a 27B model?</b></dt>
-            <dd>As an aggregate across concurrent requests on a dedicated 24GB card at 4-bit, yes. Single-stream on that hardware is more like 35 to 45. The distinction is the whole article: a station serves several people at once, and it is the aggregate that pays the rent.</dd>
-            <dt><b>Does an interrupted spot instance break anything?</b></dt>
-            <dd>Not for the network. A station that disappears stops being routed to, and the request goes to another station serving the same model. Interruptible rental works here precisely because the system already assumes machines come and go.</dd>
-            <dt><b>What if nobody sends me work?</b></dt>
-            <dd>Then duty falls and the trade falls with it, which is why duty is a column here rather than a footnote. On rented hardware the rent runs whether or not requests do, so start on an hourly instance you can drop, measure your real duty, and size the commitment to it.</dd>
-          </dl>
-        </section>
+        <Faq no={6} items={post.faq} title="The ones people ask first." label="&sect;6 &middot; QUESTIONS" labelClass="bc-sec__no mono" />
 
-        <aside class="tint-panel bc-signoff">
-          <span class="tint-panel__tag">ON AIR</span>
-          <p>The cheapest million tokens on this page is the one you serve yourself.
-             <code class="cmd-words"><span>roger</span> <span>share</span></code> finds the server you are already running and puts it on
-             the band - free by default, no account needed, and a schedule if you only want
-             to lend the card while you sleep.</p>
-        </aside>
+        <Signoff tag="ON AIR" lead={"<p>The cheapest million tokens on this page is the one you serve yourself. <code class=\"cmd-words\"><span>roger</span> <span>share</span></code> finds the server you are already running and puts it on the band - free by default, no account needed, and a schedule if you only want to lend the card while you sleep.</p>"} install={false} />
 
       </div>
-    </div>
-  </article>
-  </main>
-
-  <Footer anchors='/' />
-
-  {@html `<script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"How much can you make renting a GPU and serving models?","acceptedAnswer":{"@type":"Answer","text":"An interruptible RTX 3060 rents for about $0.015 an hour. Serving an 8B model at 120 aggregate tokens a second, busy half the time, a million output tokens breaks even at $0.08 including the 10% platform fee. The market rate for that class is $0.455, so charging $0.35 leaves 4.4 times cover. Doubling throughput halves the break-even."}},{"@type":"Question","name":"Is renting a GPU to serve on RogerAI actually allowed?","acceptedAnswer":{"@type":"Answer","text":"Yes. A station is a machine running a model; nothing cares whose data centre it sits in or whether the hour was rented. Price it, serve it, and you keep the same 90% of every request."}},{"@type":"Question","name":"Why is the platform's 10% inside the break-even?","acceptedAnswer":{"@type":"Answer","text":"Because an operator keeps 90% of what a request is charged, so covering a $0.07 hour needs $0.08 of charges, not $0.07. Leaving the fee out puts every break-even 11% too low."}},{"@type":"Question","name":"Is 150 tokens a second realistic for a 27B model?","acceptedAnswer":{"@type":"Answer","text":"As an aggregate across concurrent requests on a dedicated 24GB card at 4-bit, yes. Single-stream on that hardware is more like 35 to 45 tokens a second. A station serves several people at once, and it is the aggregate that pays the rent."}},{"@type":"Question","name":"Does an interrupted spot instance break anything?","acceptedAnswer":{"@type":"Answer","text":"No. A station that disappears stops being routed to, and requests go to another station serving the same model. The network already assumes machines come and go, which is why interruptible rental is a reasonable thing to build on."}},{"@type":"Question","name":"What if nobody sends me work?","acceptedAnswer":{"@type":"Answer","text":"Then duty falls and the trade falls with it, which is why duty is a column here rather than a footnote. On rented hardware the rent runs whether or not requests do, so start on an hourly instance you can drop, measure your real duty, and size the commitment to it."}}]}</script>`}
+</BroadcastPost>

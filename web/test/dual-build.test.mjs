@@ -72,9 +72,9 @@ test("the site runtime is one bundle: built, loaded once by every page that asks
   assert.doesNotMatch(read(built), /^\s*import\s/m, "the bundle imports nothing: one request");
   for (const page of owned) {
     const html = read(path.join(DIST, page));
-    // a Markdown broadcast asks for it through its layout (lib/ui/BroadcastPost.svelte)
-    const srcPath = pageSourcePath(page);
-    const asks = read(srcPath) + (srcPath.endsWith(".md") ? read(path.join(APP, "lib", "ui", "BroadcastPost.svelte")) : "");
+    // a broadcast asks for it through its layout (lib/ui/BroadcastPost.svelte)
+    const srcPath = pageSourcePath(page), routeSrc = read(srcPath);
+    const asks = routeSrc + (srcPath.endsWith(".md") || /<BroadcastPost\b/.test(routeSrc) ? read(path.join(APP, "lib", "ui", "BroadcastPost.svelte")) : "");
     const wants = /\{\s*runtime:\s*true\s*\}/.test(asks);
     assert.equal((html.match(/<script type="module" src="js\/runtime\.js\?v=[0-9a-f]{8}">/g) || []).length, wants ? 1 : 0, `${page}: ${wants ? "loads the runtime once" : "asks for no runtime and gets none"}`);
     for (const f of bundled) assert.doesNotMatch(html, new RegExp(`src="js/${f.replace(".", "\\.")}`), `${page}: never loads js/${f} beside the bundle`);
