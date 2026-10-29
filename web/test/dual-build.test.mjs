@@ -69,13 +69,13 @@ test("every island a page names is built and referenced, and every built island 
       assert.ok(existsSync(path.join(DIST, "js", "islands", `${m[1]}.js`)), `${page}: island ${m[1]} was built`);
     }
   }
-  const built = existsSync(path.join(DIST, "js", "islands")) ? readdirSync(path.join(DIST, "js", "islands")).filter((f) => f.endsWith(".js")) : [];
+  const islandsDir = path.join(DIST, "js", "islands");
+  const built = existsSync(islandsDir) ? readdirSync(islandsDir).filter((f) => f.endsWith(".js")) : [];
   const sources = readdirSync(path.join(APP, "islands")).filter((f) => f.endsWith(".js"));
-  for (const f of sources) {
-    const name = f.replace(/\.js$/, "");
-    assert.ok(used.has(name), `app/islands/${f} is mounted by some page`);
-  }
-  for (const f of built) assert.ok(sources.includes(f) || used.has(f.replace(/\.js$/, "")), `dist/js/islands/${f} comes from an island or a chunk of one`);
+  for (const f of sources) assert.ok(used.has(f.replace(/\.js$/, "")), `app/islands/${f} is mounted by some page`);
+  // a built file is an island entry, or a chunk some entry imports (the shared broker client)
+  const imported = new Set(built.flatMap((f) => [...read(path.join(islandsDir, f)).matchAll(/from\s*"\.\/([\w-]+\.js)"|import\s*"\.\/([\w-]+\.js)"/g)].map((m) => m[1] || m[2])));
+  for (const f of built) assert.ok(sources.includes(f) || imported.has(f), `dist/js/islands/${f} is neither an island nor a chunk one imports`);
 });
 
 test("every app route is an owned page (no orphan route)", () => {

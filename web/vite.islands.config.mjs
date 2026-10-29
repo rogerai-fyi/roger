@@ -17,6 +17,14 @@ export default defineConfig({
     outDir: fileURLToPath(new URL("./app/.islands", import.meta.url)),
     emptyOutDir: true,
     modulePreload: false,
-    rollupOptions: { input, output: { entryFileNames: "[name].js", chunkFileNames: "[name].js", assetFileNames: "[name][extname]" } },
+    rollupOptions: {
+      input,
+      output: {
+        entryFileNames: "[name].js", chunkFileNames: "[name].js", assetFileNames: "[name][extname]",
+        // one shared chunk for the Svelte runtime, the broker client and the island mount, so a
+        // visitor downloads it once for every island on the site
+        manualChunks: (id) => (/node_modules\/svelte\/|\/app\/lib\/(api|island|fmt)\.js$/.test(id) ? "shared" : undefined),
+      },
+    },
   },
 });

@@ -3,78 +3,18 @@
   // Ported from web/src/device.html (2026-10-29); the copy is the legacy copy.
   import { siteHead, CSS_SHARED, CSS_ACCOUNT } from "#lib/head.js";
   import Footer from "#lib/ui/Footer.svelte";
+  import Island from "#lib/ui/Island.svelte";
+  import DeviceApp from "#lib/account/DeviceApp.svelte";
   import Nav from "#lib/ui/Nav.svelte";
   const head = siteHead({
     title: 'Sign in a device - RogerAI',
     robots: "noindex",
     canonical: 'https://rogerai.fm/device.html',
     css: [...CSS_ACCOUNT, 'device.css'],
-    scripts: [{ src: '/js/auth.js', defer: true }, { src: '/js/device.js', defer: true }, { runtime: true, promo: false }],
+    scripts: [{ runtime: true, promo: false }],
   });
 </script>
 <svelte:head>{@html head}</svelte:head>
   <Nav variant='lean' home='/' promo={false} />
-  <div class="authwrap tint-panel">
-  <main class="card" id="card">
-    <h1>Sign in to RogerAI</h1>
-
-    <!-- Signed out: this page can do nothing until we know who is approving. -->
-    <section class="panel" id="dvSignedOut" hidden>
-      <p>A command line on this device is asking to sign in to your account.</p>
-      <p>Sign in first, and you will come straight back here to approve it.</p>
-      <p class="ac-keys">
-        <a href="/login.html" class="primary ac-keys__btn" id="dvSignInLink">Sign in</a>
-      </p>
-      <p class="fine">You can use whichever sign-in you already have.</p>
-    </section>
-
-    <!-- Ask for the code. Typing it is the point: it is what ties the thing in your
-         terminal to the thing on this screen. -->
-    <section class="panel" id="dvAsk" hidden>
-      <p>A command line on this device is asking to sign in to your account.</p>
-      <label class="dv-label" for="dvCode">Enter the code from your terminal</label>
-      <input class="dv-input" id="dvCode" type="text" inputmode="latin" autocomplete="off"
-             autocapitalize="characters" spellcheck="false" placeholder="ABCD-2468" />
-      <p class="ac-keys">
-        <button class="primary ac-keys__btn" id="dvLookup">Continue</button>
-      </p>
-      <p class="ds-state" id="dvAskError" hidden></p>
-    </section>
-
-    <!-- The decision. -->
-    <section class="panel" id="dvConfirm" hidden>
-      <p>A command line on this device is asking to sign in to your account.</p>
-
-      <dl class="stats dv-facts">
-        <div><dt>Code from your terminal</dt><dd id="dvShownCode">-</dd></div>
-        <div><dt>Requested</dt><dd id="dvRequested">-</dd></div>
-      </dl>
-
-      <p>Check that the code above matches the one your terminal printed.</p>
-      <p class="dv-caution">
-        Only approve a code you started yourself - a code someone sent you, read to
-        you, or asked you to enter would sign <b>their</b> device in to <b>your</b> account.
-      </p>
-
-      <p class="ac-keys">
-        <button class="primary ac-keys__btn" id="dvApprove">Approve</button>
-        <button class="ac-keys__btn dv-deny" id="dvDeny">Not me - deny</button>
-      </p>
-      <p class="ds-state" id="dvConfirmError" hidden></p>
-    </section>
-
-    <!-- Outcomes. -->
-    <section class="panel" id="dvApproved" hidden>
-      <h2>Signed in</h2>
-      <p>Your terminal is signed in as <b id="dvAccount">-</b>. You can close this page.</p>
-    </section>
-
-    <section class="panel" id="dvDenied" hidden>
-      <h2>Denied</h2>
-      <p>Nothing was signed in. That code can no longer be used.</p>
-      <p class="fine">If you did not start this yourself, no further action is needed -
-        whoever asked gained nothing.</p>
-    </section>
-  </main>
-  </div>
+<Island name="device" component={DeviceApp} />
   <Footer />

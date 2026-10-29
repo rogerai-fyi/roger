@@ -75,7 +75,17 @@ export function pageSourcePath(page) {
   }
   throw new Error(`${page}: no source under web/src or web/app/routes`);
 }
-export const pageSource = (page) => readFileSync(pageSourcePath(page), "utf8");
+// A route that mounts islands (<Island name=... component={X} />) reads with the island
+// components' sources appended: the markup a page shows is the markup of both.
+export function pageSource(page) {
+  const route = readFileSync(pageSourcePath(page), "utf8");
+  const parts = [route];
+  for (const [, name] of route.matchAll(/<Island\b[^>]*component=\{(\w+)\}/g)) {
+    const imp = route.match(new RegExp(`import ${name} from "#lib/([^"]+)"`));
+    if (imp) parts.push(readFileSync(path.join(APP, "lib", imp[1]), "utf8"));
+  }
+  return parts.join("\n");
+}
 export const isAppPage = (page) => !existsSync(path.join(SRC, page));
 // Every page of the site, legacy and app, sorted: what readdirSync(SRC) used to mean.
 export function allPages() {
