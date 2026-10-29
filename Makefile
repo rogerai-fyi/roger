@@ -181,7 +181,7 @@ verify-gate:
 # smoke package crawls that same dist for dead internal links and version drift.
 .PHONY: web-gate
 web-gate:
-	@cd web && npm test
+	@cd web && (test -x node_modules/.bin/vitest || npm ci --no-audit --no-fund) && npm test
 	@go test ./test/smoke/
 	@echo "[web-gate] OK - web suite + built-link crawl"
 
