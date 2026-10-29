@@ -26,7 +26,7 @@
      mesh explainer and the wildfire watch are shared partials (wave-mesh.html,
      wave-firewatch.html), the same on every model page.
      Outward-copy rules: author RogerAI Labs; no data sources or training methods; no hosting
-     or operational detail; fire numbers are simulator-internal every time; not on Hugging Face. with research.css + wave-model.css. 
+     or operational detail; fire numbers are simulator-internal every time; not on Hugging Face. 
      (the page's doc comment, from the legacy file; its sheets are the css: list above) -->
   <Rail head='RogerAI &middot; Wave Pico' rev='Rev. 2026.10 &middot; LABS' />
 
