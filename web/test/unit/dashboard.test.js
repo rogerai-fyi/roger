@@ -135,9 +135,9 @@ describe("the login-loop rule", () => {
       expect(el("card").hidden).toBe(false);
     });
   }
-  for (const [what, daily] of [["a series that is not a list", { bucket: "2026-10-01" }], ["a bucket that is not an object", [null]]]) {
-    it(`${what} is the error state, never a dead card (the legacy render threw into its catch)`, async () => {
-      broker({ "/account": acct(), "/metrics/series": [200, { daily, is_consumer: true }] });
+  for (const [what, body] of [["a series that is not a list", { daily: { bucket: "2026-10-01" }, is_consumer: true }], ["a bucket that is not an object", { daily: [null], is_consumer: true }], ["a 200 with no body", null]]) {
+    it(`${what} is the error state, never a dead card or fabricated numbers (the legacy render threw into its catch)`, async () => {
+      broker({ "/account": acct(), "/metrics/series": [200, body] });
       const navs = fakeLocation({ pathname: "/dashboard.html" });
       render(DashboardApp);
       await waitFor(() => expect(visible("dashError")).toBe(true));

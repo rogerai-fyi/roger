@@ -149,6 +149,14 @@ describe("savings vs frontier and spend velocity", () => {
     await settled(r);
     expect(visible("saveBox")).toBe(false);
   });
+  it("a series the charts cannot read (a bucket that is not an object) counts as no feed: both panels hidden, the page stands", async () => {
+    const p = mount({ ...OK, "/metrics/series": [200, { daily: [null], savings: { spend_usd: 1, frontier_est: 10, savings_est: 9 } }] });
+    await ready();
+    await settled(p);
+    expect(visible("saveBox")).toBe(false);
+    expect(visible("velBox")).toBe(false);
+    expect(visible("pageError")).toBe(false);
+  });
   it("velocity: a sparkline over the days with spend, the span and the peak; hidden with no spend", async () => {
     const daily = [{ bucket: "2026-10-01", spend: 1 }, { bucket: "2026-10-02", spend: 2 }, { bucket: "2026-10-03", spend: 0.5 }];
     const p = mount({ ...OK, "/metrics/series": [200, { daily }] });

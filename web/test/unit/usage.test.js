@@ -65,8 +65,8 @@ describe("the session check and the gate (the login-loop rule)", () => {
     await waitFor(() => expect(visible("allError")).toBe(true));
   });
   it("a series the page cannot render (a bucket that is not an object, a slice that is not) is the error, never a dead card", async () => {
-    for (const daily of [[null], [{ bucket: "2026-10-01", models: [null] }], { bucket: "2026-10-01" }]) {
-      const p = mount({ "/account": ACCT, "/metrics/series": [200, { is_provider: true, is_consumer: true, daily }] });
+    for (const body of [[null], [{ bucket: "2026-10-01", models: [null] }], { bucket: "2026-10-01" }].map((daily) => ({ is_provider: true, is_consumer: true, daily })).concat([null])) {
+      const p = mount({ "/account": ACCT, "/metrics/series": [200, body] });
       await ready();
       await waitFor(() => expect(visible("allError")).toBe(true));
       expect(visible("gate")).toBe(false);

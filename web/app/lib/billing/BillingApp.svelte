@@ -17,6 +17,7 @@
   import { getJSON, logout } from "#lib/api.js";
   import { bootGet } from "#lib/account/boot.js";
   import { n0, cr, when } from "#lib/format.js";
+  import { seriesOK } from "#lib/rollup.js";
   import AccountNav from "#lib/ui/AccountNav.svelte";
   import SpendLimit from "./SpendLimit.svelte";
   import TopUp from "./TopUp.svelte";
@@ -65,7 +66,7 @@
     if (!res.data) { status = "fault"; return; }
     d = res.data;
     status = "ready";
-    getJSON("/metrics/series?days=30").then((s) => { if (s) series = s; });
+    getJSON("/metrics/series?days=30").then((s) => { if (seriesOK(s)) series = s; });   // a shape the charts cannot read is no feed
     limit.load();
     getJSON("/console?limit=40").then((c) => { con = c || "failed"; });
   });

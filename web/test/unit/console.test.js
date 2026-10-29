@@ -193,6 +193,14 @@ describe("a broken feed is the fault state, never a dead card (the legacy render
     expect(el("card").hidden).toBe(false);
     expect(replaced).toEqual([]);
   });
+  it("a model row the card cannot render is the models panel's error state, the console stays", async () => {
+    broker({ "/account": [200, { github_login: "ada" }], "/console": [200, OWNER], "/provider/models": [200, { models: [null] }] });
+    render(Console);
+    await waitFor(() => expect(el("mdError")).toBeTruthy());
+    expect(txt("mdError")).toBe(words.mdError);
+    expect(el("cnError")).toBeNull();
+    expect(replaced).toEqual([]);
+  });
   it("a 200 with no body", async () => {
     broker({ "/account": [200, { github_login: "ada" }], "/console": [200, null] });
     render(Console);

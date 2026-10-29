@@ -82,9 +82,10 @@
   <!-- loading / empty / error states for the whole feed -->
   <p class="ds-state" id="dashLoading" hidden={status !== "loading"}>Loading your numbers...</p>
   <p class="ds-state" id="dashError" hidden={status !== "fault"}>Could not load your dashboard. Try again shortly.</p>
-  <!-- a series the charts cannot draw is the fault state, as when the legacy render threw into
-       its fetch chain's catch; never a dead card (the shape itself is checked on arrival, seriesOK).
-       The sign-out below stays outside: a visible card always has one. -->
+  <!-- belt and braces: the series' shape is checked on arrival (seriesOK), so nothing below is
+       expected to throw; if a chart helper ever does, this is the fault state, as when the legacy
+       render threw into its fetch chain's catch, never a dead card. The sign-out below stays
+       outside: a visible card always has one. -->
   <svelte:boundary onerror={(e) => { console.error("dashboard: could not render the series", e); status = "fault"; }}>
   <section class="acct-state tint-panel" id="dashEmpty" hidden={!(status === "ready" && !hasData)}>
     <h2>No traffic yet</h2>
