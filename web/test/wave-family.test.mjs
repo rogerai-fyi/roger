@@ -11,7 +11,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { allPages, source, decodeMarkup } from "./_html.mjs";
+import { allPages, source, decodeMarkup, components } from "./_html.mjs";
 
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const DIST = path.join(WEB, "dist");
@@ -551,11 +551,11 @@ test("a multi-word include arg is quoted, so the build cannot eat half of it", (
      This scans EVERY include marker on the site: any arg whose value is
      followed by more prose must be quoted, so the next multi-word caption
      fails the suite instead of shipping truncated. */
-  const srcDir = path.join(WEB, "src");
-  const pages = readdirSync(srcDir).filter((f) => f.endsWith(".html"));
-  const partials = readdirSync(path.join(srcDir, "_partials")).map((f) => path.join("_partials", f));
-  for (const rel of [...pages, ...partials]) {
-    const html = readFileSync(path.join(srcDir, rel), "utf8");
+  // the include markers are gone with the legacy build; a route or component carrying one
+  // would ship it as a comment, so the sweep now asserts there is none
+  for (const rel of [...allPages(), ...components().map((f) => `../app/lib/ui/${f}`)]) {
+    const html = rel.startsWith("../") ? readFileSync(path.join(WEB, "app", "lib", "ui", path.basename(rel)), "utf8") : source(rel);
+    assert.doesNotMatch(html, /<!--\s*include:/, `${rel}: a legacy include marker`);
     for (const m of html.matchAll(/<!--\s*include:\s*(\S+)\s*(.*?)\s*-->/g)) {
       const [, file, argStr] = m;
       // Strip well-formed args (quoted, or a single bare token). What is left

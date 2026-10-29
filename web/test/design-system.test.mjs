@@ -9,7 +9,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { source, allPages } from "./_html.mjs";
+import { source, allPages, components, component } from "./_html.mjs";
 
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = path.join(WEB, "src");
@@ -210,10 +210,10 @@ test("colours are tokens: no new colour literal outside tokens.css", () => {
     const budget = HTML_COLOR_BUDGET[page] ?? 0;
     assert.ok(n <= budget, `${page} has ${n} inline colour literals (budget ${budget}); use a class and a token`);
   }
-  for (const partial of readdirSync(path.join(SRC, "_partials"))) {
-    const src = stripHtml(read(`_partials/${partial}`));
+  for (const name of components()) {
+    const src = stripHtml(component(name.replace(/\.svelte$/, "")));
     const inline = [...src.matchAll(/style="([^"]*)"/g)].map((m) => m[1]).join(";");
-    assert.doesNotMatch(inline, COLOR, `_partials/${partial} has an inline colour literal`);
+    assert.doesNotMatch(inline, COLOR, `app/lib/ui/${name} has an inline colour literal`);
   }
 });
 

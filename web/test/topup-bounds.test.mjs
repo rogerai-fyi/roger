@@ -285,7 +285,6 @@ test("topup bounds: every user-facing minimum is the current minimum", () => {
   // would be checked on none.
   const pages = [
     ...allPages(),
-    ...readdirSync(path.join(WEB, "src", "_partials")).filter((f) => f.endsWith(".html")).map((f) => `_partials/${f}`),
     ...readdirSync(path.join(WEB, "app", "lib", "ui")).filter((f) => f.endsWith(".svelte")).map((f) => `../app/lib/ui/${f}`),
   ];
   const seen = {};

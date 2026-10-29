@@ -79,10 +79,19 @@ export const pageSource = (page) => readFileSync(pageSourcePath(page), "utf8");
 export const isAppPage = (page) => !existsSync(path.join(SRC, page));
 // Every page of the site, legacy and app, sorted: what readdirSync(SRC) used to mean.
 export function allPages() {
-  const legacy = readdirSync(SRC).filter((f) => f.endsWith(".html"));
-  const owned = JSON.parse(readFileSync(path.join(APP, "owned.json"), "utf8"));
-  return [...new Set([...legacy, ...owned])].sort();
+  const out = [];
+  const walk = (dir, rel) => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      if (e.isDirectory()) walk(path.join(dir, e.name), rel ? `${rel}/${e.name}` : e.name);
+      else if (/^\+page\.(svelte|md)$/.test(e.name)) out.push(rel ? `${rel}.html` : "index.html");
+    }
+  };
+  walk(path.join(APP, "routes"), "");
+  return out.sort();
 }
+// A chrome component's source (app/lib/ui/<Name>.svelte): what a partial was.
+export const component = (name) => readFileSync(path.join(APP, "lib", "ui", `${name}.svelte`), "utf8");
+export const components = () => readdirSync(path.join(APP, "lib", "ui")).filter((f) => f.endsWith(".svelte")).sort();
 
 // A file of the site as authored: a top-level page through pageSource (legacy or app route),
 // anything else (js/, styles/, _partials/, data/) from web/src.

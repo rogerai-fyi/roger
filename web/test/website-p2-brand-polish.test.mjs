@@ -8,7 +8,7 @@ import path from "node:path";
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const DIST = path.join(WEB, "dist");
 const SRC = path.join(WEB, "src");
-import { decodeMarkup } from "./_html.mjs";
+import { decodeMarkup, component } from "./_html.mjs";
 // decoded markup: the two renderers spell &copy;/&nbsp; differently, the copy is the same
 const read = (p) => decodeMarkup(readFileSync(path.join(DIST, p), "utf8"));
 const source = (p) => readFileSync(path.join(SRC, p), "utf8");
@@ -106,8 +106,8 @@ test("app structured data uses the company brand and preserves the store legacy 
 // magic number, so a future geometry change to either mark cannot drift them apart.
 test("the on-air beacon is centred between the brackets in every brand mark", () => {
   const marks = [
-    ["brand logo", source("_partials/brand.html")],
-    ["Ping mascot", source("_partials/tube-ping.html")],
+    ["brand logo", component("Brand")],
+    ["Ping mascot", component("TubePing")],
   ];
   for (const [name, svg] of marks) {
     // The left bracket: "M<x> <top> ... V<bottom> ..." - the arm's full vertical span.
@@ -129,9 +129,9 @@ test("the on-air beacon is centred between the brackets in every brand mark", ()
 // at the old centre is invisible in a static build and only shows as the glow sliding
 // off the eye while it breathes, so pin the pivot to the geometry.
 test("the beacon animations pivot on the beacon, not a stale coordinate", () => {
-  const cy = Number(source("_partials/tube-ping.html").match(/class="ping-mark__eye"[^>]*\bcy="([\d.]+)"/)[1]);
+  const cy = Number(component("TubePing").match(/class="ping-mark__eye"[^>]*\bcy="([\d.]+)"/)[1]);
   const css = source("styles/base.css");
-  const svg = source("_partials/tube-ping.html");
+  const svg = component("TubePing");
   for (const part of ["ping-mark__glow", "ping-mark__eye"]) {
     const rule = css.match(new RegExp(`\\.${part}\\s*\\{([^}]*)\\}`))?.[1] || "";
     const origin = rule.match(/transform-origin:\s*[\d.]+px\s+([\d.]+)px/)?.[1];
@@ -145,7 +145,7 @@ test("the beacon animations pivot on the beacon, not a stale coordinate", () => 
 // head. Assert the geometry that makes them read as a signal leaving the mascot: every arc
 // must clear the brackets, and they must pivot on the antenna line rather than the beacon.
 test("the signal arcs clear the head they are supposed to be leaving", () => {
-  const svg = source("_partials/tube-ping.html");
+  const svg = component("TubePing");
   const bracketTop = Number(svg.match(/d="M\d+ (\d+)/)[1]);
   const arcs = [...svg.matchAll(/class="ping-mark__wave[^"]*"\s+d="M([\d.]+) ([\d.]+) A([\d.]+)[^"]*?([\d.]+) [\d.]+"/g)];
   assert.ok(arcs.length >= 2, `the mascot draws its signal arcs, found ${arcs.length}`);

@@ -1,58 +1,51 @@
 #!/usr/bin/env node
-// RogerAI site build: ONE static tree (web/dist/) from two sources, during the migration.
+// RogerAI site build: ONE static tree (web/dist/) from the SvelteKit app in app/.
 //
-//   app/   the SvelteKit app: routes (one per page), lib (chrome, the broker client, the
-//          design system), islands (the interactive parts, mounted by Svelte alone). A page
-//          listed in app/owned.json is built here. Prerendered: no server, no client router.
-//   src/   the legacy pages: web/src/*.html pulling shared chrome from web/src/_partials
-//          via `<!-- include: X -->` markers, plus the assets every page uses.
+//   app/routes/<page>/+page.svelte   one route per page, prerendered to dist/<page>.html
+//   app/lib/                         the chrome (ui/), the head (head.js), the broker client
+//                                    (api.js), the data-file facts (content.js), the islands
+//   app/islands/<name>.js            an island's entry, bundled to dist/js/islands/<name>.js
+//   src/                             the static tree every page uses: js/ (the page scripts),
+//                                    styles/, assets/, data/ (build input), install.sh, roger/
 //
-// One owner per page: a page in app/owned.json must not exist as web/src/<page>.html, and
-// the build fails if it does. As pages move, owned.json grows and src/ shrinks; when src/ is
-// empty the legacy half of this file goes.
+// Order: the islands (a page names its island by a fixed name), the app (vite build, every
+// route prerendered, nothing hydrated through SvelteKit's client), then each page through
+// the finishing passes: hydration comments dropped outside islands, flags spelled bare, one
+// self-referential canonical, dash glue in headings, content-hash cache busting. Then the
+// static tree, the derived sitemap.xml and llms.txt, and a prune of stale output. Output is
+// written atomically. The app rebuilds only when an input changed (a content stamp), so the
+// guard suite's sixty rebuilds stay cheap.
 //
-// Both halves get the same finishing passes: wave status tokens, a self-referential
-// canonical, dash glue in headings, content-hash cache busting, and the derived sitemap.xml
-// and llms.txt. Output is written atomically and stale files are pruned at the end.
-//
-// Run with   node web/build.mjs   (or `make site`). The legacy half needs nothing installed;
-// the app half needs the toolchain in web/node_modules (installed on first use with npm ci).
-//   WEB_PREVIEW=console.html,faq.html   builds those app routes too, for a local look
-//                                        before a page is handed over in owned.json.
-//
-// Include syntax of the legacy half (resolved recursively, depth-guarded):
-//   <!-- include: nav.html -->
-//   <!-- include: nav.html variant=marketing -->     // pass args to the partial
-// Inside a partial, args substitute as {{name}} and gate blocks (which may nest):
-//   {{#if variant=marketing}} ... {{/if}}
-//   {{#unless variant=marketing}} ... {{/unless}}
-// Unknown {{name}} resolve to "" so stray markers never ship literally.
-//
-// Wave status labels in a page render from src/data/wave-status.json:
-//   {{wave:<tier>.<label>}}      (scripts/wave-status.mjs; an unknown token fails the build)
+// Run with   node web/build.mjs   (or `make site`). Needs web/node_modules (installed on
+// first use with npm ci).
 
 import { readFileSync, writeFileSync, readdirSync, mkdirSync, rmSync, statSync, copyFileSync, renameSync, existsSync } from "node:fs";
 import { join, dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { loadWaveStatus, resolveWaveTokens, loadCapabilities, resolveCapTokens } from "./scripts/wave-status.mjs";
-import { loadModelCards, resolveCardTokens } from "./scripts/model-cards.mjs";
 import { glueDashes } from "./scripts/glue-dashes.mjs";   // a heading's " - " never starts a line
 
 const ROOT = dirname(fileURLToPath(import.meta.url));   // web/
 const SRC = join(ROOT, "src");
-const PARTIALS = join(SRC, "_partials");
 const DIST = join(ROOT, "dist");
 
 // ---- the app half ---------------------------------------------------------------------------
 const APP = join(ROOT, "app");
 const KIT_BUILD = join(APP, ".build");        // adapter-static output (vite.config.js)
 const ISLANDS_OUT = join(APP, ".islands");    // island bundles (vite.islands.config.js)
-const OWNED = JSON.parse(readFileSync(join(APP, "owned.json"), "utf8"));
-const PREVIEW = (process.env.WEB_PREVIEW || "").split(",").map((s) => s.trim()).filter(Boolean);
-const APP_PAGES = [...new Set([...OWNED, ...PREVIEW])].sort();
 const routeOf = (page) => (page === "index.html" ? "/" : "/" + page.replace(/\.html$/, ""));
+
+// The pages: every +page.svelte / +page.md under app/routes, as dist file names.
+function routes(dir = join(APP, "routes"), rel = "") {
+  const out = [];
+  for (const ent of readdirSync(dir, { withFileTypes: true })) {
+    if (ent.isDirectory()) out.push(...routes(join(dir, ent.name), rel ? `${rel}/${ent.name}` : ent.name));
+    else if (/^\+page\.(svelte|md)$/.test(ent.name)) out.push(rel ? `${rel}.html` : "index.html");
+  }
+  return out.sort();
+}
+const PAGES = routes();
 
 function ensureToolchain() {
   if (existsSync(join(ROOT, "node_modules", "vite", "bin", "vite.js"))) return;
@@ -98,99 +91,15 @@ function buildApp(pages) {
   writeFileSync(stampFile, stamp);
 }
 
-const INCLUDE_RE = /<!--\s*include:\s*([^\s]+)\s*(.*?)\s*-->/g;
-const MAX_DEPTH = 12;
-
-// Per-page stylesheet manifest. Each page links exactly these CSS modules, in
-// order, so editing one page's styles never touches a file another page needs.
-// The shared lead is the design system's three layers, on EVERY page and in this
-// order: tokens.css (design tokens) -> base.css (reset, typesetting, site chrome) ->
-// components.css (the shared components; see DESIGN-SYSTEM.md). Account pages then
-// load account-base.css before their own account module. The head.html
-// `<!-- css-bundle -->` marker is expanded into one <link> per entry below (see
-// emitCssBundle). Keep this in sync when adding a page.
-const CSS_SHARED = ["tokens.css", "base.css", "components.css"];
-const CSS_MARKETING = CSS_SHARED;                                   // shared lead, marketing
-const CSS_ACCOUNT = [...CSS_SHARED, "account-base.css"];            // shared lead, account
-const CSS_BUNDLES = {
-  // marketing pages
-  "playground.html": CSS_MARKETING, // legacy address: a redirect stub to the Playbox
-  // account (chrome) pages
-  "console.html":   [...CSS_ACCOUNT, "console.css"],
-  // admin.html (founder super-admin ops portal) moved to the PRIVATE rogerai-fyi/roger-admin repo.
-};
-
-const CSS_MARKER_RE = /^([ \t]*)<!--\s*css-bundle\s*-->[ \t]*$/m;
-
-// Expand head.html's `<!-- css-bundle -->` marker into this page's <link> set.
-function emitCssBundle(html, page) {
-  const bundle = CSS_BUNDLES[page];
-  if (!bundle) throw new Error(`no CSS bundle for page ${page} (add it to CSS_BUNDLES in build.mjs)`);
-  return html.replace(CSS_MARKER_RE, (_, indent) =>
-    bundle.map((f) => `${indent}<link rel="stylesheet" href="styles/${f}" />`).join("\n"));
-}
-
-// "k=v k2=v2" -> { k: "v", k2: "v2" }
-function parseArgs(s) {
-  const out = {};
-  const re = /([\w-]+)=("([^"]*)"|'([^']*)'|(\S+))/g;
-  let m;
-  while ((m = re.exec(s))) out[m[1]] = m[3] ?? m[4] ?? m[5] ?? "";
-  return out;
-}
-
-// Apply {{#if}} / {{#unless}} gates and {{var}} substitution for one arg set.
-// Gates may nest: each pass resolves only the INNERMOST blocks (a body that holds
-// no other gate marker), and passes repeat until none is left.
-const GATE_RE = /\{\{#(if|unless)\s+([\w-]+)(?:=([^}]*))?\}\}((?:(?!\{\{[#/](?:if|unless)\b)[\s\S])*?)\{\{\/\1\}\}/g;
-function applyArgs(html, args) {
-  // {{#if key=val}}...{{/if}}  (also bare {{#if key}} = truthy presence); {{#unless}} inverts
-  for (let prev = null; prev !== html;) {
-    prev = html;
-    html = html.replace(GATE_RE, (_, kind, key, val, body) => {
-      const have = args[key];
-      const ok = val === undefined ? (have !== undefined && have !== "") : have === val;
-      return ok === (kind === "if") ? body : "";
-    });
-  }
-  if (/\{\{[#/](if|unless)\b/.test(html)) throw new Error("unbalanced {{#if}}/{{#unless}} in a partial");
-  // {{var}} substitution; unknown -> ""
-  html = html.replace(/\{\{\s*([\w-]+)\s*\}\}/g, (_, key) => args[key] ?? "");
-  return html;
-}
-
-const partialCache = new Map();
-function loadPartial(name) {
-  if (!partialCache.has(name)) {
-    partialCache.set(name, readFileSync(join(PARTIALS, name), "utf8"));
-  }
-  return partialCache.get(name);
-}
-
-function resolveIncludes(html, depth) {
-  if (depth > MAX_DEPTH) throw new Error("include depth exceeded (cycle?)");
-  return html.replace(INCLUDE_RE, (_, file, argStr) => {
-    const args = parseArgs(argStr);
-    let body = applyArgs(loadPartial(file), args);
-    return resolveIncludes(body, depth + 1);   // nested includes inside partials
-  });
-}
-
 // ---- copy every non-page asset from src/ to dist/, recursively ----
 function copyAssets(dir) {
   for (const ent of readdirSync(dir, { withFileTypes: true })) {
     const abs = join(dir, ent.name);
-    if (ent.isDirectory()) {
-      if (abs === PARTIALS) continue;            // partials are not shipped
-      copyAssets(abs);
-      continue;
-    }
+    if (ent.isDirectory()) { copyAssets(abs); continue; }
     const rel = relative(SRC, abs);
-    if (rel.startsWith("_partials")) continue;
     if (rel === join("data", "wave-status.json") || rel === join("data", "capabilities.json")) continue;   // build input, rendered into pages
     if (rel === join("data", "model-cards.json")) continue;   // build input, rendered into the model pages
-    // top-level *.html in src/ are pages, built separately below
-    if (!rel.includes("/") && ent.name.endsWith(".html")) continue;
+    if (!rel.includes("/") && ent.name.endsWith(".html")) throw new Error(`web/src/${rel}: a page is an app route (app/routes), not a file in src/`);
     const dest = join(DIST, rel);
     mkdirSync(dirname(dest), { recursive: true });
     if (rel.endsWith(".css")) writeOut(dest, cssOut(rel));   // its url()s versioned
@@ -290,13 +199,11 @@ function ensureCanonical(html, page) {
   return html.replace(/<\/title>/, `</title>\n  <link rel="canonical" href="${canonicalURL(page)}" />`);
 }
 
-// sitemap.xml of the indexable pages (lastmod = the source file's mtime: the legacy page, or
-// the app route's +page file).
+// sitemap.xml of the indexable pages (lastmod = the route file's mtime).
 function lastmod(page) {
   const route = page === "index.html" ? "" : page.replace(/\.html$/, "");
-  const candidates = [join(SRC, page), ...["+page.svelte", "+page.md"].map((f) => join(APP, "routes", route, f))];
-  const f = candidates.find((c) => existsSync(c));
-  if (!f) throw new Error(`no source file for ${page}`);
+  const f = ["+page.svelte", "+page.md"].map((n) => join(APP, "routes", route, n)).find(existsSync);
+  if (!f) throw new Error(`no route file for ${page}`);
   return statSync(f).mtime.toISOString().slice(0, 10);
 }
 function writeSitemap(indexablePages) {
@@ -459,23 +366,12 @@ function build() {
   written.clear();
   mkdirSync(DIST, { recursive: true });
 
-  // pages: top-level *.html in src/ (legacy) + the app's owned routes. One owner per page.
-  let legacyPages = readdirSync(SRC).filter((f) => f.endsWith(".html"));
-  for (const page of OWNED)
-    if (legacyPages.includes(page))
-      throw new Error(`${page} is owned by the app (app/owned.json) but web/src/${page} still exists: one owner per page`);
-  // a previewed page (WEB_PREVIEW) is built from the app in place of its legacy twin
-  legacyPages = legacyPages.filter((p) => !PREVIEW.includes(p));
-  if (APP_PAGES.length) buildApp(APP_PAGES);
-  const pages = [...legacyPages, ...APP_PAGES];
+  buildApp(PAGES);
   const indexable = [];
   const htmlByPage = new Map();
-  const wave = loadWaveStatus();
-  const cards = loadModelCards();
-  const caps = loadCapabilities();
-  for (const page of APP_PAGES) {
+  for (const page of PAGES) {
     let out = readFileSync(join(KIT_BUILD, page), "utf8");
-    if (/\{\{(wave|card|cap):/.test(out)) throw new Error(`${page}: the app reads wave/card/capability facts through app/lib/content, never {{tokens}}`);
+    if (/\{\{(wave|card|cap):/.test(out)) throw new Error(`${page}: a page reads wave/card/capability facts through app/lib/content, never {{tokens}}`);
     out = stripMarkers(out);            // no hydration comments outside an island
     out = bareFlags(out);               // hidden="" -> hidden: the legacy spelling of a flag
     out = ensureCanonical(out, page);   // exactly one self-referential canonical per page
@@ -483,40 +379,21 @@ function build() {
     out = cacheBust(out);               // content-version js/css urls so the CDN can't serve stale
     writeOut(join(DIST, page), out);
     htmlByPage.set(page, out);
-    if (!isNoindex(out)) indexable.push(page);
-  }
-  for (const page of legacyPages) {
-    const raw = readFileSync(join(SRC, page), "utf8");
-    let out = resolveIncludes(raw, 0);
-    out = resolveWaveTokens(out, page, wave);   // wave status labels from the one data file
-    out = resolveCardTokens(out, page, cards);  // model page facts from the one data file
-    out = resolveCapTokens(out, page, caps);    // adapter, skill and device status, likewise
-    out = emitCssBundle(out, page);     // expand the per-page stylesheet bundle
-    out = ensureCanonical(out, page);   // exactly one self-referential canonical per page
-    out = glueDashes(out);             // a heading's " - " never starts a line
-    out = cacheBust(out);               // content-version js/css urls so the CDN can't serve stale
-    if (/<!--\s*include:/.test(out)) throw new Error(`unresolved include in ${page}`);
-    if (/<!--\s*css-bundle\s*-->/.test(out)) throw new Error(`unresolved css-bundle in ${page}`);
-    writeOut(join(DIST, page), out);
-    htmlByPage.set(page, out);
     if (!isNoindex(out)) indexable.push(page);   // sitemap tracks the ACTUAL robots directive
   }
 
   copyAssets(SRC);
-  if (APP_PAGES.length) {
-    // the app's own output beside the pages: component stylesheets under _app/ (if any
-    // page has them) and the island bundles under js/islands/
-    if (existsSync(join(KIT_BUILD, "_app"))) copyTree(join(KIT_BUILD, "_app"), join(DIST, "_app"));
-    if (existsSync(ISLANDS_OUT)) copyTree(ISLANDS_OUT, join(DIST, "js", "islands"));
-  }
+  // the app's own output beside the pages: component stylesheets under _app/ (if any page
+  // has them) and the island bundles under js/islands/
+  if (existsSync(join(KIT_BUILD, "_app"))) copyTree(join(KIT_BUILD, "_app"), join(DIST, "_app"));
+  if (existsSync(ISLANDS_OUT)) copyTree(ISLANDS_OUT, join(DIST, "js", "islands"));
   const n = writeSitemap(indexable);
   const l = writeLlms(indexable, htmlByPage);
 
-  // last, so a page removed from src/ stops being served - the one thing the old
-  // delete-everything-first build got for free.
+  // last, so a page removed from app/routes stops being served
   pruneStale(DIST);
 
-  console.log(`built ${pages.length} page(s) (${APP_PAGES.length} from app/, ${legacyPages.length} legacy) + sitemap.xml (${n} urls) + llms.txt (${l} entries) -> ${relative(ROOT, DIST)}/`);
+  console.log(`built ${PAGES.length} page(s) + sitemap.xml (${n} urls) + llms.txt (${l} entries) -> ${relative(ROOT, DIST)}/`);
 }
 
 build();

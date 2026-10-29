@@ -17,6 +17,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { source, squashText } from "./_html.mjs";
+import { RUNTIME } from "../app/lib/head.js";
 
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const src = source;   // a page's source, legacy or app route (test/_html.mjs)
@@ -156,7 +157,7 @@ test("system: the new components are defined once, in components.css, with a beh
   }
   const js = src("js/range-twin.js");
   assert.match(js, /querySelectorAll\("\[data-range-twin\]"\)/, "range-twin.js initializes from its data- hook");
-  assert.match(src("_partials/site-js.html"), /js\/range-twin\.js/, "it ships with the page runtime");
+  assert.ok(RUNTIME.includes("range-twin"), "it ships with the page runtime (app/lib/head.js)");
   assert.match(dist("pricing.html"), /<script src="js\/range-twin\.js\?v=/);
   const doc = readFileSync(path.join(WEB, "DESIGN-SYSTEM.md"), "utf8");
   for (const name of ["### Tinted panel", "### Range twin", "copy-code", "research-actions--lead"]) {

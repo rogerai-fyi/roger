@@ -18,7 +18,7 @@ const SITE_ITEMS = [
 ];
 // The shared page runtime (legacy _partials/site-js.html), one form, deferred, where the
 // page puts its { runtime: true } entry; promo: false leaves out the promo strip's script.
-const RUNTIME = ["lets-talk", "site", "session", "promo", "tuner", "scrub", "anchor-hold", "range-twin", "cycle"];
+export const RUNTIME = ["lets-talk", "site", "session", "promo", "tuner", "scrub", "anchor-hold", "range-twin", "cycle"];
 
 // The homepage's no-flash theme script, inline because it must run before first paint. Its
 // sha256 is allow-listed at the edge (web/scripts/cf-edge.mjs); test/dual-build.test.mjs pins

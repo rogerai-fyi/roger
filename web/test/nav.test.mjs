@@ -20,7 +20,7 @@ import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { source, allPages, decodeMarkup } from "./_html.mjs";
+import { source, allPages, decodeMarkup, component } from "./_html.mjs";
 
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = path.join(WEB, "src");
@@ -269,7 +269,7 @@ test("homepage anchors survive: the sections the bar used to jump to still exist
 test("source partial: no stray {{APP_STORE_URL}} marker (would ship literally)", () => {
   // build.mjs resolves unknown {{name}} to "" - the reserved-slot example URL must be a
   // plain token, not a {{...}} marker that would silently blank inside the shipped comment.
-  assert.doesNotMatch(readSrc("_partials/nav.html"), /\{\{\s*APP_STORE_URL\s*\}\}/);
+  assert.doesNotMatch(component("Nav"), /\{\{\s*APP_STORE_URL\s*\}\}/);
 });
 
 test("each first-class destination marks exactly one matching current nav link", () => {

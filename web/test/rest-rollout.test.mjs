@@ -36,6 +36,7 @@ function mains(page) {
   return out;
 }
 import { squashText, decodeText, source } from "./_html.mjs";
+import { siteHead, RUNTIME } from "../app/lib/head.js";
 // entities decoded on both sides (test/_html.mjs): the two renderers spell them differently
 const squash = (h) => squashText(h);
 
@@ -135,10 +136,11 @@ test("(c) a page's own scripts keep their order relative to each other and to th
   assert.deepEqual(order("stations.html"), ["theme-init", "fmt", "auth", "stations", "site"]);
 });
 
-test("(c) the page runtime partial has one form: deferred", () => {
-  const partial = src("_partials/site-js.html");
-  assert.doesNotMatch(partial, /sync=1/, "no blocking variant");
-  for (const m of partial.matchAll(/<script\b[^>]*>/g)) assert.match(m[0], /\sdefer\b/, m[0]);
+test("(c) the page runtime has one form: deferred", () => {
+  // app/lib/head.js emits the runtime where a page puts its { runtime: true } entry
+  const head = siteHead({ title: "x", scripts: [{ runtime: true }] });
+  for (const m of head.matchAll(/<script src="js\/[^"]+"[^>]*>/g)) if (!/theme-init/.test(m[0])) assert.match(m[0], /\sdefer\b/, m[0]);
+  assert.equal(RUNTIME.length, (head.match(/<script src="js\/(?!theme-init|easter-egg)[^"]+" defer>/g) || []).length, "every runtime module ships, once");
 });
 
 /* ---- (d) tokens ---------------------------------------------------------------------- */

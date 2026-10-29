@@ -27,9 +27,9 @@ beta:
 	@echo "built bin/roger-$(VERSION)"
 
 # Build the marketing + account site: resolve the shared chrome partials
-# (web/src/_partials/{head,brand,nav,footer}.html) into every page and copy
+# (web/app/lib/ui: Nav, Footer, Brand, ...) into every page and copy
 # assets, writing the static tree to web/dist/. Same command DO App Platform
-# runs (build_command). To change the logo, edit web/src/_partials/brand.html.
+# runs (build_command). To change the logo, edit web/app/lib/ui/Brand.svelte.
 site:
 	node web/build.mjs
 

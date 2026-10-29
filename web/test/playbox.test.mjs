@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { source } from "./_html.mjs";
+import { source, component } from "./_html.mjs";
 
 const SRC = path.join(path.dirname(fileURLToPath(import.meta.url)), "../src");
 const read = source;  // a page's source, legacy or app route (test/_html.mjs)
@@ -19,11 +19,11 @@ const js2 = read("js/wave-patch.js");
 const routeJs = read("js/playbox-route.js"); // the deck asks it about Escape
 const html = read("playbox.html");
 const css = read("styles/playbox.css");
-const nav = read("_partials/nav.html");
+const nav = component("Nav");
 // Prose wraps across lines; a copy assertion must not break on where it wrapped.
 const flat = (s) => s.replace(/\s+/g, " ");
 const htmlFlat = flat(html);
-const footer = read("_partials/footer.html");
+const footer = component("Footer");
 
 // ---------- the rename (carried) ---------------------------------------------
 

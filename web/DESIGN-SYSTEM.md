@@ -8,7 +8,7 @@ there has a written exception list, and every entry in it is a known debt.
 ## Component index
 
 Search this table before you build anything. `components.css` unless noted; "JS"
-is the module that wakes on the hook (every page loads it via `site-js.html`).
+is the module that wakes on the hook (every page loads it: the runtime list in `app/lib/head.js`).
 
 | Component | Class / hook | JS | Used on |
 |---|---|---|---|
@@ -16,14 +16,14 @@ is the module that wakes on the hook (every page loads it via `site-js.html`).
 | Tinted band / inset band | `.band`, `.band--inset` | - | homepage, research pages |
 | Action row (lead row) | `.research-actions.research-actions--lead`, `.research-button` (every one solid, no variants) | press | 15 pages, every action row |
 | Callout | `.man-note` (`--live`, `--ember`) | - | manual, keys, hardware, 2 articles |
-| Install pill + copy tick | `install-box.html` partial, `.install`, `.install__box` (`--lg`) | `site.js` | homepage, app, Tower, articles |
+| Install pill + copy tick | `InstallBox.svelte` (`app/lib/ui`), `.install`, `.install__box` (`--lg`) | `site.js` | homepage, app, Tower, articles |
 | Inline / block copy command | `.copy-code` (`--block`) | `site.js` `[data-copy-target]` | Pricing, Integrations |
 | Framed instrument panel | `.install[data-frame="panel"]` | - | homepage FIG. 1 |
 | Ink panel | `.tone-zone[data-tone="ink"]` | - | 10 pages |
 | Tinted panel | `.tint-panel`, `.tint-panel__tag` | - | 42 pages (cards, notes, sign-offs, account panel) |
 | Wave Spectrum scale | `.spectrum` + `.wave-bar` | `scrub.js` `[data-scrub]` | Company (homepage: `.home-spectrum` + `.wave-bar`) |
 | Wave bar | `.wave-bar` (in a tier `<li>`) | - | Company, homepage |
-| Adapter dial, status lamp | `.spectrum--dial` (the `adapter-dial.html` partial), `.cap-lamp`, `.cap-stage` (`--inline`) | `scrub.js` `[data-scrub]` | homepage, Industrial (lamps also on Wave family, Hardware) |
+| Adapter dial, status lamp | `.spectrum--dial` (`AdapterDial.svelte`), `.cap-lamp`, `.cap-stage` (`--inline`) | `scrub.js` `[data-scrub]` | homepage, Industrial (lamps also on Wave family, Hardware) |
 | Step path | `.steps` | - | Careers |
 | Page index | `.page-index` | - | FAQ, legal pages |
 | TOC tuner | `.toc-tuner` | `tuner.js` `[data-tuner]` | 26 pages |
@@ -39,7 +39,7 @@ is the module that wakes on the hook (every page loads it via `site-js.html`).
 | Fold on a phone | `details[data-fold-narrow]` | `site.js` | Broadcasts |
 | Directory | `.bands-hero`, `.bands-panel`, `.band-tag`, `.price-tier` | page scripts | Models, Voices, homepage market, App (hero title) |
 | Heading dash glue | `.nobr` (added by `scripts/glue-dashes.mjs` (run by `build.mjs`) to h1-h6 and `.bc-row__title`: the word before " - " stays with the dash) | - | every page with a dashed heading |
-| Rail, on-air mark | `rail.html`, `onair.html` partials | - | 34 / 37 pages |
+| Rail, on-air mark | `Rail.svelte`, `OnAir.svelte` | - | 34 / 37 pages |
 | Photo credit | `.photo-credit` (research.css) | - | Industrial, Hardware |
 | Touch hit area | `--hit`, `--hit-min`, `--hit-inset` (tokens); the `@media (pointer: coarse)` blocks (components.css documents the pattern) | - | every standalone control, sitewide |
 | Print | `@media print` at the end of `components.css` + `tokens.css` | - | every page |
@@ -57,7 +57,7 @@ definitions).
 | Hero title | landing page: `--t-display`; document (article, manual, legal, 404, confidential): `--t-h1` | the Broadcasts front door at h1 size |
 | Contents tuner | right after the hero (and the hero's strip or figure) on any page with 4+ numbered sections | after an article's Quick Answer (broadcast 010) |
 | Section head | `.sectionno` then the section's h2 (then the lede) | - |
-| Command block | `.code-block` (copy tick, prompts not copied); the install line is the install-box partial; an inline command `.copy-code` | 45 bare `<pre>` in the manual and two on Integrations, each with its own grey box and no copy |
+| Command block | `.code-block` (copy tick, prompts not copied); the install line is `InstallBox.svelte`; an inline command `.copy-code` | 45 bare `<pre>` in the manual and two on Integrations, each with its own grey box and no copy |
 | Data table | `.data-table` (no box, hairline rows, a label-type header over a `--hairline-2` rule), in a `.scroll-box` when it can outgrow a phone | six header styles (filled, 2px ink rule, sentence case, three weights) and three scroll wrappers with and without a box |
 
 To flip a pattern later, change the component, not the pages: the lead row's secondaries
@@ -99,20 +99,24 @@ never the other way round.
 | Account base | `src/styles/account-base.css` | the signed-in surface (account pages only). |
 | Page | `src/styles/<page>.css` | only what is true of one page (or one family: `research.css` is the shell of the research, company, pricing, FAQ and careers pages; `broadcasts.css` of the articles). |
 
-The first three load on every page, in that order: `CSS_SHARED` in `build.mjs`. A
-page's bundle is `CSS_BUNDLES[page]` in the same file, and `head.html`'s
-`<!-- css-bundle -->` marker becomes one `<link>` per entry. Separate files rather than
+The first three load on every page, in that order: `CSS_SHARED` in `app/lib/head.js`. A
+page lists its own sheets after them in its `siteHead({ css: [...] })` call, and the head
+emits one `<link>` per entry. Separate files rather than
 one concatenated sheet on purpose: each is cached on its own content hash, so a page
 sheet edit never invalidates the shared layers.
 
-**HTML** comes from build-time partials (`src/_partials/`, the `<!-- include: -->`
-system in `build.mjs`): `head.html`, `nav.html`, `footer.html`, `site-js.html` (the page
-runtime), `rail.html`, `onair.html`, `install-box.html`, and the smaller brand pieces.
+**HTML** comes from the SvelteKit app (`app/`): every page is a route
+(`app/routes/<page>/+page.svelte`), its `<head>` is one call, `siteHead({ title, desc,
+og, css, scripts })` in `app/lib/head.js`, and the chrome is the components in
+`app/lib/ui/`: `Nav`, `Footer`, `Rail`, `OnAir`, `Brand`, `InstallBox`, `Promo`,
+`LetsTalk`, `AccountNav`, `TubePing`, `WaveMark`, `WaveMesh`, `WaveFirewatch`,
+`AdapterDial`. The page runtime is the `RUNTIME` list in `head.js`, shipped where a page
+puts `{ runtime: true }` in its scripts.
 
 **JS**: `site.js` is the page runtime (theme, nav, reveal settle, the copy tick, OS
 detection). Each shared behaviour beyond it is a small module that initializes itself
 from a `data-` hook and does nothing on a page without one: `tuner.js`, `scrub.js`,
-`anchor-hold.js`, `range-twin.js`. `site-js.html` ships all of them on every page, so **a page gets a
+`anchor-hold.js`, `range-twin.js`. The runtime entry in `head.js` ships all of them on every page, so **a page gets a
 behaviour by markup alone**.
 
 ## Changing the theme
@@ -183,7 +187,7 @@ becomes a full-width stack. There is no outline or quiet link variant.
 
 ### Install / command pill, with the copy tick
 ```html
-<!-- include: install-box.html id=installX cmd='curl <span class="tok">-fsSL</span> https://rogerai.fm/install.sh | sh' -->
+<InstallBox id="installX">curl <span class="tok">-fsSL</span> https://rogerai.fm/install.sh | sh</InstallBox>
 <!-- args: size=lg (closing CTA size), oslock=linux (never swapped to PowerShell),
      oslock=any (a cross-platform command that is not the installer: never swapped),
      label="..." (defaults to "Copy install command to clipboard") -->
@@ -260,7 +264,7 @@ shares only the wave bar; moving it onto `.spectrum` would restyle every one of 
 rules, so it stays its own.
 
 ### Adapter dial and status lamp
-`<!-- include: adapter-dial.html -->`: the Wave Spectrum scale (`.spectrum.spectrum--dial`)
+`<AdapterDial />`: the Wave Spectrum scale (`.spectrum.spectrum--dial`)
 tuned to capability stations, one column each, the scrubber's red needle as the dial on a
 wide screen and a hairline scale where the scrubber steps aside; a stack on phones. Every
 value is a `{{cap:}}` token from `src/data/capabilities.json` (see web/README.md). Any element
@@ -439,8 +443,8 @@ black on white in every theme (the print tokens in `tokens.css`). A new componen
 screen-only control adds it to the hide list; `test/print.test.mjs` checks the rest.
 
 ### Rail and on-air mark
-`<!-- include: rail.html head="RogerAI · Section" rev="Rev. 2026.09 · ((•))" orange=1 -->`
-(the running head, `orange=1` adds the OC orange) and `<!-- include: onair.html -->` (the
+`<Rail head="RogerAI · Section" rev="Rev. 2026.09 · ((•))" orange />`
+(the running head, `orange` adds the OC orange) and `<OnAir />` (the
 `((•))` mark in eyebrows).
 
 ### Figure
@@ -526,25 +530,26 @@ body size, the lead step, quiet section numbers (`.bc-sec__no`: muted mono, only
 section mark red), `.bc-answer` for a Quick Answer (prose face, 2px red rule), the FAQ
 `<dl class="bc-faq">` (its `<dt><b>` mirrors the FAQPage JSON-LD, tested), a sign-off
 `<aside class="tint-panel bc-signoff">` whose closing install command is the
-install-box partial (`id=signoffInstall`), `.bc-table` for a data table in a
+`InstallBox` (`id="signoffInstall"`), `.bc-table` for a data table in a
 `.figure > .scroll-box`, and the shared `.figure`/`.code-block`. Every piece with 4+ numbered sections carries the
 toc-tuner above the body, one station per numbered `.bc-sec` (`id="sN"`). No inline
 style and no colour literal in an article (guarded).
 
 ## Adding a page
 
-1. `src/<page>.html`: `<!-- include: head.html title=... desc=... theme=external -->`,
-   `<!-- include: nav.html variant=marketing ... -->`, content, `<!-- include: footer.html -->`,
-   then `<!-- include: site-js.html -->` (`promo=0` to leave out the promo strip script; pass
-   `promo=0` to `nav.html` too, which leaves out the strip itself, or it shows un-closable).
+1. `app/routes/<page>/+page.svelte`: a `siteHead({...})` call in `<svelte:head>`,
+   `<Nav variant="marketing" />`, the content, `<Footer anchors="/" />`; the page's
+   scripts and `{ runtime: true }` ride the head call (`{ runtime: true, promo: false }`
+   leaves out the promo strip's script; pass `promo={false}` to `Nav` too, which leaves
+   out the strip itself, or it shows un-closable).
    Every script is deferred, so they run in document order: a page script written before
    the include runs before site.js, one written after it runs after. Page scripts that need site.js to have run
    go after the include.
-2. Register its bundle in `CSS_BUNDLES` (`build.mjs`): `[...CSS_MARKETING, "<page>.css"]`
+2. List its sheets in the page's `siteHead({ css: [...CSS_SHARED, "<page>.css"] })` call.
    or `[...CSS_ACCOUNT, ...]`. The build fails if you forget.
 3. Build it from components first. Page CSS only for what no other page will need, with
    tokens for every value. If a second page needs it, it becomes a component.
-4. `npm test`: the guards check the partials, the layers, the colours and the behaviours,
+4. `npm test`: the guards check the components, the layers, the colours and the behaviours,
    and the page's first-load weight against its budget (below).
 
 ## Performance and accessibility rules
@@ -600,19 +605,19 @@ behind them are `scripts/a11y-sweep.py` (axe-core, every page, light and dark, 1
 
 Define it in `components.css` (one section, a header comment with its contract), its
 behaviour in a module that initializes from a `data-` hook and is added to
-`site-js.html`, and its contract here. Page sheets may place a component in their own
+the runtime list in `app/lib/head.js`, and its contract here. Page sheets may place a component in their own
 context (`.page-x .install__box { margin-top: ... }`) but never restyle it bare; the guard
 fails on a bare component selector outside `components.css`.
 
 ## Audit (2026-09, before this structure)
 
 53 pages (48 full pages, 3 redirect or pointer stubs, 2 with their own minimal runtime),
-35 stylesheets, 45 scripts, 10 partials.
+35 stylesheets, 45 scripts, 14 chrome components.
 
 - **Chrome was already shared** for head, nav and footer (every full page). What was not:
   the script tail, hand-copied on 48 pages in 5 variants; the running-head rail, verbatim
   on 34 pages; the `((•))` mark, on 37 eyebrows; the install pill with its icon, 4 copies.
-  All four are partials now.
+  All four are components now (`app/lib/ui`).
 - **Components in the wrong sheet.** 48 CSS blocks were styled from more than one file.
   Most are legitimate placements; the real problems were: the ink panel, the framed
   panel, the press, the copy tick, the tuner, the scrubber and the scroll lift living in

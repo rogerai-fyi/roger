@@ -5,33 +5,39 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync, existsSync, statSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
-import { WEB, DIST, SRC, APP, read } from "./_html.mjs";
+import { createHash } from "node:crypto";
+import { WEB, DIST, SRC, APP, read, allPages } from "./_html.mjs";
 import { transform } from "../scripts/gen-fmt.mjs";
+import { THEME_INLINE } from "../app/lib/head.js";
 
 before(() => execFileSync("node", ["build.mjs"], { cwd: WEB }));
 
-const owned = JSON.parse(read(path.join(APP, "owned.json")));
+const owned = allPages();   // every route is a page
 const routeDir = (page) => path.join(APP, "routes", page === "index.html" ? "" : page.replace(/\.html$/, ""));
 const routeFile = (page) => ["+page.svelte", "+page.md"].map((f) => path.join(routeDir(page), f)).find(existsSync);
 
-test("app/owned.json is a sorted list of page names, each with a route and no legacy twin", () => {
-  assert.deepEqual(owned, [...owned].sort(), "owned.json is sorted");
-  assert.deepEqual(owned, [...new Set(owned)], "owned.json has no duplicate");
+test("every route is a page: it builds, and nothing is left in web/src for it", () => {
   for (const page of owned) {
     assert.match(page, /^[\w-]+\.html$/, `${page} is a top-level page name`);
-    assert.ok(routeFile(page), `${page} has app/routes${page === "index.html" ? "" : "/" + page.replace(/\.html$/, "")}/+page.svelte or +page.md`);
-    assert.ok(!existsSync(path.join(SRC, page)), `${page} is owned by the app, so web/src/${page} must be gone (one owner per page)`);
+    assert.ok(!existsSync(path.join(SRC, page)), `${page}: a page is a route, never a file in web/src`);
     assert.ok(existsSync(path.join(DIST, page)), `${page} was built`);
   }
 });
 
-test("the app shell carries the legacy head's two CSP-hashed inline scripts, byte for byte", () => {
-  // the edge CSP allow-lists their sha256 (web/scripts/cf-edge.mjs); the bytes must not drift
-  const head = read(path.join(SRC, "_partials", "head.html"));
+test("the shell's inline scripts are the ones the edge CSP allow-lists, byte for byte", () => {
+  // the edge policy (src/_headers, applied by scripts/cf-edge.mjs) names each inline script's
+  // sha256; the shell's two and the homepage theme script (app/lib/head.js) must hash to them
+  const csp = read(path.join(SRC, "_headers")).match(/Content-Security-Policy:([^\n]*)/)[1];
+  const allowed = [...csp.matchAll(/'sha256-([^']+)'/g)].map((m) => m[1]);
+  assert.equal(allowed.length, 3, "three inline scripts are allow-listed");
   const shell = read(path.join(APP, "app.html"));
-  const inline = (h) => [...h.matchAll(/^\s*(<script>(?!\s*\(function \(\) \{\s*try)[^\n]*<\/script>)\s*$/gm)].map((m) => m[1]);
-  assert.equal(inline(head).length, 2, "head.html has the two hashed inline scripts");
-  assert.deepEqual(inline(shell), inline(head), "app/app.html carries the same two, unchanged");
+  const inline = [...shell.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
+  assert.equal(inline.length, 2, "the shell carries two inline scripts");
+  const theme = THEME_INLINE.replace(/^<script>/, "").replace(/<\/script>$/, "");
+  for (const body of [...inline, theme]) {
+    const h = createHash("sha256").update(body).digest("base64");
+    assert.ok(allowed.includes(h), `an inline script is not in the edge allow-list: ${body.slice(0, 50)}...`);
+  }
 });
 
 test("app/lib/fmt.js is the generated form of src/js/fmt.js (one money renderer, web == CLI)", () => {
@@ -67,9 +73,9 @@ test("every island a page names is built and referenced, and every built island 
   const sources = readdirSync(path.join(APP, "islands")).filter((f) => f.endsWith(".js"));
   for (const f of sources) {
     const name = f.replace(/\.js$/, "");
-    assert.ok(used.has(name) || !owned.length, `app/islands/${f} is mounted by some owned page`);
+    assert.ok(used.has(name), `app/islands/${f} is mounted by some page`);
   }
-  if (owned.length) for (const f of built) assert.ok(sources.includes(f) || used.has(f.replace(/\.js$/, "")), `dist/js/islands/${f} comes from an island or a chunk of one`);
+  for (const f of built) assert.ok(sources.includes(f) || used.has(f.replace(/\.js$/, "")), `dist/js/islands/${f} comes from an island or a chunk of one`);
 });
 
 test("every app route is an owned page (no orphan route)", () => {
@@ -78,7 +84,7 @@ test("every app route is an owned page (no orphan route)", () => {
     if (e.isDirectory()) walk(path.join(dir, e.name), rel ? `${rel}/${e.name}` : e.name);
     else if (/^\+page\.(svelte|md)$/.test(e.name)) routes.push(rel ? `${rel}.html` : "index.html"); } };
   walk(path.join(APP, "routes"), "");
-  assert.deepEqual(routes.sort(), owned, "every +page.* under app/routes is in app/owned.json, and nothing else is");
+  assert.deepEqual(routes.sort(), owned, "every +page.* under app/routes is a page the build knows");
 });
 
 test("the legacy half still needs nothing installed: build.mjs imports only node: modules and web/scripts", () => {

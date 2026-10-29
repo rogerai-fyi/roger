@@ -10,7 +10,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { source } from "./_html.mjs";
+import { source, component } from "./_html.mjs";
 
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const DIST = path.join(WEB, "dist");
@@ -46,7 +46,7 @@ test("lets-talk: the dialog is an accessible modal with the billing-help contrac
 });
 
 test("lets-talk: send composes a mailto, never a POST", () => {
-  const partial = src("_partials/lets-talk.html");
+  const partial = component("LetsTalk");
   assert.doesNotMatch(partial, /<form[^>]*action=/, "the form has no action endpoint");
   assert.doesNotMatch(partial, /type="submit"/, "no submit button - Send is a plain button");
   const js = src("js/lets-talk.js");
@@ -57,7 +57,7 @@ test("lets-talk: send composes a mailto, never a POST", () => {
 
 test("lets-talk: topics prefill starter notes, free of em dashes", () => {
   const js = src("js/lets-talk.js");
-  const partial = src("_partials/lets-talk.html");
+  const partial = component("LetsTalk");
   assert.match(partial, /<select[^>]*id="ltTopic"/, "a topic select exists");
   assert.ok((partial.match(/<option/g) || []).length >= 4, "with a real set of topics");
   assert.doesNotMatch(js + partial, /—/, "no em dash in any starter note or copy");

@@ -19,7 +19,8 @@ import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import vm from "node:vm";
-import { source, decodeMarkup } from "./_html.mjs";
+import { source, decodeMarkup, component } from "./_html.mjs";
+import { RUNTIME } from "../app/lib/head.js";
 
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const src = source;   // a page's source, legacy or app route (test/_html.mjs)
@@ -63,7 +64,7 @@ test("the word list lives in one place: no script and no other page carries it",
 });
 
 test("the nav and the headline share one cycler: same module, same CSS component", () => {
-  const nav = src("_partials/nav.html");
+  const nav = component("Nav");
   const a = nav.match(/<a class="nav__link"[^>]*aria-label="[^"]*"[^>]*>\s*<span class="carrier cycle-word nav__app-word" data-cycle="App\|TUI\|WebUI" data-cycle-hrefs="\/app\.html\|\/app\.html#cli\|\/app\.html#webui">App<\/span><\/a>/);
   assert.ok(a, "the App item is a .cycle-word with its words and hrefs in markup");
   const site = src("js/site.js");
@@ -73,7 +74,7 @@ test("the nav and the headline share one cycler: same module, same CSS component
   for (const f of readdirSync(path.join(WEB, "src/js")).filter((x) => x.endsWith(".js") && x !== "cycle.js")) {
     assert.ok(!src(`js/${f}`).includes("[data-cycle"), `js/${f} handles [data-cycle], which belongs to cycle.js`);
   }
-  assert.match(src("_partials/site-js.html"), /<script src="js\/cycle\.js" defer><\/script>/, "it ships with the page runtime");
+  assert.ok(RUNTIME.includes("cycle"), "it ships with the page runtime (app/lib/head.js)");
   assert.match(dist("index.html"), /<script src="js\/cycle\.js\?v=[0-9a-f]+" defer><\/script>/);
   const comp = src("styles/components.css");
   assert.match(comp, /\.cycle-word \{[^}]*display: inline-block/, "the component lives in components.css");

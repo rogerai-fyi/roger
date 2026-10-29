@@ -17,7 +17,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { source } from "./_html.mjs";
+import { source, component } from "./_html.mjs";
 
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PAGE = "research-hardware.html";
@@ -35,7 +35,7 @@ test("hardware: the page builds, is indexable and is in the sitemap", () => {
 });
 
 test("hardware: it is reachable from the Research menu, not orphaned", () => {
-  const nav = src("_partials/nav.html");
+  const nav = component("Nav");
   const panel = nav.slice(nav.indexOf('id="navResearchPanel"'), nav.indexOf('id="navCompanyPanel"'));
   assert.match(panel, new RegExp(`href="/${PAGE}"`), "the Research panel links the hardware page");
 });

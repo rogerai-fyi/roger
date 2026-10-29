@@ -158,7 +158,7 @@ test("home.css carries no rules for classes the homepage never uses", () => {
   const strip = (s) => s.replace(/\/\*[\s\S]*?\*\//g, "");
   const css = strip(readFileSync(path.join(WEB, "src/styles/home.css"), "utf8"));
   const dir = (d) => readdirSync(path.join(WEB, d)).map((f) => readFileSync(path.join(WEB, d, f), "utf8")).join("\n");
-  const used = source("index.html") + dir("src/_partials") + dir("src/js") + dir("app/lib/ui");
+  const used = source("index.html") + dir("src/js") + dir("app/lib/ui");
   // classes built by string concatenation in JS ("pingdeck__line--" + who)
   const dynamic = [/^pingdeck__line--/];
   const classes = [...new Set([...css.matchAll(/\.([a-zA-Z][\w-]*)/g)].map((m) => m[1]))];

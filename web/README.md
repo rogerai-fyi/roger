@@ -93,8 +93,7 @@ claimed available, live or running ahead of the file. A lamp is red only for `av
 ## Layout (2026-10, the SvelteKit migration)
 
 Every page of the site is a route of the SvelteKit app in `app/`, prerendered to a static
-file. `build.mjs` still writes the one `dist/` tree the host serves (and still needs nothing
-installed for its legacy half, which is now empty of pages):
+file. `build.mjs` writes the one `dist/` tree the host serves:
 
 ```
 web/
@@ -109,25 +108,20 @@ web/
     lib/island.js, lib/ui/Island.svelte   islands: the interactive parts, hydrated by Svelte alone
     lib/console/            the console card (the first island)
     islands/<name>.js       one entry per island, bundled to dist/js/islands/<name>.js
-    owned.json              the pages the app builds (all of them), one owner per page
     body-attrs.json         per-route <body> attributes (class="auth", data-onair)
-  src/                      the legacy tree: js/ (the page scripts, still classic scripts),
-                            styles/, assets/, data/, _partials/ (retired as the components land)
+  src/                      the static tree every page uses: js/ (the page scripts, still
+                            classic scripts), styles/, assets/, data/ (build input), install.sh
   build.mjs                 the orchestrator: islands -> app -> finishing passes -> sitemap, llms.txt
   test/                     the guard suite (node:test) over dist/ and the sources; test/unit (vitest)
   e2e/                      browser flows (Playwright) over the built site
 ```
 
-Rules the build enforces (test/dual-build.test.mjs): every route is owned and every owned
-page builds; no page hydrates through SvelteKit's client (no inline loader, no `_app`
+Rules the build enforces (test/dual-build.test.mjs): every route builds and no page is a
+file in src/; no page hydrates through SvelteKit's client (no inline loader, no `_app`
 chunk), so the edge CSP stays `script-src 'self'`; an island hydrates its own prerendered
 markup, strictly; the app shell's inline scripts are byte-identical to the legacy head's
 (their hashes are allow-listed at the edge); every built page is cache-busted, carries one
 canonical, and ships no hydration comment outside an island.
-
-To move a legacy page (the recipe the migration used): `node scripts/port-page.mjs
-<page.html>`, `node scripts/page-parity.mjs <page.html>` (same text, headings, links, ids,
-meta, sheets, scripts), `node scripts/handover.mjs <page.html>`.
 
 ## Deploy
 
