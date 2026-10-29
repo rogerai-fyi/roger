@@ -4,5 +4,5 @@
 </script>
 <div class="rail" aria-hidden="true">
     <span class="rail__head">{head}</span>
-    <span class="rail__rev">{#if orange}<Orange3d id="rail" /> {/if}{rev}</span>
+    <span class="rail__rev">{#if orange}<Orange3d id="rail" />{" "}{/if}{rev}</span>
   </div>

@@ -31,9 +31,9 @@
 </script>
 <BroadcastPost {...post} renderFaq={false} signoff={false}>
 <!-- Field-guide broadcast. SEO/AEO format: Quick Answer + question-H2s + FAQ schema + internal
-     links to /models, /bands, the install command. Registered in build.mjs CSS_BUNDLES and listed
+     links to /models, /bands, the install command. and listed
      at the top of broadcasts.html as BROADCAST 005. Data: real ai-benchy concurrency sweep. 
-     (the page's doc comment, from the legacy file; its CSS bundle is the css: list above) -->
+     (the page's doc comment, from the legacy file; its sheets are the css: list above) -->
 
 
       <!-- contents: the shared toc-tuner; its names repeat the section labels below -->

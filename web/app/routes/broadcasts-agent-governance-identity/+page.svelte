@@ -44,7 +44,7 @@
      throughout as an experimental research direction, not a shipped product: the only
      shipped claim reused here (Ed25519-signed lineage receipts on every settled
      request) is already true per security.html. 
-     (the page's doc comment, from the legacy file; its CSS bundle is the css: list above) -->
+     (the page's doc comment, from the legacy file; its sheets are the css: list above) -->
   {#snippet meta()}
         <div class="bc-post__meta mono">
           <span>Incident: <b>Jul 2026</b></span>

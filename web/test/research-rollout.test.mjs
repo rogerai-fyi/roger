@@ -128,6 +128,14 @@ test("(c) the Quick Answer is set in the prose face as .bc-answer", () => {
   }
 });
 
+test("(c) the rail keeps a space between the orange and the revision on every broadcast", () => {
+  for (const page of ARTICLES) {
+    const rail = dist(page).match(/<span class="rail__rev">([\s\S]*?)<\/span><\/div>/)?.[1] || "";
+    if (!/orange3d/.test(rail)) continue;
+    assert.match(rail, /<\/span>\s+Rev\. /, `${page}: a space after the orange, before "Rev."`);
+  }
+});
+
 test("(c) every article sign-off is an inset panel; a closing install command is the shared pill", () => {
   let panels = 0, pills = 0;
   for (const page of ARTICLES) {

@@ -2,7 +2,7 @@
   "name": "rogerai-web",
   "version": "0.0.0",
   "private": true,
-  "description": "RogerAI site: the SvelteKit app in app/ and the legacy pages in src/ build one static tree in dist/ (node build.mjs)",
+  "description": "RogerAI site: a SvelteKit app (app/) prerendered to one static tree in dist/ by node build.mjs",
   "scripts": {
     "build": "node build.mjs",
     "test": "node --test --test-concurrency=1 test/*.mjs && vitest run",

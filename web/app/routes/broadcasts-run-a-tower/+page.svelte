@@ -35,8 +35,7 @@
 <!-- Field-guide broadcast 010 (relay side). SEO/AEO format: Quick Answer + question-H2s +
      FAQ schema + internal links to /tower, /manual#sTower, /payouts. Assets: a Flux relay-mast
      hero (assets/broadcasts/tower-hero.png, arcs pulled onto #E0231C in post) plus two inline
-     theme-adaptive SVG diagrams - the sealed path, and the 90/5/5 settlement bar.
-     Registered in build.mjs CSS_BUNDLES; listed atop broadcasts.html.
+     theme-adaptive SVG diagrams - the sealed path, and the 90/5/5 settlement bar. Listed atop broadcasts.html.
 
      HONESTY RAILS for anyone editing this page (features/web/broadcast_tower.feature pins them):
        - the split is 70 node / 10 tower / 20 platform of the NODE'S OWN listed price;
@@ -44,7 +43,7 @@
          early, so every earning sentence stays conditional on demand - never a projection;
        - the end-to-end claim is about the OPERATOR-RUN Tower only (it holds no content key),
          never about the broker in front of it. 
-     (the page's doc comment, from the legacy file; its CSS bundle is the css: list above) -->
+     (the page's doc comment, from the legacy file; its sheets are the css: list above) -->
 
 
       <!-- FIG. 1 breathes: a 6s seamless loop of the beacon's signal arcs, poster-matched to

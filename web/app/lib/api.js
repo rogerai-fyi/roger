@@ -2,7 +2,7 @@
 // fetch of their own (22 copies of the URL, 8 of the wrapper); this is the one that remains.
 // The session is an HttpOnly cookie on the broker's origin, so every call is credentialed
 // and no token ever touches JS.
-export const BROKER = globalThis.ROGER_BROKER || "https://broker.rogerai.fm";
+export const BROKER = "https://broker.rogerai.fm";
 
 export function api(path, opts = {}) {
   return fetch(BROKER + path, { ...opts, credentials: "include" });
@@ -31,7 +31,9 @@ export async function getJSON(path) {
   }
 }
 
+// Sign out: leave for the login page once the broker answered; a connection that dropped keeps
+// the page (the session cookie is still there), as the legacy pages did.
 export async function logout() {
-  try { await api("/auth/logout", { method: "POST" }); } catch { /* leaving anyway */ }
+  try { await api("/auth/logout", { method: "POST" }); } catch { return; }
   location.replace("/login.html");
 }

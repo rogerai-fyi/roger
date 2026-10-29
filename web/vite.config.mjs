@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
 // mdsvex writes the layout path into the generated import verbatim, so it must be absolute
 const POST_LAYOUT = fileURLToPath(new URL("./app/lib/ui/BroadcastPost.svelte", import.meta.url));
 
-// build.mjs names the pages the app owns (app/owned.json + WEB_PREVIEW) as routes; run
+// build.mjs names the pages to build (every route under app/routes, WEB_KIT_ENTRIES) and runs
 // directly (`npx vite build`) the app prerenders every route it has.
 const entries = process.env.WEB_KIT_ENTRIES ? JSON.parse(process.env.WEB_KIT_ENTRIES) : ["*"];
 

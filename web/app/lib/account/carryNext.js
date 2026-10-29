@@ -7,7 +7,8 @@
 export function nextParam() {
   const m = /[?&]next=([^&]+)/.exec(location.search);
   if (!m) return "";
-  const next = decodeURIComponent(m[1]);
+  let next;
+  try { next = decodeURIComponent(m[1]); } catch { return ""; }   // a malformed value is no destination
   if (next.charAt(0) !== "/" || next.startsWith("//") || next.startsWith("/\\")) return "";
   return next;
 }

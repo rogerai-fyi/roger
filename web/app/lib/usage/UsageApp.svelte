@@ -31,20 +31,24 @@
 
   const daily = $derived((d && d.daily) || []);
   // Which sections does this identity get? Honor is_provider / is_consumer; if the broker ever
-  // omits both, fall back to whichever side has any activity so the page is never blank.
-  const roles = $derived.by(() => {
+  // omits both, fall back to whichever side has any activity so the page is never blank. Kept
+  // from the last answer while a range reloads, so the sections stay up with their loading lines.
+  let roles = $state({ isProvider: false, isConsumer: false });
+  function applyRoles(data) {
+    const rows = (data && data.daily) || [];
     let hasEarn = false, hasSpend = false;
-    for (const b of daily) { if (n0(b.earned) !== 0) hasEarn = true; if (n0(b.requests) !== 0) hasSpend = true; }
-    const isProvider = d && typeof d.is_provider === "boolean" ? d.is_provider : hasEarn;
-    const isConsumer = d && typeof d.is_consumer === "boolean" ? d.is_consumer : hasSpend || !isProvider;
-    return { isProvider, isConsumer };
-  });
+    for (const b of rows) { if (n0(b.earned) !== 0) hasEarn = true; if (n0(b.requests) !== 0) hasSpend = true; }
+    const isProvider = data && typeof data.is_provider === "boolean" ? data.is_provider : hasEarn;
+    const isConsumer = data && typeof data.is_consumer === "boolean" ? data.is_consumer : hasSpend || !isProvider;
+    roles = { isProvider, isConsumer };
+  }
   const totals = $derived(rollupTotals(daily));
-  const models = $derived(rollupModels(daily, "(unknown)"));
+  const models = $derived(rollupModels(daily, "(unknown)", false));   // first seen first: a tie keeps the page's order
   const section = $derived(view === "loading" ? "loading" : view !== "ready" ? "none" : daily.length && totals.requests !== 0 ? "data" : "empty");
   const provModels = $derived([...models].sort((a, b) => b.tokens_out - a.tokens_out));
   const provMax = $derived(provModels.reduce((m, r) => Math.max(m, r.tokens_out), 0));
-  const useMax = $derived(models.reduce((m, r) => Math.max(m, r.tokens), 0));   // rollupModels sorts by total tokens
+  const useModels = $derived([...models].sort((a, b) => b.tokens - a.tokens));
+  const useMax = $derived(useModels.reduce((m, r) => Math.max(m, r.tokens), 0));
   const width = (v, max) => { const pct = max > 0 ? (v / max) * 100 : 0; return (pct < 0 ? 0 : pct) + "%"; };
   const SERIES = {
     earned: [{ key: "earned", cls: "money", label: "" }],
@@ -78,18 +82,20 @@
   }
   async function load(range) {
     const my = ++seq;
-    view = "loading"; d = null; recent = [];
+    view = "loading"; d = null;
     const res = await fetchSeries(range);
     if (my !== seq) return;   // a newer range answered first
     if (!res.ok) { if (res.auth === false) auth = "gate"; else view = "error"; return; }
     d = res.data || {};
+    applyRoles(d);
     view = "ready";
     if (roles.isConsumer) loadRecent(my);
   }
   async function loadRecent(my) {
     const r = await getJSON("/usage");   // the aggregate view stands alone when this fails
     if (my !== seq) return;
-    recent = ((r && r.recent) || []).slice(0, 50);
+    const rows = (r && r.recent) || [];
+    if (rows.length) recent = rows.slice(0, 50);   // an empty or refused refetch keeps what is on screen
   }
   function pick(v) { days = v; load(v); }
 
@@ -114,7 +120,7 @@
   </div>
 
   <!-- ============ PROVIDER METRICS (what you host / earn) ============ -->
-  <section class="panel" id="provider" hidden={view !== "ready" || !roles.isProvider}>
+  <section class="panel" id="provider" hidden={view === "error" || !roles.isProvider}>
     <h2>Provider metrics</h2>
     <p class="fine">Tokens you served and earnings accrued across the models on your nodes.</p>
 
@@ -156,7 +162,7 @@
   </section>
 
   <!-- ============ YOUR USAGE (what you consume / spend) ============ -->
-  <section class="panel" id="usage" hidden={view !== "ready" || !roles.isConsumer}>
+  <section class="panel" id="usage" hidden={view === "error" || !roles.isConsumer}>
     <h2>Your usage</h2>
     <p class="fine">Tokens you consumed and what they cost across the models you tuned in.</p>
 
@@ -171,14 +177,14 @@
     <Figure id="useReq" title="Requests over time" daily={section === "data" ? daily : []} series={SERIES.requests} fmt={num} aria="Requests per day" />
 
     <!-- per-model breakdown: bars of total tokens share by model -->
-    <div class="mx-chart" id="useChart" hidden={section !== "data" || !models.length}>
+    <div class="mx-chart" id="useChart" hidden={section !== "data" || !useModels.length}>
       <div class="mx-chart__head">
         <span class="mx-chart__title">Tokens by model</span>
       </div>
-      <ul class="mx-bars" id="useBars">{#each section === "data" ? models : [] as r}<li class="mx-bars__row"><span class="mx-bars__label" title={r.model}>{r.model}</span><span class="mx-bars__track"><span class="mx-bars__fill" style:width={width(r.tokens, useMax)}></span></span><span class="mx-bars__val">{kfmt(r.tokens)}</span></li>{/each}</ul>
+      <ul class="mx-bars" id="useBars">{#each section === "data" ? useModels : [] as r}<li class="mx-bars__row"><span class="mx-bars__label" title={r.model}>{r.model}</span><span class="mx-bars__track"><span class="mx-bars__fill" style:width={width(r.tokens, useMax)}></span></span><span class="mx-bars__val">{kfmt(r.tokens)}</span></li>{/each}</ul>
     </div>
 
-    <div class="mx-tablewrap" id="useTableWrap" hidden={section !== "data" || !models.length}>
+    <div class="mx-tablewrap" id="useTableWrap" hidden={section !== "data" || !useModels.length}>
       <table class="mx-table">
         <thead>
           <tr>
@@ -188,7 +194,7 @@
             <th scope="col" class="num">Spend</th>
           </tr>
         </thead>
-        <tbody id="useRows">{#each section === "data" ? models : [] as r}<tr><td class="mx-model">{r.model}</td><td class="num">{kfmt(r.requests)}</td><td class="num">{kfmt(r.tokens)}</td><td class="num mx-money">{cr(r.spend)}</td></tr>{/each}</tbody>
+        <tbody id="useRows">{#each section === "data" ? useModels : [] as r}<tr><td class="mx-model">{r.model}</td><td class="num">{kfmt(r.requests)}</td><td class="num">{kfmt(r.tokens)}</td><td class="num mx-money">{cr(r.spend)}</td></tr>{/each}</tbody>
       </table>
     </div>
 

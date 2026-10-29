@@ -13,6 +13,40 @@ const KEY = { id: "key_1", name: "ci", hint: "...abcd", limit_usd: 5, reset: "we
 const writes = (calls) => calls.filter((c) => c.opts.method && c.opts.method !== "GET");
 const ready = () => waitFor(() => expect(el("card").hidden).toBe(false));
 
+describe("the account-key list's honesty", () => {
+  it("shows no 'No account keys yet' while the list is loading or when it failed", async () => {
+    let answer;
+    const pending = new Promise((r) => { answer = r; });
+    globalThis.fetch = async (url) => {
+      const path = String(url).replace("https://broker.rogerai.fm", "");
+      if (path === "/account") return { ok: true, status: 200, json: async () => ({ github_login: "octocat", github_id: 7 }) };
+      if (path === "/account/keys") { await pending; return { ok: false, status: 500, json: async () => ({}) }; }
+      if (path === "/grants") return { ok: true, status: 200, json: async () => ({ grants: [] }) };
+      return { ok: false, status: 404, json: async () => ({}) };
+    };
+    fakeLocation({ pathname: "/keys.html" });
+    render(KeysApp);
+    await waitFor(() => expect(el("gate").hidden).toBe(true));
+    expect(el("akEmpty").hidden).toBe(true);   // still loading: not "no keys yet"
+    answer();
+    await waitFor(() => expect(el("akErr").textContent).not.toBe(""));
+    expect(el("akEmpty").hidden).toBe(true);   // failed: not "no keys yet" beside the error
+  });
+  it("the spend limit is the typed text, parsed strictly: .5, 1e3 and -0 are refused like abc", async () => {
+    const calls = broker({ "/account": [200, { github_login: "octocat", github_id: 7 }], "/account/keys": [200, { keys: [] }], "/grants": [200, { grants: [] }] });
+    fakeLocation({ pathname: "/keys.html" });
+    render(KeysApp);
+    await waitFor(() => expect(el("gate").hidden).toBe(true));
+    for (const typed of [".5", "1e3", "-0"]) {
+      await fireEvent.input(el("akName"), { target: { value: "ci" } });
+      await fireEvent.input(el("akLimit"), { target: { value: typed } });
+      await fireEvent.submit(el("akForm"));
+      await waitFor(() => expect(el("akErr").textContent).toMatch(/a spend limit is a number of dollars/));
+    }
+    expect(calls.some((c) => c.path === "/account/keys" && c.opts.method === "POST")).toBe(false);
+  });
+});
+
 describe("gate and grant-key states", () => {
   it("signed out: the gate card, not the keys card, and nothing minted", async () => {
     const calls = broker({ "/account": [401, {}] });

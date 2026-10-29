@@ -1,4 +1,4 @@
-// The dual build (build.mjs): the SvelteKit app in app/ and the legacy pages in src/ write
+// The build (build.mjs): the SvelteKit app in app/ writes every page, and the finishing passes
 // one dist/, one owner per page. These rules keep the handover honest while both exist.
 import { test, before } from "node:test";
 import assert from "node:assert/strict";
@@ -102,6 +102,14 @@ test("a page's own scripts are one bundle: built, loaded once by that page and n
   }
   // a redirect stub (bands.html) keeps its one sync script in the head: it must redirect before anything else loads
   for (const p of owned) if (!/http-equiv="refresh"/.test(read(path.join(DIST, p)))) assert.doesNotMatch(read(path.join(DIST, p)), /<script src="js\/(?!theme-init|easter-egg)[\w-]+\.js/, `${p}: no classic page script beside the bundles`);
+});
+
+test("an island's wrapper is transparent to layout, so the card stays body.auth's flex item", () => {
+  assert.match(read(path.join(SRC, "styles", "base.css")), /\[data-island\]\s*\{\s*display:\s*contents;\s*\}/, "base.css: [data-island] { display: contents; }");
+  for (const page of ["account.html", "r.html", "device.html", "login.html"]) {
+    // the island's hydration marker sits between the wrapper and the plate; nothing else does
+    assert.match(read(path.join(DIST, page)), /<div data-island="[\w-]+">(?:<!--[^>]*-->)*<div class="authwrap/, `${page}: the island wraps the auth plate directly`);
+  }
 });
 
 test("every island a page names is built and referenced, and every built island is used", () => {

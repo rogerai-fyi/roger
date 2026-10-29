@@ -19,7 +19,7 @@
   let bands = $state(null);         // the list, or { failed: reason }: A FAILURE IS NOT AN EMPTY LIST
   let current = $state(null);       // { id, name, attach, pendingConfirm } while a session view is open
   let lines = $state([]);           // the transcript
-  let attachError = $state(false);
+  let attachError = $state(null);   // { name }: the join failed, the view says so, no session is open
   let ask = $state("");
   let link = $state(null);          // { name, code, url } once a link code was minted
   let stream;                       // the transcript element, kept scrolled to the end
@@ -63,7 +63,7 @@
       if (!r.ok) throw new Error("join " + r.status);
       const res = await r.json();
       openWithToken(s.id, s.name, res.attach_token);
-    } catch { attachError = true; lines = []; if (!current) current = { id: s.id, name: s.name, attach: "", pendingConfirm: "" }; }
+    } catch { stopStream(); current = null; lines = []; attachError = { name: s.name || s.id }; }
   }
   // openWithToken opens the live view with an attach token already held (the owner-join above,
   // or the /r link flow which stashed one in sessionStorage). It first tears down any stream
@@ -72,7 +72,7 @@
   function openWithToken(id, name, attach) {
     stopStream();
     current = { id, name, attach, pendingConfirm: "" };
-    attachError = false;
+    attachError = null;
     lines = [];
     streamSession();
   }
@@ -106,6 +106,7 @@
     const mine = current;
     try {
       const r = await api("/rc/" + encodeURIComponent(mine.id) + "/stream", { headers: { "X-Roger-Attach": mine.attach } });
+      if (current !== mine) { try { await r.body?.cancel(); } catch { /* the view moved on */ } return; }   // a later open won
       if (!r.ok || !r.body) throw new Error("stream " + r.status);
       const rd = r.body.getReader();
       reader = rd;
@@ -152,7 +153,7 @@
   function closeView() {
     stopStream();
     current = null;
-    attachError = false;
+    attachError = null;
   }
 
   // ---- link a phone ----
@@ -233,8 +234,8 @@
   </section>
 
   <!-- ============ LIVE SESSION VIEW ============ -->
-  <section class="panel" id="viewWrap" hidden={!current}>
-    <h2 id="viewTitle">{current ? "Session - " + (current.name || current.id) : "Session"}</h2>
+  <section class="panel" id="viewWrap" hidden={!current && !attachError}>
+    <h2 id="viewTitle">{current ? "Session - " + (current.name || current.id) : attachError ? "Session - " + attachError.name : "Session"}</h2>
     <p class="sub" id="viewBadge"><b>&#9673; PRIVATE</b> - your account only &middot;
       broker relay &middot; tools run on the host</p>
     <div class="rc-stream" id="stream" aria-live="polite" bind:this={stream}>{#if attachError}Could not attach to this session.{/if}{#each lines as line}{#if line.confirm !== undefined}<div class="rc-line rc-confirm"><span>{line.text}</span><button type="button" class="rc-btn primary" onclick={() => answerConfirm(true, line.confirm)}>Approve</button><button type="button" class="rc-btn ghost" onclick={() => answerConfirm(false, line.confirm)}>Deny</button></div>{:else}<div class="rc-line {line.cls}">{line.text}</div>{/if}{/each}</div>

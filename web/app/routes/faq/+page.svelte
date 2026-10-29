@@ -216,9 +216,8 @@
      using the browser's own find both need the text in the document.
      The visible questions and the FAQPage JSON-LD are locked to each other by
      test/pricing-faq-llms.test.mjs - edit one and the other fails until it matches. Keep
-     the question strings plain ASCII (no entities) so the two can be compared literally.
-     Registered in build.mjs CSS_BUNDLES. 
-     (the page's doc comment, from the legacy file; its CSS bundle is the css: list above) -->
+     the question strings plain ASCII (no entities) so the two can be compared literally. 
+     (the page's doc comment, from the legacy file; its sheets are the css: list above) -->
   <Rail head='RogerAI &middot; FAQ' rev='Rev. 2026.08 &middot; ON AIR' />
 
   <Nav variant='marketing' home='/' current='faq' />

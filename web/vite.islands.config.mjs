@@ -53,7 +53,9 @@ export default defineConfig({
     rollupOptions: {
       input,
       output: {
-        entryFileNames: "[name].js", chunkFileNames: "[name].js", assetFileNames: "[name][extname]",
+        // an entry keeps its name (the page cache-busts it with ?v=); a chunk an entry imports is
+        // named by its content, so a changed chunk is a new url at the edge too
+        entryFileNames: "[name].js", chunkFileNames: "[name]-[hash].js", assetFileNames: "[name][extname]",
         // one shared chunk for the Svelte runtime, the broker client and the island mount, so a
         // visitor downloads it once for every island on the site
         manualChunks: (id) => (/node_modules\/svelte\/|\/app\/lib\/(api|island|fmt)\.js$/.test(id) ? "shared" : undefined),

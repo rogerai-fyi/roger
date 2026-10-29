@@ -23,7 +23,7 @@ export const RUNTIME_SRC = "js/runtime.js";
 
 // The homepage's no-flash theme script, inline because it must run before first paint. Its
 // sha256 is allow-listed at the edge (web/scripts/cf-edge.mjs); test/dual-build.test.mjs pins
-// these bytes to the legacy head partial while that exists. Do not reformat.
+// these bytes to the hashes in src/_headers. Do not reformat.
 export const THEME_INLINE = `<script>
     (function () {
       try {

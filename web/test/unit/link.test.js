@@ -7,7 +7,32 @@ import LinkApp from "#lib/account/LinkApp.svelte";
 import { broker, fakeLocation } from "./_broker.js";
 
 const msg = () => document.getElementById("msg").textContent;
+const el = (id) => document.getElementById(id);
 beforeEach(() => sessionStorage.clear());
+
+describe("a broken answer", () => {
+  it("a 200 whose body is not JSON reads as the calm error, with no navigation", async () => {
+    globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => { throw new Error("not json"); } });
+    const navs = fakeLocation({ pathname: "/r.html", hash: "#ABCD-12" });
+    render(LinkApp);
+    await waitFor(() => expect(el("msg").textContent).toBe("Could not reach the broker. Try again shortly."));
+    expect(navs).toEqual([]);
+    expect(el("hint").hidden).toBe(false);
+  });
+  it("a 200 with a null body does nothing (no crash, no navigation); the broker is unreachable: the calm error", async () => {
+    globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => null });
+    const navs = fakeLocation({ pathname: "/r.html", hash: "#ABCD-12" });
+    const { unmount } = render(LinkApp);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(navs).toEqual([]);
+    expect(el("msg").textContent).toBe("Checking the link…");
+    unmount();
+    globalThis.fetch = async () => { throw new Error("offline"); };
+    fakeLocation({ pathname: "/r.html", hash: "#ABCD-12" });
+    render(LinkApp);
+    await waitFor(() => expect(el("msg").textContent).toBe("Could not reach the broker. Try again shortly."));
+  });
+});
 
 describe("link handler", () => {
   it("no code in the fragment: says so, asks nothing of the broker", async () => {

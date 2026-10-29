@@ -66,11 +66,13 @@ func webSpecRun(rel string) webSpecResult {
 	if _, err := os.Stat(filepath.Join(webSpecDir, file)); err != nil {
 		return webSpecResult{err: fmt.Errorf("the pinning test %s is missing (a test runner skips a missing file silently): %v", rel, err)}
 	}
+	// both kinds need web/'s devDependencies: vitest for a component test, the guards' own
+	// harness (test/_html.mjs) imports the entities package
+	if err := ensureWebToolchain(); err != nil {
+		return webSpecResult{err: err}
+	}
 	var cmd *exec.Cmd
 	if strings.HasSuffix(file, ".test.js") {
-		if err := ensureWebToolchain(); err != nil {
-			return webSpecResult{err: err}
-		}
 		cmd = exec.Command(node, "node_modules/vitest/vitest.mjs", "run", file)
 	} else {
 		cmd = exec.Command(node, "--test", file)

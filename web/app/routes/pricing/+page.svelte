@@ -26,9 +26,8 @@
      only ever appears next to a rate, and that belongs on /models.html.
      Every figure traces to a committed source: the 90/10 split to tos.html, the ceilings
      and the wallet rules to manual.html §6, the payout policy to manual.html §7, the
-     90/5/5 relay settlement to broadcasts-run-a-tower.html.
-     Registered in build.mjs CSS_BUNDLES. Contract: test/pricing-faq-llms.test.mjs. 
-     (the page's doc comment, from the legacy file; its CSS bundle is the css: list above) -->
+     90/5/5 relay settlement to broadcasts-run-a-tower.html. Contract: test/pricing-faq-llms.test.mjs. 
+     (the page's doc comment, from the legacy file; its sheets are the css: list above) -->
   <Rail head='RogerAI &middot; Pricing' rev='Rev. 2026.08 &middot; ON AIR' />
 
   <Nav variant='marketing' home='/' current='pricing' />

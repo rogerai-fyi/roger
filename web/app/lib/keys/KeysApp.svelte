@@ -16,12 +16,13 @@
   // ---- account keys -------------------------------------------------------------------------
   const ak = AK.makeApi(BROKER, (u, o) => fetch(u, o));
   let akKeys = $state([]);
+  let akLoaded = $state(false);   // the list answered once: only then is an empty list "no keys yet"
   let akErr = $state("");
   let akSecret = $state("");
   let akName = $state(""), akLimit = $state(""), akReset = $state("monthly");
   const keysByID = $derived(Object.fromEntries(akKeys.map((k) => [k.id, k])));
   async function akRefresh() {
-    try { akKeys = await AK.list(ak); } catch (e) { if (e.status !== 401) akFail(e); }
+    try { akKeys = await AK.list(ak); akLoaded = true; } catch (e) { if (e.status !== 401) akFail(e); }
   }
   const akFail = (e) => { akErr = e.message; };
   async function akMint(ev) {
@@ -145,8 +146,10 @@
       done();
     } catch { /* leave the secret visible for manual copy */ }
   }
+  let gBusy = $state(false);   // a reload keeps the table up under the loading line
   async function loadKeys() {
-    gview = "loading";
+    if (!grants.length) gview = "loading";
+    gBusy = true;
     try {
       const r = await api("/grants");
       if (r.status === 403) { gview = "nooperator"; return; }   // signed in, no machine on air: normal, never a load failure
@@ -158,6 +161,7 @@
       grants = rows;
       gview = rows.length ? "ready" : "empty";
     } catch { gview = "fault"; }
+    gBusy = false;
   }
   // Inline cap edit: a small prompt-driven PATCH (daily + monthly tokens).
   async function editCaps(g) {
@@ -215,7 +219,7 @@
       <div class="kf__field">
         <label class="kf__k" for="akLimit">Spend limit ($)</label>
         <input id="akLimit" class="kf__in kf__num" type="number" min="0" step="0.01"
-          inputmode="decimal" placeholder="5.00" bind:value={akLimit} />
+          inputmode="decimal" placeholder="5.00" value={akLimit} oninput={(e) => (akLimit = e.currentTarget.value)} />
         <span class="kf__hint">A number of dollars, like 5 or 2.50. Leave it empty, or type 0, for no limit.</span>
       </div>
       <div class="kf__field">
@@ -251,7 +255,7 @@
         <tbody id="akRows" onclick={akRowClick}>{@html AK.rowsHTML(akKeys)}</tbody>
       </table>
     </div>
-    <p class="mx-state" id="akEmpty" hidden={akKeys.length !== 0}>No account keys yet. Mint one above, or run
+    <p class="mx-state" id="akEmpty" hidden={!akLoaded || akKeys.length !== 0}>No account keys yet. Mint one above, or run
       <code>roger keys mint --name ci</code>.</p>
   </section>
 
@@ -417,7 +421,7 @@
       </table>
     </div>
 
-    <p class="mx-state" id="keysLoading" hidden={gview !== "loading"}>Loading your keys...</p>
+    <p class="mx-state" id="keysLoading" hidden={gview !== "loading" && !gBusy}>Loading your keys...</p>
     <p class="mx-state" id="keysEmpty" hidden={gview !== "empty"}>No keys yet. Mint one above, or run
       <code>roger grant create --name my-bots</code>.</p>
     <section class="mx-state" id="keysNoOperator" hidden={gview !== "nooperator"}>

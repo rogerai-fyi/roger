@@ -48,6 +48,20 @@ describe("boot (the login-loop rule)", () => {
   });
 });
 
+describe("sign out", () => {
+  it("a dropped connection on sign-out keeps the page; an answered request leaves for login", async () => {
+    const p = (() => { const calls = broker({ "/account": [200, { github_login: "octocat", provider: "github", operator: true }] }); const navs = fakeLocation({ pathname: "/account.html" }); render(AccountApp); return { calls, navs }; })();
+    await waitFor(() => expect(el("card").hidden).toBe(false));
+    globalThis.fetch = async () => { throw new Error("offline"); };
+    await fireEvent.click(el("logout"));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(p.navs).toEqual([]);
+    globalThis.fetch = async () => ({ ok: false, status: 500, json: async () => ({}) });   // answered, even badly: the cookie is gone or going
+    await fireEvent.click(el("logout"));
+    await waitFor(() => expect(p.navs).toEqual(["/login.html"]));
+  });
+});
+
 describe("identity", () => {
   it("email sign-in: the address is the sign-in, shown read-only; no GitHub id row", async () => {
     broker({ "/account": A({ github_login: "me@rogerai.fm", provider: "email", email: "me@rogerai.fm", email_verified: true, operator: false }) });

@@ -182,6 +182,10 @@ describe("Stripe Connect status and the policy facts", () => {
     globalThis.fetch = async () => { throw new Error("offline"); };
     await fireEvent.click(el("request"));
     await waitFor(() => expect(text("payMsg")).toBe("payout failed"));
+    globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => { throw new Error("not json"); } });
+    await fireEvent.click(el("request"));
+    await waitFor(() => expect(text("payMsg")).toBe("payout failed"));   // a 2xx that is not JSON is not a payout
+    expect(p.navs.filter((n) => n === "<reload>").length).toBe(1);
   });
 });
 

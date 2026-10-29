@@ -30,9 +30,8 @@
 <BroadcastPost {...post} renderFaq={false} signoff={false}>
 <!-- Field-guide broadcast 008. The DeepSeek-V4 MTP GGUF build story: quick answer +
      question-H2s + FAQ schema. Assets: Flux hero + 5 site-theme charts (regenerated from
-     the research repo's make_charts.py with THEME=site).
-     Registered in build.mjs CSS_BUNDLES; listed atop broadcasts.html. 
-     (the page's doc comment, from the legacy file; its CSS bundle is the css: list above) -->
+     the research repo's make_charts.py with THEME=site). Listed atop broadcasts.html. 
+     (the page's doc comment, from the legacy file; its sheets are the css: list above) -->
 
 
       <figure class="figure figure--plate figure--mono" data-reveal>

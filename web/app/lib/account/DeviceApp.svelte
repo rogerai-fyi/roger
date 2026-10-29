@@ -7,7 +7,7 @@
   import { onMount } from "svelte";
   import { api, postJSON } from "#lib/api.js";
 
-  let view = $state("ask");          // ask | confirm | approved | denied | signedout
+  let view = $state("loading");   // nothing shows until the script decides (the legacy initial HTML hid every section)          // ask | confirm | approved | denied | signedout
   let code = $state("");             // the input
   let current = "";                  // the code the broker confirmed
   let askError = $state("");
@@ -26,7 +26,10 @@
   }
   const normalize = (v) => (v || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
   // A code may arrive pre-filled in the URL, but a page load never approves anything
-  const codeFromURL = () => { const m = /[?&]code=([^&]+)/.exec(location.search); return m ? decodeURIComponent(m[1]).toUpperCase() : ""; };
+  const codeFromURL = () => {
+    const m = /[?&]code=([^&]+)/.exec(location.search);
+    try { return m ? decodeURIComponent(m[1]).toUpperCase() : ""; } catch { return ""; }   // a malformed value is no code
+  };
 
   function showSignedOut() {
     // carry the code back: someone sent to sign in returns to the approval, not the dashboard
@@ -45,7 +48,8 @@
     catch { askError = "Could not reach RogerAI. Try again in a moment."; return; }
     if (r.status === 401) { showSignedOut(); return; }
     if (!r.ok) { askError = "That code is not valid. Check it against your terminal, or start a new sign-in."; return; }
-    const info = await r.json();
+    let info;
+    try { info = await r.json(); } catch { askError = "Could not reach RogerAI. Try again in a moment."; return; }
     current = c;
     shownCode = info.user_code;
     requested = ago(info.requested_at);
@@ -63,14 +67,15 @@
       confirmError = (j && j.error) || "That did not work. The code may have expired - start a new sign-in.";
       return;
     }
-    const out = await r.json();
+    let out;
+    try { out = await r.json(); } catch { confirmError = "That did not work. The code may have expired - start a new sign-in."; return; }
     if (path === "approve") { account = out.account || "your account"; view = "approved"; }
     else view = "denied";
   }
 
   onMount(() => {
     const pre = codeFromURL();
-    if (pre) { code = pre; lookup(); }
+    if (pre) { code = pre; lookup(); } else view = "ask";
   });
 </script>
 <div class="authwrap tint-panel">

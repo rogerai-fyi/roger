@@ -34,9 +34,9 @@
 <!-- Field-guide broadcast 007 (developer integration). SEO/AEO format: Quick Answer + question-H2s
      + FAQ schema + internal links. Modern-color turn (alternating with 006's character style):
      a Flux patch-panel/switchboard hero + an inline theme-adaptive SVG "point your base_url here"
-     diagram. Registered in build.mjs CSS_BUNDLES; listed atop broadcasts.html. Facts grounded in the
+     diagram. Listed atop broadcasts.html. Facts grounded in the
      broker + CLI (grant keys, /v1 routes, roger use). 
-     (the page's doc comment, from the legacy file; its CSS bundle is the css: list above) -->
+     (the page's doc comment, from the legacy file; its sheets are the css: list above) -->
 
 
       <figure class="figure figure--plate" data-reveal>

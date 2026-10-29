@@ -123,6 +123,34 @@ describe("roles and ranges", () => {
     expect(visible("useEmpty")).toBe(true);
     for (const id of ["provTotals", "useTotals", "provEarnTs", "provTokTs", "provReqTs", "useSpendTs", "useTokTs", "useReqTs", "provChart", "useChart", "provTableWrap", "useTableWrap"]) expect(visible(id), id).toBe(false);
   });
+  it("a range switch keeps both sections and the recent requests on screen while the series reloads", async () => {
+    let hold;
+    const gate = new Promise((r) => { hold = r; });
+    let reads = 0;
+    globalThis.fetch = async (url) => {
+      const path = String(url).replace("https://broker.rogerai.fm", "");
+      if (path === "/account") return { ok: true, status: 200, json: async () => ({ github_login: "octocat", github_id: 7 }) };
+      if (path.startsWith("/metrics/series")) { if (reads++ > 0) await gate; return { ok: true, status: 200, json: async () => ({ is_provider: true, is_consumer: true, daily: reads > 1 ? [] : DAILY }) }; }
+      if (path === "/usage") return { ok: true, status: 200, json: async () => ({ recent: reads > 1 ? [] : [{ model: "qwen", node: "K6ABC", cost: 0.02, prompt_tokens: 10, completion_tokens: 5 }] }) };
+      return { ok: false, status: 404, json: async () => ({}) };
+    };
+    fakeLocation({ pathname: "/usage.html" });
+    render(UsageApp);
+    await ready();
+    await waitFor(() => expect(visible("useRecentWrap")).toBe(true));
+    await fireEvent.click(document.querySelector('.mx-range__opt[data-days="7"]'));
+    await waitFor(() => expect(visible("allLoading")).toBe(true));
+    expect(visible("provider")).toBe(true);
+    expect(visible("usage")).toBe(true);
+    expect(visible("provLoading")).toBe(true);
+    expect(visible("useLoading")).toBe(true);
+    expect(visible("provTotals")).toBe(false);
+    expect(visible("useRecentWrap")).toBe(true);   // the previous rows stay until new ones come
+    hold();
+    await loaded();
+    expect(visible("useEmpty")).toBe(true);
+    expect(visible("useRecentWrap")).toBe(true);   // an empty refetch keeps what was on screen
+  });
   it("the range buttons re-read the series for their days and mark themselves", async () => {
     const p = mount({ "/account": ACCT, "/metrics/series": SERIES(), "/usage": [200, {}] });
     await ready();
@@ -294,11 +322,23 @@ describe("series.js and rollup.js: the geometry and the rollups", () => {
     expect(nearest(g, 0)).toBe(0);
     expect(nearest(g, W)).toBe(1);
   });
+  it("a provider tie on tokens out keeps the order the models were first seen in", async () => {
+    mount({ "/account": ACCT, "/metrics/series": SERIES({ is_consumer: false, daily: [
+      { bucket: "2026-10-01", requests: 2, tokens_out: 5, models: [{ model: "zeta", requests: 1, tokens_in: 1, tokens_out: 5 }, { model: "alpha", requests: 1, tokens_in: 900, tokens_out: 5 }] },
+    ] }) });
+    await ready();
+    await waitFor(() => expect(visible("provTableWrap")).toBe(true));
+    expect([...document.querySelectorAll("#provRows .mx-model")].map((c) => c.textContent)).toEqual(["zeta", "alpha"]);
+  });
+  it("a non-day bucket is labelled as it came, never as a day", () => {
+    expect(points([{ bucket: "2026-10-03T12", spend: 1 }], [{ key: "spend" }])[0].label).toBe("2026-10-03T12");
+  });
   it("rollups: models summed over the window biggest first, totals across it", () => {
     const models = rollupModels(DAILY, "(unknown)");
     expect(models.map((m) => [m.model, m.requests, m.tokens, m.spend, m.earned])).toEqual([["gpt-oss-120b", 11, 3060, 0.51, 0.25], ["qwen", 4, 1000, 0.2, 1.5]]);
     expect(rollupModels([{ models: [{ requests: 1 }] }], "(unknown)")[0].model).toBe("(unknown)");
     expect(rollupModels([{ models: [{ requests: 1 }] }])[0].model).toBe("unknown");
+    expect(rollupModels(DAILY, "(unknown)", false).map((m) => m.model)).toEqual(["gpt-oss-120b", "qwen"]);   // first seen, unsorted
     expect(rollupTotals(DAILY)).toEqual({ requests: 15, tokens_in: 1450, tokens_out: 2610, spend: 0.71, earned: 1.75 });
     expect(rollupTotals(null)).toEqual({ requests: 0, tokens_in: 0, tokens_out: 0, spend: 0, earned: 0 });
   });

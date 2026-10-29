@@ -9,5 +9,4 @@
     ["keys", "/keys.html", "API keys"], ["account", "/account.html", "Account"],
   ];
 </script>
-<p class="fine acctsubnav">{#each pages as [key, href, label]}{#if key !== current}<a {href}>{label}</a>
-{/if}{/each}</p>
+<p class="fine acctsubnav">{#each pages as [key, href, label]}{#if key !== current}<a {href}>{label}</a>{" "}{/if}{/each}</p>

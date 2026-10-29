@@ -38,8 +38,8 @@
      the HN launch thread, and independent checks by MindStudio and Novel Cognition. The
      industrial-readiness numbers are FactoryBench (arXiv 2605.07675). Assets: a Flux-generated
      hero (brandlocked, one red) + two inline theme-adaptive SVG figures. Registered in
-     build.mjs CSS_BUNDLES; listed atop broadcasts.html. 
-     (the page's doc comment, from the legacy file; its CSS bundle is the css: list above) -->
+     listed atop broadcasts.html. 
+     (the page's doc comment, from the legacy file; its sheets are the css: list above) -->
   {#snippet meta()}
         <div class="bc-post__meta mono">
           <span>Jev: <b>hosted API, text in, closed weights</b></span>

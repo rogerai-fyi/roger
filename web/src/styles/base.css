@@ -1083,3 +1083,7 @@ li > a:not([class]):focus-visible,
   :where(.promo__close, .promo__cta, .upgrade__toggle, .nav__burger, .theme-toggle, .tlink, .dir-sibling > a, .market__refresh) { position: relative; }
   :is(.promo__close, .promo__cta, .upgrade__toggle, .nav__burger, .theme-toggle, .tlink, .dir-sibling > a, .market__refresh)::before { content: ""; position: absolute; inset: var(--hit-inset); }
 }
+
+/* An island's wrapper (lib/ui/Island.svelte, [data-island]) is transparent to layout: the card
+   inside it is the flex item of body.auth, as it was when the page carried it directly. */
+[data-island] { display: contents; }

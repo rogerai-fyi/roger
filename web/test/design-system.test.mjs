@@ -463,11 +463,20 @@ test("no red glows: red rings and small lamps only, every lamp listed", () => {
 const OWN_CLIPBOARD = {
   "site.js": "the shared copy tick",
   "playbox.js": "copies the deck's CLI line into the deck's own toast",
+  "keys/KeysApp.svelte": "copies a one-time secret and relabels its button (keys page)",
 };
 
 test("no page script re-implements a shared behaviour", () => {
   const js = readdirSync(path.join(SRC, "js")).filter((f) => f.endsWith(".js"));
   const HOOKS = { "[data-fold-narrow]": "site.js", "[data-tuner]": "tuner.js", "[data-scrub]": "scrub.js", "[data-anchor-hold]": "anchor-hold.js", "[data-copy-target]": "site.js", "[data-range-twin]": "range-twin.js", "[data-cycle]": "cycle.js" };
+  // the islands' components too (app/lib, outside the chrome in app/lib/ui)
+  const islands = readdirSync(path.join(WEB, "app", "lib"), { recursive: true }).filter((f) => f.endsWith(".svelte") && !f.startsWith("ui/"));
+  for (const f of islands) {
+    const src = readFileSync(path.join(WEB, "app", "lib", f), "utf8");
+    if (/navigator\.clipboard|execCommand\(["']copy/.test(src)) {
+      assert.ok(OWN_CLIPBOARD[f], `app/lib/${f} copies to the clipboard itself; use the shared copy tick ([data-copy-target])`);
+    }
+  }
   for (const f of js) {
     const src = read(`js/${f}`);
     if (/navigator\.clipboard|execCommand\(["']copy/.test(src)) {

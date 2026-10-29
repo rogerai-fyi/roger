@@ -28,9 +28,9 @@ export function rel(ts, now = Date.now()) {
   return Math.abs(days) + " days ago";
 }
 export const shortId = (id) => (!id ? "-" : id.length > 12 ? id.slice(0, 12) : id);
-// "2026-06-01" -> "Jun 1"
+// "2026-06-01" -> "Jun 1"; anything but a plain day key is shown as it came
 export function dayLabel(b) {
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(b || "");
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(b || "");
   if (!m) return b || "";
   return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
 }

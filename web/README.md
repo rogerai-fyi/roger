@@ -5,8 +5,8 @@ local-AI enthusiasts who put their self-hosted LLMs **on air** so others can
 **tune in** and pay per token. One `rogerai` CLI (an interactive TUI) does all
 of it.
 
-This is a vanilla HTML/CSS/JS site with a tiny dependency-free Node build
-(`web/build.mjs` stitches the shared partials -> `web/dist/`). It's hosted on
+This is a static site: every page is a route of a small SvelteKit app, prerendered to
+plain HTML by `web/build.mjs` into `web/dist/` (the Layout section below). It's hosted on
 **DigitalOcean App Platform** (origin) behind **Cloudflare** (CDN/DNS proxy) -
 *not* Cloudflare Pages. See [`../.do/app.yaml`](../.do/app.yaml), the Deploy
 section below, and **[`EDGE.md`](EDGE.md)** for the Cloudflare edge rules.
@@ -28,22 +28,21 @@ section below, and **[`EDGE.md`](EDGE.md)** for the Cloudflare edge rules.
 White, minimal, lots of whitespace; one accent (volt `#5B5BFF`) with live/ember/
 gold used only as small signals. No emoji, no icon fonts, no JS frameworks.
 
-## Run it (tiny build)
+## Run it
 
-The chrome (nav, footer, head, brand) is defined ONCE in `web/src/_partials/`
-and stitched into every page by a dependency-free Node script. Pages live in
-`web/src/`; the static output lands in `web/dist/`.
+The chrome (nav, footer, head, brand) is defined ONCE as components in `web/app/lib/ui/`
+and rendered into every page by the build. Pages are routes in `web/app/routes/`; the
+static output lands in `web/dist/`.
 
 ```sh
 make site            # node web/build.mjs -> web/dist/
 make site-serve      # build + http.server on http://localhost:5173
 ```
 
-Include syntax: `<!-- include: nav.html variant=marketing -->`; inside a partial,
-args substitute as `{{name}}` and gate `{{#if k=v}}...{{/if}}` blocks. The build
-fails loudly on any unresolved marker.
+A page's head is one call, `siteHead({...})` (`web/app/lib/head.js`); its chrome is
+`<Nav>` and `<Footer>`. The build fails loudly on a route that does not produce its page.
 
-**How to change the logo:** edit **`web/src/_partials/brand.html`** - the single
+**How to change the logo:** edit **`web/app/lib/ui/Brand.svelte`** - the single
 source of the brand mark (the `[ ]` brackets + the live-red circle on-air beacon
 + the spanned `RogerAI` wordmark). Every page's nav and footer brand come from
 it. Keep the matching circle beacon in `favicon.svg`, `logo.svg` and Ping's eye
@@ -57,10 +56,11 @@ Infinite) lives in `src/data/wave-status.json`: the tier's canonical `stage` (on
 `publicCheckpoint`, `onAirBand`, and a `labels` map of the exact text each page shows today.
 The file is build input only and is not shipped.
 
-- **Wired labels** (`"wired": true`) are written in the page as `{{wave:<tier>.<label>}}`,
-  e.g. `{{wave:giga.research-models.chip}}`, and `build.mjs` fills them in
-  (`scripts/wave-status.mjs`). Change the `text` in the data file and every page follows.
-- **Stage words** (`{{wave-stage:<tier>}}`) render the tier's live `stage` as one short
+- **Wired labels** (`"wired": true`) are written in a route as `{@html facts.wave('<tier>.<label>')}`
+  (`facts = content('<page>.html')` from `web/app/lib/content.js`, which runs
+  `scripts/wave-status.mjs`), e.g. `facts.wave('giga.research-models.chip')`. Change the
+  `text` in the data file and every page follows.
+- **Stage words** (`facts.waveStage('<tier>')`) render the tier's live `stage` as one short
   public word from `stageWords` (`on-air` -> `ON AIR`, `training` -> `TRAINING`, ...). Nothing
   is typed per page: change a tier's `stage` and every stage word follows. The homepage Labs
   plate reads its Pico and Nano status this way.
@@ -84,8 +84,8 @@ pages actually agree.
 Adapters, base skills and device rows (the "your device, now a sensor" blocks) read
 `src/data/capabilities.json`: each entry's `stage` is one of `planned`, `lab`,
 `release-candidate`, `available` (defined in `stages`, with the public words in
-`stageLabels`). Pages write `{{cap:<id>.<name|stage|label|description>}}` and `build.mjs`
-fills them in (`scripts/wave-status.mjs`). The file is build input only and is not shipped.
+`stageLabels`). Pages write `{@html facts.cap('<id>.<name|stage|label|description>')}` and the
+build fills them in (`web/app/lib/content.js` over `scripts/wave-status.mjs`). The file is build input only and is not shipped.
 Flip a stage in the file and every lamp follows; `test/capabilities.test.mjs` checks every
 `data-cap` element on every built page against it and sweeps the site for any adapter
 claimed available, live or running ahead of the file. A lamp is red only for `available`.
@@ -179,13 +179,16 @@ with `ROGERAI_VERSION=vX.Y.Z` or the dir with `ROGERAI_INSTALL_DIR=…`.
 
 ```
 web/
-├─ build.mjs           the build: partial includes, per-page CSS bundles, cache-busting
+├─ build.mjs           the build: bundles (islands, runtime, pages) -> the app -> finishing passes
+├─ app/                the SvelteKit app: routes/ (one per page), lib/ (chrome, islands, the one
+│                      broker client, the facts resolver), islands/, pages/, runtime.js
 ├─ src/
-│  ├─ *.html           the pages
-│  ├─ _partials/       shared HTML: head, nav, footer, site-js (the page runtime), ...
 │  ├─ styles/          tokens.css -> base.css -> components.css -> each page's own sheet
-│  └─ js/              site.js (the runtime) + self-initializing component modules
-├─ test/               node --test suites (npm test), incl. the design-system guards
+│  ├─ js/              the scripts the bundles carry (site.js, the component modules, the
+│  │                   content pages' scripts), plus theme-init.js and easter-egg.js as files
+│  └─ assets/, data/   images, fonts and the build-input data files
+├─ test/               node --test guards over dist/ and the sources (npm test), test/unit (vitest)
+├─ e2e/                browser flows (Playwright) over the built site
 ├─ DESIGN-SYSTEM.md    layers, tokens, components and their markup contracts
 ├─ TECH.md             tech choices + how to deploy
 └─ README.md           this file

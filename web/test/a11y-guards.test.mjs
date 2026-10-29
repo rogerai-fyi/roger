@@ -156,6 +156,7 @@ test("the account sub-nav links are 24px targets on every pointer, on every page
     assert.equal(links.length, 1, `${p}: one sub-nav`);
     assert.ok(/<a href="\/[a-z]+\.html">[A-Za-z ]+<\/a>/.test(links[0][1]), `${p}: the sub-nav is a row of links`);
     assert.doesNotMatch(links[0][1], />\s*-\s*</, `${p}: separators are CSS-drawn, never text between the links`);
+    assert.doesNotMatch(links[0][1], /<\/a><a /, `${p}: whitespace between the links (the drawn separator sits in it; an island's each block must write it)`);
     assert.match(h, /href="styles\/account-base\.css\?v=/, `${p}: account-base.css styles the sub-nav`);
   }
   // the fault state keeps the sub-nav in view (it is the page nav), so it must be a real target there too

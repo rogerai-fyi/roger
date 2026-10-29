@@ -30,7 +30,7 @@
 </script>
 <BroadcastPost {...post} renderFaq={false} signoff={false}>
 <!-- Broadcast 016: how an LLM works, in pictures. Tests: test/broadcast-how-llms-work.test.mjs, test/voice.test.mjs. 
-     (the page's doc comment, from the legacy file; its CSS bundle is the css: list above) -->
+     (the page's doc comment, from the legacy file; its sheets are the css: list above) -->
   {#snippet meta()}
         <div class="bc-post__meta mono">
           <span>The trick: <b>guess the next piece</b></span>

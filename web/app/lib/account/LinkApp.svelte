@@ -22,7 +22,9 @@
     if (r.status === 401) { msg = "Log in to your account on this device, then reopen this link. "; needsLogin = true; return; }
     if (r.status === 404) { msg = "This link is invalid, expired, or for a different account."; return; }
     if (!r.ok) { msg = "Could not link this device. Try again shortly."; return; }
-    const res = await r.json();
+    let res;
+    try { res = await r.json(); } catch { msg = "Could not reach the broker. Try again shortly."; return; }
+    if (!res) return;
     try { sessionStorage.setItem("rc_open", JSON.stringify({ id: res.session_id, name: res.name, attach: res.attach_token })); } catch {}
     msg = "Linked. Opening the session...";
     location.href = "/private.html";

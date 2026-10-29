@@ -22,9 +22,8 @@
      sends a person to configure something that stopped working that way.
      Nothing here is a partner claim. A server appears because `roger share` probes for it;
      a guest appears because the CLI wires it, at a version that was proven end-to-end
-     before the entry was added.
-     Registered in build.mjs CSS_BUNDLES. 
-     (the page's doc comment, from the legacy file; its CSS bundle is the css: list above) -->
+     before the entry was added. 
+     (the page's doc comment, from the legacy file; its sheets are the css: list above) -->
   <Rail head='RogerAI &middot; Integrations' rev='Rev. 2026.08 &middot; ON AIR' />
 
   <Nav variant='marketing' home='/' current='integrations' />

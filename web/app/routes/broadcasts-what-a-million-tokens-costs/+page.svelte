@@ -36,9 +36,8 @@
      EVERY printed figure is computed from inputs carried on the row itself, and
      test/broadcast-economics.test.mjs recomputes all of them and fails if the page and
      the arithmetic disagree. Rental prices are Vast.ai's board and comparison prices are
-     OpenRouter's public model API, both read 2026-08-31 and both dated on the page.
-     Registered in build.mjs CSS_BUNDLES. 
-     (the page's doc comment, from the legacy file; its CSS bundle is the css: list above) -->
+     OpenRouter's public model API, both read 2026-08-31 and both dated on the page. 
+     (the page's doc comment, from the legacy file; its sheets are the css: list above) -->
 
 
       <!-- contents: the shared toc-tuner; its names repeat the section labels below -->

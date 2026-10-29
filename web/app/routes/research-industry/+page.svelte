@@ -18,9 +18,8 @@
 <svelte:head>{@html head}</svelte:head>
 <!-- Industrial deployment, split out of the research hub when it outgrew the hub's
      conciseness budget. This is the page an OT buyer or a grant reviewer is actually
-     sent, so it carries the placement diagram and the standards vocabulary in full.
-     Registered in build.mjs CSS_BUNDLES. 
-     (the page's doc comment, from the legacy file; its CSS bundle is the css: list above) -->
+     sent, so it carries the placement diagram and the standards vocabulary in full. 
+     (the page's doc comment, from the legacy file; its sheets are the css: list above) -->
   <Rail head='RogerAI &middot; Industrial' rev='Rev. 2026.07 &middot; LABS' />
 
   <Nav variant='marketing' home='/' promo={false} />

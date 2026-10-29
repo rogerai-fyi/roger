@@ -31,9 +31,8 @@
 </script>
 <BroadcastPost {...post} renderFaq={false} signoff={false}>
 <!-- Field-guide broadcast 003. SEO/AEO format: Quick Answer + question-H2s + FAQ schema + internal
-     links. Assets: an inline theme-adaptive SVG VRAM chart + a Flux-generated hero (brandlocked).
-     Registered in build.mjs CSS_BUNDLES; listed atop broadcasts.html. 
-     (the page's doc comment, from the legacy file; its CSS bundle is the css: list above) -->
+     links. Assets: an inline theme-adaptive SVG VRAM chart + a Flux-generated hero (brandlocked). Listed atop broadcasts.html. 
+     (the page's doc comment, from the legacy file; its sheets are the css: list above) -->
 
 
       <figure class="figure figure--plate" data-reveal>

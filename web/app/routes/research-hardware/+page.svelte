@@ -29,9 +29,8 @@
        - the ONLY thing presented as available today is the one artifact that actually is:
          rogerai-fyi/DeepSeek-V4-Flash-MTP-GGUF, plus `roger share`, which ships.
      Photographs are other people's work under Creative Commons; the author, licence and
-     source page travel with each one and are listed again in §5.
-     Registered in build.mjs CSS_BUNDLES. 
-     (the page's doc comment, from the legacy file; its CSS bundle is the css: list above) -->
+     source page travel with each one and are listed again in §5. 
+     (the page's doc comment, from the legacy file; its sheets are the css: list above) -->
   <Rail head='RogerAI &middot; Hardware' rev='Rev. 2026.08 &middot; LABS' />
 
   <Nav variant='marketing' home='/' promo={false} />

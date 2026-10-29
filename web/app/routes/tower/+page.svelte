@@ -23,9 +23,8 @@
      "Tower" is the public name; "broker" stays the term in the code, API and manual, and
      the page reconciles the two once.
      Every claim traces to a committed spec - features/trust/lineage_receipts.feature and
-     features/routing/scoring.feature. Nothing here may get ahead of either.
-     Registered in build.mjs CSS_BUNDLES. Contract: features/web/tower.feature. 
-     (the page's doc comment, from the legacy file; its CSS bundle is the css: list above) -->
+     features/routing/scoring.feature. Nothing here may get ahead of either. Contract: features/web/tower.feature. 
+     (the page's doc comment, from the legacy file; its sheets are the css: list above) -->
   <Rail head='RogerAI &middot; The Tower' rev='Rev. 2026.07 &middot; ON AIR' />
 
   <Nav variant='marketing' home='/' promo={false} current='tower' />

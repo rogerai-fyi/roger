@@ -31,7 +31,7 @@
 <BroadcastPost {...post} renderFaq={false} signoff={false}>
 <!-- Broadcast 009: capacity-aware model routing. The animated plate is explicitly a
      simulation, grounded in router.go + tunnel.go. No live/fabricated market data. 
-     (the page's doc comment, from the legacy file; its CSS bundle is the css: list above) -->
+     (the page's doc comment, from the legacy file; its sheets are the css: list above) -->
 
 
       <figure class="figure figure--plate" data-reveal>

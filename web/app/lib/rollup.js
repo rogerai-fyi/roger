@@ -4,8 +4,9 @@
 import { n0 } from "#lib/format.js";
 
 // Per-model breakdown: each model's bucket slices summed across daily[], one row per model,
-// biggest by tokens first. A slice without a model name rolls up under `unknown`.
-export function rollupModels(daily, unknown = "unknown") {
+// biggest by tokens first (or first seen first, for a page that sorts its own way). A slice
+// without a model name rolls up under `unknown`.
+export function rollupModels(daily, unknown = "unknown", sorted = true) {
   const by = {};
   for (const d of daily || []) for (const m of d.models || []) {
     const k = m.model || unknown;
@@ -13,7 +14,8 @@ export function rollupModels(daily, unknown = "unknown") {
     r.requests += n0(m.requests); r.tokens_in += n0(m.tokens_in); r.tokens_out += n0(m.tokens_out);
     r.spend += n0(m.spend); r.earned += n0(m.earned);
   }
-  return Object.values(by).map((r) => ({ ...r, tokens: r.tokens_in + r.tokens_out })).sort((a, b) => b.tokens - a.tokens);
+  const rows = Object.values(by).map((r) => ({ ...r, tokens: r.tokens_in + r.tokens_out }));
+  return sorted ? rows.sort((a, b) => b.tokens - a.tokens) : rows;
 }
 
 // The totals across the window, for the headline stats.

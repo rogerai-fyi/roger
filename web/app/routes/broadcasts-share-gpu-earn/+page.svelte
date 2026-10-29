@@ -31,9 +31,8 @@
 <BroadcastPost {...post} renderFaq={false} signoff={false}>
 <!-- Field-guide broadcast 004 (supply side). SEO/AEO format: Quick Answer + question-H2s + FAQ
      schema + internal links to /manual, /models, /payouts. Assets: a Flux GPU-transmitter-tower
-     hero + a Flux "community tunes in" figure + an inline theme-adaptive SVG flow diagram.
-     Registered in build.mjs CSS_BUNDLES; listed atop broadcasts.html. 
-     (the page's doc comment, from the legacy file; its CSS bundle is the css: list above) -->
+     hero + a Flux "community tunes in" figure + an inline theme-adaptive SVG flow diagram. Listed atop broadcasts.html. 
+     (the page's doc comment, from the legacy file; its sheets are the css: list above) -->
 
 
       <figure class="figure figure--plate" data-reveal>

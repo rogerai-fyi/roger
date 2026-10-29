@@ -7,7 +7,7 @@
   // error. The chain state is an AUDIT SIGNAL, never a penalty, and the copy says so.
   import { onMount } from "svelte";
   import { api, postJSON } from "#lib/api.js";
-  import { bootGet, reason } from "./boot.js";
+  import { bootGet } from "./boot.js";
   import RogerFmt from "#lib/fmt.js";
   import AccountNav from "#lib/ui/AccountNav.svelte";
 
@@ -131,14 +131,14 @@ roger share</pre>
   <section class="panel" id="stList" hidden={view !== "ready" || !stations.length}>
     <h2>Stations</h2>
     <div id="stRows">
-      {#each stations as st (st.node_id)}
+      {#each stations as st}
         {@const chain = chainLabel(st)}
         <article class="st-row">
           <h3>{st.node_id} <span class="badge {st.on_air ? 'on' : 'off'}">{st.on_air ? "ON AIR" : "OFF AIR"}</span>
             {#if st.confidential}<span class="badge">CONFIDENTIAL</span>{/if}
             {#if st.private}<span class="badge">PRIVATE BAND</span>{/if}
             {#if st.curated}<span class="badge">&raquo; CURATED &middot; {st.curated_provider || ""}</span>{/if}</h3>
-          <p class="fine">Registered {ago(st.registered_at)} &middot; last seen {ago(st.last_seen)}{#if st.region} &middot; {st.region}{/if}{#if st.hw} &middot; {st.hw}{/if}</p>
+          <p class="fine">Registered {ago(st.registered_at)} &middot; last seen {ago(st.last_seen)}{st.region ? " \u00b7 " + st.region : ""}{st.hw ? " \u00b7 " + st.hw : ""}</p>
           {#if (st.offers || []).length}
             <ul>{#each st.offers as o}<li class="fine">{offerLine(o)}</li>{/each}</ul>
           {:else}

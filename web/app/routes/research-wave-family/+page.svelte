@@ -22,9 +22,8 @@
      It lives on its own page on purpose: research.html carries a deliberate
      conciseness budget (main < 19500 bytes, enforced by research-page.test.mjs),
      and the family - the rail, the slot table, forty-seven jobs and the variation
-     gates - does not fit inside it without cutting founder-approved content.
-     Registered in build.mjs CSS_BUNDLES with research.css + wave-family.css. 
-     (the page's doc comment, from the legacy file; its CSS bundle is the css: list above) -->
+     gates - does not fit inside it without cutting founder-approved content. with research.css + wave-family.css. 
+     (the page's doc comment, from the legacy file; its sheets are the css: list above) -->
   <Rail head='RogerAI &middot; Field Guide' rev='Rev. 2026.07 &middot; LABS' />
 
   <Nav variant='marketing' home='/' current='research' />

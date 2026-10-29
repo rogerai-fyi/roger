@@ -17,8 +17,7 @@ scripts every page ran ship as one module (`app/runtime.js`, built to `js/runtim
 page's own scripts as one more (`app/pages/<page>.js`). The
 output is the same static tree (every route prerendered, nothing hydrates through
 SvelteKit), on the same host, under the same edge CSP, inside the same weight budgets. The plan and
-the spike numbers are in the private docs (WEB-SVELTEKIT-MIGRATION-PLAN.md and the
-2026-10-28 spike report). The rest of this file is the original decision, kept because the
+the spike numbers are in the private planning notes. The rest of this file is the original decision, kept because the
 runtime story (Canvas2D, no animation libraries, self-hosted fonts) is unchanged.
 
 ## The decision: hand-written vanilla, no framework, no bundler

@@ -19,9 +19,8 @@
      concrete problem it owns and the stack it touches - a title alone tells an
      engineer nothing about whether they want it.
      Application is by email on purpose: there is no ATS, and a form posting to an
-     endpoint that does not exist would be another dead artifact.
-     Registered in build.mjs CSS_BUNDLES. Contract: features/web/careers.feature. 
-     (the page's doc comment, from the legacy file; its CSS bundle is the css: list above) -->
+     endpoint that does not exist would be another dead artifact. Contract: features/web/careers.feature. 
+     (the page's doc comment, from the legacy file; its sheets are the css: list above) -->
   <Rail head='RogerAI &middot; Careers' rev='Rev. 2026.07 &middot; ON AIR' />
 
   <Nav variant='marketing' home='/' promo={false} />

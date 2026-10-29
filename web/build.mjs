@@ -73,7 +73,8 @@ function appStamp(pages) {
   };
   walk(APP);
   if (existsSync(join(SRC, "data"))) walk(join(SRC, "data"));
-  walk(join(SRC, "js"));   // the runtime bundle's sources
+  walk(join(SRC, "js"));   // the bundles' sources
+  walk(join(ROOT, "scripts"));   // the resolvers the app imports (wave-status, model-cards, gen-fmt)
   for (const f of ["vite.config.mjs", "vite.islands.config.mjs", "package-lock.json"]) h.update(readFileSync(join(ROOT, f)));
   h.update(JSON.stringify(pages));
   return h.digest("hex");

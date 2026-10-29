@@ -22,9 +22,8 @@
      carries every release contract, lineage badge and download control; the hub
      keeps only the family and points here. It also carries Roger Edge, which is NOT a
      Wave tier: it is the microcontroller line, and it lives in its own banded section
-     so the catalogue cannot be read as one ladder.
-     Registered in build.mjs CSS_BUNDLES. 
-     (the page's doc comment, from the legacy file; its CSS bundle is the css: list above) -->
+     so the catalogue cannot be read as one ladder. 
+     (the page's doc comment, from the legacy file; its sheets are the css: list above) -->
   <Rail head='RogerAI &middot; Models' rev='Rev. 2026.07 &middot; LABS' />
 
   <Nav variant='marketing' home='/' current='research' />

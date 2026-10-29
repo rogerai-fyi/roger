@@ -12,4 +12,4 @@
 <svelte:head>{@html head}</svelte:head>
 <Nav variant="lean" />
 <Island name="console" component={ConsoleApp} />
-<Footer />
+<Footer anchors='/' />

@@ -25,9 +25,8 @@
      card token, each with its R-number and date in the Measured footnote. Served
      status renders from wave-status.json: while Nano has no on-air band this page says it is
      not on the band yet and offers no `roger use` command for it (test/model-pages.test.mjs).
-     The mesh explainer and the wildfire watch are the shared partials.
-     Registered in build.mjs CSS_BUNDLES with research.css + wave-model.css. 
-     (the page's doc comment, from the legacy file; its CSS bundle is the css: list above) -->
+     The mesh explainer and the wildfire watch are the shared partials. with research.css + wave-model.css. 
+     (the page's doc comment, from the legacy file; its sheets are the css: list above) -->
   <Rail head='RogerAI &middot; Wave Nano' rev='Rev. 2026.10 &middot; LABS' />
 
   <Nav variant='marketing' home='/' current='research' />

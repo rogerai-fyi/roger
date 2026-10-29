@@ -1,6 +1,6 @@
 // Shared HTML normalizers for the guard suite.
 //
-// Two renderers emit the site's pages during the migration: the legacy include build and
+// Every page is an app route now (the legacy include build is gone); the helpers below read a page's
 // the Svelte compiler. They spell the same document differently. Svelte writes the decoded
 // character where the source wrote an entity (&middot; -> ·, &copy; -> ©, &nbsp; -> a no-break
 // space) and strips HTML comments. The copy is the same; a test that compares copy decodes
@@ -58,7 +58,7 @@ export function walk(dir, exts, skip = () => false) {
 }
 export const read = (p) => readFileSync(p, "utf8");
 
-// ---- where a page's source lives during the migration ------------------------------------
+// ---- where a page's source lives ----------------------------------------------------------
 // A page is written once: as web/src/<page>.html until it is handed to the app, then as
 // web/app/routes/<route>/+page.svelte (or +page.md). A test that reads a page's SOURCE (its
 // markup as authored, not the built output) reads it through here and keeps working across

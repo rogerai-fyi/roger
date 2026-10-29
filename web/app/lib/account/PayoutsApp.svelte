@@ -87,6 +87,7 @@
   }
   async function loadHistory() {
     history = await getJSON("/payouts/history");
+    open = {}; lots = {};
   }
   async function loadBreakdown() {
     const m = await getJSON("/metrics/provider?days=30");
@@ -100,13 +101,13 @@
 
   // One expandable payout row: the drawer lazily fetches /payouts/{id}/lots, the exact earning
   // receipts (model, node, gross, request id, date) that funded the transfer. Fetched once.
-  async function toggle(p) {
-    if (open[p.id]) { open[p.id] = false; return; }
-    open[p.id] = true;
-    if (lots[p.id] !== undefined) return;
-    lots[p.id] = "loading";
-    const res = await getJSON("/payouts/" + p.id + "/lots");
-    lots[p.id] = (res && res.lots) || [];
+  async function toggle(p, i) {
+    if (open[i]) { open[i] = false; return; }
+    open[i] = true;
+    if (lots[i] !== undefined) return;
+    lots[i] = "loading";
+    const res = await getJSON("/payouts/" + encodeURIComponent(p.id) + "/lots");
+    lots[i] = (res && res.lots) || [];
   }
 
   async function onboard() {
@@ -119,8 +120,11 @@
     payMsg = "requesting...";
     try {
       const r = await api("/payouts/request", { method: "POST" });
-      if (r.ok) { payMsg = "payout requested"; location.reload(); }
-      else payMsg = await reason(r, "payout failed");
+      if (r.ok) {
+        try { await r.json(); } catch { payMsg = "payout failed"; return; }   // an answer that is not JSON is not a payout
+        payMsg = "payout requested";
+        location.reload();
+      } else payMsg = await reason(r, "payout failed");
     } catch { payMsg = "payout failed"; }
   }
 
@@ -309,19 +313,19 @@ roger share</pre>
   <section class="panel">
     <h2>Payout history</h2>
     <ul class="recent" id="payouts">
-      {#each payouts as p, i (p.id ?? i)}
-        <li class="po-payout{open[p.id] ? ' is-open' : ''}">
-          <button type="button" class="po-payout__head" aria-expanded={open[p.id] ? "true" : "false"} title={p.stripe_transfer_id ? "Stripe transfer " + p.stripe_transfer_id : undefined} onclick={() => toggle(p)}>
+      {#each payouts as p, i}
+        <li class="po-payout{open[i] ? ' is-open' : ''}">
+          <button type="button" class="po-payout__head" aria-expanded={open[i] ? "true" : "false"} title={p.stripe_transfer_id ? "Stripe transfer " + p.stripe_transfer_id : undefined} onclick={() => toggle(p, i)}>
             <span class="r-model"><span class="po-payout__chev" aria-hidden="true">&#8250;</span>{when(p.created_at)} - {p.state}</span><span class="r-cost">{cr(p.amount)}</span>
           </button>
-          <div class="po-payout__drawer" hidden={!open[p.id]}>
-            {#if lots[p.id] === "loading"}
+          <div class="po-payout__drawer" hidden={!open[i]}>
+            {#if lots[i] === "loading"}
               <p class="fine po-payout__loading">loading receipts...</p>
-            {:else if Array.isArray(lots[p.id]) && !lots[p.id].length}
+            {:else if Array.isArray(lots[i]) && !lots[i].length}
               <p class="fine">No funding receipts found for this payout.</p>
-            {:else if Array.isArray(lots[p.id])}
+            {:else if Array.isArray(lots[i])}
               <ul class="recent po-lots">
-                {#each lots[p.id] as l}
+                {#each lots[i] as l}
                   <li>
                     <span class="r-model po-lots__left"><b>{l.model || "model"}</b><span class="po-lots__meta">{l.node || "node"} - {l.request_id || "?"} - {when(l.created_at)}</span></span><span class="r-cost">{cr(l.gross || 0)}</span>
                   </li>

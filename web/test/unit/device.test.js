@@ -7,8 +7,32 @@ import DeviceApp from "#lib/account/DeviceApp.svelte";
 import { broker, fakeLocation } from "./_broker.js";
 
 const el = (id) => document.getElementById(id);
+const text = (id) => el(id).textContent.trim();
 const visible = (id) => !el(id).hidden;
 const PENDING = { user_code: "ABCD2468", requested_at: Math.floor(Date.now() / 1000) - 10 };
+
+describe("the initial state and a broken answer", () => {
+  it("prerenders every section hidden (the script decides what to show), then shows the ask", async () => {
+    const { container } = render(DeviceApp);
+    // the SSR form: every section hidden; after mount, the ask (no code in the URL)
+    await waitFor(() => expect(el("dvAsk").hidden).toBe(false));
+    for (const id of ["dvSignedOut", "dvConfirm", "dvApproved", "dvDenied"]) expect(el(id).hidden, id).toBe(true);
+    void container;
+  });
+  it("a 200 whose body is not JSON reads as the calm error, not a crash", async () => {
+    globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => { throw new Error("not json"); } });
+    fakeLocation({ pathname: "/device.html", search: "?code=ABCD-1234" });
+    render(DeviceApp);
+    await waitFor(() => expect(text("dvAskError")).toBe("Could not reach RogerAI. Try again in a moment."));
+    expect(el("dvConfirm").hidden).toBe(true);
+  });
+  it("a malformed ?code= is no code (no exception, the ask shows)", async () => {
+    broker({});
+    fakeLocation({ pathname: "/device.html", search: "?code=%E0%A4%A" });
+    render(DeviceApp);
+    await waitFor(() => expect(el("dvAsk").hidden).toBe(false));
+  });
+});
 
 describe("device approval", () => {
   it("starts on the code prompt; an empty lookup asks for the code and calls nothing", async () => {

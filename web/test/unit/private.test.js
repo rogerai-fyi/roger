@@ -165,6 +165,16 @@ describe("the roster", () => {
     expect(text("bandsEmpty")).toBe("No private bands yet.");
     expect(visible("bandsTable")).toBe(false);
   });
+  it("a failed load's reason never lingers in the empty state: the copy is derived, so an empty success says 'No private bands yet.'", async () => {
+    // the audit finding the legacy page fixed in two places (bandsFailed wrote into the empty
+    // line, renderBands had to restore it); here the line is one derived string
+    const p = mount({ ...OK, "/bands": [403, {}] });
+    await waitFor(() => expect(text("bandsEmpty")).toMatch(/machine on air/));
+    p.unmount();
+    mount({ ...OK, "/bands": [200, { bands: [] }] });
+    await waitFor(() => expect(visible("bandsEmpty")).toBe(true));
+    expect(text("bandsEmpty")).toBe("No private bands yet.");
+  });
   it("a failed bands load says WHICH failure, never 'you have none': 403 names the unlinked machine, 401 says sign in, 5xx says it could not load", async () => {
     const p = mount({ ...OK, "/bands": [403, {}] });
     await waitFor(() => expect(visible("bandsEmpty")).toBe(true));
@@ -241,7 +251,12 @@ describe("the live session view", () => {
     await fireEvent.click(document.querySelectorAll("#sessionRows tr")[1].querySelector("button"));
     await waitFor(() => expect(visible("viewWrap")).toBe(true));
     expect(text("stream")).toBe("Could not attach to this session.");
+    expect(text("viewTitle")).toBe("Session - s2");
     expect(p.calls.some((c) => c.path === "/rc/s2/stream")).toBe(false);
+    // no session is open: the ask box sends nothing (the legacy page had no current session either)
+    await fireEvent.input(el("ask"), { target: { value: "hello?" } });
+    await fireEvent.submit(el("askForm"));
+    expect(p.calls.some((c) => c.path.endsWith("/send"))).toBe(false);
     globalThis.fetch = vi.fn(async (url, opts = {}) => {
       const path = String(url).replace("https://broker.rogerai.fm", "");
       if (path === "/rc/s1/join") return { ok: true, status: 200, json: async () => ({ attach_token: "att-1" }) };

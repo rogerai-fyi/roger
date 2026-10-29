@@ -30,13 +30,13 @@
        1. cp broadcasts-independence-v5.html broadcasts-<your-slug>.html
           (FLAT filename - the DO static host serves NO clean URLs, every
            page is a .html at the root; do NOT use a subdirectory.)
-       2. Register it in web/build.mjs CSS_BUNDLES, mirroring this page:
+       2. Put it on the post layout (lib/ui/BroadcastPost.svelte), mirroring this page:
             "broadcasts-<your-slug>.html": [...CSS_MARKETING, "broadcasts.css"],
        3. Update the <head> title/desc, the .bc-post__no counter, the date,
           the H1, the dek, and the section bodies.
        4. Add a <li class="bc-row"> for it at the TOP of broadcasts.html.
      ===================================================================== 
-     (the page's doc comment, from the legacy file; its CSS bundle is the css: list above) -->
+     (the page's doc comment, from the legacy file; its sheets are the css: list above) -->
   {#snippet meta()}
         <div class="bc-post__meta mono">
           <span>Release: <b data-cli-version>v5.0.0</b></span>

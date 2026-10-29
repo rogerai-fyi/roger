@@ -74,6 +74,7 @@ describe("states", () => {
     expect(el("tileServed").textContent).toBe("15");
     const rows = document.querySelectorAll("#stRows .st-row");
     expect(rows[0].querySelector("h3").textContent).toMatch(/K6ABC\s+ON AIR/);
+    expect(rows[0].querySelector("p.fine").textContent).toMatch(/^Registered 3d ago · last seen \d+s ago · us-west · RTX 4090$/);   // a space on both sides of every separator (the seconds race the clock)
     expect(rows[0].textContent).toMatch(/gpt-oss-120b · \$0\.10 in \/ \$0\.40 out per 1M · 32,768 ctx/);
     expect(rows[0].textContent).toMatch(/Earned \$1\.50 · 12 recent requests · 2 breaks recorded - audit signal only/);
     expect(rows[0].querySelector("span.warn")).toBeTruthy();

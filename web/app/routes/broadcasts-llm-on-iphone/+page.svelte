@@ -32,9 +32,8 @@
      question-H2s + FAQ schema + internal links to /app.html, /models.html, /pricing.html.
      Every claim is grounded in the shipped iOS v1.2 App Store listing (2026-08-27) and the
      app.html §2 ON AIR plate. Assets: three real App Store composites (roger-ios repo,
-     appstore-comp 6.9 set) converted to webp + a 1200x630 OG crop of the on-air card.
-     Registered in build.mjs CSS_BUNDLES; listed atop broadcasts.html. 
-     (the page's doc comment, from the legacy file; its CSS bundle is the css: list above) -->
+     appstore-comp 6.9 set) converted to webp + a 1200x630 OG crop of the on-air card. Listed atop broadcasts.html. 
+     (the page's doc comment, from the legacy file; its sheets are the css: list above) -->
 
 
       <figure class="figure figure--plate figure--phone" data-reveal>

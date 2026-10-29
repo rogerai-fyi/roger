@@ -25,8 +25,8 @@
      real browser-safe endpoint (/discover, /market, /concierge, credentialed
      /me + /balance). Everything else is labelled example / illustrative, and
      no model response is ever faked as live. Registered in build.mjs
-     CSS_BUNDLES as [...marketing, "playbox.css"]. 
-     (the page's doc comment, from the legacy file; its CSS bundle is the css: list above) -->
+     its siteHead css list ([...CSS_SHARED, "playbox.css"]). 
+     (the page's doc comment, from the legacy file; its sheets are the css: list above) -->
   <!-- running head: this page is one bound document -->
   <Rail head='RogerAI &middot; The Console' rev='Rev. 2026.08 &middot; ((&bull;))' />
 

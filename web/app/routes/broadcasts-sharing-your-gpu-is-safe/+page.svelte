@@ -70,7 +70,7 @@
          infra outage fails OPEN with a loud log (moderation.go screenGroq/groqFailMode,
          ~549-555), even under require=1, and the lean-pass posture explicitly allows S2/S7/S8
          codes through. The page states this as a real but non-absolute layer, not a guarantee 
-     (the page's doc comment, from the legacy file; its CSS bundle is the css: list above) -->
+     (the page's doc comment, from the legacy file; its sheets are the css: list above) -->
   {#snippet meta()}
         <div class="bc-post__meta mono">
           <span>What crosses: <b>chat or voice, fixed set</b></span>
