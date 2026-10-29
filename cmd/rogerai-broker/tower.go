@@ -27,24 +27,24 @@ import (
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/keypurpose"
-	"rogerai.fm/roger/v6/internal/store"
-	"rogerai.fm/roger/v6/internal/towercore/admit"
-	"rogerai.fm/roger/v6/internal/towercore/attach"
-	"rogerai.fm/roger/v6/internal/towercore/attempt"
-	"rogerai.fm/roger/v6/internal/towercore/audit"
-	"rogerai.fm/roger/v6/internal/towercore/cert"
-	"rogerai.fm/roger/v6/internal/towercore/dispatch"
-	"rogerai.fm/roger/v6/internal/towercore/earnings"
-	"rogerai.fm/roger/v6/internal/towercore/enroll"
-	"rogerai.fm/roger/v6/internal/towercore/envelope"
-	"rogerai.fm/roger/v6/internal/towercore/fleet"
-	"rogerai.fm/roger/v6/internal/towercore/head"
-	"rogerai.fm/roger/v6/internal/towercore/inv"
-	"rogerai.fm/roger/v6/internal/towercore/link"
-	"rogerai.fm/roger/v6/internal/towercore/origin"
-	"rogerai.fm/roger/v6/internal/towercore/policy"
-	"rogerai.fm/roger/v6/internal/towercore/reputation"
+	"rogerai.fm/roger/v7/internal/keypurpose"
+	"rogerai.fm/roger/v7/internal/store"
+	"rogerai.fm/roger/v7/internal/towercore/admit"
+	"rogerai.fm/roger/v7/internal/towercore/attach"
+	"rogerai.fm/roger/v7/internal/towercore/attempt"
+	"rogerai.fm/roger/v7/internal/towercore/audit"
+	"rogerai.fm/roger/v7/internal/towercore/cert"
+	"rogerai.fm/roger/v7/internal/towercore/dispatch"
+	"rogerai.fm/roger/v7/internal/towercore/earnings"
+	"rogerai.fm/roger/v7/internal/towercore/enroll"
+	"rogerai.fm/roger/v7/internal/towercore/envelope"
+	"rogerai.fm/roger/v7/internal/towercore/fleet"
+	"rogerai.fm/roger/v7/internal/towercore/head"
+	"rogerai.fm/roger/v7/internal/towercore/inv"
+	"rogerai.fm/roger/v7/internal/towercore/link"
+	"rogerai.fm/roger/v7/internal/towercore/origin"
+	"rogerai.fm/roger/v7/internal/towercore/policy"
+	"rogerai.fm/roger/v7/internal/towercore/reputation"
 )
 
 // The settled link parameters, from docs/tower-relay-link-design.md section 6. A heartbeat
@@ -598,7 +598,7 @@ func (b *broker) towerToken(w http.ResponseWriter, r *http.Request) {
 	body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<16))
 	owner, ok := b.towerOperator(r, body)
 	if !ok {
-		jsonErr(w, http.StatusUnauthorized, "running a Tower requires a signed-in account - try `roger-tower login`")
+		jsonErr(w, http.StatusUnauthorized, "running a Tower requires a signed-in account - try `roger tower login`")
 		return
 	}
 	ts := b.towerAvailable(w)

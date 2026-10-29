@@ -48,7 +48,9 @@ Feature: A Tower can transport only a Station that proved its own keys and exact
 
   Scenario Outline: The operator starts an explicit Station invitation
     Given a Tower is "<mode>" and its administrator is freshly authenticated
-    When `roger-tower station invite` is requested for Station assertion key A and secure-session key K
+    # superseded 2026-10-07 by founder ruling (one binary): `roger-tower station invite` was never built (retired mechanism, see the note above); the
+    # living command is `roger tower attach`. This outline is UNBUILT as worded.
+    When a Station invitation is requested for Station assertion key A and secure-session key K
     Then it creates "<authority>"
     And the invitation binds Tower ID, network ID, intended Station ID or new-Station request, A, K, role, capability ceiling, one-use nonce, issue/expiry, and inviter authorization
     And plaintext invitation material is shown once and stored only as a secret-safe verifier

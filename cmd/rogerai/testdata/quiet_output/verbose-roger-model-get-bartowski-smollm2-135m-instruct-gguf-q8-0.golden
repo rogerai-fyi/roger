@@ -1,0 +1,11 @@
+bartowski/SmolLM2-135M-Instruct-GGUF:Q8_0 is not on this machine yet.
+this machine: 191.2 GiB of video memory across 4 GPUs
+memory speed: spec sheet: 4 x RTX PRO 6000 Blackwell 1792 GB/s
+
+bartowski/SmolLM2-135M-Instruct-GGUF  SmolLM2-135M-Instruct-Q8_0.gguf  138.1 MiB
+  fits at 8K context: needs 1.4 GiB of 191.2 GiB video memory across 4 GPUs
+  weights 138.1 MiB + cache 180.0 MiB + output 192.0 KiB + working 128.0 MiB + reserve 1.0 GiB = 1.4 GiB
+  licence: apache-2.0 (as its author published it; roger records it and does not referee it)
+  source: HuggingFace - the author's word, checked against the digest the index publishes
+  free on this disk: 3.2 GiB
+fetch it? [y/N]: not fetched. Nothing changed.

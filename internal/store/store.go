@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // Entry is one settled request, as surfaced to dashboards. It carries the real
@@ -28,6 +28,9 @@ type Entry struct {
 	Cost             float64 `json:"cost"`        // credits the consumer paid
 	OwnerShare       float64 `json:"owner_share"` // credits credited to the node owner
 	TS               int64   `json:"ts"`
+	// RelayRequestID is the request id the attempt (RequestID) belongs to: set on the
+	// consumer's rows only (RecentByUser), never on a station owner's.
+	RelayRequestID string `json:"relay_request_id,omitempty"`
 }
 
 type Store interface {
@@ -129,6 +132,35 @@ type Store interface {
 	// in-flight request). The relay path uses HoldFor; Hold stays for the unit/parity
 	// callers that don't need tracking.
 	HoldFor(user, requestID string, amount float64) (ok bool, err error)
+	// HoldForCapped is HoldFor under the wallet's monthly spend cap, decided where the money
+	// is reserved: in ONE transaction under the wallet row lock (Postgres) / the store mutex
+	// (in-memory) it places the hold only if month-to-date captured spend + the wallet's
+	// open pending holds + amount <= monthlyCap. monthlyCap <= 0 means no cap (plain HoldFor).
+	// The result says whether the hold landed, whether the cap refused it, and the spend and
+	// pending totals the decision read (for the at-limit headers).
+	HoldForCapped(user, requestID string, amount, monthlyCap float64, now time.Time) (CappedHold, error)
+	// HoldGuarded is HoldFor under every limit the hold must fit, decided in the hold's own
+	// transaction: an account key's spend limit (ErrKeyLimit when the key cannot cover it)
+	// and the wallet's monthly cap (OverCap). HoldForKey and HoldForCapped are this with one
+	// guard each.
+	HoldGuarded(user, requestID string, amount float64, g HoldGuard) (CappedHold, error)
+	// QuotePrice returns the live 24 h price quote for (user, node, model): the first caller
+	// mints it from (in, out) locked for window; every later caller, on any broker instance,
+	// reads that same quote until it expires, after which the next caller mints a fresh one.
+	// Durable (survives restarts and shared-store flushes) and decided once (insert-if-absent).
+	QuotePrice(user, node, model string, in, out float64, now time.Time, window time.Duration) (PriceQuote, error)
+	// LockPrice is QuotePrice with the relay's two rules (§14.12): only a SERVED attempt mints
+	// a lock (o.Mint; otherwise a live lock is read and none is written, ok=false when there
+	// is none), and a PROMO lock (o.Promo: minted under a price posted too briefly) lives only
+	// while the station's price is still the one it was minted under. A dead lock is replaced
+	// on a mint, as an expired one is.
+	LockPrice(user, node, model string, in, out float64, now time.Time, window time.Duration, o LockOpts) (q PriceQuote, ok bool, err error)
+	// PriceQuotes lists the stored price locks for a station and model ("" = any), live or
+	// not: an inspection read (tests, operator views), never a pricing decision.
+	PriceQuotes(node, model string) ([]StoredQuote, error)
+	// PruneExpiredPriceQuotes deletes up to limit price quotes that expired at or before now
+	// and returns how many it deleted; a live quote is never touched.
+	PruneExpiredPriceQuotes(now time.Time, limit int) (int, error)
 	// ReleaseHoldFor returns a TRACKED reservation to the user and clears its pending-hold
 	// row, IDEMPOTENTLY: it refunds (and writes the hold_release ledger row) ONLY if the
 	// row still exists. A second call - or a call after the sweep already reclaimed it - is
@@ -190,6 +222,34 @@ type Store interface {
 	// simply re-registers on its next heartbeat. Used by the stale-node prune sweep.
 	DeleteNode(nodeID string) error
 
+	// --- Roger Edge fleet (features/edge/node_identity.feature) -------------
+	//
+	// The account-scoped node record. Separate from the Station registry above on
+	// purpose: a node does not have to host a model to belong, and a Station's
+	// registration must stay byte-identical whether or not an Edge record exists.
+
+	// EnrollEdgeNode adds a node to an account's Edge. It refuses two ways, both of
+	// which are the spec rather than a convenience: a node already enrolled to a
+	// DIFFERENT account returns *EdgeEnrolledElsewhere (one node, one Edge), and a
+	// name already held by another node in the SAME account returns ErrEdgeNameTaken
+	// (names are per-account, so the same name elsewhere is not a conflict).
+	// Re-enrolling a node this account already holds replaces the record.
+	EnrollEdgeNode(n EdgeNode) (EdgeNode, error)
+	// UpdateEdgeNode replaces an existing record, ACCOUNT-SCOPED: an account can only
+	// ever write its own node. ErrEdgeNoSuchNode when this account holds no such node;
+	// ErrEdgeNameTaken when the new name collides inside the account.
+	UpdateEdgeNode(n EdgeNode) error
+	// EdgeNodeByID returns one of this account's nodes, ok=false if it holds none with
+	// that id - including when ANOTHER account does, which is how "no surface of
+	// account B can list it, describe it, or address it" holds.
+	EdgeNodeByID(account, id string) (EdgeNode, bool, error)
+	// EdgeNodesOfAccount lists an account's enrolled nodes, ordered by name then id.
+	EdgeNodesOfAccount(account string) ([]EdgeNode, error)
+	// ForgetEdgeNode removes the record AND its pin, and nothing else: receipts,
+	// ledger rows and the Station registry are money/supply state, not fleet state.
+	// ok=false if this account holds no such node.
+	ForgetEdgeNode(account, id string) (bool, error)
+
 	// --- owner-authored price/schedule overrides (web console pricing) -------
 	//
 	// An OfferOverride is the EFFECTIVE PUBLISHED price/schedule an OWNER set from the
@@ -213,6 +273,15 @@ type Store interface {
 	// for that owner. After a clear, the node's NEXT registration restores its own
 	// node-supplied price/schedule.
 	ClearOfferOverride(owner, node, model string) (bool, error)
+
+	// A MetaOverride is an owner-authored TAXONOMY (what the model is for) for one (node,
+	// model), set from the web console (features/categories/owner_override.feature). A
+	// SIBLING of OfferOverride, never the same row, so a category edit can never change a
+	// price. Seeded into the node's offer on every register, like the price.
+	SetMetaOverride(ov MetaOverride) error
+	MetaOverride(node, model string) (MetaOverride, bool, error)
+	// ClearMetaOverride is owner-scoped like ClearOfferOverride.
+	ClearMetaOverride(owner, node, model string) (bool, error)
 
 	// --- account hub (ACCOUNT-PAYOUTS-DESIGN) -------------------------------
 
@@ -246,6 +315,18 @@ type Store interface {
 	// reaching a GitHub account by name collision (features/security/apple_session_isolation).
 	// An anonymized (deleted) account never resolves.
 	OwnerByAppleSub(sub string) (Owner, bool, error)
+	// ReconcileProviderEmail runs at a GitHub or Apple sign-in with the address the provider
+	// reports (founder ruling 2026-10-04, audit fix 2026-10-05). It records that provider's
+	// report on every live row of the identity, then judges each row whose address was NOT
+	// proven with an emailed code against the last report of EVERY provider the row is linked
+	// to: mailable when it matches any of them (case-insensitively); unproven when every linked
+	// provider has reported and none matches; left as it was while a linked provider has not
+	// reported yet. A code-proven address is never touched. verified lists every address the
+	// provider marks verified (GitHub's /user/emails): a row whose stored address matches one
+	// of them records that address as the report instead (founder ruling 2026-10-05), so a
+	// verified secondary address stays mailable. A row with nothing to record (an empty report
+	// and no matching verified address) is left exactly as it was, on both stores.
+	ReconcileProviderEmail(githubID int64, appleSub, reported string, verified ...string) error
 	// ClaimWelcome atomically stamps the owner's WelcomedAt (now) IFF it is unset,
 	// returning whether THIS call claimed it. It is the once-only guard for the welcome
 	// email: a true result means the caller (and only the caller) should send it.
@@ -408,6 +489,61 @@ type Store interface {
 	// OpenDisputeCount returns how many open disputes touch an operator account
 	// (gates account deletion / payout). accountID is the owner pubkey.
 	OpenDisputeCount(accountID string) (int, error)
+
+	// --- account keys (ROUTING-EXPRESSION-CONTRACT section 11; keys.go) ------
+
+	// CreateAccountKey persists a newly minted key (only the secret HASH is stored), enforcing
+	// the per-account MintKeyRules inside the same write (ErrKeyCount, *KeyReplayError). It
+	// returns the key as stored: CreatedAt is moved past the account's newest key if needed.
+	CreateAccountKey(k AccountKey, r MintKeyRules) (AccountKey, error)
+	// AccountKeyByHash is the auth lookup: resolve a key from sha256(secret).
+	AccountKeyByHash(hash string) (AccountKey, bool, error)
+	// AccountKeyByID reads one key by id (the caller compares the owner).
+	AccountKeyByID(id string) (AccountKey, bool, error)
+	// AccountKeysOf lists every key an account minted, revoked ones included.
+	AccountKeysOf(account string) ([]AccountKey, error)
+	// UpdateAccountKey applies edit to the LIVE key under the key's own lock and writes its
+	// editable fields (name, limit, reset, anchor, expiry, allow-lists, disabled, revoked), so
+	// an edit never writes back a flag another instance changed after the caller's read.
+	// found=false (nothing written) for a missing or revoked key: a revoked key is never edited.
+	UpdateAccountKey(id string, edit func(*AccountKey)) (k AccountKey, found bool, err error)
+	// TouchAccountKey records an authenticated use (last_used; requests when counted).
+	TouchAccountKey(id string, ts int64, request bool) error
+	// HoldForKey is HoldFor whose reservation is attributed to an account key: the key's
+	// reserved amount is the sum of its pending holds, released, captured and swept on the
+	// wallet hold's own paths; capture turns it into key spend dated keyTS. With lim.USD > 0
+	// the key's limit is enforced INSIDE the hold's transaction (window spend + open
+	// reservations + amount within lim.USD), so no lock elsewhere is needed for correctness;
+	// a refusal returns (false, ErrKeyLimit) and leaves no hold.
+	HoldForKey(user, requestID string, amount float64, keyID string, keyTS int64, lim KeyLimit) (bool, error)
+	// KeyReserved sums a key's open reservations.
+	KeyReserved(keyID string) (float64, error)
+	// KeySpend sums a key's settled spend dated in [from, to) (to <= 0 = unbounded), net of
+	// chargeback/refund reversals.
+	KeySpend(keyID string, from, to int64) (float64, error)
+	// KeySpendSince sums a key's settled spend (net of reversals) dated at or after each bound
+	// in froms, in ONE read: out[i] is the spend since froms[i].
+	KeySpendSince(keyID string, froms []int64) ([]float64, error)
+	// AccountKeySpendRefs maps every request ref any key of account settled (deleted keys
+	// included) to that key's id, in one read.
+	AccountKeySpendRefs(account string) (map[string]string, error)
+	// AppendKeyEvent writes a $0 key_event audit row on wallet.
+	AppendKeyEvent(wallet, ref string, ts int64) error
+	// RetireAccountKeys revokes every key of a deleted account and re-keys its key_event rows
+	// to anon (they carry key names and ids, so they are de-identified).
+	RetireAccountKeys(account, anon string) error
+
+	// --- Idempotency-Key claims (contract §14.B2; idem.go) --------------------
+
+	// ClaimIdempotency claims (c.Payer, c.Key) for c.RequestID unless a claim created at or
+	// after since holds it; it returns the live claim (claimed=false) or c (claimed=true).
+	// Claiming keeps at most maxPerPayer keys per payer, evicting the oldest.
+	ClaimIdempotency(c IdemClaim, since int64, maxPerPayer int) (IdemClaim, bool, error)
+	// FinishIdempotency sets the state of the claim requestID holds (no-op otherwise).
+	FinishIdempotency(payer, key, requestID, state string) error
+	// ReleaseIdempotency deletes the claim requestID holds (no-op otherwise): the request wrote
+	// nothing, so a retry with the key is served fresh.
+	ReleaseIdempotency(payer, key, requestID string) error
 
 	// --- grant keys (GRANT-KEYS-DESIGN) ------------------------------------
 
@@ -667,6 +803,12 @@ type Store interface {
 	// Terminal "ban:*" marker strikes are excluded (they are an audit record of the ban,
 	// not an independent signal). `since`<=0 counts all strikes.
 	OwnerStrikeStats(accountID string, since int64) (windowed, distinctKinds int, err error)
+	// OwnerStrikePayers returns, for an owner's strikes of one kind at or after since: total,
+	// every such row; payerRows, those that RECORD a payer (evidence "payer"); and payers, the
+	// distinct payers behind all of them, where a row with no payer (written before the payer
+	// floor existed) counts as its own payer. Callers discount only payer-bearing rows, so old
+	// evidence keeps its weight.
+	OwnerStrikePayers(accountID, kind string, since int64) (total, payerRows, payers int, err error)
 	// ThrottledCount is the number of a node's receipts the broker voided as
 	// upstream-throttled (an HTTP 429 from the provider behind the station) with a receipt
 	// ts at or after `since` (unix seconds). A throttle is recorded on the $0 receipt, never
@@ -825,11 +967,21 @@ type Owner struct {
 	// can type an address into their profile claim the account that address belongs to -
 	// including one holding a wallet balance. Only a verified address is an identity, and
 	// only a verified address may auto-link to an account a provider created.
-	EmailVerifiedAt int64  `json:"email_verified_at,omitempty"`
-	ConnectID       string `json:"stripe_connect_id,omitempty"`
-	ConnectStatus   string `json:"connect_status,omitempty"` // none|onboarding|active|restricted
-	DeletedAt       int64  `json:"deleted_at,omitempty"`
-	Anonymized      bool   `json:"anonymized,omitempty"`
+	EmailVerifiedAt int64 `json:"email_verified_at,omitempty"`
+	// EmailUnproven marks an address the account TYPED into its profile (PATCH /account): not
+	// proven by a code and not reported by the identity provider. Cap notices skip it until it
+	// is proven (founder ruling 2026-10-04).
+	EmailUnproven bool `json:"email_unproven,omitempty"`
+	// GitHubReportedEmail / AppleReportedEmail are the addresses each provider reported at
+	// its last sign-in (empty = not reported since tracking began). Kept per provider so an
+	// account linked to both is judged against BOTH: Apple's Hide My Email relay address must
+	// never withdraw the address GitHub reports. Internal bookkeeping, never serialized.
+	GitHubReportedEmail string `json:"-"`
+	AppleReportedEmail  string `json:"-"`
+	ConnectID           string `json:"stripe_connect_id,omitempty"`
+	ConnectStatus       string `json:"connect_status,omitempty"` // none|onboarding|active|restricted
+	DeletedAt           int64  `json:"deleted_at,omitempty"`
+	Anonymized          bool   `json:"anonymized,omitempty"`
 }
 
 // NodeRecord is a persisted node registration - the durable copy of the broker's
@@ -850,6 +1002,9 @@ type NodeRecord struct {
 // Mem is the in-memory implementation (single-process, non-durable).
 type Mem struct {
 	mu          sync.Mutex
+	idemClaims  map[string]IdemClaim // Idempotency-Key claims by payer\x00key (idem.go)
+	idemSeq     map[string]int64     // claim order of each (tie-break for eviction)
+	idemN       int64
 	chainHead   map[string]string // nodeID -> last recorded receipt-chain head
 	chainBreaks map[string]int64
 	chainSeen   map[string]int64
@@ -858,10 +1013,12 @@ type Mem struct {
 	earnings    map[string]float64
 	spend       map[string]float64
 	entries     []Entry
+	relayReq    map[string]string // attempt id -> its request id; joined into the consumer's rows only
 	processed   map[string]bool
 	owners      map[string]Owner // keyed by pubkey
 	policy      PayoutPolicy
-	monthlyCap  map[string]float64 // wallet -> explicit monthly spend cap ($); absent = env default
+	monthlyCap  map[string]float64    // wallet -> explicit monthly spend cap ($); absent = env default
+	priceQuotes map[string]PriceQuote // (user|node|model) -> the durable 24 h price lock (QuotePrice)
 
 	ledger   []LedgerRow     // append-only money events
 	ledgerID int64           // monotonic ledger id
@@ -881,15 +1038,18 @@ type Mem struct {
 	// pendingHolds is the deploy-orphan backstop registry: requestID -> the still-open
 	// relay pre-auth hold (HoldFor records it; Finalize/ReleaseHoldFor clear it; the
 	// ReleaseStaleHolds sweep reclaims any left stranded by a SIGKILLed relay). Guarded by mu.
-	pendingHolds map[string]pendingHold
-	recountHold  map[string]int64         // node id -> unix when the open L1 re-count hold was placed (holds promotion, P0-2; auto-expires)
-	nodeAcct     map[string]string        // node id -> owner pubkey (TOFU)
-	charges      map[string]charge        // stripe payment_intent/charge id -> checkout mapping
-	gs           *grantStore              // grant keys + per-grant usage rollups
-	bs           *bandStore               // private bands ("frequency codes": private discovery)
-	rc           *rcStore                 // remote-control session roster (BASE STATION; metadata only)
-	nodes        map[string]NodeRecord    // persisted node registry (re-hydrated on restart)
-	overrides    map[string]OfferOverride // owner-authored price/schedule overrides, keyed node\x00model
+	pendingHolds  map[string]pendingHold
+	acctKeys      map[string]AccountKey    // account keys by id (keys.go); guarded by mu
+	recountHold   map[string]int64         // node id -> unix when the open L1 re-count hold was placed (holds promotion, P0-2; auto-expires)
+	nodeAcct      map[string]string        // node id -> owner pubkey (TOFU)
+	charges       map[string]charge        // stripe payment_intent/charge id -> checkout mapping
+	gs            *grantStore              // grant keys + per-grant usage rollups
+	es            *edgeStore               // Roger Edge fleet: the account-scoped node records
+	bs            *bandStore               // private bands ("frequency codes": private discovery)
+	rc            *rcStore                 // remote-control session roster (BASE STATION; metadata only)
+	nodes         map[string]NodeRecord    // persisted node registry (re-hydrated on restart)
+	overrides     map[string]OfferOverride // owner-authored price/schedule overrides, keyed node\x00model
+	metaOverrides map[string]MetaOverride  // owner-authored taxonomy overrides, keyed node\x00model (a sibling of overrides)
 
 	// safety surfaces (safety.go): preserved CSAM incidents + the abuse/report log +
 	// banned-node set. Rare, off the hot path; guarded by the same m.mu.
@@ -938,6 +1098,8 @@ type pendingHold struct {
 	user     string
 	amount   float64
 	placedAt int64
+	keyID    string // the account key the reservation is attributed to ("" = none)
+	keyTS    int64  // the request's start, which dates the key spend at capture
 }
 
 // charge is a persisted checkout->charge mapping, so a later dispute (which carries
@@ -955,7 +1117,7 @@ func NewMem() *Mem {
 		idem: map[string]bool{}, disputes: map[string]bool{}, settled: map[string]bool{}, recountHold: map[string]int64{}, nodeAcct: map[string]string{},
 		pendingHolds: map[string]pendingHold{},
 		refunds:      map[string]bool{}, recoveredOnCharge: map[string]float64{},
-		charges: map[string]charge{}, gs: newGrantStore(), bs: newBandStore(), rc: newRCStore(), nodes: map[string]NodeRecord{},
+		charges: map[string]charge{}, gs: newGrantStore(), bs: newBandStore(), rc: newRCStore(), es: newEdgeStore(), nodes: map[string]NodeRecord{},
 		overrides: map[string]OfferOverride{},
 		banned:    map[string]string{}, bannedAt: map[string]int64{}, bannedOwners: map[string]string{}, accountHold: map[string]int64{},
 		pendingReversals: map[string]PendingReversal{},
@@ -1317,7 +1479,14 @@ func (m *Mem) Settle(user, node string, cost, ownerShare float64, rec protocol.U
 		}
 		m.settled[rec.RequestID] = true
 	}
-	m.wallet[user] -= cost
+	// A $0 metering settle for a wallet this store has never seen must not materialize its
+	// balance entry: BalanceOf seeds a wallet only when the entry is ABSENT, so creating it
+	// here would silently forfeit the wallet's one-time starter seed. Postgres creates a
+	// zero-balance row in this case, but its seed claim is independent of the row, so both
+	// stores agree: the receipt is recorded, the balance reads 0, the seed is still owed.
+	if _, known := m.wallet[user]; known || cost != 0 {
+		m.wallet[user] -= cost
+	}
 	m.spend[user] += cost
 	// Only the REAL (non-seed) funded portion of this cost earns the operator a payable
 	// lot: free seed credits must never mint a payout (P0-1). consumeSeed is called
@@ -1326,10 +1495,11 @@ func (m *Mem) Settle(user, node string, cost, ownerShare float64, rec protocol.U
 	m.earnings[node] += earnShare
 	bpt, bct := billedTokens(rec)
 	m.entries = append(m.entries, Entry{
-		RequestID: rec.RequestID, User: user, Node: node, Model: rec.Model,
+		RequestID: rec.RequestID, User: user, Node: node, Model: rec.ServedModel(),
 		PromptTokens: bpt, CompletionTokens: bct,
 		Cost: cost, OwnerShare: earnShare, TS: rec.TS,
 	})
+	m.noteRelayReqLocked(rec)
 	m.appendLedgerLocked(user, "consumer", KindSpend, -cost, "spend:"+rec.RequestID, StatePosted, rec.RequestID, rec.TS)
 	m.appendAdjustLocked(user, rec, cost)
 	m.addLotLocked(node, rec.RequestID, earnShare, time.Now())
@@ -1471,6 +1641,7 @@ func (m *Mem) Finalize(user, node string, held, cost, ownerShare float64, rec pr
 		}
 		m.settled[rec.RequestID] = true
 	}
+	m.keySpendCaptureLocked(m.pendingHolds[rec.RequestID], rec.RequestID, cost)
 	delete(m.pendingHolds, rec.RequestID) // capture clears the tracked hold (no-op if untracked) so the sweep never double-refunds a settled request
 	m.wallet[user] += held - cost         // refund the unused reservation
 	m.spend[user] += cost
@@ -1481,10 +1652,11 @@ func (m *Mem) Finalize(user, node string, held, cost, ownerShare float64, rec pr
 	m.earnings[node] += earnShare
 	bpt, bct := billedTokens(rec)
 	m.entries = append(m.entries, Entry{
-		RequestID: rec.RequestID, User: user, Node: node, Model: rec.Model,
+		RequestID: rec.RequestID, User: user, Node: node, Model: rec.ServedModel(),
 		PromptTokens: bpt, CompletionTokens: bct,
 		Cost: cost, OwnerShare: earnShare, TS: rec.TS,
 	})
+	m.noteRelayReqLocked(rec)
 	// Capture the hold into ledger: release the full reservation, then debit the
 	// actual spend. Net wallet delta == held-cost, matching the cache above.
 	m.appendLedgerLocked(user, "consumer", KindHoldRelease, held, "", StatePosted, rec.RequestID, rec.TS)
@@ -1530,6 +1702,7 @@ func (m *Mem) SettleEdge(user, stationNode, stationAcct, towerNode, towerAcct st
 	if rec.RequestID != "" {
 		m.settled[rec.RequestID] = true
 	}
+	m.keySpendCaptureLocked(ph, rec.RequestID, cost)
 	delete(m.pendingHolds, rec.RequestID)
 	m.wallet[user] += held - cost // refund the unused reservation
 	m.spend[user] += cost
@@ -1541,10 +1714,11 @@ func (m *Mem) SettleEdge(user, stationNode, stationAcct, towerNode, towerAcct st
 	m.earnings[stationNode] += stationEarn
 	bpt, bct := billedTokens(rec)
 	m.entries = append(m.entries, Entry{
-		RequestID: rec.RequestID, User: user, Node: stationNode, Model: rec.Model,
+		RequestID: rec.RequestID, User: user, Node: stationNode, Model: rec.ServedModel(),
 		PromptTokens: bpt, CompletionTokens: bct,
 		Cost: cost, OwnerShare: stationEarn, TS: rec.TS,
 	})
+	m.noteRelayReqLocked(rec)
 	m.appendLedgerLocked(user, "consumer", KindHoldRelease, held, "", StatePosted, rec.RequestID, rec.TS)
 	m.appendLedgerLocked(user, "consumer", KindSpend, -cost, "spend:"+rec.RequestID, StatePosted, rec.RequestID, rec.TS)
 	m.appendAdjustLocked(user, rec, cost)
@@ -1583,7 +1757,25 @@ func (m *Mem) SpendOf(user string) (float64, error) {
 }
 
 func (m *Mem) RecentByUser(user string, limit int) ([]Entry, error) {
-	return m.recent(func(e Entry) bool { return e.User == user }, limit), nil
+	out := m.recent(func(e Entry) bool { return e.User == user }, limit)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range out {
+		out[i].RelayRequestID = m.relayReq[out[i].RequestID]
+	}
+	return out, nil
+}
+
+// noteRelayReqLocked keeps the attempt's request id beside the ledger row, where only the
+// consumer's view joins it in (an owner's never does: it would re-link the attempts).
+func (m *Mem) noteRelayReqLocked(rec protocol.UsageReceipt) {
+	if rec.RequestID == "" || rec.RelayRequestID == "" {
+		return
+	}
+	if m.relayReq == nil {
+		m.relayReq = map[string]string{}
+	}
+	m.relayReq[rec.RequestID] = rec.RelayRequestID
 }
 
 func (m *Mem) RecentByNode(node string, limit int) ([]Entry, error) {
@@ -1737,6 +1929,8 @@ func (m *Mem) BindOwner(o Owner) error {
 		if o.EmailVerifiedAt == 0 {
 			o.EmailVerifiedAt = existing.EmailVerifiedAt
 		}
+		// A typed, unproven address stays unproven until a proof lands on the row.
+		o.EmailUnproven = existing.EmailUnproven && !(existing.EmailVerifiedAt == 0 && o.EmailVerifiedAt != 0)
 		// Name: same fill-if-empty so a once-captured display name is stable across
 		// logins (and a later GitHub name change doesn't silently overwrite it).
 		if existing.Name != "" {
@@ -1744,12 +1938,40 @@ func (m *Mem) BindOwner(o Owner) error {
 		}
 		// preserve account-hub state a fresh GitHub login wouldn't carry
 		o.WelcomedAt = existing.WelcomedAt // durable: the welcome fires exactly once, ever
+		o.GitHubReportedEmail = existing.GitHubReportedEmail
+		o.AppleReportedEmail = existing.AppleReportedEmail
 		o.ConnectID = existing.ConnectID
 		o.ConnectStatus = existing.ConnectStatus
 		o.DeletedAt = existing.DeletedAt
 		o.Anonymized = existing.Anonymized
 	}
+	if err := m.verifiedProviderEmailTakenLocked(o); err != nil {
+		return err
+	}
 	m.owners[o.Pubkey] = o
+	return nil
+}
+
+// ErrVerifiedEmailTaken is the in-memory store's form of the Postgres partial unique index
+// owners_verified_provider_email_uniq: one verified address belongs to at most one live
+// PROVIDER-linked owner row. Provider-less rows (an email account's devices) are exempt, exactly
+// as the index's WHERE clause exempts them, so a gap between the stores cannot hide again.
+var ErrVerifiedEmailTaken = errors.New("store: this verified address already belongs to another account")
+
+func providerLinked(o Owner) bool { return o.GitHubID != 0 || o.AppleSub != "" }
+
+func (m *Mem) verifiedProviderEmailTakenLocked(o Owner) error {
+	if o.EmailVerifiedAt == 0 || o.Anonymized || o.Email == "" || !providerLinked(o) {
+		return nil
+	}
+	for pk, other := range m.owners {
+		if pk == o.Pubkey || other.EmailVerifiedAt == 0 || other.Anonymized || !providerLinked(other) {
+			continue
+		}
+		if strings.EqualFold(other.Email, o.Email) {
+			return ErrVerifiedEmailTaken
+		}
+	}
 	return nil
 }
 
@@ -1799,12 +2021,15 @@ func (m *Mem) LinkVerifiedEmail(pubkey, email string, at int64) error {
 	if !ok || o.Anonymized {
 		return ErrNoOwner
 	}
+	// The same partial rule as owners_verified_provider_email_uniq: only between provider-linked
+	// rows (an email account's devices may share their verified address).
 	for pk, other := range m.owners {
-		if pk != pubkey && !other.Anonymized && other.EmailVerifiedAt != 0 && strings.EqualFold(other.Email, email) {
+		if pk != pubkey && providerLinked(o) && providerLinked(other) && !other.Anonymized &&
+			other.EmailVerifiedAt != 0 && strings.EqualFold(other.Email, email) {
 			return ErrEmailTaken
 		}
 	}
-	o.Email, o.EmailVerifiedAt = email, at
+	o.Email, o.EmailVerifiedAt, o.EmailUnproven = email, at, false // proven now
 	m.owners[pubkey] = o
 	return nil
 }
@@ -1828,15 +2053,75 @@ func (m *Mem) OwnerByAppleSub(sub string) (Owner, bool, error) {
 	})
 }
 
+// judgeProviderEmail is the reconcile rule for one row (both stores encode it; Postgres in
+// SQL): mailable when the stored address matches any linked provider's last report, unproven
+// when every linked provider has reported and none matches, unchanged otherwise.
+func judgeProviderEmail(o Owner) bool {
+	if (o.GitHubReportedEmail != "" && strings.EqualFold(o.Email, o.GitHubReportedEmail)) ||
+		(o.AppleReportedEmail != "" && strings.EqualFold(o.Email, o.AppleReportedEmail)) {
+		return false
+	}
+	ghKnown := o.GitHubID == 0 || o.GitHubReportedEmail != ""
+	apKnown := o.AppleSub == "" || o.AppleReportedEmail != ""
+	if ghKnown && apKnown {
+		return true
+	}
+	return o.EmailUnproven
+}
+
+func (m *Mem) ReconcileProviderEmail(githubID int64, appleSub, reported string, verified ...string) error {
+	if (reported == "" && len(verified) == 0) || (githubID == 0 && appleSub == "") {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for pk, o := range m.owners {
+		if o.Anonymized {
+			continue
+		}
+		ghMatch := githubID != 0 && o.GitHubID == githubID
+		apMatch := appleSub != "" && o.AppleSub == appleSub
+		if !ghMatch && !apMatch {
+			continue
+		}
+		rep := reported
+		for _, v := range verified {
+			if o.Email != "" && strings.EqualFold(o.Email, v) {
+				rep = v
+				break
+			}
+		}
+		if rep == "" {
+			continue // only unmatched verified addresses and no primary: nothing to record
+		}
+		if ghMatch {
+			o.GitHubReportedEmail = rep
+		}
+		if apMatch {
+			o.AppleReportedEmail = rep
+		}
+		// The report is recorded on every live row (as Postgres does); only an address that was
+		// not proven by code is re-judged.
+		if o.EmailVerifiedAt == 0 && o.Email != "" {
+			o.EmailUnproven = judgeProviderEmail(o)
+		}
+		m.owners[pk] = o
+	}
+	return nil
+}
+
 func (m *Mem) UpdateAccount(login, email string) (Owner, bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for pk, o := range m.owners {
 		if o.Login == login && !o.Anonymized {
-			if !strings.EqualFold(o.Email, email) { // the proof was for the old address
+			// Mirrors Postgres.UpdateAccount: a typed address is unproven and withdraws the
+			// previous address's proof; re-typing the same address (any case) changes nothing.
+			if !strings.EqualFold(o.Email, email) {
+				o.Email = email
 				o.EmailVerifiedAt = 0
+				o.EmailUnproven = email != ""
 			}
-			o.Email = email
 			m.owners[pk] = o
 			return o, true, nil
 		}
@@ -1885,6 +2170,9 @@ func (m *Mem) DeleteAccount(login string) (bool, error) {
 			// nothing downstream misses them.
 			o.Email = ""
 			o.EmailVerifiedAt = 0
+			o.EmailUnproven = false
+			o.GitHubReportedEmail = ""
+			o.AppleReportedEmail = ""
 			o.Name = ""
 			o.GitHubID = 0
 			o.AppleSub = ""
@@ -2547,6 +2835,7 @@ func (m *Mem) addRecoveredLocked(chargeRefs []string, amount float64) {
 func (m *Mem) recoverLineageLocked(id, consumerKind, consumerRefPrefix, wallet, requestID string, amount, unspentReclaim float64, now time.Time) ChargebackResult {
 	m.wallet[wallet] -= amount
 	m.appendLedgerLocked(wallet, "consumer", consumerKind, -amount, consumerRefPrefix+id, StatePosted, id, now.Unix())
+	m.keyReverseLocked(requestID, amount)
 
 	// Lineage: target THIS consumer wallet's OWN lots (via the receipts/entries link),
 	// never unrelated operators'. With an explicit requestID we target that one request

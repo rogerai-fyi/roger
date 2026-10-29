@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/protocol"
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 // registerPriced posts a signed, OWNER-BOUND (priced) registration for nodeID and

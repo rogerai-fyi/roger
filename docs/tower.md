@@ -215,9 +215,9 @@ another hub either.
 The transition runs one way round, and it is worth stating in the right direction. A tower
 running THIS code or later accepts the old bearer token as well, for one release, so a node
 whose operator has not updated `roger` yet keeps earning; that tolerance ends for a given
-station the moment the station signs once, and `roger-tower serve --hub-legacy-bearer=false`
+station the moment the station signs once, and `roger tower serve --hub-legacy-bearer=false`
 ends it outright for an operator who knows their fleet has updated. A tower running an OLDER
-`roger-tower` has no notion of any of this: it only knows the bearer, so a node that HAS updated
+A Tower has no notion of any of this: it only knows the bearer, so a node that HAS updated
 cannot serve through it at all, and the node says so rather than failing quietly.
 
 **Update Core first.** The tower learns a station's assertion key from Core and from nowhere
@@ -235,7 +235,7 @@ and the probe history of the machine behind it have no name in common, and edge 
 nothing to rank by. Attaching is an account act, so an anonymous free share simply does not
 join - it serves the ordinary way and nothing is printed about it either way.
 
-`roger-tower station revoke` remains the tower operator's kill switch for a station serving
+`roger tower station revoke` remains the tower operator's kill switch for a station serving
 under their tower.
 
 ### The lifecycle states
@@ -398,7 +398,7 @@ direct node's serving share uses. They hold, release, and cash out through `/pay
 like any other earning: Stripe Connect transfer, the 30-day hold with its 90-day reserve tail, $25 minimum, KYC gate, and
 clawback on dispute. The Payouts page shows relaying and serving apart (provenance only).
 
-An operator reads that money on `/tower/earnings/owed` (or `roger-tower earnings`), scoped to
+An operator reads that money on `/tower/earnings/owed` (or `roger tower earnings`), scoped to
 the account key that signs the request — the same credits, the same held/payable/paid, and the
 same relaying-vs-serving split the website shows, because it is the same ledger. Two surfaces
 that disagree about one balance is a bug, and it was one: this endpoint used to answer from the
@@ -496,7 +496,7 @@ best-effort mirror still records evidence for the audit chain, but no money rest
 | Canaries (Core probes a Tower by using it) | built |
 | Sampled transcript audit (Station-signed, checked against receipt digests) | built |
 | Core-issued edge TLS certificates (`/tower/station/edge-cert`) | **removed** — the sealed path authenticates by keys in the Core-signed grant, not TLS names |
-| First-party sealed consumer (`internal/edgeclient` AuthorizeSealed/DoSealed/AckSealed, `roger-tower probe`) | built |
+| First-party sealed consumer (`internal/edgeclient` AuthorizeSealed/DoSealed/AckSealed, `roger tower probe`) | built |
 | Mutual TLS on the link + certificate revocation enforcement | built — a revoked serial is refused on the Tower's next request, and the link authenticates the client cert when one is presented |
 | Compensation: funding-accrual ledger (accrual on settlement + operator "owed" read) | built — one idempotent row per settled attempt, priced on billable usage; `internal/towercore/earnings` |
 | Compensation: disbursement (moving money to an operator) | built — relay and serving lots both cash out through `/payouts/request` to a Stripe Connect transfer (hold, minimum, KYC, clawback all shared with the direct path) |

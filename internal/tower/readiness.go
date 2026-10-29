@@ -89,12 +89,12 @@ func Ready(c *Config) Readiness {
 	dir := c.Identity.Dir
 	if dir == "" {
 		r.fail(DepIdentityVolume, "no identity directory is configured",
-			"set identity.dir to a durable volume, then run `roger-tower init --dir <that path> --mode standalone`")
+			"set identity.dir to a durable volume, then run `roger tower init --dir <that path> --mode standalone`")
 		return r.done()
 	}
 	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
 		r.fail(DepIdentityVolume, fmt.Sprintf("%s is not a readable directory", dir),
-			"mount a durable volume at that path, then run `roger-tower init --dir "+dir+" --mode standalone`")
+			"mount a durable volume at that path, then run `roger tower init --dir "+dir+" --mode standalone`")
 		return r.done()
 	}
 
@@ -127,7 +127,7 @@ func Ready(c *Config) Readiness {
 				"restore the identity volume from backup; a standalone network cannot verify its clients without it")
 		} else if !any {
 			r.fail(DepOperator, "this network has admitted no local client",
-				"run `roger-tower invite --dir "+dir+" --client <key hash>` and redeem it with `roger-tower admit`")
+				"run `roger tower invite --dir "+dir+" --client <key hash>` and redeem it with `roger tower admit`")
 		}
 	}
 

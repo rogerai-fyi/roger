@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"rogerai.fm/roger/v6/internal/client"
+	"rogerai.fm/roger/v7/internal/client"
 )
 
 // chat.go - the console's CHAT tab (founder 2026-08-20: the chat mechanics lived only
@@ -91,6 +91,9 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		writeChatErr(w, http.StatusBadGateway, err.Error())
 		return
 	}
+	// The turn is a session on this machine's Edge, exactly as a guest's or `roger use`'s
+	// would be - recorded from the receipt, after the fact, on the path that already had it.
+	s.recordConsoleSession(res.Receipt)
 	writeJSON(w, chatResp{
 		OK:        true,
 		Reply:     res.Reply,

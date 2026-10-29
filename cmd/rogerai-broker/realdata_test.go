@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // TestHwConcurrencyClassBuckets: the privacy-bucketed hw classes map to sensible

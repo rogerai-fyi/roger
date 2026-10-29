@@ -152,6 +152,7 @@
     var slots = (s.on_air || 0) + "/" + (s.max_on_air || 0);
     $("top-slots-text").textContent = slots;
     $("share-slots-text").textContent = slots;
+    window.RogerConsoleLAN.renderLAN(document, s);
 
     var t = s.totals || {};
     var totals = $("share-totals");
@@ -162,7 +163,7 @@
     totals.appendChild(document.createTextNode(" · "));
     totals.appendChild(el("span", null, fmtUSD(t.earnings) + " at list"));
     totals.appendChild(document.createTextNode(" · "));
-    totals.appendChild(el("span", "muted", "settles on the broker"));
+    totals.appendChild(el("span", "muted", window.RogerConsoleLAN.costLine(s)));
     // A PROBE IS NOT TRAFFIC, and the console has to say so in the same words the terminal
     // uses. The requests/tokens above exclude the broker's canaries; reporting them beside
     // rather than not at all is what keeps a busy rig explicable. Shown only when there are
@@ -201,8 +202,8 @@
     });
     if (!tbody.children.length) {
       var er = el("tr", "empty-row");
-      var td = el("td", null, "No models detected yet. Try re-detect.");
-      td.colSpan = 8; er.appendChild(td); tbody.appendChild(er);
+      var td = el("td", null, "No other model server detected. Try re-detect.");
+      td.colSpan = 9; er.appendChild(td); tbody.appendChild(er);
     }
   }
 
@@ -219,7 +220,8 @@
     tr.appendChild(el("td", "num served"));               // 4 served
     tr.appendChild(el("td", "num outtok"));               // 5 out tok
     tr.appendChild(el("td", "num earnings"));             // 6 earnings
-    tr.appendChild(el("td", "col-actions"));              // 7 actions
+    tr.appendChild(el("td", "cat-cell"));                 // 7 category
+    tr.appendChild(el("td", "col-actions"));              // 8 actions
     return tr;
   }
 
@@ -284,8 +286,11 @@
     tds[5].textContent = fmtInt(row.out_tokens);
     tds[6].textContent = fmtUSD(row.earnings);
 
+    // --- category: the declaration, else the guess marked "~", else a dash ---
+    tds[7].textContent = catLabel(row);
+
     // --- actions ---
-    tds[7].innerHTML = "";
+    tds[8].innerHTML = "";
     var actions = el("div", "row-actions");
     var onairBtn = el("button", "btn small", onAir ? "Take off air" : "Put on air");
     onairBtn.setAttribute("data-act", "onair");
@@ -298,8 +303,12 @@
     priceBtn.setAttribute("data-model", row.model);
     actions.appendChild(onairBtn);
     actions.appendChild(privBtn);
+    var catBtn = el("button", "btn small ghost", "Category");
+    catBtn.setAttribute("data-act", "category");
+    catBtn.setAttribute("data-model", row.model);
     actions.appendChild(priceBtn);
-    tds[7].appendChild(actions);
+    actions.appendChild(catBtn);
+    tds[8].appendChild(actions);
   }
 
   /* 6. SHARE ACTIONS ------------------------------------------------------- */
@@ -391,6 +400,74 @@
       closeModal();
       toast((r && r.message) || "Pricing saved.", "ok");
     }).catch(toastErr);
+  }
+
+  // --- category modal (features/categories/console_editor.feature) ---
+  function catPair(t) { return t.subcategory ? t.category + "/" + t.subcategory : t.category; }
+  function catLabel(row) {
+    if (row.declared) return row.declared.category ? catPair(row.declared) : "(no category)";
+    if (row.inferred && row.inferred.category) return catPair(row.inferred) + "~";
+    return "—";
+  }
+  var catModel = null, catList = [];
+  function fillSelect(sel, values, cur) {
+    sel.innerHTML = "";
+    values.forEach(function (v) {
+      var o = el("option", "", v || "(none)"); o.value = v; if (v === cur) o.selected = true; sel.appendChild(o);
+    });
+  }
+  function fillSubs(cur) {
+    var cat = $("cat-cat").value, subs = [""];
+    catList.forEach(function (c) { if (c.name === cat) subs = subs.concat(c.subcategories); });
+    fillSelect($("cat-sub"), subs, cur);
+  }
+  function openCatModal(model) {
+    catModel = model;
+    $("cat-model").textContent = model;
+    show($("cat-err"), false);
+    Promise.all([
+      api("GET", "/api/categories"),
+      api("GET", "/api/share/meta?model=" + encodeURIComponent(model))
+    ]).then(function (res) {
+      catList = (res[0] && res[0].categories) || [];
+      var d = res[1] && res[1].declared, inf = res[1] && res[1].inferred;
+      var guess = !(d && (d.category || (d.tags && d.tags.length) || d.tuning || d.content_policy || d.license || d.base_model));
+      var t = (guess ? inf : d) || {};
+      show($("cat-guess"), guess);
+      fillSelect($("cat-cat"), [""].concat(catList.map(function (c) { return c.name; })), t.category || "");
+      fillSubs(t.subcategory || "");
+      $("cat-tags").value = (t.tags || []).join(", ");
+      $("cat-tuning").value = t.tuning || "";
+      $("cat-policy").value = t.content_policy || "";
+      $("cat-license").value = t.license || "";
+      $("cat-base").value = t.base_model || "";
+      modalOpen("modal-cat");
+    }).catch(toastErr);
+  }
+  function catFail(e) {
+    // The server's reason, in the modal, so the operator can correct it in place.
+    $("cat-err").textContent = e.message;
+    show($("cat-err"), true);
+  }
+  function saveCat() {
+    if (!catModel) return;
+    var cat = $("cat-cat").value, sub = $("cat-sub").value;
+    var tags = $("cat-tags").value.split(",").map(function (s) { return s.trim(); }).filter(Boolean);
+    apiPost("/api/share/meta", {
+      model: catModel, category: sub ? cat + "/" + sub : cat, tags: tags,
+      tuning: $("cat-tuning").value, content_policy: $("cat-policy").value,
+      license: $("cat-license").value.trim(), base_model: $("cat-base").value.trim()
+    }).then(function () {
+      closeModal();
+      toast("Category saved - it applies the next time the model goes on air.", "ok");
+    }).catch(catFail);
+  }
+  function clearCat() {
+    if (!catModel) return;
+    api("DELETE", "/api/share/meta?model=" + encodeURIComponent(catModel)).then(function () {
+      closeModal();
+      toast("Category cleared - the guess is back.", "ok");
+    }).catch(catFail);
   }
 
   // --- rename + detect ---
@@ -1303,7 +1380,7 @@
   }
 
   /* TABS ------------------------------------------------------------------- */
-  var TABS = ["chat", "share", "account", "browse", "settings"];
+  var TABS = ["chat", "share", "account", "browse", "edge", "settings"];
 
   // CHAT IS THE LANDING TAB (founder 2026-08-21: "lets make sure we start the webui on
   // the chat"). The console used to open on SHARE, which is the provider surface - it
@@ -1325,6 +1402,11 @@
     if (name === "account") loadAccount();
     if (name === "browse") loadBrowse();
     if (name === "settings") loadSettings();
+    // The EDGE tab polls and animates ONLY while it is the shown tab (edgeStart/edgeStop
+    // below): a hidden graph reading the fleet once a second would be a cost with no eyes.
+    if (name === "edge") edgeStart(); else edgeStop();
+    // Roger's own rows live in SHARE (local_models.feature §9): their clock runs while it is shown.
+    if (name === "share") modelsStart(); else modelsStop();
     if (name === "chat") {
       // Refresh the market half (the LOCAL half is already live off the snapshot stream),
       // then focus the composer - opening CHAT means you intend to type.
@@ -1518,9 +1600,2004 @@
     }
   }
 
+  /* EDGE -------------------------------------------------------------------
+     ROGER EDGE - "what is on my Edge, and how is it connected?" (features/edge/
+     console_view.feature). This is the console's window on the SAME Edge the terminal's
+     [3] EDGE screen draws; the server decides the arrangement (which relay a node hangs
+     under) and the words, and this block paints exactly what it is told.
+
+     THE RULE: never draw a link that has not been seen. Solid = LAN-direct, dashed = through
+     a relay (drawn as its own node so the hop is visible), broken + dim = dark, and KEPT.
+
+     THE ANIMATION IS EVIDENCE. A browser has no heartbeat channel, so "heard from" is a
+     node's last_seen advancing between two reads, and that comparison is the ONLY thing
+     that starts a pulse. The read tick is the one timer here, and it never pulses by
+     itself: a still graph means a quiet fleet. prefers-reduced-motion turns the travelling
+     pulse into a still mark on the node, gated on the same heartbeat.
+
+     Everything is textContent / createElement(NS): node names come off the network. */
+  var edgeTimer = null;      // the read tick, alive only while the tab is shown
+  var edgeRaf = null;        // the pulse frame, alive only while a pulse is travelling
+  var edgePrev = null;       // id -> node from the previous read (the heartbeat baseline)
+  var edgeLast = null;       // the latest snapshot
+  var edgeSel = null;        // the selected node/candidate ID - sticky across reads
+  var edgePos = {};          // id -> [x, y] on the current drawing
+  var edgePulses = [];       // {path: [[x,y],...], t: 0..1}
+  var edgeReduced = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  var EDGE_W = 640, EDGE_H = 400, EDGE_CX = 320, EDGE_CY = 200, EDGE_R = 140, EDGE_CHILD = 78;
+  // the capability vocabulary as MARKS, UPPER when VERIFIED - case, not colour
+  // The capability marks, the SAME two letters the TUI and the fleet screen use. "se" for sense was
+  // this console's own invention and read as a different capability beside the terminal's "sn".
+  var EDGE_MARK = { serve: "sv", classify: "cl", sense: "sn", actuate: "ac", relay: "rl", operate: "op", maintain: "mt", "serve-control": "sc" };
+
+  function svgEl(tag, attrs) {
+    var n = document.createElementNS("http://www.w3.org/2000/svg", tag);
+    if (attrs) Object.keys(attrs).forEach(function (k) { n.setAttribute(k, attrs[k]); });
+    return n;
+  }
+
+  // edgeName is what to PRINT for a node or unit. A record whose name is its own id was never named
+  // by its owner, and the server sends a short label for it; the record name is still what identity
+  // and the rename form use, so only display goes through here.
+  function edgeName(n) {
+    if (!n) return "";
+    return String(n.label || n.name || "");
+  }
+
+  // edgeClip bounds a label to its cell; the full name stays on the node's <title>.
+  function edgeClip(str, n) {
+    str = String(str || "");
+    return str.length > n ? str.slice(0, Math.max(1, n - 1)) + "…" : str;
+  }
+
+  function edgeMarks(n) {
+    var out = [];
+    (n.caps || []).forEach(function (c) {
+      var mk = EDGE_MARK[c.name] || c.name.slice(0, 2);
+      out.push(c.state === "VERIFIED" ? mk.toUpperCase() : mk);
+    });
+    return out.length ? "[" + out.join(" ") + "]" : "";
+  }
+
+  function edgeLinkClass(n) {
+    if (n.dark) return "edge-link edge-link--dark";
+    if (n.lan) return "edge-link edge-link--lan";
+    return "edge-link edge-link--relay";
+  }
+
+  function edgeStart() {
+    if (edgeTimer) return;
+    edgeTick();
+    edgeTimer = setInterval(edgeTick, 1000);
+  }
+
+  function edgeStop() {
+    if (edgeTimer) clearInterval(edgeTimer);
+    edgeTimer = null;
+    if (edgeRaf) cancelAnimationFrame(edgeRaf);
+    edgeRaf = null;
+    edgePulses = [];
+  }
+
+  function edgeTick() {
+    if (document.hidden) return; // a page nobody can see reads nothing
+    loadEdge();
+  }
+
+  // THE OWNER'S TOWERS (console-towers.js): read with the Edge, on the same tick.
+  var towerInvite = null, towerOutcome = null;
+  var towerOn = {
+    invite: function (t) {
+      apiPost("/api/towers/invite", { dir: t.dir }).then(function (inv) {
+        towerInvite = inv; towerOutcome = null;
+        window.RogerConsoleTowers.renderInvite(document, towerInvite, towerOutcome, towerOn);
+      }).catch(toastErr);
+    },
+    decide: function (r, approve) {
+      apiPost("/api/towers/decide", { dir: r.dir, id: r.id, approve: approve }).then(function (v) {
+        toast(approve ? r.name + " can join " + r.tower : "refused " + r.name, "ok");
+        window.RogerConsoleTowers.render(document, v, towerOn);
+      }).catch(toastErr);
+    },
+    copy: function (line) { copyText(line); }
+  };
+  function loadTowers() {
+    if (!window.RogerConsoleTowers) return;
+    apiGet("/api/towers").then(function (v) { window.RogerConsoleTowers.render(document, v, towerOn); }).catch(function () {});
+    if (towerInvite && !(towerOutcome && towerOutcome.over)) {
+      apiGet("/api/towers/invite/outcome?dir=" + encodeURIComponent(towerInvite.dir) + "&id=" + encodeURIComponent(towerInvite.id) +
+        "&expires_at=" + encodeURIComponent(towerInvite.expires_at)).then(function (o) {
+        towerOutcome = o;
+        window.RogerConsoleTowers.renderInvite(document, towerInvite, towerOutcome, towerOn);
+      }).catch(function () {});
+    }
+  }
+
+  function loadEdge() {
+    loadTowers();
+    apiGet("/api/edge").then(function (d) {
+      show($("edge-error"), false);
+      edgeRender(d);
+    }).catch(function (e) {
+      // A fleet that could not be READ is an error on screen, never an empty Edge.
+      var er = $("edge-error");
+      if (er) { er.textContent = "could not read your Edge: " + e.message; show(er, true); }
+      show($("edge-empty"), false);
+    });
+  }
+
+  function edgeHeadline(d) {
+    var dark = 0;
+    d.nodes.forEach(function (n) { if (n.dark) dark++; });
+    var out = d.nodes.length + (d.nodes.length === 1 ? " node" : " nodes");
+    var ni = (d.self_instances || []).length;
+    d.nodes.forEach(function (n) { ni += (n.instances || []).length; });
+    if (ni) out += " \u00b7 " + ni + (ni === 1 ? " instance" : " instances");
+    if (dark) out += " · " + dark + " dark";
+    if (d.candidates.length) out += " · " + d.candidates.length + (d.candidates.length === 1 ? " candidate" : " candidates");
+    return "· " + out;
+  }
+
+  var edgeEmptyCtl = null, edgeEmptyKey = "";
+
+  function edgeRender(d) {
+    edgeLast = d;
+    if (!d || d.configured === false) {
+      show($("edge-disabled"), true);
+      show($("edge-empty"), false);
+      show($("edge-stage"), false);
+      return;
+    }
+    show($("edge-disabled"), false);
+    var hl = $("edge-headline");
+    if (hl) hl.textContent = edgeHeadline(d);
+    // THE MODE BADGE: root and preference, two words never collapsed into one, and the
+    // route mix of the live sessions, so a fleet leaking to the market is obvious.
+    var md = $("edge-mode");
+    if (md) {
+      var f = d.facts || {};
+      var local = 0, market = 0;
+      (d.sessions || []).forEach(function (s) { if (s.route === "market") market += s.count || 1; else if (s.route === "local") local += s.count || 1; });
+      var parts = [];
+      if (f.root) parts.push(f.root);
+      if (f.prefer) parts.push(f.prefer);
+      if (local + market) parts.push(local + " local \u00b7 " + market + " market");
+      md.textContent = parts.join(" \u00b7 ");
+      md.className = "mono edge-mode" + (f.prefer === "LOCAL-ONLY" ? " edge-mode--only" : "");
+    }
+    var selfName = $("edge-self-name");
+    if (selfName) selfName.textContent = d.self || "this machine";
+
+    // HEARTBEATS: a node whose last_seen advanced since the previous read was really heard
+    // from. That comparison is the one and only trigger of a pulse.
+    var seen = {};
+    d.nodes.forEach(function (n) {
+      seen[n.id] = n;
+      var prev = edgePrev ? edgePrev[n.id] : null;
+      if (prev && n.last_seen > prev.last_seen) {
+        edgePulse(n, d.nodes);
+      }
+    });
+    edgePrev = seen;
+
+    // A device pinging nearby does not change this machine's state: a machine in no Edge keeps the
+    // simple empty state and the device is a NEARBY row under it (§7).
+    var empty = !d.nodes.length && (!d.candidates.length || !!d.empty);
+    // A machine in no Edge gets the simple empty state, never the old facts block
+    // (features/edge/empty_edge_simple.feature §6).
+    show($("edge-empty"), empty && !d.empty);
+    if (empty && !d.empty) edgeRenderFacts(d);
+    var simple = $("edge-empty-simple");
+    if (simple && window.RogerConsoleEdgeEmpty) {
+      if (empty && d.empty) {
+        if (!edgeEmptyCtl || edgeEmptyKey !== JSON.stringify(d.empty)) {
+          edgeEmptyKey = JSON.stringify(d.empty);
+          edgeEmptyCtl = window.RogerConsoleEdgeEmpty.render(document, simple, d, {
+            fetch: function (path, opts) { return fetch(withToken(path), opts); },
+            refresh: loadEdge,
+          });
+        }
+      } else {
+        show(simple, false);
+        edgeEmptyCtl = null; edgeEmptyKey = "";
+      }
+    }
+    show($("edge-stage"), !empty);
+    if (!empty) {
+      if (d.too_many) {
+        show($("edge-graph-wrap"), false);
+        show($("edge-list-wrap"), true);
+        edgeRenderList(d);
+      } else {
+        show($("edge-list-wrap"), false);
+        show($("edge-graph-wrap"), true);
+        edgeRenderGraph(d);
+      }
+    }
+    edgeRenderNearby(d);
+    edgeRenderCandidates(d);
+    edgeRenderAdopting(d);
+    edgeRenderSessions(d);
+    edgeRenderGrants(d);
+    edgeRenderRules(d);
+    edgeRenderSinks(d);
+    edgeRenderFloor(d);
+    edgeRenderEvents(d);
+    edgeRenderIntent(d);
+    edgeCanManage = !!d.manage;
+    edgeRenderSelfControls(d);
+    edgeRenderDetail(d);
+  }
+
+  // edgeRenderFacts fills the empty state's three facts from the server's wording. The
+  // sentences are the server's (d.facts), verbatim: the console says what the terminal
+  // says. A status that could not be read shows its error and claims nothing.
+  function edgeRenderFacts(d) {
+    var st = d.self_status, facts = d.facts;
+    var box = $("edge-facts"), er = $("edge-status-error");
+    if (st && st.error) {
+      show(box, false);
+      if (er) { er.textContent = "this machine's Edge status could not be read: " + st.error; show(er, true); }
+      return;
+    }
+    show(er, false);
+    if (!facts) { show(box, false); return; }
+    var m = $("edge-fact-machine"), a = $("edge-fact-authority"), dd = $("edge-fact-discovery"), en = $("edge-fact-enroll");
+    if (m) m.textContent = facts.machine || "";
+    if (a) {
+      a.innerHTML = "";
+      (facts.authority || []).forEach(function (t, i) { if (i) a.appendChild(document.createElement("br")); a.appendChild(document.createTextNode(t)); });
+    }
+    if (dd) dd.textContent = facts.discovery || "";
+    if (en && facts.enroll_against) en.textContent = facts.enroll_against;
+    // The interactive wizard is a terminal thing for now: point at it when this machine is
+    // not yet a member, hide it once it is (onboard.feature @console).
+    var sp = $("edge-fact-setup"), spt = $("edge-fact-setup-text");
+    if (sp) { if (facts.setup) { if (spt) spt.textContent = facts.setup; show(sp, true); } else show(sp, false); }
+    show(box, true);
+  }
+
+  // edgeLayout places self at the centre and every top-level node around it; a node
+  // reached through a relay sits OUTSIDE its relay, on the relay's bearing, so the hop
+  // reads as a hop.
+  function edgeLayout(nodes) {
+    var pos = {}, tops = nodes.filter(function (n) { return !n.child; });
+    var byName = {};
+    nodes.forEach(function (n) { byName[n.name] = n; });
+    var bearing = {};
+    tops.forEach(function (n, i) {
+      var a = -Math.PI / 2 + (i * 2 * Math.PI) / Math.max(1, tops.length);
+      bearing[n.id] = a;
+      pos[n.id] = [EDGE_CX + EDGE_R * Math.cos(a), EDGE_CY + EDGE_R * Math.sin(a)];
+    });
+    var kids = {};
+    nodes.forEach(function (n) {
+      if (!n.child) return;
+      var r = byName[n.via];
+      if (!r || !pos[r.id]) { // its relay was not drawn (cannot happen server-side; be safe)
+        var a0 = -Math.PI / 2 + Math.random() * 2 * Math.PI;
+        pos[n.id] = [EDGE_CX + EDGE_R * Math.cos(a0), EDGE_CY + EDGE_R * Math.sin(a0)];
+        return;
+      }
+      kids[r.id] = (kids[r.id] || 0) + 1;
+      var spread = (kids[r.id] - 1) * 0.45 - 0.45;
+      var a = bearing[r.id] + spread;
+      pos[n.id] = [pos[r.id][0] + EDGE_CHILD * Math.cos(a), pos[r.id][1] + EDGE_CHILD * Math.sin(a)];
+    });
+    return pos;
+  }
+
+  // edgePath is the route a heartbeat travels, node to self, THROUGH its relay when it has
+  // one - the hop is drawn, so the pulse takes it.
+  function edgePath(n, nodes) {
+    var from = edgePos[n.id];
+    if (!from) return null;
+    var path = [from];
+    if (n.via) {
+      var relay = null;
+      nodes.forEach(function (x) { if (x.name === n.via) relay = x; });
+      if (relay && edgePos[relay.id]) path.push(edgePos[relay.id]);
+    }
+    path.push([EDGE_CX, EDGE_CY]);
+    return path;
+  }
+
+  function edgeRenderGraph(d) {
+    var svg = $("edge-graph");
+    if (!svg) return;
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+    // This machine heartbeats into its own fleet row (its instances and alerts ride on it); the
+    // graph draws it ONCE, as the hub at the centre, never again as a member node.
+    var selfRow = null;
+    var others = (d.nodes || []).filter(function (n) { if (n.name === d.self) { selfRow = n; return false; } return true; });
+    edgePos = edgeLayout(others);
+    var byName = {};
+    others.forEach(function (n) { byName[n.name] = n; });
+
+    // links first, so nodes paint over them
+    others.forEach(function (n) {
+      var p = edgePos[n.id];
+      if (!p) return;
+      var to = [EDGE_CX, EDGE_CY];
+      if (n.child && byName[n.via] && edgePos[byName[n.via].id]) to = edgePos[byName[n.via].id];
+      svg.appendChild(svgEl("line", { x1: p[0], y1: p[1], x2: to[0], y2: to[1], "class": edgeLinkClass(n) }));
+    });
+
+    // self, at the centre
+    var self = svgEl("g", { "class": "edge-node edge-self" });
+    self.appendChild(svgEl("circle", { cx: EDGE_CX, cy: EDGE_CY, r: 9 }));
+    var st = svgEl("text", { x: EDGE_CX, y: EDGE_CY + 24, "text-anchor": "middle" });
+    st.textContent = edgeClip(d.self || "this machine", 16);
+    self.appendChild(st);
+    if (selfRow && selfRow.alerts && selfRow.alerts.length) {
+      self.setAttribute("class", "edge-node edge-self edge-node--alert");
+      var sm = svgEl("text", { x: EDGE_CX, y: EDGE_CY + 38, "text-anchor": "middle", "class": "edge-marks" });
+      sm.textContent = "\u26a0 " + selfRow.alerts.length;
+      self.appendChild(sm);
+    }
+    svg.appendChild(self);
+
+    others.forEach(function (n) {
+      var p = edgePos[n.id];
+      if (!p) return;
+      var alerts = n.alerts || [];
+      var cls = "edge-node" + (n.dark ? " edge-node--dark" : "") + (alerts.length ? " edge-node--alert" : "") + (n.id === edgeSel ? " edge-node--sel" : "");
+      var g = svgEl("g", { "class": cls, "data-id": n.id, tabindex: "0", role: "button" });
+      var title = svgEl("title");
+      title.textContent = edgeName(n) + (n.via ? " (through " + n.via + ")" : "");
+      g.appendChild(title);
+      g.appendChild(svgEl("circle", { cx: p[0], cy: p[1], r: n.relay ? 8 : 6 }));
+      var label = svgEl("text", { x: p[0], y: p[1] - 12, "text-anchor": "middle" });
+      label.textContent = edgeClip(edgeName(n), 14);
+      g.appendChild(label);
+      var marks = svgEl("text", { x: p[0], y: p[1] + 20, "text-anchor": "middle", "class": "edge-marks" });
+      marks.textContent = edgeMarks(n) + (n.dark ? " DARK " + (n.age || "") : "") + (alerts.length ? " \u26a0 " + alerts.length : "");
+      g.appendChild(marks);
+      // the household: the rogers running on this node, under its name
+      var insts = n.instances || [];
+      if (insts.length) {
+        var it = svgEl("text", { x: p[0], y: p[1] + 32, "text-anchor": "middle", "class": "edge-insts" });
+        it.textContent = insts.slice(0, 3).map(function (i) { return "/" + i.name; }).join(" ") + (insts.length > 3 ? " +" + (insts.length - 3) : "");
+        g.appendChild(it);
+      }
+      g.addEventListener("click", function () { edgeSelect(n.id); });
+      g.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); edgeSelect(n.id); } });
+      svg.appendChild(g);
+    });
+    // re-place any pulse in flight onto the new geometry
+    edgePulses.forEach(function (pl) { var n = pl.node; var path = edgePath(n, d.nodes); if (path) pl.path = path; });
+    edgeDrawPulses(svg);
+    var lg = $("edge-legend");
+    if (lg) lg.textContent = "─ direct  ┄ through a relay  ╌ dark (kept)  ·  marks: sv serve  cl classify  se sense  ac actuate  rl relay  op operate  (UPPER = verified)";
+  }
+
+  function edgeRenderList(d) {
+    var body = $("edge-list");
+    if (!body) return;
+    body.innerHTML = "";
+    d.nodes.forEach(function (n) {
+      var tr = el("tr", n.id === edgeSel ? "is-selected" : null);
+      tr.setAttribute("data-id", n.id);
+      var name = el("td", "mono", (n.child ? "\u2514 " : "") + edgeName(n));
+      name.title = n.name; // the hover carries the record name, which is what a command takes
+      tr.appendChild(name);
+      tr.appendChild(el("td", null, n.kind));
+      tr.appendChild(el("td", "mono", edgeMarks(n)));
+      tr.appendChild(el("td", null, n.dark ? "broken" : n.lan ? "direct" : n.via ? "through " + n.via : "relay"));
+      tr.appendChild(el("td", n.dark ? "muted" : null, n.presence));
+      tr.appendChild(el("td", "num", n.age || "—"));
+      tr.addEventListener("click", function () { edgeSelect(n.id); });
+      body.appendChild(tr);
+      (n.instances || []).forEach(function (i) {
+        var ir = el("tr", "edge-inst-row");
+        ir.appendChild(el("td", "mono muted", "\u2514 /" + i.name));
+        ir.appendChild(el("td", "muted", "roger"));
+        ir.appendChild(el("td", "mono", edgeMarks(i)));
+        ir.appendChild(el("td", "muted", (i.bands || []).length ? "serves " + i.bands.join(", ") : ""));
+        ir.appendChild(el("td", null, ""));
+        ir.appendChild(el("td", "num", ""));
+        body.appendChild(ir);
+      });
+    });
+  }
+
+  var edgeNearbyCtl = null, edgeNearbyIDs = "";
+
+  // edgeRenderNearby draws the NEARBY rows with Invite and Approve. While an invite or a phrase is
+  // open under a row, a read with the same devices leaves it alone, so it is not wiped mid-compare.
+  function edgeRenderNearby(d) {
+    var box = $("edge-nearby");
+    if (!box || !window.RogerConsoleEdgeNearby) return;
+    var ids = JSON.stringify((d.nearby || []).map(function (n) { return n.id; }));
+    if (edgeNearbyCtl && edgeNearbyCtl.busy() && ids === edgeNearbyIDs) return;
+    edgeNearbyIDs = ids;
+    edgeNearbyCtl = window.RogerConsoleEdgeNearby.render(document, box, d, {
+      fetch: function (path, opts) { return fetch(withToken(path), opts); },
+      refresh: loadEdge,
+    });
+  }
+
+  function edgeRenderCandidates(d) {
+    var box = $("edge-candidates");
+    if (!box) return;
+    box.innerHTML = "";
+    if (!d.candidates.length) {
+      box.appendChild(el("span", "muted small", "none seen on this network"));
+      return;
+    }
+    d.candidates.forEach(function (c) {
+      var b = el("button", "edge-cand", edgeName(c) + "  " + (c.kind || ""));
+      b.setAttribute("type", "button");
+      b.setAttribute("aria-pressed", c.id === edgeSel ? "true" : "false");
+      b.title = edgeName(c);
+      b.addEventListener("click", function () { edgeSelect(c.id); });
+      box.appendChild(b);
+    });
+  }
+
+  // edgeRenderAdopting lists nodes the owner adopted that have not yet claimed a certificate and
+  // checked in - so a just-adopted phone does not vanish between adopt and membership (claim.feature).
+  function edgeRenderAdopting(d) {
+    var box = $("edge-adopting");
+    if (!box) return;
+    var list = d.adopting || [];
+    if (!list.length) { box.innerHTML = ""; show(box, false); return; }
+    box.innerHTML = "";
+    box.appendChild(el("span", "mono muted small", "adopting \u00b7 waiting to check in:"));
+    list.forEach(function (a) {
+      var pill = edgeName(a) + " (" + (a.kind || "?") + ")";
+      // The one-time enrollment code the device enters to keep this Edge's root, shown whole.
+      if (a.code) pill += " \u00b7 code " + a.code + " \u00b7 " + a.code_left + " left";
+      else if (a.code_expired) pill += " \u00b7 code expired, adopt it again for a fresh one";
+      box.appendChild(el("span", "edge-adopting-pill mono small", pill));
+    });
+    show(box, true);
+  }
+
+  // edgeSelect picks a node or candidate BY ID. The selection is sticky across reads: a
+  // node arriving, going dark or being forgotten never moves it onto a different machine.
+  function edgeSelect(id) {
+    edgeSel = (edgeSel === id) ? null : id;
+    if (edgeLast) edgeRender(edgeLast);
+  }
+
+  function edgeFind(d, id) {
+    var hit = null, cand = false;
+    d.nodes.forEach(function (n) { if (n.id === id) hit = n; });
+    if (!hit) d.candidates.forEach(function (c) { if (c.id === id) { hit = c; cand = true; } });
+    return { n: hit, cand: cand };
+  }
+
+  function edgeKV(card, k, v, cls) {
+    var row = el("div", "kv");
+    row.appendChild(el("span", null, k));
+    row.appendChild(el("b", "mono" + (cls ? " " + cls : ""), v));
+    card.appendChild(row);
+  }
+
+  // edgeRenderSelfControls draws THIS machine's own management - the agent role, add-agent, and where
+  // a turn goes first - the console's mirror of the TUI [3] panel. Shown only when the host wired them.
+  // edgeRenderGrants draws the authority's issued grants and the issue form. Shown only when this
+  // machine is the authority (the host wired IssueGrant/RevokeGrant) - a member has nothing to issue.
+  function edgeRenderGrants(d) {
+    var wrap = $("edge-grants-wrap");
+    if (!wrap) return;
+    if (!d.grants_manage) { show(wrap, false); return; }
+    show(wrap, true);
+    edgeRenderGrantForm(d);
+    var body = $("edge-grants");
+    if (!body) return;
+    body.innerHTML = "";
+    var grants = d.grants || [];
+    if (!grants.length) {
+      var er = el("tr", "empty-row");
+      var ec = el("td", null, "No grants issued yet."); ec.colSpan = 7;
+      er.appendChild(ec); body.appendChild(er);
+      return;
+    }
+    grants.forEach(function (g) {
+      var tr = el("tr", g.state === "REVOKED" ? "muted" : null);
+      tr.appendChild(el("td", "mono small", g.id));
+      tr.appendChild(el("td", "mono small", g.caller ? edgeNodeName(d, g.caller) : "self"));
+      tr.appendChild(el("td", "mono small", g.caps));
+      tr.appendChild(el("td", "mono small", edgeNodeName(d, g.callee)));
+      tr.appendChild(el("td", "mono small", g.expires_at ? edgeWhen(g.expires_at) : "never"));
+      tr.appendChild(el("td", "mono small", g.state));
+      var td = el("td");
+      if (g.state === "live") {
+        var rb = el("button", "btn small ghost", "revoke"); rb.type = "button";
+        rb.addEventListener("click", function () { edgeRevokeGrant(g.id); });
+        td.appendChild(rb);
+      }
+      tr.appendChild(td);
+      body.appendChild(tr);
+    });
+  }
+
+  // edgeRenderFloor draws the floor: the andon tiles (one word, one colour, one number per unit), the
+  // standing trouble calls with why/do and roger / stand by, and the sign-off line - the console's
+  // mirror of the TUI's ANDON and TROUBLE. Shown only when the host wired the floor.
+  // edgeRenderEvents draws the timeline (features/edge/events.feature): a crossing in the alarm
+  // colour, a node event quietly, an empty list SAID rather than drawn as nothing.
+  function edgeRenderEvents(d) {
+    var body = $("edge-events");
+    if (!body) return;
+    body.innerHTML = "";
+    var events = d.events || [];
+    if (!events.length) {
+      var er = el("tr", "empty-row");
+      var ec = el("td", null, "Nothing has happened on this Edge yet.");
+      ec.colSpan = 4;
+      er.appendChild(ec);
+      body.appendChild(er);
+      return;
+    }
+    events.forEach(function (e) {
+      var tr = el("tr", e.alarm ? null : "muted");
+      tr.appendChild(el("td", "mono small", e.age));
+      tr.appendChild(el("td", "mono small", e.node));
+      tr.appendChild(el("td", "mono small" + (e.alarm ? " live" : ""), (e.alarm ? "\u25b2 " : "") + e.what));
+      tr.appendChild(el("td", "mono small", e.detail || ""));
+      body.appendChild(tr);
+    });
+  }
+
+  // edgeRenderIntent draws what the owner asked of this Edge, where it does not hold, and what they
+  // left standing (features/edge/drift.feature, schedule.feature). An UNKNOWN is marked as unknown and
+  // never drawn as a wrong: a unit that has not reported a fact is not a unit that is misbehaving.
+  function edgeRenderIntent(d) {
+    var ex = $("edge-expect");
+    if (ex) {
+      ex.innerHTML = "";
+      var expect = d.expect || [];
+      if (!expect.length) {
+        var er = el("tr", "empty-row");
+        var ec = el("td", null, "Nothing is expected of this Edge yet.");
+        ec.colSpan = 3;
+        er.appendChild(ec);
+        ex.appendChild(er);
+      }
+      expect.forEach(function (e) {
+        var tr = el("tr", e.differ ? null : "muted");
+        tr.appendChild(el("td", "mono small", e.expected));
+        tr.appendChild(el("td", "mono small", e.of));
+        tr.appendChild(el("td", "mono small" + (e.differ ? " live" : ""),
+          e.differ ? e.differ + " unit(s) differ" : "holds"));
+        ex.appendChild(tr);
+      });
+    }
+    var dr = $("edge-drift");
+    if (dr) {
+      dr.innerHTML = "";
+      var drift = d.drift || [];
+      if (!drift.length) {
+        var er2 = el("tr", "empty-row");
+        var ec2 = el("td", null, (d.expect || []).length ? "This Edge is as you asked." : "Nothing to compare yet.");
+        ec2.colSpan = 4;
+        er2.appendChild(ec2);
+        dr.appendChild(er2);
+      }
+      drift.forEach(function (x) {
+        var tr = el("tr", x.unknown ? "muted" : null);
+        tr.appendChild(el("td", "mono small", x.node));
+        tr.appendChild(el("td", "mono small", x.expected));
+        tr.appendChild(el("td", "mono small" + (x.unknown ? "" : " live"), x.found));
+        tr.appendChild(el("td", "mono small muted", x.unknown ? "unknown" : (x.dark ? "dark" : "")));
+        dr.appendChild(tr);
+      });
+    }
+    var sc = $("edge-schedule");
+    if (sc) {
+      sc.innerHTML = "";
+      var jobs = d.schedule || [];
+      if (!jobs.length) {
+        var er3 = el("tr", "empty-row");
+        var ec3 = el("td", null, "Nothing is scheduled on this machine.");
+        ec3.colSpan = 6;
+        er3.appendChild(ec3);
+        sc.appendChild(er3);
+      }
+      jobs.forEach(function (j) {
+        var tr = el("tr");
+        tr.appendChild(el("td", "mono small muted", j.id));
+        tr.appendChild(el("td", "mono small", j.what));
+        tr.appendChild(el("td", "mono small", j.of));
+        tr.appendChild(el("td", "mono small", j.cadence));
+        tr.appendChild(el("td", "mono small", j.last));
+        tr.appendChild(el("td", "mono small", j.next));
+        sc.appendChild(tr);
+        (j.runs || []).forEach(function (r) {
+          var run = el("tr", "muted");
+          var c = el("td", "mono small", r);
+          c.colSpan = 6;
+          run.appendChild(c);
+          sc.appendChild(run);
+        });
+      });
+    }
+  }
+
+  function edgeRenderFloor(d) {
+    var wrap = $("edge-floor-wrap");
+    if (!wrap) return;
+    if (!d.floor) { show(wrap, false); return; }
+    show(wrap, true);
+    var f = d.floor;
+    var andon = $("edge-andon");
+    if (andon) {
+      andon.innerHTML = "";
+      var on = 0, trouble = 0, dark = 0;
+      (f.units || []).forEach(function (u) {
+        var cls = u.state === "TROUBLE" ? "trouble" : u.state === "DARK" ? "dark" : "air";
+        if (cls === "air") on++; else if (cls === "trouble") trouble++; else dark++;
+        var tile = el("div", "edge-tile edge-tile--" + cls);
+        tile.appendChild(el("div", "edge-tile__name mono", edgeName(u)));
+        var since = u.since_s > 0 ? edgeAge(u.since_s) : "";
+        if (u.capped && since) since = "\u2265" + since;
+        tile.appendChild(el("div", "edge-tile__state mono", u.state + (since ? "  " + since : "")));
+        var air = el("div", "edge-tile__air mono small");
+        air.appendChild(el("span", "eyebrow", "AIRTIME "));
+        air.appendChild(el("span", null, u.no_log ? "\u2014" : u.airtime + "%"));
+        air.appendChild(edgeLogStrip(u.log || []));
+        tile.appendChild(air);
+        var what = (u.alerts && u.alerts.length) ? "\u25b2 " + u.alerts[0] : (u.kind || "");
+        tile.appendChild(el("div", "edge-tile__what mono small" + ((u.alerts && u.alerts.length) ? " live" : " muted"), what));
+        if (u.last_read) tile.appendChild(el("div", "edge-tile__what mono small muted", "hears the Edge \u00b7 read the feed " + edgeAge(Math.max(0, Math.floor(Date.now() / 1000) - u.last_read)) + " ago"));
+        andon.appendChild(tile);
+      });
+      var foot = $("edge-andon-foot");
+      if (foot) {
+        foot.innerHTML = "";
+        foot.appendChild(el("span", "eyebrow", "THE RACK"));
+        foot.appendChild(el("span", "edge-foot__part", (f.units || []).length + " units"));
+        foot.appendChild(el("span", "edge-foot__part" + (on ? "" : " muted"), on + " on air"));
+        foot.appendChild(el("span", "edge-foot__part" + (trouble ? " live" : " muted"), trouble + " trouble"));
+        foot.appendChild(el("span", "edge-foot__part muted", dark + " dark"));
+      }
+    }
+    var head = $("edge-trouble-head");
+    if (head) {
+      var calls = f.calls || [];
+      var txt = calls.length + " standing.";
+      if (f.rate >= 10) txt += "  PILE-UP: " + f.rate + " calls in 10 min."; else if (f.rate > 0) txt += "  " + f.rate + " in the last 10 min.";
+      head.textContent = txt + " Roger acknowledges; stand by quiets a call for an hour.";
+    }
+    var body = $("edge-trouble");
+    if (body) {
+      body.innerHTML = "";
+      var calls2 = f.calls || [];
+      if (!calls2.length) {
+        var er = el("tr", "empty-row"); var ec = el("td", null, "All clear - nothing is over its line."); ec.colSpan = 7;
+        er.appendChild(ec); body.appendChild(er);
+      }
+      calls2.forEach(function (c) {
+        var tr = el("tr", (c.acked || c.shelved) ? "muted" : null);
+        tr.appendChild(el("td", "mono small" + ((c.acked || c.shelved) ? "" : (c.priority === "HI" ? " live" : "")), "\u25b2 " + c.priority));
+        tr.appendChild(el("td", "mono small", edgeAge(c.since_s) + (c.stale ? "  STALE" : "")));
+        tr.appendChild(el("td", "mono small", c.node));
+        tr.appendChild(el("td", "mono small", c.when));
+        tr.appendChild(el("td", "mono small", c.value));
+        var ack = c.shelved ? "STAND BY until " + new Date(c.until_at * 1000).toTimeString().slice(0, 5) + (c.standby_by ? " \u00b7 " + c.standby_by : "") : (c.acked ? "ROGER " + (c.ack_by || "") : "\u2014");
+        tr.appendChild(el("td", "mono small", ack));
+        var td = el("td");
+        if (d.floor_manage) {
+          if (!c.acked) {
+            var kb = el("button", "btn small ghost", "roger"); kb.type = "button";
+            kb.addEventListener("click", function () { edgePostFloor("/api/edge/roger", { rule: c.rule, node: c.node_id }); });
+            td.appendChild(kb);
+          }
+          if (!c.shelved) {
+            var sb = el("button", "btn small ghost", "stand by 1h"); sb.type = "button";
+            sb.addEventListener("click", function () { edgePostFloor("/api/edge/standby", { rule: c.rule, node: c.node_id, hours: 1 }); });
+            td.appendChild(sb);
+          }
+        }
+        tr.appendChild(td);
+        body.appendChild(tr);
+        var why = el("tr", "edge-why muted small");
+        var wc = el("td", null); wc.colSpan = 7;
+        wc.appendChild(el("span", "eyebrow", "WHY IT MATTERS"));
+        wc.appendChild(el("span", "edge-why__text", c.why));
+        wc.appendChild(el("span", "eyebrow edge-why__do", "DO"));
+        wc.appendChild(el("span", "edge-why__text", c.do));
+        why.appendChild(wc);
+        body.appendChild(why);
+      });
+    }
+    var so = $("edge-signoff");
+    if (so && f.sign_off) {
+      var s = f.sign_off;
+      so.innerHTML = "";
+      if (s.raised || s.cleared || (s.dead_air && s.dead_air.length)) {
+        so.appendChild(el("span", "eyebrow", "SIGN-OFF"));
+        so.appendChild(el("span", "edge-foot__part muted", "this shift"));
+        var parts = [];
+        if (s.raised) parts.push(s.raised + " raised");
+        if (s.cleared) parts.push(s.cleared + " cleared");
+        if (!parts.length) parts.push("no calls");
+        so.appendChild(el("span", "edge-foot__part", parts.join(" \u00b7 ")));
+        if (s.loudest) so.appendChild(el("span", "edge-foot__part", "loudest " + s.loudest + " (" + s.loudest_count + ")"));
+        if (s.dead_air && s.dead_air.length) so.appendChild(el("span", "edge-foot__part muted", "dead air this shift " + s.dead_air.map(function (x) { return x.node + " " + edgeAge(x.for_s); }).join(", ")));
+      }
+    }
+  }
+
+  // edgeLogStrip draws a unit's last hour as cells (a proportional font breaks the glyphs' baseline):
+  // ink for on air, faint for dark, red for trouble, empty for a minute nobody judged.
+  function edgeLogStrip(log) {
+    var strip = el("span", "edge-log");
+    var last = log.slice(-30);
+    last.forEach(function (st) {
+      var cls = "dim";
+      if (st === "air") cls = "signal"; else if (st === "dark") cls = "dark"; else if (st === "trouble") cls = "live";
+      strip.appendChild(el("span", "edge-log__cell edge-log__" + cls));
+    });
+    return strip;
+  }
+
+  function edgeAge(s) {
+    s = Math.floor(s || 0);
+    if (s < 60) return s + "s";
+    if (s < 3600) return Math.floor(s / 60) + "m";
+    if (s < 86400) return Math.floor(s / 3600) + "h";
+    return Math.floor(s / 86400) + "d";
+  }
+
+  function edgePostFloor(path, body) {
+    apiPost(path, body).then(function (d) { edgeRender(d); }).catch(function (e) { toast(e.message, "err"); });
+  }
+
+  // edgeNodeName maps a node id to its friendly name from the current snapshot, for readable grant rows.
+  function edgeNodeName(d, id) {
+    var all = (d.nodes || []).concat(d.adopting || []);
+    for (var i = 0; i < all.length; i++) if (all[i].id === id) return all[i].name || id;
+    return id;
+  }
+  function edgeWhen(ts) {
+    try { return new Date(ts * 1000).toISOString().slice(0, 10); } catch (e) { return String(ts); }
+  }
+
+  // edgeRenderGrantForm draws the issue form: caller (self or a node), capability, callee, duration.
+  function edgeRenderGrantForm(d) {
+    var box = $("edge-grant-form");
+    if (!box || box.dataset.built === "1") return; // build once; polling must not wipe a half-filled form
+    box.dataset.built = "1";
+    var nodes = d.nodes || [];
+    var caller = el("select", "edge-grant-caller");
+    var selfOpt = el("option", null, "self (your instances)"); selfOpt.value = "self"; caller.appendChild(selfOpt);
+    nodes.forEach(function (n) { var o = el("option", null, edgeName(n)); o.value = n.id; caller.appendChild(o); });
+    var cap = el("select", "edge-grant-cap");
+    ["operate", "sense", "actuate", "classify", "serve", "relay"].forEach(function (c) { var o = el("option", null, c); o.value = c; cap.appendChild(o); });
+    var callee = el("select", "edge-grant-callee");
+    nodes.forEach(function (n) { var o = el("option", null, edgeName(n)); o.value = n.id; callee.appendChild(o); });
+    var dur = el("input", "edge-grant-for"); dur.type = "text"; dur.value = "7d"; dur.size = 5;
+    var issue = el("button", "btn small", "issue grant"); issue.type = "button";
+    box.innerHTML = "";
+    box.appendChild(edgeField("caller", caller));
+    box.appendChild(edgeField("may", cap));
+    box.appendChild(edgeField("on", callee));
+    box.appendChild(edgeField("for", dur));
+    box.appendChild(issue);
+    issue.addEventListener("click", function () {
+      if (!callee.value) { toast("pick a callee node", "err"); return; }
+      edgeIssueGrant({ caller: caller.value, capability: cap.value, callee: callee.value, "for": dur.value.trim() || "7d" });
+    });
+  }
+
+  function edgeIssueGrant(body) {
+    apiPost("/api/edge/grant", body).then(function (d) {
+      toast("grant issued");
+      var f = $("edge-grant-form"); if (f) f.dataset.built = ""; // rebuild against the fresh fleet
+      edgeRender(d);
+    }).catch(function (e) { toast(e.message, "err"); });
+  }
+  function edgeRevokeGrant(id) {
+    if (!window.confirm("Revoke grant " + id + "?\n\nThe next invoke under it is refused by this authority and its own node. Other machines honor it until it expires, until the grant-CRL ships.")) return;
+    apiPost("/api/edge/grant/revoke", { id: id }).then(function (d) {
+      toast("grant revoked");
+      edgeRender(d);
+    }).catch(function (e) { toast(e.message, "err"); });
+  }
+
+  // edgeInstanceResources draws an instance's live resources - RAM as a used/total bar, the GPU as a
+  // name + a memory-used bar - from what the node could actually read (manage_web.feature: a resource
+  // with a real total draws as a bar, one without draws as a figure). Absent readings draw nothing.
+  function edgeInstanceResources(card, i) {
+    var r = i.resources;
+    if (!r) return;
+    if (r.ram_total_gb > 0) {
+      edgeKVBar(card, "RAM", (r.ram_used_gb || 0) / r.ram_total_gb,
+        (r.ram_used_gb || 0).toFixed(1) + " / " + r.ram_total_gb.toFixed(0) + " GB");
+    } else if (r.ram_used_gb > 0) {
+      edgeKV(card, "RAM", r.ram_used_gb.toFixed(1) + " GB", "muted"); // a figure, no denominator
+    }
+    if (r.gpu) {
+      if (r.gpu_mem_used > 0) {
+        edgeKVBar(card, "GPU", r.gpu_mem_used, r.gpu + "  " + Math.round(r.gpu_mem_used * 100) + "%");
+      } else {
+        edgeKV(card, "GPU", r.gpu, "muted");
+      }
+    }
+    // The health facts (health.feature): a metric the node does not expose is absent (null), and
+    // absent draws NOTHING - never a zero. Disks with a real total draw as bars; the rest are figures.
+    if (r.cpu_temp_c != null) edgeKV(card, "CPU temp", r.cpu_temp_c.toFixed(1) + " \u00b0C" + (r.cpu_temp_c >= 80 ? "  hot" : ""), r.cpu_temp_c >= 80 ? "" : "muted");
+    if (r.cpu_load1 != null) edgeKV(card, "load", r.cpu_load1.toFixed(2), "muted");
+    (r.disks || []).forEach(function (d) {
+      if (d.total_gb > 0) {
+        edgeKVBar(card, "disk " + d.mount, d.used_gb / d.total_gb, d.used_gb.toFixed(0) + " / " + d.total_gb.toFixed(0) + " GB");
+      }
+    });
+    if (r.uptime_s > 0) edgeKV(card, "uptime", edgeUptime(r.uptime_s), "muted");
+    if (r.sd_wear_pct != null) edgeKV(card, "SD wear", Math.round(r.sd_wear_pct) + "%", r.sd_wear_pct >= 80 ? "" : "muted");
+    if (r.pi_power != null) edgeKV(card, "power", edgePowerLine(r.pi_power), (r.pi_power & 0xf) ? "" : "muted");
+    if (r.read_at) {
+      var ageS = Math.max(0, Math.round(Date.now() / 1000 - r.read_at));
+      if (ageS > 60) edgeKV(card, "", "readings are " + edgeUptime(ageS) + " old", "muted");
+    }
+  }
+
+  // edgeUptime renders seconds as the largest two units ("3d 4h", "12m").
+  function edgeUptime(s) {
+    var d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60);
+    if (d > 0) return d + "d " + h + "h";
+    if (h > 0) return h + "h " + m + "m";
+    return m + "m";
+  }
+
+  // edgeKVBar is a KV row whose value is a small level bar plus its figure - the console's only bar,
+  // filled in ink, its track a hairline, so a resource reads at a glance without adding a colour.
+  function edgeKVBar(card, k, frac, text) {
+    var row = el("div", "kv");
+    row.appendChild(el("span", null, k));
+    var wrap = el("div", "edge-res");
+    var bar = el("div", "edge-res-bar");
+    var fill = el("div", "edge-res-fill");
+    fill.style.width = Math.max(0, Math.min(1, frac || 0)) * 100 + "%";
+    bar.appendChild(fill);
+    wrap.appendChild(bar);
+    wrap.appendChild(el("span", "mono edge-res-fig", text));
+    row.appendChild(wrap);
+    card.appendChild(row);
+  }
+
+  // edgeInstanceJobControls draws the Bind Model / Clear actions for one of this machine's agents.
+  function edgeInstanceJobControls(card, d, name) {
+    var row = el("div", "card-actions edge-job-actions");
+    var bind = el("button", "btn small ghost", "bind model / job");
+    bind.setAttribute("type", "button");
+    bind.addEventListener("click", function () { edgeJobForm(card, d, name); });
+    row.appendChild(bind);
+    if (edgeJobFor(d, name)) {
+      var clear = el("button", "btn small ghost", "clear job");
+      clear.setAttribute("type", "button");
+      clear.addEventListener("click", function () { edgeClearJob(name); });
+      row.appendChild(clear);
+    }
+    card.appendChild(row);
+  }
+
+  // edgeJobForm is the inline assignment form: a model, whether to use and/or share it, and an
+  // optional job (serve/watch/relay) with targets. It writes through the host on Save (jobs.feature).
+  function edgeJobForm(card, d, name) {
+    var cur = {};
+    (d.agent_jobs || []).forEach(function (j) { if (j.name === name) cur = j; });
+    var box = el("div", "edge-job-form");
+    var model = el("input", "edge-job-model"); model.type = "text"; model.placeholder = "model, e.g. qwen3-8b"; model.value = cur.model || "";
+    box.appendChild(edgeField("model", model));
+    var use = edgeCheck("use", !!cur.use), share = edgeCheck("share", !!cur.share);
+    box.appendChild(use.wrap); box.appendChild(share.wrap);
+    var job = el("select", "edge-job-sel");
+    ["", "serve", "watch", "relay"].forEach(function (o) {
+      var opt = el("option", null, o || "no job"); opt.value = o; if ((cur.job || "") === o) opt.selected = true; job.appendChild(opt);
+    });
+    box.appendChild(edgeField("job", job));
+    var targets = el("input", "edge-job-targets"); targets.type = "text"; targets.placeholder = "targets (comma-separated node names)";
+    targets.value = (cur.targets || []).join(",");
+    box.appendChild(edgeField("targets", targets));
+    var save = el("button", "btn small", "save"); save.setAttribute("type", "button");
+    var cancel = el("button", "btn small ghost", "cancel"); cancel.setAttribute("type", "button");
+    var acts = el("div", "card-actions"); acts.appendChild(save); acts.appendChild(cancel); box.appendChild(acts);
+    card.appendChild(box);
+    save.addEventListener("click", function () {
+      edgeSetJob({
+        name: name, model: model.value.trim(),
+        use: use.input.checked, share: share.input.checked,
+        job: job.value,
+        targets: targets.value.split(",").map(function (t) { return t.trim(); }).filter(Boolean)
+      });
+    });
+    cancel.addEventListener("click", function () { edgeTick(); });
+  }
+
+  function edgeField(label, control) {
+    var w = el("label", "edge-job-field");
+    w.appendChild(el("span", "mono muted small", label));
+    w.appendChild(control);
+    return w;
+  }
+  function edgeCheck(label, checked) {
+    var w = el("label", "edge-job-check");
+    var input = el("input"); input.type = "checkbox"; input.checked = checked;
+    w.appendChild(input); w.appendChild(el("span", "mono small", label));
+    return { wrap: w, input: input };
+  }
+
+  function edgeSetJob(body) {
+    apiPost("/api/edge/job", body).then(function (d) {
+      toast("assignment saved for " + body.name);
+      edgeRender(d);
+    }).catch(function (e) { toast(e.message, "err"); });
+  }
+  function edgeClearJob(name) {
+    apiPost("/api/edge/job/clear", { name: name }).then(function (d) {
+      toast("assignment cleared for " + name);
+      edgeRender(d);
+    }).catch(function (e) { toast(e.message, "err"); });
+  }
+
+  // edgeJobFor renders an agent instance's durable assignment - its bound model and job - from the
+  // snapshot's agent_jobs, so the console shows what each agent is DOING, like the TUI (jobs.feature).
+  function edgeJobFor(d, name) {
+    var jobs = d.agent_jobs || [];
+    for (var k = 0; k < jobs.length; k++) {
+      if (jobs[k].name !== name) continue;
+      var j = jobs[k], bits = [];
+      if (j.model) bits.push((j.share ? "shares " : j.use ? "uses " : "bound ") + j.model);
+      if (j.job) bits.push(j.job + ((j.targets && j.targets.length) ? " " + j.targets.join(",") : ""));
+      return bits.join(" \u00b7 ");
+    }
+    return "";
+  }
+
+  function edgeRenderSelfControls(d) {
+    var bar = $("edge-self-controls");
+    if (!bar) return;
+    if (!d.self_manage) { bar.innerHTML = ""; show(bar, false); return; }
+    bar.innerHTML = "";
+    var label = el("span", "mono muted small", (d.self || "this machine") + " \u00b7");
+    bar.appendChild(label);
+
+    // Agent role: one toggle button (Stop/Make Agent).
+    var agentBtn = el("button", "btn small" + (d.agent_active ? "" : " ghost"), d.agent_active ? "stop agent" : "make agent");
+    agentBtn.setAttribute("type", "button");
+    agentBtn.addEventListener("click", function () { edgeSetAgent(!d.agent_active); });
+    bar.appendChild(agentBtn);
+
+    // Add a new agent roger on this machine.
+    var addBtn = el("button", "btn small ghost", "add agent");
+    addBtn.setAttribute("type", "button");
+    addBtn.addEventListener("click", function () { edgeAddAgent(); });
+    bar.appendChild(addBtn);
+
+    // Prefer: where a turn goes first.
+    var prefWrap = el("span", "edge-prefer");
+    prefWrap.appendChild(el("span", "mono muted small", "prefer"));
+    var sel = el("select", "edge-prefer-sel");
+    ["local", "market", "local-only"].forEach(function (opt) {
+      var o = el("option", null, opt);
+      o.value = opt;
+      if ((d.facts && (d.facts.prefer || "").toLowerCase().replace(/^prefers\s+/, "")) === opt) o.selected = true;
+      sel.appendChild(o);
+    });
+    sel.addEventListener("change", function () { edgeSetPrefer(sel.value); });
+    prefWrap.appendChild(sel);
+    bar.appendChild(prefWrap);
+    show(bar, true);
+  }
+
+  function edgeSetAgent(on) {
+    apiPost("/api/edge/agent", { on: on }).then(function (d) {
+      toast(on ? "this roger is now an agent" : "agent role stopped");
+      edgeRender(d);
+    }).catch(function (e) { toast(e.message, "err"); });
+  }
+
+  function edgeAddAgent() {
+    apiPost("/api/edge/agent/add", {}).then(function (d) {
+      toast("a new agent roger is starting on this machine");
+      edgeRender(d);
+    }).catch(function (e) { toast(e.message, "err"); });
+  }
+
+  function edgeSetPrefer(want) {
+    apiPost("/api/edge/prefer", { prefer: want }).then(function (d) {
+      toast("turns now prefer " + want);
+      edgeRender(d);
+    }).catch(function (e) { toast(e.message, "err"); });
+  }
+
+  // edgeFormBusy: the operator is typing in a rename or job form inside the card. Only a focused text
+  // control counts - a focused BUTTON (the save or cancel just clicked, an adopt) must never hold the
+  // card back, or the form would stay on screen after it had acted (audit 2026-09-27).
+  function edgeFormBusy(card) {
+    var a = document.activeElement;
+    if (!a || a === card || !card.contains(a)) return false;
+    return a.tagName === "INPUT" || a.tagName === "SELECT" || a.tagName === "TEXTAREA";
+  }
+
+  function edgeRenderDetail(d) {
+    var card = $("edge-detail");
+    if (!card) return;
+    var f = edgeSel ? edgeFind(d, edgeSel) : { n: null };
+    if (!f.n) { show(card, false); return; }
+    // A rename or job form the operator is TYPING into must not be wiped by the poll.
+    if (edgeFormBusy(card)) return;
+    var n = f.n;
+    card.innerHTML = "";
+    var title = el("div", "card-title", (f.cand ? "CANDIDATE · " : "NODE · ") + edgeName(n));
+    card.appendChild(title);
+    edgeKV(card, "id", n.id);
+    edgeKV(card, "kind", n.kind || "—");
+    if (f.cand) edgeKV(card, "status", "not on your Edge");
+    var caps = n.caps || [];
+    if (!caps.length) edgeKV(card, "capabilities", "none declared", "muted");
+    caps.forEach(function (c, i) {
+      edgeKV(card, i === 0 ? "capabilities" : "", c.name + "  " + c.state + (c.verify ? "  (verified by " + c.verify + ")" : ""));
+    });
+    (n.transports || []).forEach(function (t, i) {
+      edgeKV(card, i === 0 ? "transports" : "", t.kind + (t.addr ? "  " + t.addr : ""));
+    });
+    if (n.via) edgeKV(card, "reached through", n.via);
+    (n.instances || []).forEach(function (i, idx) {
+      var line = "/" + i.name + "  " + edgeMarks(i) + ((i.bands || []).length ? "  serves " + i.bands.join(", ") : "");
+      var job = edgeJobFor(d, i.name);
+      if (job) line += "  \u00b7 " + job;
+      edgeKV(card, idx === 0 ? "instances" : "", line);
+      (n.software || []).forEach(function (sw) {
+        if (sw.instance !== i.name) return;
+        edgeKV(card, "", "  " + sw.words + (sw.behind ? "   behind " + sw.behind : ""), sw.behind ? "edge-alert" : "muted");
+      });
+      edgeInstanceResources(card, i);
+      // On THIS machine's own instances (the self row) the console can assign a model/job, like the
+      // TUI's Bind Model. The host fills in the node; a relayed member's instances are not this machine's.
+      if (d.jobs_manage && n.name === d.self) edgeInstanceJobControls(card, d, i.name);
+    });
+    if (n.instances_truncated) edgeKV(card, "", "this node runs more instances than are shown", "muted");
+    if ((n.tags || []).length) edgeKV(card, "tags", n.tags.join(" \u00b7 "));
+    // Maintenance is on there: a member with a grant can start, stop or restart one of its rogers.
+    if (n.maintain) edgeKV(card, "service", "maintenance is on there", "edge-alert");
+    // What it serves of its own and what it is fetching, in the words every surface uses.
+    if (n.model) edgeKV(card, "model", n.model);
+    if (n.phone) edgeKV(card, "phone", n.phone);
+    if (n.supply) edgeKV(card, "battery", n.supply);
+    // The shared state word with its age, then the raw presence for the owner who wants the record.
+    if (n.state) edgeKV(card, "state", n.state, /^(TROUBLE|DARK|RE-ENROLL)/.test(n.state) ? "edge-alert" : "");
+    edgeKV(card, "presence", (n.presence || "—") + (n.age ? "  ·  last seen " + n.age + " ago" : ""));
+    (n.alerts || []).forEach(function (a, i) { edgeKV(card, i === 0 ? "alerts" : "", "\u26a0 firing \u00b7 " + a, "edge-alert"); });
+    if (n.pin) edgeKV(card, "pin", edgeClip(n.pin, 24));
+    if (n.contract && n.contract.class) edgeKV(card, "contract", n.contract.class + "  [" + (n.contract.labels || []).join(", ") + "]");
+    var hist = n.history || [];
+    hist.slice(-5).forEach(function (h, i) {
+      edgeKV(card, i === 0 ? "history" : "", h.what + (h.detail ? "  " + h.detail : ""), "muted");
+    });
+    if (f.cand) {
+      var acts = el("div", "card-actions");
+      var btn = el("button", "btn primary edge-adopt", "adopt onto your Edge");
+      btn.setAttribute("type", "button");
+      // ADOPT HAPPENS ONLY HERE, on the owner's click - never from a read, a poll or a timer.
+      btn.addEventListener("click", function () { edgeAdopt(n.id, n.name); });
+      acts.appendChild(btn);
+      card.appendChild(acts);
+    } else if (edgeCanManage) {
+      // A MEMBER of your Edge: the same management the terminal and CLI do - rename it, or forget it.
+      // Every write is one deliberate click, POST-only and token-gated on the server (manage_web.feature).
+      var macts = el("div", "card-actions");
+      var nameBtn = el("button", "btn small", "rename");
+      nameBtn.setAttribute("type", "button");
+      nameBtn.addEventListener("click", function () { edgeRenamePrompt(card, n); });
+      macts.appendChild(nameBtn);
+      var tagBtn = el("button", "btn small ghost", "tags");
+      tagBtn.setAttribute("type", "button");
+      tagBtn.addEventListener("click", function () { edgeTagPrompt(card, n); });
+      macts.appendChild(tagBtn);
+      // THE ACTUATE CEREMONY, offered only while there is something to confirm. A node pending
+      // actuate is one the owner adopted and cannot use, and only a person can grant it.
+      if (d.actuate_manage && edgeActuatePending(n)) {
+        var actBtn = el("button", "btn small edge-actuate", "confirm actuate");
+        actBtn.setAttribute("type", "button");
+        actBtn.addEventListener("click", function () { edgeConfirmActuate(n.id, edgeName(n)); });
+        macts.appendChild(actBtn);
+      }
+      var forgetBtn = el("button", "btn small ghost edge-forget", "forget");
+      forgetBtn.setAttribute("type", "button");
+      forgetBtn.addEventListener("click", function () { edgeForget(n.id, n.name); });
+      macts.appendChild(forgetBtn);
+      card.appendChild(macts);
+      // SERVICE: start, stop or restart one of that machine's rogers, or read its log tail. Offered
+      // only where it can work - the host wired the action AND that machine declares maintenance,
+      // because the owner's switch lives THERE and nothing here can turn it on for them.
+      if (d.maintain_manage && n.maintain) edgeServiceControls(card, d, n);
+      // SERVE MODEL: change what that machine serves. Offered only where its owner turned it on
+      // THERE; the member judges the request against its own memory and answers in its own words.
+      if (d.serve_model_manage && n.serve_control) edgeServeModelControls(card, n);
+    }
+    show(card, true);
+  }
+
+  // edgeServeModelControls: pick a model the member has, or name one exactly as owner/repo:QUANT for it
+  // to fetch from its own source. Asked first, with the safe answer focused.
+  function edgeServeModelControls(card, n) {
+    var row = el("div", "card-actions edge-serve-model");
+    var pick = el("select", "inp");
+    (n.model_have || []).forEach(function (id) { var o = el("option", null, id + "  (on its disk)"); o.value = id; pick.appendChild(o); });
+    var other = el("option", null, "fetch exactly…"); other.value = ""; pick.appendChild(other);
+    var exact = el("input", "inp"); exact.type = "text"; exact.maxLength = 200; exact.placeholder = "owner/repo:QUANT";
+    exact.hidden = (n.model_have || []).length > 0;
+    pick.addEventListener("change", function () { exact.hidden = pick.value !== ""; });
+    var btn = el("button", "btn small", "serve on " + edgeName(n));
+    btn.setAttribute("type", "button");
+    btn.addEventListener("click", function () {
+      var id = pick.value || exact.value.trim();
+      if (!/^[A-Za-z0-9][\w.-]*\/[A-Za-z0-9][\w.-]*:[A-Za-z0-9][\w.-]*$/.test(id) && (n.model_have || []).indexOf(id) < 0) {
+        toast("name it exactly as owner/repo:QUANT - a member searches nowhere for a model", "warn");
+        return;
+      }
+      askSafe("Ask " + edgeName(n) + " to serve this?", id + "\n\n" + edgeName(n) + " judges it against its own memory, fetches it if it must, and keeps serving what it serves now until the new one answers.", "Ask").then(function (yes) {
+        if (!yes) return;
+        apiPost("/api/edge/serve-model", { confirm: true, id: n.id, model: id }).then(function (d) {
+          toast(edgeName(n) + ": " + d.says);
+          loadEdge();
+        }).catch(function (e) { toast(e.message, "err"); });
+      });
+    });
+    row.appendChild(pick); row.appendChild(exact); row.appendChild(btn);
+    card.appendChild(row);
+  }
+
+  // edgeTagPrompt is the inline tag editor (features/edge/tags.feature): the owner's own words for
+  // what this unit IS, edited the way the terminal edits them - "+word -word" to adjust, a bare list
+  // to replace, empty to clear. A tag names and groups; it is never a capability and never a
+  // permission, and the fleet validates every word, so nothing here second-guesses it.
+  function edgeTagPrompt(card, n) {
+    var row = el("div", "card-actions");
+    var input = el("input", "edge-tag-input");
+    input.type = "text";
+    input.value = (n.tags || []).join(" ");
+    input.placeholder = "production gpu   (or +gpu -bench)";
+    input.setAttribute("aria-label", "tags for " + edgeName(n));
+    var save = el("button", "btn small", "save");
+    save.setAttribute("type", "button");
+    var cancel = el("button", "btn small ghost", "cancel");
+    cancel.setAttribute("type", "button");
+    row.appendChild(input); row.appendChild(save); row.appendChild(cancel);
+    card.appendChild(row);
+    input.focus(); input.select();
+    function commit() {
+      var words = (input.value || "").split(/[\s,]+/).filter(function (w) { return w !== ""; });
+      var add = [], remove = [], bare = [];
+      words.forEach(function (w) {
+        if (w.charAt(0) === "+") add.push(w.slice(1));
+        else if (w.charAt(0) === "-") remove.push(w.slice(1));
+        else bare.push(w);
+      });
+      if ((add.length || remove.length) && bare.length) {
+        toast("say either +add and -remove, or the whole list to keep - not both", "err");
+        return;
+      }
+      if (add.length || remove.length) edgeSetTags({ id: n.id, add: add, remove: remove });
+      else if (bare.length) edgeSetTags({ id: n.id, set: bare });
+      else edgeSetTags({ id: n.id, clear: true });
+    }
+    save.addEventListener("click", commit);
+    cancel.addEventListener("click", function () { edgeTick(); });
+    input.addEventListener("keydown", function (e) {
+      if (e.key === "Enter") { e.preventDefault(); input.blur(); commit(); }
+      else if (e.key === "Escape") { e.preventDefault(); input.blur(); edgeTick(); }
+    });
+  }
+
+  function edgeSetTags(body) {
+    apiPost("/api/edge/tags", body).then(function (d) {
+      toast("tags saved");
+      edgeRender(d);
+    }).catch(function (e) { toast(e.message, "err"); });
+  }
+
+  // edgeServiceControls draws the maintenance actions for a member that declares maintenance
+  // (features/edge/maintenance.feature, features/edge/logs.feature). Every one rides the SAME
+  // maintenance invoke the CLI takes: the owner's switch on that machine and an authority-signed
+  // grant carrying maintain both still decide, and a refusal is shown in the fleet's own words.
+  function edgeServiceControls(card, d, n) {
+    var row = el("div", "card-actions edge-service-actions");
+    var agent = el("input", "edge-service-agent");
+    agent.type = "text"; agent.placeholder = "agent, e.g. watcher";
+    agent.setAttribute("aria-label", "the agent to act on");
+    row.appendChild(agent);
+    [["start", "start"], ["stop", "stop"], ["restart", "restart"]].forEach(function (pair) {
+      var b = el("button", "btn small ghost", pair[0]);
+      b.setAttribute("type", "button");
+      b.addEventListener("click", function () {
+        var target = (agent.value || "").trim();
+        if (!target) { toast("name the agent to " + pair[1], "err"); return; }
+        edgeMaintain(card, n, { node: n.name, action: pair[1], target: target });
+      });
+      row.appendChild(b);
+    });
+    var logs = el("button", "btn small ghost", "read log");
+    logs.setAttribute("type", "button");
+    logs.addEventListener("click", function () {
+      edgeMaintain(card, n, { node: n.name, action: "logs", lines: 100 });
+    });
+    row.appendChild(logs);
+    card.appendChild(row);
+  }
+
+  // edgeMaintain performs one maintenance action. Stop and restart signal a running process, so
+  // they are confirmed; reading a log and starting what is down are not destructive. The answer is
+  // the callee's own result - its words, and for a tail its already-redacted lines.
+  function edgeMaintain(card, n, body) {
+    if (body.action === "stop" || body.action === "restart") {
+      if (!window.confirm(body.action + " " + body.target + " on " + edgeName(n) + "?\n\nIt is asked to stop (SIGTERM), never killed. Anything it was doing stops with it.")) return;
+    }
+    apiPost("/api/edge/maintain", body).then(function (res) {
+      if (body.action === "logs") { edgeShowLogTail(card, n, res); return; }
+      toast(res.says || (body.action + " done"));
+      edgeTick();
+    }).catch(function (e) { toast(e.message, "err"); });
+  }
+
+  // edgeShowLogTail draws a member's returned log lines. They are redacted on the SERVING side and
+  // they are still put on the page as TEXT, never as markup: another machine's log is not a way to
+  // run script in this console. It says how many the ring holds, so a short answer is not read as
+  // the whole log.
+  function edgeShowLogTail(card, n, res) {
+    var box = el("div", "edge-log-tail");
+    var lines = res.lines || [];
+    box.appendChild(el("div", "mono small muted", "LOG \u00b7 " + edgeName(n) + " \u00b7 " +
+      (lines.length ? lines.length + " of " + (res.held || lines.length) + " lines held" : (res.says || "nothing logged yet"))));
+    lines.forEach(function (ln) { box.appendChild(el("div", "mono small edge-log-line", ln)); });
+    var close = el("button", "btn small ghost", "close");
+    close.setAttribute("type", "button");
+    close.addEventListener("click", function () { edgeTick(); });
+    box.appendChild(close);
+    card.appendChild(box);
+  }
+
+  // edgeRenderSinks draws WHERE an alarm goes (features/edge/health.feature §5). The table has no
+  // column for the URL because the payload has no field for it: the secret went in once and the
+  // console is never told it again, so a screen left open cannot be read for a credential.
+  function edgeRenderSinks(d) {
+    var wrap = $("edge-sinks-wrap");
+    if (!wrap) return;
+    if (!d.sink_manage) { show(wrap, false); return; }
+    show(wrap, true);
+    edgeRenderSinkForm(d);
+    var body = $("edge-sinks");
+    if (!body) return;
+    if (edgeFormBusy(body)) return;
+    body.innerHTML = "";
+    var sinks = d.sinks || [];
+    if (!sinks.length) {
+      var er = el("tr", "empty-row");
+      var ec = el("td", null, "Alerts stay on this machine."); ec.colSpan = 4;
+      er.appendChild(ec); body.appendChild(er);
+      return;
+    }
+    sinks.forEach(function (sk) {
+      var tr = el("tr");
+      tr.appendChild(el("td", "mono small", sk.kind));
+      tr.appendChild(el("td", "mono small", sk.host || "\u2014"));
+      tr.appendChild(el("td", "mono small", sk.id));
+      var acts = el("td");
+      var testBtn = el("button", "btn small ghost", "test");
+      testBtn.setAttribute("type", "button");
+      testBtn.addEventListener("click", function () { edgeSinkDo("test", { id: sk.id }, "a test reached " + sk.words); });
+      acts.appendChild(testBtn);
+      var rmBtn = el("button", "btn small ghost", "remove");
+      rmBtn.setAttribute("type", "button");
+      rmBtn.addEventListener("click", function () {
+        if (!window.confirm("Stop sending alerts to " + sk.words + "?\n\nNothing goes there again. The URL is not stored anywhere else, so you would have to paste it in again.")) return;
+        edgeSinkDo("rm", { id: sk.id }, "no alert goes to " + sk.id + " again");
+      });
+      acts.appendChild(rmBtn);
+      tr.appendChild(acts);
+      body.appendChild(tr);
+    });
+  }
+
+  function edgeRenderSinkForm(d) {
+    var box = $("edge-sink-form");
+    if (!box || edgeFormBusy(box)) return;
+    box.innerHTML = "";
+    var kind = el("select", "mono small");
+    ["webhook", "discord", "telegram"].forEach(function (k) { var o = el("option", null, k); o.value = k; kind.appendChild(o); });
+    var url = el("input", "mono small");
+    url.type = "url";
+    url.placeholder = "https://… or http://box.local/hook";
+    url.size = 44;
+    var add = el("button", "btn small", "send alerts here");
+    add.setAttribute("type", "button");
+    add.addEventListener("click", function () {
+      if (!url.value) { toast("a destination needs a URL", "err"); return; }
+      edgeSinkDo("add", { kind: kind.value, url: url.value }, "alerts now go to " + kind.value);
+      url.value = "";
+    });
+    box.appendChild(kind); box.appendChild(url); box.appendChild(add);
+  }
+
+  function edgeSinkDo(what, extra, said) {
+    var req = { do: what };
+    Object.keys(extra).forEach(function (k) { req[k] = extra[k]; });
+    apiPost("/api/edge/sink", req).then(function (d) {
+      toast(said);
+      edgeRender(d);
+    }).catch(function (e) { toast(e.message, "err"); });
+  }
+
+  // edgeRenderRules draws what raises an alarm on this Edge (features/edge/health.feature, and
+  // manage_web.feature's "setting an alert rule from the dashboard stores it and takes effect").
+  // The words and the scope are the SERVER's: the browser prints what it is told, as it does
+  // everywhere else on this tab. The section is shown only when the host wired the actions, so
+  // there is never a button here that would come back 501.
+  function edgeRenderRules(d) {
+    var wrap = $("edge-rules-wrap");
+    if (!wrap) return;
+    if (!d.rules_manage) { show(wrap, false); return; }
+    show(wrap, true);
+    edgeRenderRuleForm(d);
+    var body = $("edge-rules");
+    if (!body) return;
+    body.innerHTML = "";
+    var rules = d.rules || [];
+    if (!rules.length) {
+      var er = el("tr", "empty-row");
+      var ec = el("td", null, "No rules are in force."); ec.colSpan = 5;
+      er.appendChild(ec); body.appendChild(er);
+      return;
+    }
+    rules.forEach(function (r) {
+      var tr = el("tr", r.off ? "muted" : null);
+      tr.appendChild(el("td", "mono small", r.words));
+      tr.appendChild(el("td", "mono small", r.of));
+      tr.appendChild(el("td", "mono small", r.id));
+      tr.appendChild(el("td", "mono small", r.off ? "off" : (r.default ? "on \u00b7 default" : "on")));
+      var td = el("td");
+      var toggle = el("button", "btn small ghost", r.off ? "turn on" : "turn off");
+      toggle.type = "button";
+      toggle.addEventListener("click", function () { edgeRuleOff(r.id, !r.off); });
+      td.appendChild(toggle);
+      var rm = el("button", "btn small ghost", "remove");
+      rm.type = "button";
+      rm.addEventListener("click", function () { edgeRemoveRule(r); });
+      td.appendChild(rm);
+      tr.appendChild(td);
+      body.appendChild(tr);
+    });
+  }
+
+  // edgeRenderRuleForm is the set form: a metric, a comparison, a value and a scope. The words go to
+  // A Pi's firmware power word in the words edge.PowerLine uses on every other surface: bits 0-3 are
+  // what is happening NOW, bits 16-19 the same four since boot.
+  var EDGE_POWER_WORDS = ["under-voltage", "frequency capped", "throttled", "soft temperature limit"];
+  function edgePowerLine(flags) {
+    var now = [], since = [];
+    EDGE_POWER_WORDS.forEach(function (w, i) {
+      if (flags & (1 << i)) now.push(w);
+      if (flags & (1 << (i + 16))) since.push(w);
+    });
+    if (!now.length && !since.length) return "good";
+    if (!now.length) return "good now \u00b7 " + since.join(", ") + " since boot";
+    var extra = since.filter(function (w) { return now.indexOf(w) < 0; });
+    return now.join(", ") + " NOW" + (extra.length ? " \u00b7 " + extra.join(", ") + " since boot" : "");
+  }
+  // the host AS TYPED - the rule id and the scope are resolved once, where the CLI resolves them.
+  function edgeRenderRuleForm(d) {
+    var box = $("edge-rule-form");
+    if (!box || box.dataset.built === "1") return; // build once; polling must not wipe a half-filled form
+    box.dataset.built = "1";
+    var metric = el("select", "edge-rule-metric");
+    ["cpu_temp", "cpu_load", "memory", "disk", "sd_wear", "throttled", "offline", "battery", "battery_critical", "on_battery", "low_power"].forEach(function (m) {
+      var o = el("option", null, m); o.value = m; metric.appendChild(o);
+    });
+    var op = el("select", "edge-rule-op");
+    [["gt", "over"], ["lt", "under"]].forEach(function (pair) {
+      var o = el("option", null, pair[1]); o.value = pair[0]; op.appendChild(o);
+    });
+    var value = el("input", "edge-rule-value"); value.type = "text"; value.size = 6; value.value = "90";
+    var scope = el("select", "edge-rule-scope");
+    var all = el("option", null, "every node"); all.value = ""; scope.appendChild(all);
+    (d.nodes || []).forEach(function (n) { var o = el("option", null, edgeName(n)); o.value = n.name; scope.appendChild(o); });
+    var tags = {};
+    (d.nodes || []).forEach(function (n) { (n.tags || []).forEach(function (t) { tags[t] = true; }); });
+    Object.keys(tags).sort().forEach(function (t) {
+      var o = el("option", null, "every node tagged " + t); o.value = "tag:" + t; scope.appendChild(o);
+    });
+    var set = el("button", "btn small", "set rule"); set.type = "button";
+    box.innerHTML = "";
+    box.appendChild(edgeField("when", metric));
+    box.appendChild(edgeField("is", op));
+    box.appendChild(edgeField("than", value));
+    box.appendChild(edgeField("on", scope));
+    box.appendChild(set);
+    set.addEventListener("click", function () {
+      edgeSetRule({ metric: metric.value, op: op.value, value: (value.value || "").trim(), scope: scope.value });
+    });
+  }
+
+  function edgeSetRule(body) {
+    apiPost("/api/edge/rule", body).then(function (res) {
+      toast(res.says || "rule set");
+      var f = $("edge-rule-form"); if (f) f.dataset.built = ""; // rebuild against the fresh fleet
+      edgeRender(res.edge);
+    }).catch(function (e) { toast(e.message, "err"); });
+  }
+
+  function edgeRuleOff(id, off) {
+    apiPost("/api/edge/rule/off", { id: id, off: off }).then(function (d) {
+      toast(off ? "rule " + id + " is off" : "rule " + id + " is on");
+      edgeRender(d);
+    }).catch(function (e) { toast(e.message, "err"); });
+  }
+
+  // Removing a rule stops an alarm the owner asked for, so it is confirmed rather than a stray click.
+  function edgeRemoveRule(r) {
+    if (!window.confirm("Remove the rule " + r.id + " (" + r.words + " on " + r.of + ")?\n\nNothing will raise an alarm for it from the next health read. A default rule comes back if no rule remains.")) return;
+    apiPost("/api/edge/rule/remove", { id: r.id }).then(function (d) {
+      toast("rule " + r.id + " removed");
+      edgeRender(d);
+    }).catch(function (e) { toast(e.message, "err"); });
+  }
+
+  // edgeCanManage is set from the snapshot: true when the server wired the Name/Forget hooks, so the
+  // buttons appear exactly when they would work and never when they would 501.
+  var edgeCanManage = false;
+
+  // edgeRenamePrompt swaps the actions for an inline input, so a rename is a deliberate edit, not a
+  // blocking browser dialog. Enter or Save renames through the host; Esc or Cancel puts it back.
+  function edgeRenamePrompt(card, n) {
+    var row = el("div", "card-actions");
+    var input = el("input", "edge-rename-input");
+    input.type = "text"; input.value = n.name || ""; input.setAttribute("aria-label", "new name");
+    var save = el("button", "btn small", "save");
+    save.setAttribute("type", "button");
+    var cancel = el("button", "btn small ghost", "cancel");
+    cancel.setAttribute("type", "button");
+    row.appendChild(input); row.appendChild(save); row.appendChild(cancel);
+    card.appendChild(row);
+    input.focus(); input.select();
+    function commit() {
+      var name = (input.value || "").trim();
+      if (!name || name === n.name) { edgeTick(); return; }
+      edgeRename(n.id, name);
+    }
+    save.addEventListener("click", commit);
+    cancel.addEventListener("click", function () { edgeTick(); });
+    input.addEventListener("keydown", function (e) {
+      if (e.key === "Enter") { e.preventDefault(); input.blur(); commit(); }
+      else if (e.key === "Escape") { e.preventDefault(); input.blur(); edgeTick(); }
+    });
+  }
+
+  // edgeRename renames a member through the host - the SAME Rename the TUI and CLI use, with the same
+  // per-account uniqueness enforced server-side. It answers with the fresh snapshot.
+  //
+  // It is NOT called edgeName: that name belongs to the display helper above, and a second
+  // declaration of it silently replaced that helper for the whole scope, so every node label in the
+  // console read "undefined" and every render posted a nameless rename the server refused.
+  function edgeRename(id, name) {
+    apiPost("/api/edge/name", { id: id, name: name }).then(function (d) {
+      toast("renamed to " + name);
+      edgeRender(d);
+    }).catch(function (e) { toast(e.message, "err"); });
+  }
+
+  // edgeForget removes a member through the host after a deliberate confirm - never a silent delete.
+  // When this machine is the authority the server also revokes the node's certificate.
+  // edgeActuatePending reports whether this node declares actuate and is still waiting on its
+  // owner. It is the one capability nothing infers and no probe can verify.
+  function edgeActuatePending(n) {
+    return (n.caps || []).some(function (c) { return c.name === "actuate" && c.state !== "VERIFIED"; });
+  }
+
+  // edgeConfirmActuate is the ceremony: say what it LICENSES, ask, then let the HOST record who.
+  // The request carries the node and nothing else - a confirmation the browser can name itself for
+  // would be worth nothing.
+  function edgeConfirmActuate(id, name) {
+    if (!window.confirm("Let " + name + " ACTUATE?\n\nActuate means this node can change the PHYSICAL WORLD: a door, a pump, a relay, a moving machine. Nothing on your Edge infers this and no probe can verify it - it is yours to grant, and your name is recorded against it.")) return;
+    apiPost("/api/edge/actuate", { id: id }).then(function (d) {
+      toast(name + " may actuate - recorded on the node");
+      edgeRender(d);
+    }).catch(function (e) { toast(e.message, "err"); });
+  }
+
+  function edgeForget(id, name) {
+    if (!window.confirm("Forget " + name + "?\n\nIt leaves your Edge and its pinned certificate is cleared. If this machine is the authority, its certificate is revoked so no peer accepts it. This cannot be undone from here.")) return;
+    apiPost("/api/edge/forget", { id: id }).then(function (d) {
+      toast(name + " forgotten");
+      edgeSel = null;
+      edgePrev = null;
+      edgeRender(d);
+    }).catch(function (e) { toast(e.message, "err"); });
+  }
+
+  // edgeAdopt takes the SAME path as the terminal's `a` and `roger edge adopt`: the server
+  // checks the certificate before anything is enrolled, and answers with the fresh
+  // snapshot so the tab shows what it just did.
+  function edgeAdopt(id, name) {
+    apiPost("/api/edge/adopt", { id: id }).then(function (d) {
+      toast(name + " adopted onto your Edge");
+      edgePrev = null; // a fresh member is not a heartbeat
+      edgeRender(d);
+    }).catch(function (e) { toast(e.message, "err"); });
+  }
+
+  /* SESSIONS: a window over the relay's receipts. WHO / BAND / PATH / OUTCOME, one row per
+     identical group with its count on the path, busiest first (the server groups). An
+     ESCALATION is a good outcome and is styled as one. */
+  function edgeRenderSessions(d) {
+    var body = $("edge-sessions");
+    if (!body) return;
+    body.innerHTML = "";
+    if (!d.sessions.length) {
+      var er = el("tr", "empty-row");
+      var ec = el("td", null, "The Edge is quiet: no sessions in the last 90 seconds.");
+      ec.colSpan = 5; er.appendChild(ec); body.appendChild(er);
+      return;
+    }
+    d.sessions.forEach(function (s) {
+      var tr = el("tr");
+      var glyph = s.outcome.indexOf("REFUSED") === 0 ? "✗ " : s.escalate ? "↑ " : "● ";
+      tr.appendChild(el("td", "mono", glyph + s.who));
+      tr.appendChild(el("td", "mono", s.band || "—"));
+      // the ROUTE: where the turn really went, as a word beside its colour
+      tr.appendChild(el("td", "mono " + (s.route === "market" ? "route--market" : s.route === "local" ? "route--local" : "muted"), s.route || "—"));
+      // the path in order: who, via, station - the relay is its own hop, a failover shows
+      // the station it left
+      var hops = [];
+      if (s.via) hops.push(s.via);
+      if (s.left) hops.push(s.left + " ✗");
+      if (s.station) hops.push(s.station);
+      var path = el("td", "path mono", hops.length ? "→ " + hops.join(" → ") : "—");
+      if (s.count > 1) path.appendChild(el("span", "sess-count", "×" + s.count));
+      tr.appendChild(path);
+      var cls = s.outcome.indexOf("REFUSED") === 0 ? "sess--refused" : s.escalate ? "sess--escalate" : "sess--served";
+      tr.appendChild(el("td", "mono " + cls, s.outcome));
+      body.appendChild(tr);
+    });
+  }
+
+  /* THE PULSE. Started ONLY by edgeRender's last_seen comparison. Under reduced motion it
+     is a still mark on the node for a moment, gated on the very same heartbeat. */
+  function edgePulse(n, nodes) {
+    if (edgeReduced) {
+      var g = document.querySelector('#edge-graph .edge-node[data-id="' + n.id + '"]');
+      if (g) { g.classList.add("edge-beat"); setTimeout(function () { g.classList.remove("edge-beat"); }, 900); }
+      return;
+    }
+    var path = edgePath(n, nodes);
+    if (!path) return;
+    edgePulses.push({ node: n, path: path, t: 0 });
+    if (!edgeRaf) edgeRaf = requestAnimationFrame(edgeFrame);
+  }
+
+  function edgeLerpPath(path, t) {
+    var segs = path.length - 1, f = t * segs, i = Math.min(segs - 1, Math.floor(f)), u = f - i;
+    var a = path[i], b = path[i + 1];
+    return [a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u];
+  }
+
+  function edgeDrawPulses(svg) {
+    Array.prototype.forEach.call(svg.querySelectorAll(".edge-pulse"), function (c) { svg.removeChild(c); });
+    edgePulses.forEach(function (pl) {
+      var p = edgeLerpPath(pl.path, pl.t);
+      svg.appendChild(svgEl("circle", { cx: p[0], cy: p[1], r: 4, "class": "edge-pulse" }));
+    });
+  }
+
+  function edgeFrame() {
+    edgeRaf = null;
+    var svg = $("edge-graph");
+    if (!svg || document.hidden || !edgeTimer) { edgePulses = []; return; }
+    edgePulses.forEach(function (pl) { pl.t += 0.02; });
+    edgePulses = edgePulses.filter(function (pl) { return pl.t < 1; });
+    edgeDrawPulses(svg);
+    if (edgePulses.length) edgeRaf = requestAnimationFrame(edgeFrame);
+  }
+  /* end EDGE */
+
+
+  /* 8c. MODELS: `roger model` from the browser ------------------------------
+     features/serving/local_models.feature §8. Every judgement comes from the server, which
+     runs the CLI's own code; this page draws it and asks the owner before anything changes.
+     Text from the index (repo names, licences) only ever goes in as textContent. */
+  var modelsTimer = null;
+  var modelsRepo = null;   // the repo whose files are open
+  var modelsLast = null;
+
+  function fmtBytes(n) {
+    n = Number(n) || 0;
+    var u = ["B", "KiB", "MiB", "GiB", "TiB"], i = 0;
+    while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+    return (i === 0 ? n.toFixed(0) : n.toFixed(1)) + " " + u[i];
+  }
+  function fmtSecs(s) {
+    s = Math.round(Number(s) || 0);
+    if (s < 60) return s + "s";
+    if (s < 3600) return Math.floor(s / 60) + "m" + (s % 60 ? " " + (s % 60) + "s" : "");
+    return Math.floor(s / 3600) + "h " + Math.floor((s % 3600) / 60) + "m";
+  }
+
+  // askSafe asks once, with the facts, and the safe answer is the default: Cancel holds the focus,
+  // so Enter alone answers No. Resolves true only on an explicit Yes.
+  function askSafe(title, body, yesLabel) {
+    return new Promise(function (resolve) {
+      $("ask-title").textContent = title;
+      $("ask-body").textContent = body;
+      $("ask-yes").textContent = yesLabel || "Yes";
+      var done = function (v) { $("ask-yes").onclick = null; $("ask-no").onclick = null; closeModal(); resolve(v); };
+      $("ask-yes").onclick = function () { done(true); };
+      $("ask-no").onclick = function () { done(false); };
+      modalOpen("modal-ask");
+      try { $("ask-no").focus(); } catch (_) {}
+      // Escape and a backdrop click close the modal; both are a No.
+      var watch = setInterval(function () { if ($("modal-ask").hidden) { clearInterval(watch); resolve(false); } }, 200);
+    });
+  }
+
+  function modelsStart() {
+    loadModels();
+    if (!modelsTimer) modelsTimer = setInterval(function () {
+      // fast while something is moving, calm otherwise: the page must never become the load
+      var busy = modelsLast && ((modelsLast.job && modelsLast.job.state === "fetching") || modelsLast.starting);
+      if (busy || (Date.now() / 1000 | 0) % 5 === 0) loadModels();
+    }, 1000);
+  }
+  function modelsStop() { if (modelsTimer) { clearInterval(modelsTimer); modelsTimer = null; } }
+
+  function loadModels() {
+    if (document.hidden) return;
+    apiGet("/api/models").then(function (v) {
+      show($("models-disabled"), false);
+      renderModels(v);
+    }).catch(function (e) {
+      if (e.status === 501) { $("models-disabled").textContent = e.message; show($("models-disabled"), true); show($("share-settings"), false); modelsStop(); }
+    });
+  }
+
+  function renderModels(v) {
+    var wasStarting = modelsLast && modelsLast.starting;
+    modelsLast = v;
+    if (wasStarting && !v.serving && !(v.serve_log && v.serve_log.length)) v.starting = wasStarting;
+    if (v.serving) v.starting = false;
+    $("models-machine").textContent = v.budget > 0 ? fmtBytes(v.budget) + " of " + v.pool : "cannot say - " + (v.budget_why || "memory could not be read");
+    $("models-runtime").textContent = v.runtime || "";
+    $("models-disk").textContent = (v.models || []).length + " models, " + fmtBytes(v.disk_used) + (v.dir ? "  in " + v.dir : "");
+
+    // a background serve that never came on the air, in its own words
+    var logLines = v.serve_log || [];
+    show($("models-servelog"), !v.serving && logLines.length > 0); // the server sends it only for a serve that failed
+    $("models-servelog-text").textContent = logLines.join("\n");
+    renderServingSettings(v);
+
+    // ROGER'S OWN ROWS, in the SHARE table, in its column grammar.
+    var tb = $("share-roger-rows");
+    if (!tb) return;
+    tb.textContent = "";
+    var cell = function (tr, cls, txt) { var td = el("td", cls, txt); tr.appendChild(td); return td; };
+    var sv = v.serving;
+    // Every serve is a row of its own with its own stop (local_models.feature §5: two at once).
+    (sv ? [v.serving].concat(v.also || []) : []).forEach(function (one) {
+      var tr0 = el("tr", "is-serving");
+      var c0 = cell(tr0, "col-model mono", one.band);
+      c0.appendChild(el("div", "muted small", "served by roger itself \u00b7 " + one.id + " \u00b7 " + one.ctx + " context"));
+      var speed = servedSpeed(one);
+      if (speed) c0.appendChild(el("div", "small", speed));
+      cell(tr0, "col-variant mono small", one.quant || "-");
+      cell(tr0, "col-status mono", "ROGER");
+      cell(tr0, "col-price muted", "-"); cell(tr0, "num", "-"); cell(tr0, "num", "-"); cell(tr0, "num", "-");
+      cell(tr0, "cat-cell", "");
+      var a0 = cell(tr0, "col-actions row-actions");
+      var stopB = el("button", "btn small", "stop serving"); stopB.type = "button";
+      stopB.onclick = function () { modelsStopServing(one); };
+      a0.appendChild(stopB);
+      tb.appendChild(tr0);
+    });
+    (v.models || []).forEach(function (m) {
+      if (m.serving) return; // a served model is already a row of its own
+      var tr = el("tr", "is-disk");
+      var c = cell(tr, "col-model mono", m.band);
+      c.appendChild(el("div", "muted small", m.id + (m.verified ? "" : " \u00b7 found, served on your word") + (m.license ? " \u00b7 licence " + m.license : "")));
+      cell(tr, "col-variant mono small", m.quant || "-");
+      cell(tr, "col-status mono", "ON DISK");
+      cell(tr, "col-price muted", fmtBytes(m.bytes)); cell(tr, "num", "-"); cell(tr, "num", "-"); cell(tr, "num", "-");
+      cell(tr, "cat-cell", "");
+      var act = cell(tr, "col-actions row-actions");
+      if (v.can_serve) {
+        var cur = sv;
+        var sb = el("button", "btn small", cur ? "switch to this" : "serve here"); sb.type = "button";
+        sb.onclick = function () { modelsServe(m, cur, false); };
+        act.appendChild(sb);
+        if (cur) {
+          var ab = el("button", "btn small ghost", "add beside"); ab.type = "button";
+          ab.onclick = function () { modelsServe(m, cur, true); };
+          act.appendChild(ab);
+        }
+      }
+      var rb = el("button", "btn small ghost", "remove"); rb.type = "button";
+      rb.onclick = function () { modelsRemove(m); };
+      act.appendChild(rb);
+      tb.appendChild(tr);
+    });
+    var j = v.job;
+    if (j && j.state !== "done") {
+      var trj = el("tr", "is-fetch");
+      var cj = el("td", "mono"); cj.colSpan = 9;
+      var heads = { fetching: "\u2193 FETCHING", failed: "FETCH FAILED", interrupted: "FETCH INTERRUPTED" };
+      cj.appendChild(el("b", null, (heads[j.state] || j.state) + "  "));
+      cj.appendChild(el("span", "small", j.repo + "  " + j.file));
+      var meter = el("div", "meter"); var fill = el("div", "meter-fill" + (j.state === "failed" ? " over" : ""));
+      fill.style.width = (100 * (j.total > 0 ? clamp(j.done / j.total, 0, 1) : 0)).toFixed(1) + "%";
+      meter.appendChild(fill); cj.appendChild(meter);
+      var line = fmtBytes(j.done) + " of " + fmtBytes(j.total);
+      if (j.state === "fetching" && j.rate > 0) line += " \u00b7 " + fmtBytes(j.rate) + "/s";
+      if (j.state === "fetching" && j.remaining_s > 0 && j.done * 50 >= j.total) line += " \u00b7 " + fmtSecs(j.remaining_s) + " left";
+      if (j.resumed) line += " \u00b7 resumed";
+      if (j.state === "interrupted") line += " \u00b7 fetch it again and it resumes";
+      if (j.state === "failed") line = (j.err || "") + (j.fix ? " - " + j.fix : "");
+      cj.appendChild(el("div", "small", line));
+      trj.appendChild(cj); tb.appendChild(trj);
+    }
+    // ALWAYS LAST: the way to get a model, visibly a row of the list - never a hidden key.
+    var trg = el("tr", "is-get");
+    var cg = el("td"); cg.colSpan = 9;
+    var gb = el("button", "btn primary small", "+ Get a model that fits this machine"); gb.type = "button";
+    gb.onclick = function () { show($("share-getmodel"), true); modelsNearby(); };
+    cg.appendChild(gb);
+    cg.appendChild(el("span", "muted small", "  " + (v.budget > 0 ? fmtBytes(v.budget) + " " + v.pool + " \u00b7 " : "") + "search HuggingFace"));
+    trg.appendChild(cg); tb.appendChild(trg);
+  }
+
+  function modelsServe(m, current, add) {
+    var body = "Serve " + m.id + " on this machine as “" + m.band + "”.\n\n" +
+      (current && add ? "It is served BESIDE " + current.id + ", which keeps serving - only if both fit together. If they do not, nothing changes and you can switch instead.\n\n" :
+        current ? "It is started and proven FIRST; only then is " + current.id + " stopped. If it fails to start, " + current.id + " keeps serving.\n\n" : "") +
+      "It runs in the background, so closing this page does not stop it.";
+    var title = current ? (add ? "Serve it beside?" : "Switch models?") : "Serve this model?";
+    askSafe(title, body, current ? (add ? "Add beside" : "Switch") : "Serve").then(function (yes) {
+      if (!yes) return;
+      apiPost("/api/models/serve", { confirm: true, id: m.id, add: !!add }).then(function (d) {
+        toast(d.says || "starting");
+        d.view.starting = true;
+        renderModels(d.view);
+      }).catch(function (e) { toast(e.message, "err"); });
+    });
+  }
+
+  // What is served nearby that fits, first (short_names_nearby.feature section 7): the same rows the
+  // terminal suggests, from the same code. The search stays one action away and is never sent here.
+  function modelsNearby() {
+    var tb = $("models-nearby-rows"), note = $("models-nearby-note");
+    if (!tb || !note) return;
+    tb.textContent = ""; note.textContent = "reading what is served nearby\u2026"; show($("models-nearby"), true);
+    apiGet("/api/models/nearby").then(function (nv) {
+      var rows = (nv.fits || []).concat(nv.other || []);
+      if (!rows.length) {
+        note.textContent = "nothing is served nearby (on this machine, by your Edge members or on a pinned Tower) - search the model hub below.";
+        show($("models-nearby-wrap"), false);
+        try { $("models-q").focus(); } catch (_) {}
+        return;
+      }
+      note.textContent = "this machine: " + (nv.budget > 0 ? fmtBytes(nv.budget) + " of " + nv.pool : "cannot say - " + (nv.budget_why || "")) +
+        ". Served nearby, and fits this machine - which file each is, is its source's word.";
+      show($("models-nearby-wrap"), true);
+      (nv.fits || []).forEach(function (r) {
+        var tr = el("tr");
+        tr.appendChild(el("td", "mono", r.name));
+        tr.appendChild(el("td", "mono small", r.repo + ":" + (r.quant || "-")));
+        tr.appendChild(el("td", "num", fmtBytes(r.bytes)));
+        tr.appendChild(el("td", "small", r.short + " \u00b7 " + r.by));
+        var act = el("td"); var b = el("button", "btn small", "get"); b.type = "button";
+        b.onclick = function () { modelsFetchNearby(r); };
+        act.appendChild(b); tr.appendChild(act); tb.appendChild(tr);
+      });
+      (nv.other || []).forEach(function (r) {
+        var tr = el("tr", "muted");
+        tr.appendChild(el("td", "mono", r.name));
+        tr.appendChild(el("td", "mono small", r.repo + ":" + (r.quant || "-")));
+        tr.appendChild(el("td", "num", r.bytes ? fmtBytes(r.bytes) : "-"));
+        var why = el("td", "small", r.why + " \u00b7 " + r.by); why.colSpan = 2;
+        tr.appendChild(why); tb.appendChild(tr);
+      });
+    }).catch(function (e) { note.textContent = e.message; });
+  }
+
+  function modelsFetchNearby(r) {
+    var body = r.ask + "\n\n" + r.repo + "  " + r.file + "  " + fmtBytes(r.bytes) + "\n" + (r.line || "") +
+      "\n\nThe bytes come from the model hub, checked against the digest " + r.by + " reported.";
+    askSafe("Fetch this model?", body, "Fetch").then(function (yes) {
+      if (!yes) return;
+      apiPost("/api/models/fetch-nearby", { confirm: true, name: r.name, repo: r.repo, file: r.file, sha256: r.sha256 }).then(function (d) {
+        toast(d.says || "fetching"); renderModels(d.view);
+      }).catch(function (e) { toast(e.message, "err"); modelsNearby(); });
+    });
+  }
+
+  function modelsStopServing(sv) {
+    if (!sv) return;
+    askSafe("Stop serving?", "Stop serving “" + sv.band + "” (" + sv.id + ").\n\nAnything routed to it stops being answered.", "Stop").then(function (yes) {
+      if (!yes) return;
+      apiPost("/api/models/stop", { confirm: true, id: sv.id }).then(function (d) { toast(d.says); renderModels(d.view); })
+        .catch(function (e) { toast(e.message, "err"); });
+    });
+  }
+
+  function modelsRemove(m) {
+    askSafe("Remove this model?", "Delete " + m.id + " (" + fmtBytes(m.bytes) + ") from this machine.\n\nIt can be fetched again later.", "Remove").then(function (yes) {
+      if (!yes) return;
+      apiPost("/api/models/remove", { confirm: true, id: m.id }).then(function (d) { toast(d.says); renderModels(d.view); })
+        .catch(function (e) { toast(e.message, "err"); });
+    });
+  }
+
+  // servedSpeed is a served row's build and speed: measured once its runtime has counted its own
+  // tokens, the server's estimate (marked as one) until then (local_models.feature §11).
+  function servedSpeed(one) {
+    var words = { cpu: "CPU", vulkan: "Vulkan", cuda: "CUDA", metal: "Metal" };
+    var build = one.build ? (words[one.build] || one.build) + " build" : "";
+    var pace = one.measured_tok_s > 0 ? Number(one.measured_tok_s).toFixed(1) + " tok/s measured" : (one.estimate || "");
+    return [build, pace].filter(Boolean).join(" \u00b7 ");
+  }
+
+  // THE SERVING SETTINGS LINE (local_models.feature §11): under roger's rows, always shown when the
+  // models API answers. A poll redraws the words but never what the owner is choosing or typing.
+  function renderServingSettings(v) {
+    var st = v.settings || {};
+    show($("share-settings"), true);
+    $("share-set-runtime-now").textContent = "build: " + (st.runtime || "auto") + " - " + (st.here || "");
+    $("share-set-idle-now").textContent = "idle: " + (st.idle || "off");
+    $("share-set-budget-now").textContent = "disk: " + (st.disk_budget > 0 ? fmtBytes(st.disk_budget) + " budget, " + fmtBytes(v.disk_used) + " used" : "no budget");
+    var sel = $("share-set-runtime");
+    if (document.activeElement === sel) return;
+    var want = (st.choices || []).join(",");
+    if (sel.getAttribute("data-choices") !== want) {
+      sel.textContent = "";
+      (st.choices || []).forEach(function (c) { var o = el("option", null, c); o.value = c; sel.appendChild(o); });
+      sel.setAttribute("data-choices", want);
+    }
+    sel.value = st.runtime || "auto";
+  }
+
+  // modelsSet changes one serving setting, asked first; the answer is the CLI's own sentence.
+  function modelsSet(kind, value, title, body) {
+    askSafe(title, body, "Change").then(function (yes) {
+      if (!yes) return;
+      apiPost("/api/models/set", { confirm: true, kind: kind, value: value }).then(function (d) {
+        toast(d.says);
+        $("share-set-says").textContent = d.says || "";
+        show($("share-set-says"), !!d.says);
+        renderModels(d.view);
+      }).catch(function (e) { toast(e.message, "err"); });
+    });
+  }
+
+  function wireServingSettings() {
+    var sel = $("share-set-runtime");
+    if (!sel) return;
+    sel.addEventListener("change", function () {
+      var c = sel.value;
+      sel.blur();
+      // the select keeps saying the setting in force until the owner's yes changes it
+      if (modelsLast) renderServingSettings(modelsLast);
+      modelsSet("runtime", c, "Change the build?", "Serve with the runtime choice “" + c + "”.\n\n" +
+        "It applies from the next serve; a model already on the air keeps its build. The answer says which build that means on this machine.");
+    });
+    // a typed setting applies on its button or on Enter; an empty field asks nothing
+    var typed = function (id, apply) {
+      var inp = $(id), go = function () {
+        var val = inp.value.trim();
+        if (!val) { toast("type a value first, or off", "err"); return; }
+        inp.value = "";
+        apply(val);
+      };
+      $(id + "-apply").onclick = go;
+      inp.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); go(); } });
+    };
+    typed("share-set-idle", function (val) {
+      modelsSet("idle", val, "Change the idle timeout?", "Set the idle timeout to “" + val + "”.\n\n" +
+        "With no turn for that long, roger stops serving the model and records why; off keeps it serving. It reaches a model already on the air too.");
+    });
+    typed("share-set-budget", function (val) {
+      modelsSet("budget", val, "Change the disk budget?", "Set the disk budget for models to “" + val + "”.\n\n" +
+        "Setting it removes nothing now. It applies from the next fetch, and the answer says what that fetch would remove.");
+    });
+  }
+
+  function modelsSearch(q) {
+    var tb = $("models-results");
+    tb.textContent = "";
+    show($("models-results-wrap"), true);
+    show($("models-results-note"), true);
+    var tr0 = el("tr", "empty-row"); var td0 = el("td", null, "Searching…"); td0.colSpan = 4; tr0.appendChild(td0); tb.appendChild(tr0);
+    apiGet("/api/models/search?q=" + encodeURIComponent(q)).then(function (d) {
+      tb.textContent = "";
+      var rows = (d && d.results) || [];
+      if (!rows.length) { var tr = el("tr", "empty-row"); var td = el("td", null, "Nothing with servable weights matched."); td.colSpan = 4; tr.appendChild(td); tb.appendChild(tr); }
+      rows.forEach(function (r) {
+        var tr = el("tr");
+        var name = el("td", "col-model mono", r.repo);
+        if (r.gated) name.appendChild(el("div", "small", "GATED: needs accepted access and HF_TOKEN where roger runs"));
+        tr.appendChild(name);
+        tr.appendChild(el("td", "num mono", fmtInt(r.downloads)));
+        tr.appendChild(el("td", "mono small", r.license || "-"));
+        var act = el("td", "row-actions");
+        var b = el("button", "btn small", "see what fits");
+        b.onclick = function () { modelsOpenRepo(r.repo); };
+        act.appendChild(b);
+        tr.appendChild(act);
+        tb.appendChild(tr);
+      });
+    }).catch(function (e) { tb.textContent = ""; toast(e.message, "err"); });
+  }
+
+  function modelsOpenRepo(repo) {
+    modelsRepo = repo;
+    show($("models-repo"), true);
+    $("models-repo-name").textContent = repo;
+    $("models-repo-licence").textContent = "";
+    $("models-repo-machine").textContent = "Judging every file against this machine…";
+    var tb = $("models-files");
+    tb.textContent = "";
+    var ctx = parseInt($("models-ctx").value, 10) || 0;
+    apiGet("/api/models/files?repo=" + encodeURIComponent(repo) + "&ctx=" + ctx).then(function (fv) {
+      if (modelsRepo !== repo) return;
+      $("models-repo-licence").textContent = "licence: " + (fv.license || "not stated") + " (shown and recorded; it does not block anything)";
+      $("models-repo-machine").textContent = (fv.budget > 0 ? "This machine: " + fmtBytes(fv.budget) + " of " + fv.pool : "This machine's memory could not be read") +
+        " · judged at " + (fv.ctx || "the proposed") + " context.";
+      (fv.choices || []).forEach(function (c) {
+        var tr = el("tr", c.suggested ? "is-suggested" : "");
+        tr.appendChild(el("td", "mono", (c.suggested ? "★ " : "") + c.label));
+        tr.appendChild(el("td", "num mono", fmtBytes(c.bytes)));
+        var verdict = el("td", "small");
+        if (c.unservable) verdict.textContent = "not servable: " + c.unservable;
+        else {
+          verdict.appendChild(el("div", "mono", c.short));
+          if (c.pace_line) verdict.appendChild(el("div", "mono", c.pace_line));
+          if (c.sum) verdict.appendChild(el("div", "muted", c.sum));
+        }
+        tr.appendChild(verdict);
+        var act = el("td", "row-actions");
+        if (c.have) act.appendChild(el("span", "muted small", "on this machine"));
+        else if (!c.unservable) {
+          var b = el("button", "btn small" + (c.suggested ? " primary" : ""), "fetch");
+          b.onclick = function () { modelsFetch(fv, c); };
+          act.appendChild(b);
+        }
+        tr.appendChild(act);
+        tb.appendChild(tr);
+      });
+    }).catch(function (e) {
+      $("models-repo-machine").textContent = e.message;
+    });
+  }
+
+  function modelsFetch(fv, c) {
+    var body = fv.repo + "\n" + c.file + "  " + fmtBytes(c.bytes) + "\n\n" + c.line + (c.sum ? "\n" + c.sum : "") + (c.pace_line ? "\n" + c.pace_line : "") + (c.room ? "\n\n" + c.room : "") +
+      "\n\nlicence: " + (fv.license || "not stated") + " (as its author published it; roger records it and does not referee it)" +
+      "\nsource: HuggingFace - the author's word, checked against the digest the index publishes";
+    askSafe("Fetch this model?", body, "Fetch").then(function (yes) {
+      if (!yes) return;
+      apiPost("/api/models/fetch", { confirm: true, repo: fv.repo, file: c.file }).then(function (d) {
+        toast("fetching " + c.file);
+        renderModels(d.view);
+      }).catch(function (e) { toast(e.message, "err"); });
+    });
+  }
+
+  function wireModels() {
+    var f = $("models-search");
+    if (f) f.addEventListener("submit", function (e) { e.preventDefault(); modelsSearch($("models-q").value.trim()); });
+    var gc = $("btn-getmodel-close");
+    if (gc) gc.onclick = function () { show($("share-getmodel"), false); };
+    var ctx = $("models-ctx");
+    if (ctx) ctx.addEventListener("change", function () { if (modelsRepo) modelsOpenRepo(modelsRepo); });
+    wireServingSettings();
+  }
+  /* end MODELS */
+
   /* 9. BOOT / WIRING ------------------------------------------------------- */
   function wire() {
     wireChat();
+    wireModels();
     // tabs + any [data-goto] / [data-tab] click
     document.addEventListener("click", function (e) {
       var tabBtn = e.target.closest("[data-tab]");
@@ -1546,6 +3623,10 @@
     });
     var refresh = $("btn-settings-refresh");
     if (refresh) refresh.addEventListener("click", loadSettings);
+    var edgeRefresh = $("btn-edge-refresh");
+    if (edgeRefresh) edgeRefresh.addEventListener("click", loadEdge);
+    // a page brought back into view re-reads at once rather than waiting out the tick
+    document.addEventListener("visibilitychange", function () { if (!document.hidden && edgeTimer) loadEdge(); });
     var bcc = $("band-code-copy");
     if (bcc) bcc.addEventListener("click", function () {
       var v = $("band-code-value").textContent || "";
@@ -1563,6 +3644,7 @@
       if (act === "onair") actOnAir(model);
       else if (act === "private") actPrivate(model);
       else if (act === "price") openPriceModal(model);
+      else if (act === "category") openCatModal(model);
     });
 
     // share header
@@ -1580,6 +3662,11 @@
     // price modal
     $("price-add-window").onclick = function () { addWindowRow(); };
     $("price-save").onclick = savePrice;
+
+    // category modal
+    $("cat-cat").onchange = function () { fillSubs(""); };
+    $("cat-save").onclick = saveCat;
+    $("cat-clear").onclick = clearCat;
 
     // freq code card
     $("code-copy").onclick = function () { copyText($("code-value").textContent, $("code-copy")); };
@@ -1620,6 +3707,14 @@
       if (e.status === 403) { show($("app"), false); show($("auth-gate"), true); }
     });
     connectSSE();
+    // The one-time welcome card, the same one the TUI shows (console-welcome.js).
+    if (window.RogerConsoleWelcome) {
+      window.RogerConsoleWelcome.mount(document, {
+        fetch: function (path, opts) { return fetch(withToken(path), opts); },
+        tab: setTab,
+        login: function () { setTab("account"); loginBegin(); },
+      });
+    }
   }
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);

@@ -15,24 +15,35 @@ import (
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 // gitHubAPI is the GitHub REST base (overridable in tests).
 var gitHubAPI = "https://api.github.com"
 
+// githubScopes is what both GitHub sign-ins ask for: the profile, and the account's email
+// addresses so a private address can still be reported (founder ruling 2026-10-05).
+const githubScopes = "read:user user:email"
+
 // ghAccessTokenURL is GitHub's OAuth token endpoint (overridable in tests).
 var ghAccessTokenURL = "https://github.com/login/oauth/access_token"
 
 // gitHubUser is the subset of GET /user we need to identify an owner. Name + Email are
-// captured for the welcome email: both are best-effort (GitHub omits email unless the
-// user has a PUBLIC email, and name may be empty), so neither is ever a gate.
+// captured for the welcome email: both are best-effort (name may be empty, and Email is the
+// account's primary verified address when the token can list addresses, else its public
+// one), so neither is ever a gate.
 type gitHubUser struct {
 	ID    int64  `json:"id"`
 	Login string `json:"login"`
 	Name  string `json:"name"`
 	Email string `json:"email"`
+	// Verified is every address GitHub marks verified (primary or not); a stored address
+	// matching any of them stays proven (founder ruling 2026-10-05).
+	Verified []string `json:"-"`
 }
+
+// gitHubBodyLimit caps every GitHub API response the broker reads.
+const gitHubBodyLimit = 1 << 16
 
 // fetchGitHubUser verifies a GitHub access token by calling GET /user server-side
 // and returns the authenticated user. A non-200 means the token is bad/expired.
@@ -50,10 +61,52 @@ func fetchGitHubUser(token string) (gitHubUser, bool) {
 		return gitHubUser{}, false
 	}
 	var u gitHubUser
-	if err := json.NewDecoder(resp.Body).Decode(&u); err != nil || u.ID == 0 {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, gitHubBodyLimit)).Decode(&u); err != nil || u.ID == 0 {
 		return gitHubUser{}, false
 	}
+	primary, verified := fetchGitHubEmails(token)
+	if primary != "" {
+		u.Email = primary
+	}
+	u.Verified = verified
 	return u, true
+}
+
+// fetchGitHubEmails returns the account's primary verified address and every verified
+// address from GET /user/emails (scope user:email), so a user with a private address still
+// reports one. Empty when the list is unavailable (a token minted without the scope, any
+// error): the caller keeps the public address, and sign-in never fails.
+func fetchGitHubEmails(token string) (primary string, verified []string) {
+	req, _ := http.NewRequest(http.MethodGet, gitHubAPI+"/user/emails", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("User-Agent", "rogerai-broker")
+	resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
+	if err != nil {
+		return "", nil
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", nil
+	}
+	var list []struct {
+		Email    string `json:"email"`
+		Primary  bool   `json:"primary"`
+		Verified bool   `json:"verified"`
+	}
+	if json.NewDecoder(io.LimitReader(resp.Body, gitHubBodyLimit)).Decode(&list) != nil {
+		return "", nil
+	}
+	for _, e := range list {
+		if !e.Verified {
+			continue
+		}
+		verified = append(verified, e.Email)
+		if e.Primary {
+			primary = e.Email
+		}
+	}
+	return primary, verified
 }
 
 // authGitHub handles POST /auth/github: the CLI (after a GitHub device-flow login)
@@ -93,6 +146,10 @@ func (b *broker) authGitHub(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusInternalServerError, "could not bind owner")
 		return
 	}
+	// Re-check a stored address against the one the provider reports (founder ruling
+	// 2026-10-04): a mismatch that was never proven by code stops receiving cap notices.
+	// Best-effort: a failure never fails the sign-in.
+	_ = b.db.ReconcileProviderEmail(gu.ID, "", gu.Email, gu.Verified...)
 	// W1: a (re)login can change the pubkey->wallet binding, so drop the cached mapping
 	// for this pubkey now rather than waiting out the TTL.
 	b.invalidateOwnerWallet(pubkey)
@@ -339,7 +396,7 @@ func (b *broker) authGitHubLogin(w http.ResponseWriter, r *http.Request) {
 	q := url.Values{
 		"client_id":    {githubClientID()},
 		"redirect_uri": {webRedirectURI()},
-		"scope":        {"read:user"},
+		"scope":        {githubScopes},
 		"state":        {state},
 	}
 	http.Redirect(w, r, "https://github.com/login/oauth/authorize?"+q.Encode(), http.StatusFound)
@@ -373,6 +430,10 @@ func (b *broker) authGitHubCallback(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, loginURL()+"?error=user", http.StatusFound)
 		return
 	}
+	// Re-check a stored address against the one the provider reports (founder ruling
+	// 2026-10-04): a mismatch that was never proven by code stops receiving cap notices.
+	// Best-effort: a failure never fails the sign-in.
+	_ = b.db.ReconcileProviderEmail(gu.ID, "", gu.Email, gu.Verified...)
 	exp := time.Now().Add(24 * time.Hour).Unix()
 	// SameSite=None so the browser sends this cookie on the dashboard's cross-ORIGIN
 	// XHR to the broker. For the default deploy (rogerai.fm <-> broker.rogerai.fm,
@@ -680,8 +741,17 @@ func corsCreds(w http.ResponseWriter, r *http.Request) {
 		h.Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
 		h.Set("Access-Control-Allow-Headers", "Content-Type, X-Roger-Pubkey, X-Roger-TS, X-Roger-Sig, X-Roger-User, X-Roger-Admin, X-Roger-Attach")
 		h.Set("Access-Control-Max-Age", "600")
+		// A browser can only read the response headers named here: the served model, the
+		// station, what the request cost and when to retry (the relay sets them; elsewhere
+		// they are simply absent).
+		h.Set("Access-Control-Expose-Headers", corsExposedHeaders)
 	}
 }
+
+// corsExposedHeaders is every relay response header a first-party browser page may read.
+const corsExposedHeaders = "X-RogerAI-Request-Id, X-RogerAI-Model, X-RogerAI-Provider, X-RogerAI-Relay, X-RogerAI-Cost, X-RogerAI-Receipt, X-RogerAI-Attempt-Id, " +
+	"X-RogerAI-Tokens-In, X-RogerAI-Tokens-Out, X-RogerAI-Balance, X-RogerAI-Price, X-RogerAI-TPS, X-RogerAI-Quality, " +
+	"X-RogerAI-Monthly-Cap, X-RogerAI-Monthly-Spend, X-RogerAI-Monthly-Pct, X-RogerAI-Monthly-Notice, Retry-After"
 
 // originAllowed reports whether the request's Origin header exactly matches one of
 // the configured first-party web origins. It is the load-bearing check for every

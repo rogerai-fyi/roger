@@ -1,0 +1,595 @@
+package main
+
+// features/edge/remote_model.feature: changing what a member serves from across the Edge. The member
+// side is driven directly (the face's certificate and grant checks are the invoke path's own, tested
+// with maintenance); the caller side through its seam.
+
+import (
+	"context"
+	"crypto/sha256"
+	"crypto/tls"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
+	"strings"
+	"syscall"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
+
+	"rogerai.fm/roger/v7/internal/client"
+	"rogerai.fm/roger/v7/internal/detect"
+	"rogerai.fm/roger/v7/internal/edge"
+	"rogerai.fm/roger/v7/internal/localmodel"
+	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/runtime"
+	"rogerai.fm/roger/v7/internal/store"
+)
+
+type serveRig struct {
+	*modelRig
+	spawned [][]string
+}
+
+func newServeRig(t *testing.T, ramMiB int) *serveRig {
+	t.Helper()
+	useTempConfig(t)
+	t.Setenv(edge.EnvDiscovery, "0")
+	_, err := edgeDesignateCore(edgeAuthDir(), "jetson")
+	require.NoError(t, err)
+	_, err = edgeEnrollCore(loadConfig(), "jetson", "", "")
+	require.NoError(t, err)
+	r := &serveRig{modelRig: newModelRig(t, ramMiB)}
+	oldSpawn, oldHost := modelSpawn, modelHost
+	t.Cleanup(func() { modelSpawn, modelHost = oldSpawn, oldHost; modelBudgetCache.at = time.Time{} })
+	modelBudgetCache.at = time.Time{}
+	modelHost = func() runtime.Host { return runtime.Host{OS: "linux", Arch: "amd64", GlibcMajor: 2, GlibcMinor: 42} }
+	modelSpawn = func(args []string, logPath string) error { r.spawned = append(r.spawned, args); return nil }
+	return r
+}
+
+func serveTask(model string, ctx int) json.RawMessage {
+	b, _ := json.Marshal(edge.ModelTask{Action: edge.ModelServe, Model: model, Ctx: ctx})
+	return b
+}
+
+func turnOn(t *testing.T) config {
+	t.Helper()
+	cfg := loadConfig()
+	cfg.EdgeServeControl = true
+	require.NoError(t, saveConfig(cfg))
+	return loadConfig()
+}
+
+func TestAMemberThatNeverTurnedServeControlOnRefusesAndNothingMoves(t *testing.T) {
+	r := newServeRig(t, 16384)
+	cfg := loadConfig()
+	require.False(t, edgeServeControlOn(cfg), "off by default")
+	require.False(t, edgeSelfDeclares(edge.ServeControl))
+	require.NotContains(t, edgeCapNames(edgeInstanceCapsFor(cfg, nil)), string(edge.ServeControl))
+
+	_, refused := edgeModelRun(cfg, "n_desk", "desk", serveTask("acme/Tiny-GGUF:Q4_K_M", 0), time.Now())
+	require.Equal(t, edge.ServeControlOffReason, refused)
+	require.Contains(t, refused, "roger edge serve-control on", "the refusal names the switch and where it lives")
+	require.Empty(t, r.spawned)
+	_, ok := r.home.Job()
+	require.False(t, ok, "nothing was fetched")
+
+	// The owner turns it on HERE, and the capability is declared from then on.
+	out, err := captureEdgeStdout(func() error { return cmdEdgeServeControl(loadConfig(), []string{"on"}) })
+	require.NoError(t, err)
+	require.Contains(t, out, "serve-control is ON")
+	require.Contains(t, out, "never takes an address, a path or a program", "the owner is told what they consent to")
+	require.True(t, edgeSelfDeclares(edge.ServeControl))
+	require.Contains(t, edgeCapNames(edgeInstanceCapsFor(loadConfig(), nil)), string(edge.ServeControl))
+	out, _ = captureEdgeStdout(func() error { return cmdEdgeServeControl(loadConfig(), nil) })
+	require.Contains(t, out, "ON for this machine")
+	out, _ = captureEdgeStdout(func() error { return cmdEdgeServeControl(loadConfig(), []string{"off"}) })
+	require.Contains(t, out, "No member can change what it serves")
+	require.Error(t, cmdEdgeServeControl(loadConfig(), []string{"maybe"}))
+}
+
+func TestTheWireHasNowhereToPutAnAddressEvenForAnAuthorisedCaller(t *testing.T) {
+	r := newServeRig(t, 16384)
+	cfg := turnOn(t)
+	for _, raw := range []string{
+		`{"action":"serve","model":"acme/Tiny-GGUF:Q4_K_M","url":"http://evil.example/x.gguf"}`,
+		`{"action":"serve","model":"/tmp/x.gguf"}`,
+		`{"action":"serve","model":"x","runtime":"/bin/sh"}`,
+	} {
+		_, refused := edgeModelRun(cfg, "n_desk", "desk", json.RawMessage(raw), time.Now())
+		require.NotEmpty(t, refused, raw)
+	}
+	require.Empty(t, r.spawned)
+	_, ok := r.home.Job()
+	require.False(t, ok, "the member fetched nothing")
+}
+
+func TestAModelTheMemberDoesNotHaveIsFetchedOnlyByExactID(t *testing.T) {
+	r := newServeRig(t, 16384)
+	cfg := turnOn(t)
+
+	// A bare name, a partial id, free text: refused, and no request reaches the index.
+	for _, m := range []string{"tiny", "acme/Tiny-GGUF", "qwen3"} {
+		_, refused := edgeModelRun(cfg, "n_desk", "desk", serveTask(m, 0), time.Now())
+		require.Contains(t, refused, "searches nowhere", m)
+	}
+	_, ok := r.home.Job()
+	require.False(t, ok)
+
+	// The exact id: judged HERE, fetched from this machine's own source, then served once checked.
+	res, refused := edgeModelRun(cfg, "n_desk", "desk", serveTask("acme/Tiny-GGUF:Q4_K_M", 4096), time.Now())
+	require.Empty(t, refused)
+	require.True(t, res.Changed)
+	require.Contains(t, res.Says, "fits at 4K")
+	require.Contains(t, res.Says, "fetching Tiny-Q4_K_M.gguf")
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) && len(r.spawned) == 0 {
+		time.Sleep(20 * time.Millisecond)
+	}
+	require.Equal(t, [][]string{{"model", "serve", "acme/Tiny-GGUF:Q4_K_M", "--yes", "--ctx", "4096"}}, r.spawned,
+		"it serves what it fetched, at the context it judged")
+	m, err := r.home.Find("acme/Tiny-GGUF:Q4_K_M")
+	require.NoError(t, err)
+	require.True(t, m.Verified())
+
+	// Its own history says what was asked and by whom.
+	st, err := loadEdgeState()
+	require.NoError(t, err)
+	n, ok, err := st.fleet.Get(edgeThisNodeID())
+	require.NoError(t, err)
+	require.True(t, ok)
+	var found bool
+	for _, e := range n.History {
+		if e.What == "model" && strings.Contains(e.Detail, "serve acme/Tiny-GGUF:Q4_K_M, asked by desk") {
+			found = true
+		}
+	}
+	require.True(t, found, "the change is on the node's history: %+v", n.History)
+
+	_, refused = edgeModelRun(cfg, "n_desk", "desk", serveTask("acme/Tiny-GGUF:Q5_K_M", 0), time.Now())
+	require.Contains(t, refused, "no servable Q5_K_M")
+	_, refused = edgeModelRun(cfg, "n_desk", "desk", serveTask("acme/Locked-GGUF:Q4_K_M", 0), time.Now())
+	require.Contains(t, refused, "HF_TOKEN")
+}
+
+func TestTheMembersOwnArithmeticDecides(t *testing.T) {
+	r := newServeRig(t, 512)
+	cfg := turnOn(t)
+	_, refused := edgeModelRun(cfg, "n_desk", "desk", serveTask("acme/Tiny-GGUF:Q4_K_M", 40960), time.Now())
+	require.Contains(t, refused, "this machine's own arithmetic")
+	require.Contains(t, refused, "will not fit")
+	require.Empty(t, r.spawned)
+	_, ok := r.home.Job()
+	require.False(t, ok, "a model that will not fit is never fetched")
+
+	// A machine whose memory cannot be read does not fetch unasked.
+	modelHW = func() detect.LocalHW { return detect.LocalHW{} }
+	modelBudgetCache.at = time.Time{}
+	_, refused = edgeModelRun(cfg, "n_desk", "desk", serveTask("acme/Tiny-GGUF:Q4_K_M", 0), time.Now())
+	require.Contains(t, refused, "cannot judge it")
+}
+
+func TestAModelOnTheMembersDiskIsServedAndTheOldOneKeepsServing(t *testing.T) {
+	r := newServeRig(t, 16384)
+	cfg := turnOn(t)
+	_, err := r.run(t, "get", "acme/Tiny-GGUF:Q4_K_M", "--yes")
+	require.NoError(t, err)
+	b, _ := json.Marshal(localmodel.Serving{Supervisor: os.Getppid(), Band: "older", ID: "x/older:Q8_0", Started: time.Now()})
+	require.NoError(t, os.WriteFile(filepath.Join(r.home.Dir, "serving.json"), b, 0o600))
+
+	res, refused := edgeModelRun(cfg, "n_desk", "desk", serveTask("acme/Tiny-GGUF:Q4_K_M", 0), time.Now())
+	require.Empty(t, refused)
+	require.Contains(t, res.Says, "x/older:Q8_0 keeps serving until then")
+	require.Len(t, r.spawned, 1)
+	require.NotNil(t, res.Now)
+	require.Equal(t, "older", res.Now.Band, "it still says what it serves NOW")
+
+	// Status and stop.
+	sb, _ := json.Marshal(edge.ModelTask{Action: edge.ModelStatus})
+	res, refused = edgeModelRun(cfg, "n_desk", "desk", sb, time.Now())
+	require.Empty(t, refused)
+	require.Equal(t, "older", res.Now.Band)
+	oldSig, oldIs := edgeSignal, edgeProcIsRoger
+	t.Cleanup(func() { edgeSignal, edgeProcIsRoger = oldSig, oldIs })
+	edgeProcIsRoger = func(int) (bool, bool) { return true, true }
+	rec := filepath.Join(r.home.Dir, "serving.json")
+	edgeSignal = func(int, syscall.Signal) error { return os.Remove(rec) }
+	stop, _ := json.Marshal(edge.ModelTask{Action: edge.ModelStop})
+	res, refused = edgeModelRun(cfg, "n_desk", "desk", stop, time.Now())
+	require.Empty(t, refused)
+	require.True(t, res.Changed)
+	res, _ = edgeModelRun(cfg, "n_desk", "desk", stop, time.Now())
+	require.Contains(t, res.Says, "nothing to stop")
+
+	// A machine with no runtime says so, in its own words.
+	modelHost = func() runtime.Host { return runtime.Host{OS: "linux", Arch: "arm"} }
+	_, refused = edgeModelRun(cfg, "n_desk", "desk", serveTask("acme/Tiny-GGUF:Q4_K_M", 0), time.Now())
+	require.Contains(t, refused, "not available here")
+	require.Contains(t, edgeModelNow().CannotServe, "not available here")
+}
+
+func TestTheFleetSeesWhatAMemberServesAndFetches(t *testing.T) {
+	r := newServeRig(t, 16384)
+	require.Nil(t, edgeModelNow(), "a roger serving nothing of its own reports nothing")
+	j, _ := json.Marshal(localmodel.Job{Repo: "acme/Tiny-GGUF", File: "Tiny-Q8_0.gguf", Total: 4 << 30, Done: 1 << 30,
+		State: localmodel.JobFetching, PID: os.Getpid(), Updated: time.Now()})
+	require.NoError(t, os.MkdirAll(r.home.Dir, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(r.home.Dir, "fetch.json"), j, 0o644))
+	b, _ := json.Marshal(localmodel.Serving{Supervisor: os.Getppid(), Band: "tiny", ID: "acme/Tiny-GGUF:Q4_K_M", Ctx: 8192, Started: time.Now()})
+	require.NoError(t, os.WriteFile(filepath.Join(r.home.Dir, "serving.json"), b, 0o600))
+	now := edgeModelNow()
+	require.NotNil(t, now)
+	line := edge.ModelLine(now)
+	require.Contains(t, line, `serving "tiny"`)
+	require.Contains(t, line, "fetching Tiny-Q8_0.gguf: 1.0 GiB of 4.0 GiB", "a fetch shows while it still names what it serves NOW")
+
+	now.Fetch.State = localmodel.JobInterrupted
+	require.Contains(t, edge.ModelLine(now), "never served half-done")
+	now.Fetch.State, now.Fetch.Err = localmodel.JobFailed, "not enough free disk"
+	require.Contains(t, edge.ModelLine(now), "failed: not enough free disk")
+	require.Equal(t, "serves nothing of its own", edge.ModelLine(nil))
+}
+
+func TestTheSameCommandWorksAcrossTheEdgeByNamingTheNode(t *testing.T) {
+	r := newServeRig(t, 16384)
+	old := modelEdgeInvoke
+	t.Cleanup(func() { modelEdgeInvoke = old })
+	var sent []edge.ModelTask
+	modelEdgeInvoke = func(cfg config, node string, task edge.ModelTask) (edge.ModelResult, string, error) {
+		sent = append(sent, task)
+		if node == "attic" {
+			return edge.ModelResult{}, node, errors.New("no live grant lets desk change what attic serves - issue one on the authority with `roger edge grant self serve-control attic`")
+		}
+		return edge.ModelResult{Says: "starting", Now: &store.EdgeModel{Band: "tiny", ID: task.Model, Ctx: 8192}}, "jetson", nil
+	}
+	out, err := r.run(t, "serve", "acme/Tiny-GGUF:Q4_K_M", "--on", "jetson", "--ctx", "8192")
+	require.NoError(t, err)
+	require.Contains(t, out, "jetson: starting")
+	require.Contains(t, out, `jetson serving "tiny"`)
+	require.Equal(t, edge.ModelTask{Action: edge.ModelServe, Model: "acme/Tiny-GGUF:Q4_K_M", Ctx: 8192}, sent[0])
+
+	_, err = r.run(t, "status", "--on=jetson")
+	require.NoError(t, err)
+	_, err = r.run(t, "stop", "--on", "jetson")
+	require.NoError(t, err)
+	require.Equal(t, edge.ModelStatus, sent[1].Action)
+	require.Equal(t, edge.ModelStop, sent[2].Action)
+
+	_, err = r.run(t, "serve", "x", "--on", "attic")
+	require.ErrorContains(t, err, "roger edge grant self serve-control attic")
+	_, err = r.run(t, "rm", "x", "--on", "jetson")
+	require.ErrorContains(t, err, "on a member: serve, status, stop")
+	_, err = r.run(t, "serve", "--on", "jetson")
+	require.ErrorContains(t, err, "usage")
+}
+
+func TestTheCallerRefusesBeforeSendingWhatTheMemberWouldRefuse(t *testing.T) {
+	newServeRig(t, 16384)
+	_, _, err := edgeModelInvoke(loadConfig(), "jetson", edge.ModelTask{Action: edge.ModelServe, Model: "/tmp/x.gguf"})
+	require.ErrorContains(t, err, "not a model id")
+	_, _, err = edgeModelInvoke(loadConfig(), "nobody-here", edge.ModelTask{Action: edge.ModelStatus})
+	require.Error(t, err)
+}
+
+// The CALLER side end to end through the real grant store: no face says so, no grant names the one to
+// issue, a grant carries the task as the member will read it, and a member's refusal reaches the owner.
+func TestServeControlFromTheCallerUsesItsOwnGrant(t *testing.T) {
+	newServeRig(t, 16384)
+	prev := edgeDialInvokeTaskFn
+	t.Cleanup(func() { edgeDialInvokeTaskFn = prev })
+	var sentCap string
+	var sentTask json.RawMessage
+	refuse := ""
+	edgeDialInvokeTaskFn = func(_ context.Context, _ client.EdgePeer, _ *tls.Certificate, _ store.Grant, capability string, task json.RawMessage) (edge.InvokeResult, protocol.UsageReceipt, error) {
+		sentCap, sentTask = capability, task
+		if refuse != "" {
+			return edge.InvokeResult{Refused: refuse}, protocol.UsageReceipt{}, nil
+		}
+		out, _ := json.Marshal(edge.ModelResult{Action: edge.ModelServe, Changed: true, Says: "fetching",
+			Now: &store.EdgeModel{Fetch: &store.EdgeFetch{File: "Tiny-Q4_K_M.gguf", Done: 1, Total: 4, State: localmodel.JobFetching}}})
+		return edge.InvokeResult{Output: out}, protocol.UsageReceipt{}, nil
+	}
+	task := edge.ModelTask{Action: edge.ModelServe, Model: "acme/Tiny-GGUF:Q4_K_M"}
+	_, _, err := edgeModelInvoke(loadConfig(), "jetson", task)
+	require.ErrorContains(t, err, "no LAN face")
+
+	st, err := loadEdgeState()
+	require.NoError(t, err)
+	nodes, err := st.fleet.List()
+	require.NoError(t, err)
+	for _, n := range nodes {
+		if n.ID == edgeThisNodeID() {
+			n.Pin = "abab"
+			n.Transports = []store.EdgeTransport{{Kind: "lan", Addr: "127.0.0.1:44197", Fingerprint: "abab"}}
+			require.NoError(t, st.db.UpdateEdgeNode(n))
+		}
+	}
+	require.NoError(t, st.save())
+	_, _, err = edgeModelInvoke(loadConfig(), "jetson", task)
+	require.ErrorContains(t, err, "roger edge grant self serve-control jetson")
+	require.Empty(t, sentCap, "nothing was sent without a grant")
+
+	// A maintain grant does not reach serve-control.
+	_, _, err = edgeGrantIssueCore("self", "maintain", "jetson", "1h", 0)
+	require.NoError(t, err)
+	_, _, err = edgeModelInvoke(loadConfig(), "jetson", task)
+	require.ErrorContains(t, err, "serve-control")
+
+	_, _, err = edgeGrantIssueCore("self", "serve-control", "jetson", "1h", 0)
+	require.NoError(t, err)
+	res, name, err := edgeModelInvoke(loadConfig(), "jetson", task)
+	require.NoError(t, err)
+	require.Equal(t, "jetson", name)
+	require.Equal(t, string(edge.ServeControl), sentCap)
+	got, refused := edge.ParseModelTask(sentTask)
+	require.Empty(t, refused, "what was sent is what the member reads")
+	require.Equal(t, task, got)
+	require.Contains(t, edge.ModelLine(res.Now), "fetching Tiny-Q4_K_M.gguf")
+
+	refuse = edge.ServeControlOffReason
+	_, _, err = edgeModelInvoke(loadConfig(), "jetson", task)
+	require.ErrorContains(t, err, "jetson refused: remote serving control is off")
+}
+
+// THE TWO LOCKS at the real face: a grant for anything else never reaches serve-control, the right
+// grant is refused while the owner's switch is off (saying so), and passes once it is on.
+func TestServeControlNeedsBothOfTheOwnersLocksAtTheFace(t *testing.T) {
+	newServeRig(t, 16384)
+	h, err := newEdgeHost("roger-jetson")
+	require.NoError(t, err)
+	t.Cleanup(func() { h.closeListeners() })
+	id, key, ok, err := edgeIdentityStore().LoadIdentity()
+	require.NoError(t, err)
+	require.True(t, ok)
+	sv, ok := h.peerServing(key, id.NodeID)
+	require.True(t, ok)
+
+	maintain, _, err := edgeGrantIssueCore("self", "maintain", "jetson", "1h", 0)
+	require.NoError(t, err)
+	serve, _, err := edgeGrantIssueCore("self", "serve-control", "jetson", "1h", 0)
+	require.NoError(t, err)
+
+	require.ErrorContains(t, sv.Authorize(maintain, id.NodeID, edge.ServeControl), "does not allow serve-control")
+	err = sv.Authorize(serve, id.NodeID, edge.ServeControl)
+	require.Error(t, err, "the switch alone is the other lock")
+	require.Equal(t, edge.ServeControlOffReason, err.Error())
+
+	turnOn(t)
+	require.NoError(t, sv.Authorize(serve, id.NodeID, edge.ServeControl))
+
+	// A serve-control grant for ANOTHER node does not carry over, and the refusal is the same whether
+	// or not that other node would have accepted (remote_model.feature §1).
+	st, err := loadEdgeState()
+	require.NoError(t, err)
+	_, err = st.fleet.Enroll(store.EdgeNode{ID: "n_attic", Name: "attic", Kind: "host"})
+	require.NoError(t, err)
+	require.NoError(t, st.save())
+	forAttic, _, err := edgeGrantIssueCore("self", "serve-control", "attic", "1h", 0)
+	require.NoError(t, err)
+	errA := sv.Authorize(forAttic, id.NodeID, edge.ServeControl)
+	require.Error(t, errA, "a grant for attic reached this machine")
+	require.NotContains(t, errA.Error(), "serve-control on", "the refusal does not reveal anything about the other node's switch")
+}
+
+// The runner routes serve-control to the model path, one change at a time.
+func TestRunnerRoutesServeControlOneAtATime(t *testing.T) {
+	release := make(chan struct{})
+	entered := make(chan struct{}, 1)
+	handler := edgeInvokeHandler(edgeTurnDeps{
+		models: func(callerID string, task json.RawMessage) (edge.ModelResult, string) {
+			if callerID == "n_refused" {
+				return edge.ModelResult{}, edge.ServeControlOffReason
+			}
+			entered <- struct{}{}
+			<-release
+			return edge.ModelResult{Action: edge.ModelServe, Changed: true, Says: "starting"}, ""
+		},
+	})
+	req := edge.InvokeRequest{Capability: string(edge.ServeControl), Task: serveTask("acme/Tiny-GGUF:Q4_K_M", 0)}
+	done := make(chan edge.InvokeResult, 1)
+	go func() {
+		res, _ := handler("n_desk", req)
+		done <- res
+	}()
+	<-entered
+	busy, err := handler("n_desk", req)
+	require.NoError(t, err)
+	require.Contains(t, busy.Refused, "already being made on this machine")
+	close(release)
+	first := <-done
+	var got edge.ModelResult
+	require.NoError(t, json.Unmarshal(first.Output, &got))
+	require.Equal(t, "starting", got.Says)
+	refused, err := handler("n_refused", req)
+	require.NoError(t, err)
+	require.Equal(t, edge.ServeControlOffReason, refused.Refused)
+}
+
+// Found in the live run 2026-10-01: a machine enrolled under its id was named by that id in the reply,
+// in "asked by" and on the timeline. A sentence names it the way the screens do.
+func TestASentenceNamesAUnitNeverByItsID(t *testing.T) {
+	newServeRig(t, 16384)
+	st, err := loadEdgeState()
+	require.NoError(t, err)
+	self := edgeThisNodeID()
+	nodes, err := st.list()
+	require.NoError(t, err)
+	for _, n := range nodes {
+		if n.ID == self {
+			n.Name = n.ID // enrolled without a name
+			require.NoError(t, st.db.UpdateEdgeNode(n))
+		}
+	}
+	unnamed := "n_" + strings.Repeat("9f", 24)
+	_, err = st.fleet.Enroll(store.EdgeNode{ID: unnamed, Name: unnamed, Kind: "mobile"})
+	require.NoError(t, err)
+	require.NoError(t, st.save())
+	old := edgeStationName
+	t.Cleanup(func() { edgeStationName = old })
+	edgeStationName = func() string { return "house-or" }
+	require.Equal(t, "house-or", edgeDisplayName(self))
+	require.Equal(t, "phone", edgeDisplayName(unnamed))
+	require.Equal(t, edgeGoneUnit, edgeDisplayName("n_nowhere"), "a unit not on the Edge is said so, never by an id")
+}
+
+func TestTheTimelineCallsThisMachineByItsOwnLabel(t *testing.T) {
+	newServeRig(t, 16384)
+	cfg := turnOn(t)
+	old := edgeStationName
+	t.Cleanup(func() { edgeStationName = old })
+	edgeStationName = func() string { return "house-or" }
+	st, err := loadEdgeState()
+	require.NoError(t, err)
+	nodes, _ := st.list()
+	for _, n := range nodes {
+		if n.ID == edgeThisNodeID() {
+			n.Name = n.ID
+			require.NoError(t, st.db.UpdateEdgeNode(n))
+		}
+	}
+	require.NoError(t, st.save())
+	_, refused := edgeModelRun(cfg, edgeThisNodeID(), "", serveTask("nothing-here", 0), time.Now())
+	require.NotEmpty(t, refused)
+	stop, _ := json.Marshal(edge.ModelTask{Action: edge.ModelStop})
+	_, _ = edgeModelRun(cfg, edgeThisNodeID(), "", stop, time.Now())
+	b, _ := json.Marshal(localmodel.Serving{Supervisor: os.Getppid(), Band: "tiny", ID: "x"})
+	require.NoError(t, os.WriteFile(filepath.Join(modelHome().Dir, "serving.json"), b, 0o600))
+	oldSig, oldIs := edgeSignal, edgeProcIsRoger
+	t.Cleanup(func() { edgeSignal, edgeProcIsRoger = oldSig, oldIs })
+	edgeProcIsRoger = func(int) (bool, bool) { return true, true }
+	edgeSignal = func(int, syscall.Signal) error { return os.Remove(filepath.Join(modelHome().Dir, "serving.json")) }
+	_, refused = edgeModelRun(cfg, edgeThisNodeID(), "", stop, time.Now())
+	require.Empty(t, refused)
+	evs, _, err := edgeEventsRead(edge.EventQuery{Limit: 5}, time.Now())
+	require.NoError(t, err)
+	var found bool
+	for _, e := range evs {
+		if e.What == "model" {
+			found = true
+			require.Equal(t, "house-or", e.Node)
+			require.Contains(t, e.Detail, "asked by house-or")
+		}
+	}
+	require.True(t, found, "%+v", evs)
+}
+
+// features/edge/remote_model.feature §2 (review 2026-10-01): a new model that fails to start is
+// reported to the owner WITH THE REASON - it reaches the member's report, not only its local log.
+func TestARemoteServeThatFailsReportsWhyToTheOwner(t *testing.T) {
+	r := newServeRig(t, 16384)
+	require.NoError(t, os.MkdirAll(r.home.Dir, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(r.home.Dir, "serve.log"), []byte("starting...\nerror: out of memory\n"), 0o600))
+	now := edgeModelNow()
+	require.NotNil(t, now)
+	require.Equal(t, "error: out of memory", now.ServeFailed)
+	require.Contains(t, edge.ModelLine(now), "the last serve did not come on the air: error: out of memory")
+
+	// A spawn that cannot even start is written where the report reads it.
+	cfg := turnOn(t)
+	_, err := r.run(t, "get", "acme/Tiny-GGUF:Q4_K_M", "--yes")
+	require.NoError(t, err)
+	modelSpawn = func([]string, string) error { return errors.New("no fork") }
+	_, refused := edgeModelRun(cfg, "n_desk", "desk", serveTask("acme/Tiny-GGUF:Q4_K_M", 0), time.Now())
+	require.Contains(t, refused, "could not start serving: no fork")
+	require.NoError(t, os.Remove(filepath.Join(r.home.Dir, "serve.log")))
+	recordServeFailure(r.home, errors.New("no fork"))
+	require.Contains(t, edgeModelNow().ServeFailed, "no fork")
+}
+
+// Review 2026-10-01: the audit record names the caller by name AND id, is written before the change,
+// and a request that cannot be recorded is not acted on.
+func TestARemoteModelRequestIsAuditedBeforeItIsActedOn(t *testing.T) {
+	r := newServeRig(t, 16384)
+	cfg := turnOn(t)
+	_, err := r.run(t, "get", "acme/Tiny-GGUF:Q4_K_M", "--yes")
+	require.NoError(t, err)
+	_, refused := edgeModelRun(cfg, "n_desk1234", "desk", serveTask("acme/Tiny-GGUF:Q4_K_M", 0), time.Now())
+	require.Empty(t, refused)
+	evs, _, err := edgeEventsRead(edge.EventQuery{Limit: 5}, time.Now())
+	require.NoError(t, err)
+	var detail, by string
+	for _, e := range evs {
+		if e.What == "model" {
+			detail, by = e.Detail, e.By
+		}
+	}
+	// WHO asked is kept for audit as the authenticated caller id, in its own field; the sentence a
+	// person reads names the caller and never carries the id, not even a short one.
+	require.Equal(t, "n_desk1234", by)
+	require.True(t, strings.HasSuffix(detail, ", asked by desk"), detail)
+	require.NotContains(t, detail, "n_desk")
+	require.NotContains(t, detail, edgeShortID("n_desk1234"))
+
+	// No identity to record against: refused, and nothing was started.
+	r.spawned = nil
+	useTempConfig(t)
+	c := loadConfig()
+	c.EdgeServeControl = true
+	require.NoError(t, saveConfig(c))
+	_, refused = edgeModelRun(loadConfig(), "n_desk", "desk", serveTask("acme/Tiny-GGUF:Q4_K_M", 0), time.Now())
+	require.Contains(t, refused, "could not record the request")
+	require.Empty(t, r.spawned, "an unaudited request was acted on")
+}
+
+// Review 2026-10-01: a model on the member's disk that it cannot judge is refused over the Edge -
+// there is no owner's word to serve on.
+func TestAModelTheMemberCannotJudgeIsRefusedOverTheEdge(t *testing.T) {
+	r := newServeRig(t, 16384)
+	cfg := turnOn(t)
+	require.NoError(t, os.MkdirAll(r.home.Models(), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(r.home.Models(), "junk-Q4_0.gguf"), []byte("not a gguf"), 0o644))
+	_, refused := edgeModelRun(cfg, "n_desk", "desk", serveTask("junk-Q4_0", 0), time.Now())
+	require.Contains(t, refused, "cannot judge junk-Q4_0")
+	require.Empty(t, r.spawned)
+}
+
+// Review 2026-10-01: a fetch asked for from afar that would remove models under the owner's budget is
+// refused, saying what it would remove - no grant holder empties the owner's disk unseen.
+func TestARemoteFetchThatWouldEvictIsRefused(t *testing.T) {
+	r := newServeRig(t, 16384)
+	cfg := turnOn(t)
+	_, err := r.run(t, "get", "acme/Tiny-GGUF:Q8_0", "--yes")
+	require.NoError(t, err)
+	q8, err := r.home.Find("acme/Tiny-GGUF:Q8_0")
+	require.NoError(t, err)
+	require.NoError(t, r.home.SetSettings(localmodel.Settings{DiskBudget: q8.Bytes + 10}))
+	_, refused := edgeModelRun(cfg, "n_desk", "desk", serveTask("acme/Tiny-GGUF:Q4_K_M", 4096), time.Now())
+	require.Contains(t, refused, "would remove acme/Tiny-GGUF:Q8_0")
+	require.Contains(t, refused, "at this machine")
+	j, _ := r.home.Job()
+	require.NotEqual(t, "Tiny-Q4_K_M.gguf", j.File, "nothing was fetched")
+	_, err = r.home.Find("acme/Tiny-GGUF:Q8_0")
+	require.NoError(t, err, "and nothing was removed")
+}
+
+// features/models/short_names_nearby.feature: a member told to serve a nearby name fetches only that
+// exact file. A pinned digest the model hub's file does not have is refused before a byte moves.
+func TestAMemberFetchesOnlyTheExactFileItsDigestPins(t *testing.T) {
+	r := newServeRig(t, 16384)
+	cfg := turnOn(t)
+	task := func(sha string) json.RawMessage {
+		b, _ := json.Marshal(edge.ModelTask{Action: edge.ModelServe, Model: "acme/Tiny-GGUF:Q4_K_M", SHA256: sha})
+		return b
+	}
+	_, refused := edgeModelRun(cfg, "n_desk", "desk", task(strings.Repeat("0f", 32)), time.Now())
+	require.Contains(t, refused, "the model hub's Tiny-Q4_K_M.gguf is not the file you were told to serve")
+	require.Contains(t, refused, strings.Repeat("0f", 6))
+	_, ok := r.home.Job()
+	require.False(t, ok, "nothing was fetched")
+
+	sum := sha256.Sum256(r.files["Tiny-Q4_K_M.gguf"])
+	res, refused := edgeModelRun(cfg, "n_desk", "desk", task(hex.EncodeToString(sum[:])), time.Now())
+	require.Empty(t, refused)
+	require.Contains(t, res.Says, "fetching Tiny-Q4_K_M.gguf")
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) && len(r.spawned) == 0 {
+		time.Sleep(20 * time.Millisecond)
+	}
+	// Now on its disk: the same id under another digest is still not the file it was told to serve.
+	_, refused = edgeModelRun(cfg, "n_desk", "desk", task(strings.Repeat("0f", 32)), time.Now())
+	require.Contains(t, refused, "acme/Tiny-GGUF:Q4_K_M on this machine is not the file you were told to serve")
+}

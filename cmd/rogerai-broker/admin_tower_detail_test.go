@@ -20,9 +20,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"rogerai.fm/roger/v6/internal/towercore/admit"
-	"rogerai.fm/roger/v6/internal/towercore/earnings"
-	"rogerai.fm/roger/v6/internal/towercore/reputation"
+	"rogerai.fm/roger/v7/internal/towercore/admit"
+	"rogerai.fm/roger/v7/internal/towercore/earnings"
+	"rogerai.fm/roger/v7/internal/towercore/reputation"
 )
 
 var errTestStore = errors.New("store read failed (test)")

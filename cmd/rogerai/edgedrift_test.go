@@ -1,0 +1,232 @@
+package main
+
+// Executable pins for features/edge/drift.feature, the CLI half: `roger edge expect`, `roger edge
+// drift`, and that an unknown is never shown as a wrong.
+
+import (
+	"encoding/json"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
+
+	"rogerai.fm/roger/v7/internal/edge"
+	"rogerai.fm/roger/v7/internal/store"
+)
+
+func driftSeed(t *testing.T) {
+	t.Helper()
+	offline(t)
+	// The expectations live on the machine that roots the Edge, so this rig IS that machine - the
+	// member's answer is a different case, pinned by TestAMemberSaysWhereTheExpectationsLive.
+	_, err := edgeDesignateCore(edgeAuthDir(), "hub")
+	require.NoError(t, err)
+	_, err = edgeEnrollCore(loadConfig(), "hub", "", "")
+	require.NoError(t, err)
+	verified := []store.EdgeCap{{Name: string(edge.Serve), State: string(edge.Verified)}}
+	edgeSeed(t,
+		store.EdgeNode{ID: "n_desk", Name: "desk", Kind: "host", Presence: string(edge.PresenceVerified),
+			Tags: []string{"production"},
+			Caps: []store.EdgeCap{{Name: string(edge.Maintain), State: string(edge.Claimed)}},
+			Instances: []edge.Instance{{Name: "desk", Agent: true, Bands: []string{"qwen"},
+				ServeProven: []string{"qwen"}, Caps: verified,
+				Software: &store.EdgeSoftware{Roger: "6.13.0"}}}},
+		store.EdgeNode{ID: "n_shed", Name: "shed", Kind: "host", Presence: string(edge.PresenceVerified),
+			Tags:      []string{"production"},
+			Instances: []edge.Instance{{Name: "shed", Software: &store.EdgeSoftware{Roger: "6.9.0"}}}},
+		store.EdgeNode{ID: "n_unseen", Name: "unseen", Kind: "host", Presence: string(edge.PresenceVerified)},
+	)
+}
+
+func TestEdgeExpectAndDrift(t *testing.T) {
+	driftSeed(t)
+
+	// Nothing expected yet: both commands say so rather than claiming order.
+	out, code := edgeRun(t, "edge", "expect")
+	require.Equal(t, 0, code, out)
+	require.Contains(t, out, "nothing is expected of this Edge yet")
+	out, code = edgeRun(t, "edge", "drift")
+	require.Equal(t, 0, code, out)
+	// One wording for an empty set, whichever command asks: on the authority it means nothing has been
+	// asked yet, and it says how to ask.
+	require.Contains(t, out, "nothing is expected of this Edge yet")
+	require.Contains(t, out, "roger edge expect")
+
+	// Say what it should look like.
+	out, code = edgeRun(t, "edge", "expect", "roger", "6.13.0")
+	require.Equal(t, 0, code, out)
+	require.Contains(t, out, "expected of every node: roger 6.13.0")
+	out, code = edgeRun(t, "edge", "expect", "serves", "qwen", "--scope", "tag:production")
+	require.Equal(t, 0, code, out)
+	require.Contains(t, out, "every node tagged production")
+	out, code = edgeRun(t, "edge", "expect", "agent", "--scope", "desk")
+	require.Equal(t, 0, code, out)
+	require.Contains(t, out, "expected of desk: agent")
+
+	// The list says what is expected, of whom, and how many differ.
+	out, code = edgeRun(t, "edge", "expect")
+	require.Equal(t, 0, code, out)
+	require.Contains(t, out, "EXPECTED of this Edge")
+	require.Contains(t, out, "roger 6.13.0")
+	require.Contains(t, out, "tag production")
+	require.Contains(t, out, "differ")
+
+	// The drift report names the unit, what was expected, and what is there.
+	out, code = edgeRun(t, "edge", "drift")
+	require.Equal(t, 0, code, out)
+	require.Contains(t, out, "DRIFT")
+	require.Contains(t, out, "shed")
+	require.Contains(t, out, "runs 6.9.0")
+	require.Contains(t, out, "does not serve it")
+	require.NotContains(t, out, "desk  ", "a unit in order is not in the report")
+
+	// An unknown is marked as such, never as a wrong.
+	require.Contains(t, out, "unknown")
+	require.Contains(t, out, "has not reported")
+
+	// JSON carries the same records.
+	out, code = edgeRun(t, "edge", "drift", "--json")
+	require.Equal(t, 0, code, out)
+	var got struct {
+		Expected edge.ExpectSet `json:"expected"`
+		Drift    []edge.Drift   `json:"drift"`
+		Checked  int            `json:"checked"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(out), &got))
+	require.Len(t, got.Expected, 3)
+	require.Equal(t, 4, got.Checked, "the three seeded units and this machine, which is a unit too")
+	states := map[edge.DriftState]int{}
+	for _, d := range got.Drift {
+		states[d.State]++
+	}
+	require.Greater(t, states[edge.DriftOut], 0)
+	require.Greater(t, states[edge.DriftUnknown], 0)
+
+	// Dropping one stops it being judged.
+	out, code = edgeRun(t, "edge", "expect", "rm", "roger")
+	require.Equal(t, 0, code, out)
+	require.Contains(t, out, "no longer expected")
+	out, _ = edgeRun(t, "edge", "drift")
+	require.NotContains(t, out, "runs 6.9.0")
+	out, code = edgeRun(t, "edge", "expect", "rm", "roger")
+	require.Equal(t, 0, code, out)
+	require.Contains(t, out, "nothing was expected", "removing what is not there is not an error")
+}
+
+func TestEdgeExpectRefusals(t *testing.T) {
+	driftSeed(t)
+	for _, args := range [][]string{
+		{"edge", "expect", "colour", "red"},
+		{"edge", "expect", "roger"},
+		{"edge", "expect", "roger", "soon"},
+		{"edge", "expect", "serves"},
+		{"edge", "expect", "agent", "yes"},
+		{"edge", "expect", "agent", "--scope", "tag:a b"},
+		{"edge", "expect", "agent", "--scope", "nosuchnode"},
+		{"edge", "expect", "rm"},
+	} {
+		out, code := edgeRun(t, args...)
+		require.NotEqual(t, 0, code, "%v must be refused: %s", args, out)
+	}
+	// And the refusal for an unknown thing names the whole vocabulary.
+	out, _ := edgeRun(t, "edge", "expect", "colour", "red")
+	for _, w := range edge.ExpectWhats() {
+		require.Contains(t, out, string(w))
+	}
+}
+
+func TestEdgeDriftSaysWhenTheFleetIsAsAsked(t *testing.T) {
+	driftSeed(t)
+	_, code := edgeRun(t, "edge", "expect", "maintenance", "--scope", "desk")
+	require.Equal(t, 0, code)
+	out, code := edgeRun(t, "edge", "drift")
+	require.Equal(t, 0, code, out)
+	require.Contains(t, out, "this Edge is as you asked")
+	require.Contains(t, out, "1 expectation(s)")
+	require.NotContains(t, out, "DRIFT")
+}
+
+// The screen's DRIFT row carries only real drift, never an unknown.
+func TestDriftLinesAreOnlyWhatIsKnownWrong(t *testing.T) {
+	drift := []edge.Drift{
+		{NodeID: "n_shed", Node: "shed", What: edge.ExpectRoger, Expected: "roger 6.13.0", Found: "runs 6.9.0", State: edge.DriftOut},
+		{NodeID: "n_shed", Node: "shed", What: edge.ExpectAgent, Expected: "agent", Found: "runs no agent", State: edge.DriftOut},
+		{NodeID: "n_unseen", Node: "unseen", What: edge.ExpectRoger, Expected: "roger 6.13.0", Found: "it has not reported which roger it runs", State: edge.DriftUnknown},
+	}
+	lines := edgeDriftLines(drift, "n_shed")
+	require.Equal(t, []string{"roger 6.13.0 · runs 6.9.0", "agent · runs no agent"}, lines)
+	require.Empty(t, edgeDriftLines(drift, "n_unseen"), "an unknown is not shown as a wrong")
+	require.Empty(t, edgeDriftLines(drift, "n_desk"))
+	require.Empty(t, edgeDriftLines(nil, "n_shed"))
+	_ = time.Now
+}
+
+// "." and "self" mean THIS machine wherever a node is named by way of the fleet: a grant's callee, an
+// alert rule's scope, an expectation's, a schedule's. The face resolver promised it; these did not.
+func TestTheSelfAliasWorksWhereverANodeIsNamed(t *testing.T) {
+	offline(t)
+	_, err := edgeDesignateCore(edgeAuthDir(), "desk")
+	require.NoError(t, err)
+	_, err = edgeEnrollCore(loadConfig(), "desk", "", "")
+	require.NoError(t, err)
+	self := edgeThisNodeID()
+	require.NotEmpty(t, self)
+
+	for _, alias := range []string{".", "self"} {
+		got, err := edgeGrantResolveNode(alias, false)
+		require.NoError(t, err, alias)
+		require.Equal(t, self, got, alias)
+	}
+	// As a CALLER, "self" still means "any of the owner's own instances" - that is a different question.
+	got, err := edgeGrantResolveNode("self", true)
+	require.NoError(t, err)
+	require.Equal(t, "", got)
+	// And as a caller "." is this machine, which is a node it can name.
+	got, err = edgeGrantResolveNode(".", true)
+	require.NoError(t, err)
+	require.Equal(t, self, got)
+
+	// So an expectation and a schedule can both be scoped to this machine by ".".
+	scope, where, err := edgeExpectScope(".")
+	require.NoError(t, err)
+	require.Equal(t, self, scope)
+	require.Equal(t, ".", where)
+	_, code := edgeRun(t, "edge", "expect", "agent", "--scope", ".")
+	require.Equal(t, 0, code)
+	_, code = edgeRun(t, "edge", "schedule", "add", "restart", "watcher", "--scope", ".", "--every", "1h")
+	require.Equal(t, 0, code)
+	jobs, err := edgeAlertLog().Jobs()
+	require.NoError(t, err)
+	require.Len(t, jobs, 1)
+	require.Equal(t, self, jobs[0].Scope)
+}
+
+// On a MEMBER, an empty set does not mean the owner asked for nothing: the expectations are kept where
+// they were typed. Saying "nothing is expected of this Edge" there would be untrue.
+func TestAMemberSaysWhereTheExpectationsLive(t *testing.T) {
+	offline(t)
+	// A machine enrolled against an authority ELSEWHERE holds no root of its own.
+	self := edgeSelfStatus(nil, edgeDiscoveryFactsFromEnv())
+	require.False(t, self.AuthorityHere, "this rig is not the authority")
+
+	out, code := edgeRun(t, "edge", "drift")
+	require.Equal(t, 0, code, out)
+	require.Contains(t, out, "this machine holds no expectations")
+	require.Contains(t, out, "kept on the machine that roots this Edge")
+	require.NotContains(t, out, "nothing is expected of this Edge yet",
+		"that would tell the owner something untrue about their own fleet")
+
+	out, code = edgeRun(t, "edge", "expect")
+	require.Equal(t, 0, code, out)
+	require.Contains(t, out, "this machine holds no expectations")
+
+	// On the AUTHORITY, an empty set does mean nothing has been asked yet, and it says how to ask.
+	_, err := edgeDesignateCore(edgeAuthDir(), "desk")
+	require.NoError(t, err)
+	_, err = edgeEnrollCore(loadConfig(), "desk", "", "")
+	require.NoError(t, err)
+	out, code = edgeRun(t, "edge", "expect")
+	require.Equal(t, 0, code, out)
+	require.Contains(t, out, "nothing is expected of this Edge yet")
+	require.Contains(t, out, "roger edge expect")
+}

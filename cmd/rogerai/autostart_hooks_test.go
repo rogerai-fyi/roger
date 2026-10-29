@@ -14,7 +14,7 @@ import (
 	"strings"
 	"testing"
 
-	"rogerai.fm/roger/v6/internal/tui"
+	"rogerai.fm/roger/v7/internal/tui"
 )
 
 // SaveAutoStart must persist a decision, and must persist it BESIDE the model's price

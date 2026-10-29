@@ -93,12 +93,22 @@ Feature: Share from any compatible model host
     Then the endpoint is reported as needing a key
     And no Unsloth model is advertised
 
-  Scenario: Blind open-port discovery never sprays the Unsloth key
+  # Amended 2026-10-28 (founder ruling: NAMED PORTS ONLY). This scenario was "Blind open-port
+  # discovery never sprays the Unsloth key", when detection also scanned this host's listening
+  # ports. There is no such scan any more, not even a GET: detection probes only the known default
+  # ports, the environment and configured or explicit URLs. A server on an unusual port is
+  # configured by hand (`roger share --upstream <url>`).
+  Scenario: Detection never touches a service on a port nobody named
     Given "UNSLOTH_API_KEY" is "sk-unsloth-secret"
     And an unknown service requiring authentication listens on an unrelated open port
-    When RogerAI scans listening ports
-    Then "sk-unsloth-secret" is not sent to the unknown service
-    And the existing blind-port credential boundary is unchanged
+    When RogerAI scans for local model hosts
+    Then the unknown service receives no request at all
+    And "sk-unsloth-secret" is not sent to the unknown service
+
+  Scenario: A host on an unusual port is found once its URL is configured
+    Given a model host implements GET "/v1/models" on a port nobody named
+    When RogerAI scans for local model hosts with that URL configured
+    Then that host is detected with its models
 
   Scenario: A host with no named integration remains shareable
     Given a model host implements GET "/v1/models"
@@ -150,7 +160,16 @@ Feature: Share from any compatible model host
     And it says custom or remote endpoints may require "--upstream" and "--upstream-key"
     And it says compatibility depends on response shapes, streaming SSE, and usage reporting rather than brand alone
 
-  Scenario: RogerAI does not become another inference-engine wrapper
+  # THIS BOUNDARY HAS MOVED ONCE, AND MAY MOVE AGAIN. features/share/model_catalog.feature was
+  # approved on the explicit basis that it moves "launching/stopping model hosts" out of this
+  # scenario's scope, for artifacts RogerAI itself publishes a manifest for. A reader who finds
+  # this scenario first and stops here will conclude the opposite of what was decided, which is
+  # what happened on 2026-09-29. features/serving/local_models.feature now asks to move it a
+  # second time, to models RogerAI did not publish, and that ruling is still open.
+  #
+  # The scenario below remains true of EVERY OTHER HOST: a server the operator installed is
+  # detected over HTTP and never managed, never configured, never launched by us.
+  Scenario: RogerAI does not become another inference-engine wrapper for hosts it did not publish
     When support for a new model host is added
     Then RogerAI detects or connects to the host through its existing HTTP API
     And RogerAI does not download model weights

@@ -17,14 +17,16 @@ import (
 	"net/http/httptest"
 	"runtime"
 	"strconv"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 
-	"rogerai.fm/roger/v6/internal/localplane"
-	"rogerai.fm/roger/v6/internal/protocol"
-	"rogerai.fm/roger/v6/internal/tower"
+	"rogerai.fm/roger/v7/internal/localplane"
+	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/tower"
 )
 
 func TestServeLocalTowerServesAConsumerEndToEnd(t *testing.T) {
@@ -47,8 +49,10 @@ func TestServeLocalTowerServesAConsumerEndToEnd(t *testing.T) {
 	_, err = st.AttachStation("st-node", nodeID, []string{"local-llama"})
 	require.NoError(t, err)
 
-	// The fake upstream model: it must SEE stream:false (the node forces it) and answers with a
-	// verbatim, non-streaming chat completion.
+	// The fake upstream model: a non-stream request reaches it as stream:false, and it answers with a
+	// verbatim, non-streaming chat completion. (A streamed request keeps its flag: superseded
+	// 2026-10-07 by features/tower/standalone_streaming.feature, covered in
+	// localtower_stream_bdd_test.go.)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		require.Contains(t, string(body), `"stream":false`, "the node must force non-streaming")
@@ -68,7 +72,7 @@ func TestServeLocalTowerServesAConsumerEndToEnd(t *testing.T) {
 	}()
 
 	// The consumer posts a prompt and gets the model's answer, having only pointed at the Tower.
-	prompt := []byte(`{"model":"local-llama","messages":[{"role":"user","content":"hi"}],"stream":true}`)
+	prompt := []byte(`{"model":"local-llama","messages":[{"role":"user","content":"hi"}]}`)
 	req, _ := http.NewRequest(http.MethodPost, plane.URL+"/v1/chat/completions", bytes.NewReader(prompt))
 	pubHex, ts, sig := protocol.SignRequest(consumerPriv, http.MethodPost, "/v1/chat/completions", prompt)
 	req.Header.Set(protocol.HeaderPubkey, pubHex)
@@ -109,21 +113,21 @@ func TestPollLocalJobHandlesNonOKAndNoContent(t *testing.T) {
 	// 204: no work, no error.
 	no := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) }))
 	defer no.Close()
-	_, got, err := pollLocalJob(context.Background(), no.Client(), no.URL, priv)
+	_, got, err := pollLocalJob(context.Background(), no.Client(), no.URL, priv, Config{})
 	require.NoError(t, err)
 	require.False(t, got)
 
 	// 500: treated as no job, with an error.
 	boom := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusInternalServerError) }))
 	defer boom.Close()
-	_, got, err = pollLocalJob(context.Background(), boom.Client(), boom.URL, priv)
+	_, got, err = pollLocalJob(context.Background(), boom.Client(), boom.URL, priv, Config{})
 	require.Error(t, err)
 	require.False(t, got)
 
 	// 200 with a job missing its id is rejected.
 	noid := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = io.WriteString(w, `{"model":"m"}`) }))
 	defer noid.Close()
-	_, got, err = pollLocalJob(context.Background(), noid.Client(), noid.URL, priv)
+	_, got, err = pollLocalJob(context.Background(), noid.Client(), noid.URL, priv, Config{})
 	require.Error(t, err)
 	require.False(t, got)
 }
@@ -174,10 +178,10 @@ func TestUnstreamLocalToleratesNullBody(t *testing.T) {
 	})
 }
 
-func TestServeLocalTowerAnnouncesItsNodeIDForAttach(t *testing.T) {
-	// The operator needs the node's tower client id to run `roger-tower attach --key <id>`, and
-	// the node is the only place that key hash is derivable from - so serving MUST print it, with
-	// the exact command that consumes it. Without this the documented attach flow cannot be followed.
+func TestServeLocalTowerAsksNobodyToCopyItsKey(t *testing.T) {
+	// features/join/surfaces.feature: no screen asks the user to carry a key between machines. A
+	// station a Tower already attached serves without printing its key (the invite is the way in;
+	// an unattached station is told so, below).
 	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
 	nodeID := protocol.UserIDFromPubkey(hexOf(pub))
 	quiet := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -189,8 +193,8 @@ func TestServeLocalTowerAnnouncesItsNodeIDForAttach(t *testing.T) {
 	var out bytes.Buffer
 	_ = ServeLocalTower(ctx, Config{Broker: quiet.URL, Upstream: "http://127.0.0.1:1"}, priv, &out)
 	s := out.String()
-	require.Contains(t, s, nodeID, "the node prints its own tower client id so the operator can attach it")
-	require.Contains(t, s, "roger-tower attach", "and prints the exact command that consumes it")
+	require.NotContains(t, s, nodeID, "an attached station does not print its key")
+	require.NotContains(t, s, "--key", "nor ask anyone to copy it")
 }
 
 func TestIDFromPrivFollowsTheCanonicalRule(t *testing.T) {
@@ -209,4 +213,87 @@ func TestNodeIDIsStableAndCanonical(t *testing.T) {
 	require.Equal(t, "u_", id1[:2], "the node id is a tower client id")
 	require.Equal(t, id1, NodeID(), "it is stable across calls - the same persisted node key")
 	require.Equal(t, idFromPriv(NodeKey()), id1, "and it is exactly what a share will sign with")
+}
+
+// A Tower that has not attached this station answers every poll 401. The node says so once,
+// naming the Tower and the exact attach command, and backs off instead of spinning.
+func TestServeLocalTowerReportsAnUnattachedStationAndBacksOff(t *testing.T) {
+	prev := localPollBackoffBase
+	localPollBackoffBase = 20 * time.Millisecond
+	t.Cleanup(func() { localPollBackoffBase = prev })
+	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+	var mu sync.Mutex
+	var at []time.Time
+	refusing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		at = append(at, time.Now())
+		mu.Unlock()
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = io.WriteString(w, `{"error":"unauthorized"}`)
+	}))
+	defer refusing.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 700*time.Millisecond)
+	defer cancel()
+	var out bytes.Buffer
+	_ = ServeLocalTower(ctx, Config{Broker: refusing.URL, Upstream: "http://127.0.0.1:1", Model: "m"}, priv, &out)
+
+	s := out.String()
+	require.Contains(t, s, "the Tower at "+refusing.URL+" has not attached this station")
+	require.Contains(t, s, "ask its owner for a station invite (roger tower invite --station), then run here: roger join <invite>",
+		"the unattached station is told the simple way in")
+	require.NotContains(t, s, "--key", "it asks nobody to copy a key")
+	require.Contains(t, s, "a Tower older than invites attaches this station's key: "+protocol.UserIDFromPubkey(hexOf(pub)))
+	require.Equal(t, 1, strings.Count(s, "has not attached this station"), "said once, not on every poll")
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.GreaterOrEqual(t, len(at), 3)
+	require.Less(t, len(at), 10, "polls back off: a fixed 20ms spin would poll about 35 times")
+	first, last := at[1].Sub(at[0]), at[len(at)-1].Sub(at[len(at)-2])
+	require.Greater(t, last, 2*first, "each retry waits longer than the one before")
+}
+
+func TestLocalPollBackoffDoublesToItsCap(t *testing.T) {
+	for _, tc := range []struct {
+		n    int
+		want time.Duration
+	}{{1, 500 * time.Millisecond}, {2, time.Second}, {3, 2 * time.Second}, {7, 30 * time.Second}, {50, 30 * time.Second}} {
+		require.Equal(t, tc.want, localPollBackoff(tc.n), "failure %d", tc.n)
+	}
+}
+
+// StartLAN serves every LAN Tower as a standalone station and registers nowhere; Stop ends it.
+func TestStartLANPollsEveryTowerUntilStopped(t *testing.T) {
+	_, priv, _ := ed25519.GenerateKey(rand.Reader)
+	var mu sync.Mutex
+	polled := map[string]int{}
+	tower := func(name string) *httptest.Server {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			mu.Lock()
+			polled[name+r.URL.Path]++
+			mu.Unlock()
+			w.WriteHeader(http.StatusNoContent)
+		}))
+		t.Cleanup(srv.Close)
+		return srv
+	}
+	a, b := tower("a"), tower("b")
+	sess := StartLAN(Config{Model: "m", Upstream: "http://127.0.0.1:1"}, []string{a.URL, b.URL}, priv, io.Discard)
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return polled["a/local/poll"] > 0 && polled["b/local/poll"] > 0
+	}, 3*time.Second, 20*time.Millisecond, "both Towers are polled")
+	require.Equal(t, LinkOnAir, sess.Link(), "a LAN share is on air the moment it serves")
+	sess.Stop()
+	mu.Lock()
+	n := polled["a/local/poll"]
+	mu.Unlock()
+	time.Sleep(700 * time.Millisecond)
+	mu.Lock()
+	defer mu.Unlock()
+	require.LessOrEqual(t, polled["a/local/poll"], n+1, "Stop ends the polling")
+	for k := range polled {
+		require.True(t, strings.HasSuffix(k, "/local/poll"), "only the local plane is asked: %s", k)
+	}
 }

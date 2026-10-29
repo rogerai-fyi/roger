@@ -14,20 +14,21 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"testing"
 	"time"
 
 	"github.com/cucumber/godog"
-	"rogerai.fm/roger/v6/internal/protocol"
-	"rogerai.fm/roger/v6/internal/store"
-	"rogerai.fm/roger/v6/internal/towercore/admit"
-	"rogerai.fm/roger/v6/internal/towercore/attach"
-	"rogerai.fm/roger/v6/internal/towercore/cert"
-	"rogerai.fm/roger/v6/internal/towercore/enroll"
-	"rogerai.fm/roger/v6/internal/towercore/head"
-	"rogerai.fm/roger/v6/internal/towercore/inv"
-	"rogerai.fm/roger/v6/internal/towercore/link"
-	"rogerai.fm/roger/v6/internal/towerobj"
+	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/store"
+	"rogerai.fm/roger/v7/internal/towercore/admit"
+	"rogerai.fm/roger/v7/internal/towercore/attach"
+	"rogerai.fm/roger/v7/internal/towercore/cert"
+	"rogerai.fm/roger/v7/internal/towercore/enroll"
+	"rogerai.fm/roger/v7/internal/towercore/head"
+	"rogerai.fm/roger/v7/internal/towercore/inv"
+	"rogerai.fm/roger/v7/internal/towercore/link"
+	"rogerai.fm/roger/v7/internal/towerobj"
 )
 
 // Short windows so "the freshness window passes" is a sleep, not a stall: heartbeat 50ms
@@ -445,7 +446,7 @@ func TestLinkMultiInstanceBDD(t *testing.T) {
 			Strict: true, TestingT: t,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("the link multi-instance spec is not satisfied")
 	}
 }

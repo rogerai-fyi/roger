@@ -20,9 +20,9 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"net"
 	"net/http"
 	"net/http/httptest"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"sort"
 	"strconv"
 	"strings"
@@ -32,9 +32,10 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/cucumber/godog"
-	"rogerai.fm/roger/v6/internal/protocol"
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 // --- virtual clock -----------------------------------------------------------
@@ -256,6 +257,7 @@ func classifiedText(body string) string {
 // --- relay results ---------------------------------------------------------------
 
 type relayResult struct {
+	relayID    string // X-RogerAI-Request-Id: what screening, flags and logs name the request by
 	code       int
 	body       string
 	hdrReceipt string
@@ -303,6 +305,7 @@ type opsState struct {
 	cfg       screenerConfig
 	paused    bool
 	multi     bool
+	mr        *miniredis.Miniredis // the multi-instance scenario's shared store
 	built     bool
 
 	nodePriv ed25519.PrivateKey
@@ -406,7 +409,17 @@ func (s *opsState) build() {
 	b.mod = s.moderationFor(mode)
 	b.multiInstance = s.multi
 	if s.multi {
-		b.shared = openSharedStore() // the real boot path: unreachable -> nil + a logged fallback
+		// A ready multi-instance broker: queue-only dispatch (as production runs) over a REAL
+		// shared store that answers at boot; the scenario takes it down afterwards.
+		s.mr = miniredis.RunT(s.t)
+		vs, err := newValkeyStore("redis://" + s.mr.Addr())
+		if err != nil {
+			s.t.Fatalf("valkey: %v", err)
+		}
+		b.shared = vs
+		b.dispatchMode = dispatchViaQueueOnly
+		b.instanceID = newInstanceID()
+		b.peerInflight = map[string]int{}
 	}
 	s.b = b
 
@@ -549,6 +562,7 @@ func (s *opsState) relay(id int, body []byte) relayResult {
 	s.b.relay(w, r)
 	res := relayResult{
 		code: w.Code, body: w.Body.String(), hdrReceipt: w.Header().Get("X-RogerAI-Receipt"),
+		relayID: w.Header().Get("X-RogerAI-Request-Id"),
 		elapsed: time.Since(start),
 		user:    protocol.UserIDFromPubkey(hex.EncodeToString(priv.Public().(ed25519.PublicKey))),
 		wallet:  fmt.Sprintf("u_gh_%d", id),
@@ -592,7 +606,11 @@ func (s *opsState) settle() {
 		if s.scr.enabled {
 			summary = 1
 		}
-		if snap.InFlight == 0 && snap.IdleWorkers+snap.BackingOff == snap.Workers && s.clock.sleepers() == snap.BackingOff+summary {
+		// A queued job with an idle worker is runnable, not quiet: pop only waits on an empty
+		// queue, so that worker was signaled and has not resumed yet. Advancing the virtual
+		// clock past it would age the job out as stale before it ever reached the classifier.
+		runnable := snap.QueueDepth > 0 && snap.IdleWorkers > 0
+		if !runnable && snap.InFlight == 0 && snap.IdleWorkers+snap.BackingOff == snap.Workers && s.clock.sleepers() == snap.BackingOff+summary {
 			return
 		}
 		if time.Now().After(deadline) {
@@ -634,7 +652,9 @@ func (s *opsState) drain() error {
 // does not cover. Counting before it had run read 0 on a loaded CI runner; the wait makes
 // the count exact on any machine (the bound is a liveness guard, not a timing margin).
 func (s *opsState) firedCount(key string) int {
-	s.b.waitAlertsInflight(10 * time.Second)
+	if s.b != nil {
+		s.b.waitAlertsInflight(10 * time.Second)
+	}
 	return strings.Count(s.logs.String(), "alert: FIRED "+strconv.Quote(key))
 }
 
@@ -941,17 +961,32 @@ func (s *opsState) atMostConns(n int) error {
 	return nil
 }
 func (s *opsState) multiSharedDown() error {
-	// A REAL dead address: a listener that is closed before the broker dials it. The broker's
-	// own openSharedStore runs (ping fails -> in-memory fallback + the warning line), exactly
-	// the production boot against an unreachable Valkey; multi-instance stays on.
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return err
+	s.multi = true // the broker is built (ready, store answering) by the next step
+	return nil
+}
+
+// n1PollsHere builds the ready broker, takes its shared store down for real (the miniredis
+// server is closed) until the instance notices, and records that station n1 long-polls this
+// instance (the harness station reads its tunnel directly instead of holding real polls).
+func (s *opsState) n1PollsHere(name string) error {
+	s.build()
+	if s.mr == nil {
+		return fmtErr("the multi-instance broker has no shared store to take down")
 	}
-	addr := ln.Addr().String()
-	_ = ln.Close()
-	s.t.Setenv("ROGERAI_REDIS_URL", "redis://"+addr)
-	s.multi = true
+	s.mr.Close()
+	vs := s.b.shared.(*valkeyStore)
+	deadline := time.Now().Add(10 * time.Second)
+	for vs.healthy() {
+		if time.Now().After(deadline) {
+			return fmtErr("the instance never noticed the shared store going down")
+		}
+		_, _, _ = vs.cacheGet("ops:probe")
+		time.Sleep(20 * time.Millisecond)
+	}
+	if rsoBackdate == nil {
+		return fmtErr("the broker records no time of a station's last poll on this instance")
+	}
+	rsoBackdate(s.b, name, time.Now())
 	return nil
 }
 func (s *opsState) enqueuedAndScreened() error {
@@ -961,8 +996,8 @@ func (s *opsState) enqueuedAndScreened() error {
 	if s.stub.count() != 1 || s.scr.snapshot().Screened != 1 {
 		return fmtErr("want 1 screened job via the in-process queue, stub calls=%d snapshot=%+v", s.stub.count(), s.scr.snapshot())
 	}
-	if !strings.Contains(s.logs.String(), "shared-state: ROGERAI_REDIS_URL set but connect failed") {
-		return fmtErr("the shared store was not actually unreachable (no fallback line logged)")
+	if vs, ok := s.b.shared.(*valkeyStore); !ok || vs.healthy() {
+		return fmtErr("the shared store was not actually down during the relay")
 	}
 	return nil
 }
@@ -1080,11 +1115,11 @@ func (s *opsState) csamRowExists() error {
 }
 func (s *opsState) flagRowExists(cat string) error {
 	for _, f := range s.flags(s.last) {
-		if strings.EqualFold(f.Category, cat) && f.RequestID != "" && f.RequestID == s.last.requestID {
+		if strings.EqualFold(f.Category, cat) && f.RequestID != "" && f.RequestID == s.last.relayID {
 			return nil
 		}
 	}
-	return fmtErr("no moderation_flags row with category %s + request id %s for %s: %+v", cat, s.last.requestID, s.pseudonymOf(s.last), s.flags(s.last))
+	return fmtErr("no moderation_flags row with category %s + request id %s for %s: %+v", cat, s.last.relayID, s.pseudonymOf(s.last), s.flags(s.last))
 }
 func (s *opsState) flagCarriesAll() error {
 	fl := s.flags(s.last)
@@ -1197,16 +1232,32 @@ func (s *opsState) policyDataOnly() error {
 	return nil
 }
 func (s *opsState) relaysToolsBody(phrase string) error {
+	// A tools body routes only to a station whose tool-call canary passed. That verdict
+	// normally comes from the background probe, which loses the race to this relay on a
+	// loaded machine: the relay is then refused (no_match), its screening job is dropped
+	// as not-served, and the classifier never sees the tools text. This scenario is about
+	// what screening sends, not about the canary, so record the station's passing verdict
+	// first through the canary's own writer.
+	s.build()
+	s.b.recordToolProbe("n1", opsModel, true, false, true)
 	body := []byte(`{"model":"` + opsModel + `","max_tokens":64,"messages":[{"role":"user","content":"use the tool"}],` +
 		`"tools":[{"type":"function","function":{"name":"t","description":"` + phrase + ` does a thing","parameters":{"type":"object"}}}]}`)
 	s.relay(1, body)
 	return nil
 }
+
+// requestContains: a relay can be screened more than once (its prompt, then its reply), and
+// under load the classifier sees those requests in either order, so the step looks for the
+// phrase in any request the stub recorded rather than only the last.
 func (s *opsState) requestContains(phrase string) error {
-	if !strings.Contains(s.stub.lastBody(), phrase) {
-		return fmtErr("classifier request does not contain %q", phrase)
+	s.stub.mu.Lock()
+	defer s.stub.mu.Unlock()
+	for _, b := range s.stub.bodies {
+		if strings.Contains(b, phrase) {
+			return nil
+		}
 	}
-	return nil
+	return fmtErr("no classifier request contains %q (%d recorded)", phrase, len(s.stub.bodies))
 }
 
 // --- §3 bounded work -------------------------------------------------------------------
@@ -1435,8 +1486,8 @@ func (s *opsState) staleLineNames() error {
 	if line == "" {
 		return fmtErr("no MODERATION SKIPPED (stale after 429 backoff) line:\n%s", s.logs.String())
 	}
-	if !strings.Contains(line, s.last.requestID) || !strings.Contains(line, s.pseudonymOf(s.last)) {
-		return fmtErr("SKIPPED line does not name request id %s + pseudonym %s: %s", s.last.requestID, s.pseudonymOf(s.last), line)
+	if !strings.Contains(line, s.last.relayID) || !strings.Contains(line, s.pseudonymOf(s.last)) {
+		return fmtErr("SKIPPED line does not name request id %s + pseudonym %s: %s", s.last.relayID, s.pseudonymOf(s.last), line)
 	}
 	return nil
 }
@@ -1967,7 +2018,8 @@ func TestOffPathScreeningBDD(t *testing.T) {
 			sc.Step(`^another funded consumer relays a prompt$`, st.anotherRelays)
 			sc.Step(`^it completes within 2 seconds of the station's response time$`, st.completesFast)
 			sc.Step(`^at most (\d+) classifier connections are open at any time \(the worker count\)$`, st.atMostConns)
-			sc.Step(`^the broker runs multi-instance and the shared store is unreachable$`, st.multiSharedDown)
+			sc.Step(`^the broker runs multi-instance, became ready, and the shared store then stopped answering$`, st.multiSharedDown)
+			sc.Step(`^station "([^"]+)" long-polls this instance$`, st.n1PollsHere)
 			sc.Step(`^the screening job was enqueued in-process and screened$`, st.enqueuedAndScreened)
 			sc.Step(`^(\d+) screening jobs are queued and the classifier answers in (\d+)ms$`, st.queuedWithLatency)
 			sc.Step(`^the broker receives a stop signal with a (\d+) second drain budget$`, st.stopWithBudget)
@@ -2103,7 +2155,7 @@ func TestOffPathScreeningBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("off-path screening scenarios failed (see godog output above)")
 	}
 }

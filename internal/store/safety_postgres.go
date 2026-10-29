@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // Postgres safety storage (safety.go): csam_incidents, reports, banned_nodes. Mirrors
@@ -299,6 +299,15 @@ func (p *Postgres) OwnerStrikeStats(accountID string, since int64) (windowed, di
 	err = p.db.QueryRow(`SELECT COUNT(*), COUNT(DISTINCT kind) FROM rogerai.owner_strikes
 		WHERE account_id=$1 AND created_at>=$2 AND kind NOT LIKE 'ban:%'`, accountID, since).Scan(&windowed, &distinctKinds)
 	return windowed, distinctKinds, err
+}
+
+// OwnerStrikePayers counts an owner's payer-bearing strikes of one kind at or after since and
+// the distinct payers among them (contract §14.1).
+func (p *Postgres) OwnerStrikePayers(accountID, kind string, since int64) (total, payerRows, payers int, err error) {
+	err = p.db.QueryRow(`SELECT COUNT(*), COUNT(*) FILTER (WHERE COALESCE(evidence->>'payer','')<>''),
+		COUNT(DISTINCT NULLIF(evidence->>'payer','')) + COUNT(*) FILTER (WHERE COALESCE(evidence->>'payer','')='')
+		FROM rogerai.owner_strikes WHERE account_id=$1 AND kind=$2 AND created_at>=$3`, accountID, kind, since).Scan(&total, &payerRows, &payers)
+	return total, payerRows, payers, err
 }
 
 // ThrottledCount counts a node's receipts voided as upstream-throttled at or after since

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strings"
 	"testing"
 	"time"
@@ -11,8 +12,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/cucumber/godog"
-	"rogerai.fm/roger/v6/internal/harness"
-	"rogerai.fm/roger/v6/internal/operator"
+	"rogerai.fm/roger/v7/internal/harness"
+	"rogerai.fm/roger/v7/internal/operator"
 )
 
 type agentPromptBDD struct {
@@ -655,7 +656,7 @@ func TestAgentPromptBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("agent prompt scenarios failed")
 	}
 }

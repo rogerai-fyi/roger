@@ -17,8 +17,9 @@ import (
 	"net/http"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/protocol"
-	"rogerai.fm/roger/v6/internal/tower"
+	"rogerai.fm/roger/v7/internal/coreclient"
+	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/tower"
 )
 
 // DispatchKey fetches Roger Core's grant-signing public key from the public
@@ -31,6 +32,7 @@ func DispatchKey() (ed25519.PublicKey, error) {
 	if err := protocol.TrustedBase(base); err != nil {
 		return nil, err
 	}
+	coreclient.Note("towerjoin: dispatch key")
 	client := &http.Client{Timeout: 20 * time.Second, CheckRedirect: protocol.NoDowngradeRedirect}
 	resp, err := client.Get(base + "/tower/dispatch/key")
 	if err != nil {
@@ -179,7 +181,7 @@ func ForwardAuditTranscript(st *tower.State, attemptID string, available bool, s
 func CoreTowerID(st *tower.State) (string, error) {
 	adm, ok := LoadAdmission(st.Dir())
 	if !ok || adm.TowerID == "" {
-		return "", errors.New("this Tower is not registered with Roger Core yet - run `roger-tower register` first")
+		return "", errors.New("this Tower is not registered with Roger Core yet - run `roger tower register` first")
 	}
 	return adm.TowerID, nil
 }

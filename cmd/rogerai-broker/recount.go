@@ -10,13 +10,13 @@ import (
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // recount.go is the broker side of L1 - the independent token re-count (see
 // docs-internal/VERIFICATION-DESIGN.md, "L1"). After a response SETTLES, the
 // broker (in a goroutine, OFF the hot path) posts the completion text to the
-// tokenizer-sidecar and reconciles the sidecar's count against the node's
+// tokenizer service (`rogerai-broker tokenizer`) and reconciles the sidecar's count against the node's
 // self-reported completion_tokens. A node that over-reports past a tolerance
 // band (exact re-counts only) accrues a per-node DISCREPANCY against its trust
 // score and is logged. Settlement has already happened, so for now this is a
@@ -77,7 +77,7 @@ func loadRecount() recountConfig {
 		c.strikeTolerance = c.tolerance
 	}
 	if c.url == "" {
-		log.Printf("L1 re-count: DISABLED (set TOKENIZER_URL to the tokenizer-sidecar, e.g. http://127.0.0.1:9099)")
+		log.Printf("L1 re-count: DISABLED (run `rogerai-broker tokenizer` and set TOKENIZER_URL to it, e.g. http://127.0.0.1:9099)")
 	} else {
 		log.Printf("L1 re-count: enabled via %s (billing tolerance=%.0f%%, strike tolerance=%.0f%%)", c.url, c.tolerance*100, c.strikeTolerance*100)
 	}
@@ -96,7 +96,7 @@ func strikeNote(struck bool) string {
 	return " (within strike tolerance - billing capped, owner NOT struck: honest tokenizer variance)"
 }
 
-// sidecarCount asks the tokenizer-sidecar to count text under model. Returns the
+// sidecarCount asks the tokenizer service (`rogerai-broker tokenizer`) to count text under model. Returns the
 // token count and whether the count was exact.
 func (c recountConfig) sidecarCount(model, text string) (tokens int, exact bool, ok bool) {
 	body, _ := json.Marshal(map[string]string{"model": model, "text": text})
@@ -322,6 +322,9 @@ type trustState struct {
 	// skips a stall-after-first-token node from the FIRST pick instead of burning the relay wait.
 	ttftMs   float64 // EWMA time-to-first-token (ms) from probes
 	probeTPS float64 // EWMA clean tok/s from probes
+	// organicStrikes are the unix-ms times of recount strikes from ORGANIC relays: evidence
+	// from customers that can withdraw `verified` while the probe still passes (§14.B7).
+	organicStrikes []int64
 }
 
 // trustScore is a 0..1 quality signal for a node: starts optimistic, knocked
@@ -496,6 +499,8 @@ func voidReasonFor(status int) string {
 	switch {
 	case status == http.StatusTooManyRequests:
 		return protocol.VoidUpstreamThrottled
+	case consumerCaused(status):
+		return protocol.VoidConsumerRejected
 	case status >= 400:
 		return protocol.VoidUpstreamError
 	default:
@@ -503,11 +508,23 @@ func voidReasonFor(status int) string {
 	}
 }
 
+// consumerCaused reports whether an upstream status is the station refusing the request
+// itself (contract §14.1): voided at $0, never a strike, never a failover trigger. The
+// context-window 400 is classified before this (voidReasonOf) and keeps its own rule.
+func consumerCaused(status int) bool {
+	switch status {
+	case http.StatusBadRequest, http.StatusUnauthorized, http.StatusNotFound,
+		http.StatusRequestEntityTooLarge, http.StatusUnprocessableEntity:
+		return true
+	}
+	return false
+}
+
 // recountModel is the model id to tokenize under: prefer the receipt's claimed
 // model (the canonical tokenizer key), fall back to the request model.
 func recountModel(rec protocol.UsageReceipt, reqModel string) string {
-	if rec.Model != "" {
-		return rec.Model
+	if m := rec.ServedModel(); m != "" {
+		return m
 	}
 	return reqModel
 }

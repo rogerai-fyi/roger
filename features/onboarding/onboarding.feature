@@ -17,6 +17,9 @@
 #   - Payout requires Stripe Connect KYC before money moves (scenario 5)
 #     -> features/money/payouts.feature "KYC gate" (executable; payouts_bdd_test.go), driving
 #        the REAL payoutsRequest Connect gate + connectOnboard.
+# superseded 2026-10-11 by founder ruling (welcome card / simple empty Edge): scenario 1 is now the
+# in-TUI one-time welcome card (features/onboarding/welcome_card.feature); applyIntent is
+# retired; applyRerunChoice (scenario 6, `roger onboard`) stays. The note below is the old text.
 # Scenarios 1 ("first-run setup is offered") and 6 ("re-run Keep/Modify/Reset") are the
 # FIRST-RUN CLI WIZARD, rendered with interactive huh forms behind a TTY gate (onboard.go
 # interactive()=isatty). The huh-form RENDERING still needs a PTY, but the DECISIONS those
@@ -39,8 +42,9 @@ Feature: Onboarding — first run + the earn-path account hub
   Scenario: First run onboards, but the app still works with defaults
     Given a brand-new install with no saved config
     When the user starts rogerai
-    Then a first-run setup is offered
-    And declining still leaves a working app on sensible defaults (broker, proxy addr)
+    # superseded 2026-10-11 by founder ruling (welcome card / simple empty Edge)
+    Then the TUI opens with a one-time welcome card (features/onboarding/welcome_card.feature)
+    And skipping the card with esc leaves a working app on sensible defaults (broker, proxy addr)
 
   Scenario: Consuming needs no account
     Given an un-logged-in user with a funded wallet (or free models)

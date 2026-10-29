@@ -211,7 +211,7 @@ func TestStreamRelayBodyDirect(t *testing.T) {
 	t.Run("reasoning-only, no DONE sentinel -> synthesized at EOF", func(t *testing.T) {
 		body := `data: {"choices":[{"index":0,"delta":{"reasoning":"hello"}}]}` + "\n\n"
 		rec := httptest.NewRecorder()
-		streamRelayBody(rec, strings.NewReader(body), true)
+		streamRelayBody(rec, strings.NewReader(body), true, nil)
 		if !strings.Contains(rec.Body.String(), `"content":"hello"`) {
 			t.Fatalf("no synthesized content at EOF: %q", rec.Body.String())
 		}
@@ -220,7 +220,7 @@ func TestStreamRelayBodyDirect(t *testing.T) {
 	t.Run("disabled -> byte-identical passthrough", func(t *testing.T) {
 		body := `data: {"choices":[{"index":0,"delta":{"reasoning":"hello"}}]}` + "\n\ndata: [DONE]\n\n"
 		rec := httptest.NewRecorder()
-		streamRelayBody(rec, strings.NewReader(body), false)
+		streamRelayBody(rec, strings.NewReader(body), false, nil)
 		if rec.Body.String() != body {
 			t.Fatalf("disabled path altered the stream:\n got %q\nwant %q", rec.Body.String(), body)
 		}
@@ -230,7 +230,7 @@ func TestStreamRelayBodyDirect(t *testing.T) {
 		huge := strings.Repeat("x", 300000)
 		body := `data: {"choices":[{"index":0,"delta":{"reasoning":"` + huge + `"}}]}` + "\n\ndata: [DONE]\n\n"
 		rec := httptest.NewRecorder()
-		streamRelayBody(rec, strings.NewReader(body), true)
+		streamRelayBody(rec, strings.NewReader(body), true, nil)
 		out := rec.Body.String()
 		if !strings.Contains(out, huge) || !strings.Contains(out, "data: [DONE]") {
 			t.Fatalf("giant line or terminal lost (len=%d)", len(out))
@@ -240,7 +240,7 @@ func TestStreamRelayBodyDirect(t *testing.T) {
 	t.Run("meter comment after DONE survives, synthesized delta lands before DONE", func(t *testing.T) {
 		body := `data: {"choices":[{"index":0,"delta":{"reasoning":"r"}}]}` + "\n\ndata: [DONE]\n\n: rogerai-cost=0.5\n\n"
 		rec := httptest.NewRecorder()
-		cost := streamRelayBody(rec, strings.NewReader(body), true)
+		cost := streamRelayBody(rec, strings.NewReader(body), true, nil)
 		if cost != 0.5 {
 			t.Fatalf("cost = %v, want 0.5", cost)
 		}
@@ -256,7 +256,7 @@ func TestStreamRelayBodyDirect(t *testing.T) {
 	t.Run("reasoning-only stream ending without a trailing newline still synthesizes", func(t *testing.T) {
 		body := `data: {"choices":[{"index":0,"delta":{"reasoning":"tail"}}]}` // no final \n
 		rec := httptest.NewRecorder()
-		streamRelayBody(rec, strings.NewReader(body), true)
+		streamRelayBody(rec, strings.NewReader(body), true, nil)
 		out := rec.Body.String()
 		if !strings.Contains(out, "tail") || !strings.Contains(out, `"content":"tail"`) {
 			t.Fatalf("trailing-line reasoning not preserved+synthesized: %q", out)
@@ -267,7 +267,7 @@ func TestStreamRelayBodyDirect(t *testing.T) {
 		body := `data: {"choices":[{"index":0,"delta":{"reasoning":"ans"}}]}` + "\n\n" +
 			`data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}` + "\n\ndata: [DONE]\n\n"
 		rec := httptest.NewRecorder()
-		streamRelayBody(rec, strings.NewReader(body), true)
+		streamRelayBody(rec, strings.NewReader(body), true, nil)
 		out := rec.Body.String()
 		ci, fi := strings.Index(out, `"content":"ans"`), strings.Index(out, "finish_reason")
 		if ci < 0 || fi < 0 || ci > fi {
@@ -280,7 +280,7 @@ func TestStreamRelayBodyDirect(t *testing.T) {
 			`data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"c1","type":"function","function":{"name":"f","arguments":"{}"}}]}}]}` + "\n\n" +
 			`data: {"choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}` + "\n\ndata: [DONE]\n\n"
 		rec := httptest.NewRecorder()
-		streamRelayBody(rec, strings.NewReader(body), true)
+		streamRelayBody(rec, strings.NewReader(body), true, nil)
 		if strings.Contains(rec.Body.String(), `"content":`) {
 			t.Fatalf("tool-call stream got a synthesized content delta: %q", rec.Body.String())
 		}
@@ -289,7 +289,7 @@ func TestStreamRelayBodyDirect(t *testing.T) {
 	t.Run("synthesized chunk copies id/object/created/model from the last chunk", func(t *testing.T) {
 		body := `data: {"id":"chatcmpl-9","object":"chat.completion.chunk","created":1700000000,"model":"gpt-oss-120b","choices":[{"index":0,"delta":{"reasoning":"ans"}}]}` + "\n\ndata: [DONE]\n\n"
 		rec := httptest.NewRecorder()
-		streamRelayBody(rec, strings.NewReader(body), true)
+		streamRelayBody(rec, strings.NewReader(body), true, nil)
 		synth := findSynthChunk(t, rec.Body.String())
 		if synth == nil {
 			t.Fatalf("no synthesized chunk found: %q", rec.Body.String())
@@ -307,7 +307,7 @@ func TestStreamRelayBodyDirect(t *testing.T) {
 		// fallback: the envelope is re-emitted verbatim and can't poison choice tracking.
 		body := `data: {"id":42,"created":"1700000000","model":"m","choices":[{"index":0,"delta":{"reasoning":"ans"}}]}` + "\n\ndata: [DONE]\n\n"
 		rec := httptest.NewRecorder()
-		streamRelayBody(rec, strings.NewReader(body), true)
+		streamRelayBody(rec, strings.NewReader(body), true, nil)
 		out := rec.Body.String()
 		if !strings.Contains(out, `"content":"ans"`) {
 			t.Fatalf("fallback dropped on nonstandard envelope: %q", out)
@@ -324,7 +324,7 @@ func TestStreamRelayBodyDirect(t *testing.T) {
 		body := `data: {"id":"real-9","object":"chat.completion.chunk","choices":[{"index":0,"delta":{}}]}` + "\n\n" +
 			`data: {"id":"","choices":[{"index":0,"delta":{"reasoning":"ans"}}]}` + "\n\ndata: [DONE]\n\n"
 		rec := httptest.NewRecorder()
-		streamRelayBody(rec, strings.NewReader(body), true)
+		streamRelayBody(rec, strings.NewReader(body), true, nil)
 		synth := findSynthChunk(t, rec.Body.String())
 		if synth == nil {
 			t.Fatalf("no synthesized chunk found: %q", rec.Body.String())
@@ -340,7 +340,7 @@ func TestStreamRelayBodyDirect(t *testing.T) {
 			`data: {"choices":[{"index":1,"delta":{"reasoning":"think"}}]}` + "\n\n" +
 			`data: {"choices":[{"index":1,"delta":{},"finish_reason":"stop"}]}` + "\n\ndata: [DONE]\n\n"
 		rec := httptest.NewRecorder()
-		streamRelayBody(rec, strings.NewReader(body), true)
+		streamRelayBody(rec, strings.NewReader(body), true, nil)
 		out := rec.Body.String()
 		if strings.Count(out, `"content":"hi"`) != 1 {
 			t.Fatalf("choice 0 content duplicated/altered: %q", out)
@@ -359,7 +359,7 @@ func TestStreamRelayBodyDirect(t *testing.T) {
 	t.Run("CRLF line endings pass through byte-for-byte", func(t *testing.T) {
 		body := "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hi\"}}]}\r\n\r\ndata: [DONE]\r\n\r\n"
 		rec := httptest.NewRecorder()
-		streamRelayBody(rec, strings.NewReader(body), true)
+		streamRelayBody(rec, strings.NewReader(body), true, nil)
 		if rec.Body.String() != body {
 			t.Fatalf("CRLF stream altered:\n got %q\nwant %q", rec.Body.String(), body)
 		}
@@ -369,7 +369,7 @@ func TestStreamRelayBodyDirect(t *testing.T) {
 		body := `data: {"choices":[{"index":0,"delta":{"reasoning":"zero"}}]}` + "\n\n" +
 			`data: {"choices":[{"index":1,"delta":{"reasoning":"one"}}]}` + "\n\ndata: [DONE]\n\n"
 		rec := httptest.NewRecorder()
-		streamRelayBody(rec, strings.NewReader(body), true)
+		streamRelayBody(rec, strings.NewReader(body), true, nil)
 		out := rec.Body.String()
 		if !strings.Contains(out, `"index":0`) || !strings.Contains(out, `"content":"zero"`) ||
 			!strings.Contains(out, `"index":1`) || !strings.Contains(out, `"content":"one"`) {
@@ -388,7 +388,7 @@ func TestCopyRelayResponseOversizedNonStreaming(t *testing.T) {
 		Body:       io.NopCloser(strings.NewReader(big)),
 	}
 	rec := httptest.NewRecorder()
-	copyRelayResponse(rec, resp, true)
+	copyRelayResponse(rec, resp, true, nil)
 	if rec.Body.String() != big {
 		t.Fatalf("oversized body was not forwarded verbatim (len got=%d want=%d)", rec.Body.Len(), len(big))
 	}

@@ -172,3 +172,20 @@ func TestJoinedModeHasNoLocalStationRegistry(t *testing.T) {
 	_, err = st.Stations()
 	require.ErrorIs(t, err, ErrNotStandalone)
 }
+
+// RevokeStation is a standalone Tower's own kill switch (features/join/admin_socket.feature).
+func TestRevokeStationRemovesItFromTheRegistry(t *testing.T) {
+	st := bootstrappedTower(t)
+	_, err := st.AttachStation("st-1", "station-key-1", []string{"llama-8b"})
+	require.NoError(t, err)
+
+	require.NoError(t, st.RevokeStation("st-1"))
+	list, err := st.Stations()
+	require.NoError(t, err)
+	require.Empty(t, list, "a revoked Station is no longer attached, so its next request is refused")
+	_, err = st.Route(testClientKey, "llama-8b")
+	require.Error(t, err, "a revoked Station is never routed to")
+
+	require.ErrorContains(t, st.RevokeStation("st-1"), "no Station")
+	require.ErrorContains(t, st.RevokeStation(""), "Station id")
+}

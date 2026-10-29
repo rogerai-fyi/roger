@@ -4,6 +4,10 @@
 `{linux,darwin,windows}/{amd64,arm64}`). Every channel below consumes the GitHub
 Release assets that GoReleaser publishes on each `v*` tag.
 
+It is the only program: a Tower operator runs `roger tower ...` (see `packaging/tower/`).
+For one release the Linux assets also carry `roger-tower` and `roger-tower-local`, tiny
+stand-ins that hand off to `roger tower`; the package managers below install `roger` only.
+
 ## How a release flows
 
 `git tag vX.Y.Z && git push origin vX.Y.Z` triggers `.github/workflows/release.yml`:

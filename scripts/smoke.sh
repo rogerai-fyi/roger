@@ -117,14 +117,14 @@ fi
 
 # Manual version sync: the built operating manual MUST mention the current CLI
 # version. This is the sync guard - any release that bumps the `Version` fallback in
-# cmd/rogerai/main.go but forgets to update web/src/manual.html (cover + changelog)
+# internal/buildinfo/buildinfo.go but forgets to update web/src/manual.html (cover + changelog)
 # fails the gate here. Lightest reliable check: grep the version out of the source
 # of truth, then require it in the built dist manual. See CLAUDE.md "Release gate".
-# Matches both `const Version = "..."` and `var Version = "..."` (the fallback became
-# a var so a release/beta can stamp a semver via -ldflags -X main.Version).
-cli_ver=$(sed -n 's/^\(const\|var\) Version = "\([0-9][^"]*\)".*/\2/p' cmd/rogerai/main.go | head -n 1)
+# The fallback is a var so a release/beta can stamp a semver via
+# -ldflags -X rogerai.fm/roger/v7/internal/buildinfo.Version.
+cli_ver=$(sed -n 's/^var Version = "\([0-9][^"]*\)".*/\1/p' internal/buildinfo/buildinfo.go | head -n 1)
 if [ -z "$cli_ver" ]; then
-	red "read Version from cmd/rogerai/main.go"
+	red "read Version from internal/buildinfo/buildinfo.go"
 elif [ ! -f "$ROOT/web/dist/manual.html" ]; then
 	red "manual mentions CLI version v$cli_ver (web/dist/manual.html missing - run node web/build.mjs)"
 else

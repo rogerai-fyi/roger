@@ -15,9 +15,9 @@ import (
 	"sync"
 	"testing"
 
-	"rogerai.fm/roger/v6/internal/capsule"
-	"rogerai.fm/roger/v6/internal/client"
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/capsule"
+	"rogerai.fm/roger/v7/internal/client"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // strangerStub is a content-blind rendezvous: stores lookup -> base64 blob, delete-on-read.

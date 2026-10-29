@@ -3,22 +3,25 @@ package main
 import (
 	"flag"
 	"fmt"
-	"net"
 	"os"
 	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/huh"
 	"github.com/mattn/go-isatty"
-	"rogerai.fm/roger/v6/internal/detect"
+	"rogerai.fm/roger/v7/internal/buildinfo"
+	"rogerai.fm/roger/v7/internal/detect"
+	"rogerai.fm/roger/v7/internal/netbind"
+	"rogerai.fm/roger/v7/internal/tui"
 )
 
-// The first-run onboarding wizard (charmbracelet/huh). It runs once, before the
-// TUI, and answers the two questions that matter: are you here to CONSUME (just
-// open the app) or SHARE your GPU, and if sharing, free (no login) or earn (set a
-// price + `roger login`). Everything else is auto-detected: the model, the
-// context length, and a free local port. Re-runnable via `roger onboard`. The
-// FREE default means a provider goes on air with no login (fixes the 403).
+// The share setup (charmbracelet/huh), run by `roger onboard`: free (no login) or earn (set a
+// price + `roger login`). Everything else is auto-detected: the model, the context length,
+// and a free local port. The FREE default means a provider goes on air with no login.
+//
+// A first launch no longer runs anything before the TUI: the TUI opens with a one-time
+// welcome card instead (features/onboarding/welcome_card.feature), decided here by
+// welcomeOnLaunch and remembered by saveWelcomeSeen.
 
 // interactive reports whether stdin+stdout are a real TTY (so the wizard can
 // prompt). Non-TTY / piped / NO_COLOR runs skip the wizard entirely.
@@ -26,20 +29,45 @@ func interactive() bool {
 	return isatty.IsTerminal(os.Stdout.Fd()) && isatty.IsTerminal(os.Stdin.Fd())
 }
 
-// maybeOnboard runs the first-run wizard when the user has never onboarded and we
-// are on an interactive terminal. It returns the (possibly updated) config. On a
-// non-interactive run, or any wizard error/abort, it returns the config unchanged
-// so the app still launches.
-func maybeOnboard(cfg config) config {
-	if cfg.Onboarded || !interactive() {
-		return cfg
+// welcomeOnLaunch decides the one-time welcome card for a TUI launch. It is due on an
+// interactive terminal for a config that has never seen it and never set anything up, or
+// once more after `roger onboard --welcome` / `--reset`. A user who already onboarded or
+// shares has welcome_seen settled to true here (saved now), so they never see it.
+func welcomeOnLaunch(cfg config, tty bool) (config, bool) {
+	if !cfg.WelcomeSeen && !cfg.WelcomeAgain && (cfg.Onboarded || cfg.Share != nil) {
+		cfg.WelcomeSeen = true
+		_ = saveWelcomeSeen()
 	}
-	updated, ran, err := runWizard(cfg, wizardOpts{})
-	if err != nil || !ran {
-		return cfg // never block launch on a wizard hiccup / abort
+	return cfg, tty && (cfg.WelcomeAgain || !cfg.WelcomeSeen)
+}
+
+// saveWelcomeSeen remembers the card was seen. It writes welcome_seen (and clears the
+// show-again flag) and nothing else, re-reading the file under the config lock first so no
+// other writer's section is touched.
+func saveWelcomeSeen() error {
+	release, err := acquireConfigLock()
+	if err != nil {
+		return err
 	}
-	_ = saveOnboardConfig(updated) // remember the choice so we never re-prompt
-	return updated
+	defer release()
+	c := loadConfig()
+	c.WelcomeSeen, c.WelcomeAgain = true, false
+	return saveConfigLocked(c)
+}
+
+// tuiLaunch is the no-args launch up to the TUI, in order: the version boot (once per
+// version), then the welcome card's rule, then the TUI's hooks. Split out of run() so the
+// order is tested; boot is tui.PlayBoot in production.
+func tuiLaunch(cfg config, tty bool, boot func()) (config, tui.Hooks) {
+	if bootShouldPlay(cfg.LastSeenVersion, buildinfo.Version) {
+		boot()
+		cfg.LastSeenVersion = buildinfo.Version
+		_ = saveConfig(cfg)
+	}
+	cfg, due := welcomeOnLaunch(cfg, tty)
+	hooks := tuiHooks(cfg)
+	hooks.WelcomeDue = due
+	return cfg, hooks
 }
 
 // saveOnboardConfig persists a wizard outcome WITHOUT clobbering sections other
@@ -55,6 +83,7 @@ func saveOnboardConfig(updated config) error {
 	c := loadConfig()
 	c.Onboarded = updated.Onboarded
 	c.Share = updated.Share
+	c.WelcomeSeen, c.WelcomeAgain = updated.WelcomeSeen, updated.WelcomeAgain
 	return saveConfig(c)
 }
 
@@ -74,9 +103,28 @@ func cmdOnboard(cfg config, args []string) error {
 	free := fs.Bool("free", false, "non-interactive: share FREE (no login)")
 	earn := fs.Bool("earn", false, "non-interactive: share to earn (sets a price; needs `roger login`)")
 	yes := fs.Bool("yes", false, "accept the detected defaults without prompting")
-	reset := fs.Bool("reset", false, "forget the saved setup and start fresh")
+	reset := fs.Bool("reset", false, "forget the saved setup and start fresh (the welcome card shows again)")
+	welcome := fs.Bool("welcome", false, "show the one-time welcome card on the next launch, and change nothing else")
 	fs.Parse(args)
+	if *welcome {
+		release, err := acquireConfigLock()
+		if err != nil {
+			return err
+		}
+		defer release()
+		c := loadConfig()
+		c.WelcomeAgain = true
+		if err := saveConfigLocked(c); err != nil {
+			return err
+		}
+		fmt.Println("the welcome card will show the next time roger opens.")
+		return nil
+	}
 	opts := wizardOpts{forceFree: *free, forceEarn: *earn, yes: *yes, reset: *reset}
+	if opts.reset {
+		// Starting over includes the first-launch welcome.
+		cfg.WelcomeSeen, cfg.WelcomeAgain = false, true
+	}
 	updated, _, err := runWizard(cfg, opts)
 	if err != nil {
 		return err
@@ -92,7 +140,7 @@ func runWizard(cfg config, opts wizardOpts) (config, bool, error) {
 		return finishShare(cfg, opts.forceEarn, opts)
 	}
 	if !interactive() {
-		return cfg, false, nil
+		return cfg, opts.reset, nil // a reset still saves (the welcome card comes back)
 	}
 
 	// Re-run on an existing setup: Keep / Modify / Reset.
@@ -100,11 +148,7 @@ func runWizard(cfg config, opts wizardOpts) (config, bool, error) {
 		choice := "keep"
 		if err := huh.NewSelect[string]().
 			Title("RogerAI is already set up. What now?").
-			Options(
-				huh.NewOption("Keep it as is", "keep"),
-				huh.NewOption("Modify my setup", "modify"),
-				huh.NewOption("Reset and start over", "reset"),
-			).Value(&choice).Run(); err != nil {
+			Options(rerunChoices...).Value(&choice).Run(); err != nil {
 			return cfg, false, err
 		}
 		var done bool
@@ -113,19 +157,25 @@ func runWizard(cfg config, opts wizardOpts) (config, bool, error) {
 		}
 	}
 
-	// The one decision that matters: consume vs share.
-	intent := "consume"
+	// `roger onboard` sets up sharing: free or earn. (Using models needs no setup at all:
+	// the TUI's welcome card points there.)
+	mode := "free"
 	if err := huh.NewSelect[string]().
-		Title("Welcome to RogerAI - a two-way radio for Local Models.").
-		Description("Are you here to use models, or to share your own?\nEither way, your first login drops a $1 starter credit in your wallet.").
+		Title("Share a model from this machine").
 		Options(
-			huh.NewOption("Just use models (open the app)", "consume"),
-			huh.NewOption("Share my local model - QuickStart, FREE, no login", "free"),
-			huh.NewOption("Share my local model - earn (set prices + log in)", "earn"),
-		).Value(&intent).Run(); err != nil {
+			huh.NewOption("Share FREE - QuickStart, no login", "free"),
+			huh.NewOption("Share to earn - set prices + log in", "earn"),
+		).Value(&mode).Run(); err != nil {
 		return cfg, false, err
 	}
-	return applyIntent(cfg, intent, opts)
+	return finishShare(cfg, mode == "earn", opts)
+}
+
+// rerunChoices is the re-run menu on a set-up machine (Keep / Modify / Reset).
+var rerunChoices = []huh.Option[string]{
+	huh.NewOption("Keep it as is", "keep"),
+	huh.NewOption("Modify my setup", "modify"),
+	huh.NewOption("Reset and start over", "reset"),
 }
 
 // applyRerunChoice maps the re-run menu choice to its config effect, touching ONLY the
@@ -143,22 +193,6 @@ func applyRerunChoice(cfg config, choice string) (config, bool) {
 		cfg.Share = nil // forget only the local share; reconfigure next
 	}
 	return cfg, false // modify / unknown: proceed, keeping the share
-}
-
-// applyIntent maps the welcome menu's consume/share intent to its outcome. "free"/"earn"
-// hand off to finishShare (detect the model, pick a port, and for earn collect a price);
-// "consume" (or any unknown intent) just marks the user onboarded and launches the app on
-// defaults. Pure decision over the string the huh select produced.
-func applyIntent(cfg config, intent string, opts wizardOpts) (config, bool, error) {
-	switch intent {
-	case "free":
-		return finishShare(cfg, false, opts)
-	case "earn":
-		return finishShare(cfg, true, opts)
-	default:
-		cfg.Onboarded = true
-		return cfg, true, nil
-	}
 }
 
 // finishShare detects the local model, auto-picks a free port, runs preflight, and
@@ -186,7 +220,9 @@ func finishShare(cfg config, earn bool, opts wizardOpts) (config, bool, error) {
 	if len(pick.Models) > 0 {
 		model = pick.Models[0]
 	}
-	port, err := freePort(4140)
+	// A port for the share to use later: a suggestion (netbind.SuggestPort), never a bind
+	// this process holds - the share binds its own listener when it starts.
+	port, err := netbind.SuggestPort(4140)
 	if err != nil {
 		return cfg, false, err
 	}
@@ -196,8 +232,8 @@ func finishShare(cfg config, earn bool, opts wizardOpts) (config, bool, error) {
 		// Earn path: tell the user UP FRONT that earning needs a GitHub login and
 		// pre-disclose the payout terms (F3 / #2) - BEFORE collecting a price - so the
 		// login requirement is never a surprise 403 after they've set everything up.
-		fmt.Println("earning needs a linked GitHub: you'll run `roger login` once before going on air.")
-		fmt.Println("payouts when you earn: 30-day hold (10% reserved to day 90), $25 min, monthly (`roger payout status` for details).")
+		fmt.Println(tui.EarnLoginLine)
+		fmt.Println(tui.EarnPayoutLine)
 		// Collect a price (default the platform suggestion). Login is a separate
 		// explicit step we point the user at - we never block here.
 		in, out := "0.20", "0.30"
@@ -346,22 +382,6 @@ func guidedUpstream(broker string, needKey []string) (detect.Found, bool) {
 		}
 		fmt.Println("still nothing on the default ports / your open ports - give it a moment, or paste the URL.")
 	}
-}
-
-// freePort returns the first free TCP port at/above start (auto-pick so a user
-// never hits "address in use"); start itself if it binds, else scans upward. It
-// returns an error when the whole scan window is busy - it must NOT fall back to a
-// known-busy port (the caller would then bind-fail with a confusing "address in
-// use" the auto-pick was meant to avoid).
-func freePort(start int) (int, error) {
-	for p := start; p < start+200; p++ {
-		ln, err := net.Listen("tcp", "127.0.0.1:"+strconv.Itoa(p))
-		if err == nil {
-			ln.Close()
-			return p, nil
-		}
-	}
-	return 0, fmt.Errorf("no free TCP port in %d-%d (close some listeners or pass --port)", start, start+199)
 }
 
 // parsePrice parses a price input, clamping to 0 on a bad value.

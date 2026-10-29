@@ -7,9 +7,11 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/tower"
+	"rogerai.fm/roger/v7/internal/servedfile"
+	"rogerai.fm/roger/v7/internal/tower"
 )
 
 // maxPromptBody bounds an authenticated consumer prompt. It is larger than the auth cap (a
@@ -43,6 +45,13 @@ func randID() string {
 // recorded key hash). Only an attached station may poll for work or return an answer; every
 // failure is the same uniform refusal, revealing nothing about the fleet.
 func (s *Server) authStation(r *http.Request, body []byte) (tower.Station, bool) {
+	return s.authStationWith(r, body, s.stationRL)
+}
+
+// authStationWith is authStation over a given rate bucket: polls and completions share the
+// station bucket, while chunk posts have their own so a real stream is never throttled by the
+// limit meant to stop a flooding key.
+func (s *Server) authStationWith(r *http.Request, body []byte, rl *rateLimiter) (tower.Station, bool) {
 	keyHash, nonce, verified := s.verifiedIdentity(r, body)
 	if !verified {
 		return tower.Station{}, false
@@ -73,7 +82,7 @@ func (s *Server) authStation(r *http.Request, body []byte) (tower.Station, bool)
 	// Then bound the station's request rate, so a station whose key was compromised cannot flood
 	// the replay guard's nonce set. The cap is far above a long-poller's legitimate cadence, so
 	// it never bites normal serving.
-	if !s.stationRL.allow(found.ID) {
+	if !rl.allow(found.ID) {
 		return tower.Station{}, false
 	}
 	// RECORD only now, atomically (used() checks-and-records under one lock): two polls racing
@@ -83,17 +92,14 @@ func (s *Server) authStation(r *http.Request, body []byte) (tower.Station, bool)
 	if nonce != "" && s.replay.used(nonceKey) {
 		return tower.Station{}, false
 	}
+	s.notePlain(r, "station:"+keyHash, "station "+found.ID)
 	return found, true
 }
 
-// chatRequest is the one field the plane reads from a consumer request: the model. Everything
-// else in the body is opaque and passed to the station verbatim. Notably, the plane reads NO
-// RogerAI account, wallet, X-Roger-Freq band, or grant key from the request - none of it
-// authenticates or routes anything here, and none is echoed back.
-type chatRequest struct {
-	Model string `json:"model"`
-}
-
+// The plane reads only the model and the routing carriers from a consumer request; the rest
+// of the body is opaque and passed to the station verbatim. It reads NO RogerAI account,
+// wallet, X-Roger-Freq band, or grant key - none of it authenticates or routes anything here.
+//
 // chatCompletions serves one completion by routing it to a LOCAL station and waiting for the
 // station to poll, run it, and return the answer. The Tower dials nobody: the answer arrives
 // because a station connected in. An Open Market model this Tower does not host is refused
@@ -125,36 +131,75 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer s.inflight.release()
-	var req chatRequest
-	if err := json.Unmarshal(body, &req); err != nil || req.Model == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "a model is required"})
+	// The routing carriers (routing.go): read only now, after auth and every bound, so an
+	// unauthenticated or throttled caller costs no parse. Ignored keys are named on every path.
+	lr, rerr := parseLocalRouting(body, r.Header.Get("X-Roger-Confidential") != "")
+	if len(lr.ignored) > 0 {
+		w.Header().Set("X-Roger-Routing-Ignored", strings.Join(lr.ignored, ","))
+	}
+	if rerr != nil {
+		writeRouteErr(w, rerr)
 		return
 	}
-	// The model must be offered by one of THIS Tower's own stations. A model only the Open
-	// Market sells is refused here - named only to the already-authenticated client - and no
-	// outbound connection is attempted, because none can be.
-	offered, err := s.offersModel(req.Model)
+	// The model must be offered by one of THIS Tower's own stations: the first model of the
+	// request's list (model, then models[]) that one does. A model only the Open Market sells is
+	// refused here - named only to the already-authenticated client - and no outbound connection
+	// is attempted, because none can be.
+	stations, err := s.stationViews()
 	if err != nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "unavailable"})
 		return
 	}
-	if !offered {
-		writeJSON(w, http.StatusNotFound, map[string]any{"error": "model not offered by any local station: " + req.Model})
+	// Per-model eligibility, as the broker (contract §3): the first model with a station the
+	// request's constraints admit serves; a model with none is skipped silently. With no
+	// eligible model at all, the constraint miss below names the first model that IS served.
+	model, served := "", ""
+	for _, m := range lr.models {
+		if served == "" && offered(stations, m) {
+			served = m
+		}
+		if lr.constraintMiss(stations, m) == "" {
+			model = m
+			break
+		}
+	}
+	if model == "" {
+		model = served
+	}
+	if model == "" {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "model not offered by any local station: " + strings.Join(lr.models, ", ")})
+		return
+	}
+	// Evaluated, never ignored: nothing on the plane is attested or canary-verified.
+	if lr.needAttest {
+		writeRouteErr(w, &routeErr{status: http.StatusServiceUnavailable, code: "no_match", msg: "no attested local station serves " + model})
+		return
+	}
+	if lr.needVerify {
+		writeRouteErr(w, &routeErr{status: http.StatusServiceUnavailable, code: "no_match", msg: "no verified local station serves " + model})
+		return
+	}
+	if miss := lr.constraintMiss(stations, model); miss != "" {
+		writeRouteErr(w, &routeErr{status: http.StatusServiceUnavailable, code: "no_match", msg: miss})
 		return
 	}
 
 	jobID := randID()
-	j := s.q.submit(jobID, req.Model, body)
+	j := s.q.submitRouted(jobID, model, lr.jobBody(model), streamWanted(body), lr.admits, lr.preferredFor(stations, model), s.pollTimeout)
+	if j.stream {
+		s.streamAnswer(w, r, clientKeyHash, model, j)
+		return
+	}
 	select {
 	case res := <-j.result:
-		s.writeAnswer(w, clientKeyHash, req.Model, res)
+		s.writeAnswer(w, clientKeyHash, model, res)
 	case <-r.Context().Done():
 		// The consumer disconnected. Abandon so the job neither leaks nor is later run as stale
 		// work; but if a station delivered in the same instant, still record the receipt (the
 		// work happened) - there is just no socket left to write the answer to.
 		s.q.abandon(jobID)
 		if res, ok := drain(j); ok {
-			_, _ = s.st.RecordReceipt(clientKeyHash, res.stationID, req.Model)
+			_, _ = s.st.RecordReceipt(clientKeyHash, res.stationID, model)
 		}
 	case <-time.After(s.completionTimeout):
 		// Abandon FIRST, then drain - the same order as the disconnect branch. complete delivers
@@ -164,7 +209,7 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 		// 504 while the station believes it succeeded, with no racy window either way.
 		s.q.abandon(jobID)
 		if res, ok := drain(j); ok {
-			s.writeAnswer(w, clientKeyHash, req.Model, res)
+			s.writeAnswer(w, clientKeyHash, model, res)
 			return
 		}
 		writeJSON(w, http.StatusGatewayTimeout, map[string]any{"error": "no local station served this request in time"})
@@ -188,6 +233,7 @@ func (s *Server) writeAnswer(w http.ResponseWriter, clientKeyHash, model string,
 	rec, recErr := s.st.RecordReceipt(clientKeyHash, res.stationID, model)
 	w.Header().Set("X-Roger-Cost", "0")
 	w.Header().Set("X-Roger-Local", "1")
+	w.Header().Set("X-RogerAI-Model", model) // the served model (models[] may have moved on)
 	// A curated station's answer says so - "marked local-and-curated"
 	// (curated_tower.feature). The receipt already carries the label from the attach
 	// registry; on a receipt-write failure the mark degrades with it rather than lying.
@@ -199,18 +245,27 @@ func (s *Server) writeAnswer(w http.ResponseWriter, clientKeyHash, model string,
 	_, _ = w.Write(res.answer)
 }
 
-// offersModel reports whether any attached station serves the model.
-func (s *Server) offersModel(model string) (bool, error) {
+// writeRouteErr answers a routing refusal: the plane's plain {"error": "<text>"} shape, or the
+// contract's coded {"error": {"code", "message"}} for no_match / unknown_profile.
+func writeRouteErr(w http.ResponseWriter, e *routeErr) {
+	if e.code == "" {
+		writeJSON(w, e.status, map[string]any{"error": e.msg})
+		return
+	}
+	writeJSON(w, e.status, map[string]any{"error": map[string]any{"code": e.code, "message": e.msg}})
+}
+
+// stationViews lists the attached stations' ids and models (what routing reads).
+func (s *Server) stationViews() ([]stationView, error) {
 	stations, err := s.st.Stations()
 	if err != nil {
-		return false, err
+		return nil, err
 	}
+	out := make([]stationView, 0, len(stations))
 	for _, st := range stations {
-		if serves(st.Models, model) {
-			return true, nil
-		}
+		out = append(out, stationView{id: st.ID, models: st.Models})
 	}
-	return false, nil
+	return out, nil
 }
 
 // localPoll is the station side of the queue: an attached station long-polls for a job it can
@@ -230,7 +285,39 @@ func (s *Server) localPoll(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), s.pollTimeout)
 	defer cancel()
-	j, got := s.q.poll(ctx, station.ID, station.Models)
+	// A current station announces chunk support in its poll ("streams": true) and is handed
+	// streamed jobs as streams; an older one sends no body and gets them to return whole.
+	// It also says what it serves now, and the Tower routes that from this poll on, within what the
+	// owner allowed it (features/join/invite.feature); an older station sends no list.
+	var announce struct {
+		Streams bool     `json:"streams"`
+		Models  []string `json:"models"`
+		// Files is which exact file each model is, as this station says (short_names_nearby.feature).
+		Files []struct {
+			Model string `json:"model"`
+			servedfile.File
+		} `json:"files"`
+	}
+	_ = json.Unmarshal(body, &announce)
+	if len(announce.Models) > 0 { // bounded and checked by SetStationModels
+		if now, changed, err := s.st.SetStationModels(station.ID, announce.Models); err == nil {
+			files := map[string]servedfile.File{}
+			for i, f := range announce.Files {
+				if i == tower.MaxStationModels {
+					break
+				}
+				files[f.Model] = f.File
+			}
+			if withFiles, err := s.st.SetStationFiles(station.ID, files); err == nil {
+				now = withFiles
+			}
+			station = now
+			if changed {
+				s.logf("station %s now serves: %s", station.ID, strings.Join(station.Models, ", "))
+			}
+		}
+	}
+	j, got := s.q.poll(ctx, station.ID, station.Models, announce.Streams)
 	if !got {
 		w.WriteHeader(http.StatusNoContent)
 		return
@@ -239,6 +326,7 @@ func (s *Server) localPoll(w http.ResponseWriter, r *http.Request) {
 		"job_id":  j.id,
 		"model":   j.model,
 		"request": json.RawMessage(j.body),
+		"stream":  j.chunked,
 	})
 }
 
@@ -268,8 +356,14 @@ func (s *Server) localComplete(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "a job_id and answer are required"})
 		return
 	}
-	delivered := s.q.complete(req.JobID, station.ID, req.Answer)
-	writeJSON(w, http.StatusOK, map[string]any{"delivered": delivered})
+	switch s.q.complete(req.JobID, station.ID, req.Answer) {
+	case completeStreamed:
+		writeJSON(w, http.StatusConflict, map[string]any{"error": "this job is streamed: send it as chunks to /local/chunk"})
+	case completeDelivered:
+		writeJSON(w, http.StatusOK, map[string]any{"delivered": true})
+	default:
+		writeJSON(w, http.StatusOK, map[string]any{"delivered": false})
+	}
 }
 
 // readPrompt reads at most the authenticated-prompt cap. The signature is verified over these

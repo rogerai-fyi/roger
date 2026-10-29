@@ -3,7 +3,7 @@ package node
 import (
 	"testing"
 
-	"rogerai.fm/roger/v6/internal/detect"
+	"rogerai.fm/roger/v7/internal/detect"
 )
 
 // THE VARIANT FIELDS MUST SURVIVE THE WHOLE PATH: detect -> ShareRow -> the offer a node

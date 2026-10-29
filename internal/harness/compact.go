@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"rogerai.fm/roger/v6/internal/ctxsig"
+	"rogerai.fm/roger/v7/internal/ctxsig"
 )
 
 // compact.go - AUTOMATIC COMPACTION on a context-window overflow.

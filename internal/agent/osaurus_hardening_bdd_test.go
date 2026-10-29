@@ -15,13 +15,14 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/cucumber/godog"
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 type osaHardState struct {
@@ -236,7 +237,7 @@ func TestOsaurusHardeningBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("relay/osaurus_hardening behavior scenarios failed (see godog output above)")
 	}
 }

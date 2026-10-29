@@ -14,6 +14,7 @@ package main
 import (
 	"context"
 	"net/http"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strings"
 	"testing"
 
@@ -226,7 +227,7 @@ func TestModerationToolsBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("tools-array screening behavior scenarios failed (see godog output above)")
 	}
 }

@@ -8,8 +8,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"rogerai.fm/roger/v6/internal/client"
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/client"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 // The checkout handler used to read the amount like this:

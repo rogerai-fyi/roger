@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"rogerai.fm/roger/v6/internal/detect"
+	"rogerai.fm/roger/v7/internal/detect"
 )
 
 // THE BACKGROUND SCAN MUST BE VISIBLE (founder 2026-08-22: "/model ... should list all my

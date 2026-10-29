@@ -37,20 +37,22 @@ import (
 	randv2 "math/rand/v2"
 	"net/http"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/protocol"
-	"rogerai.fm/roger/v6/internal/towercore/admit"
-	"rogerai.fm/roger/v6/internal/towercore/attempt"
-	"rogerai.fm/roger/v6/internal/towercore/comp"
-	"rogerai.fm/roger/v6/internal/towercore/dispatch"
-	"rogerai.fm/roger/v6/internal/towercore/earnings"
-	"rogerai.fm/roger/v6/internal/towercore/fleet"
-	"rogerai.fm/roger/v6/internal/towercore/link"
-	"rogerai.fm/roger/v6/internal/towercore/reputation"
-	"rogerai.fm/roger/v6/internal/towerobj"
+	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/routingrules"
+	"rogerai.fm/roger/v7/internal/towercore/admit"
+	"rogerai.fm/roger/v7/internal/towercore/attempt"
+	"rogerai.fm/roger/v7/internal/towercore/comp"
+	"rogerai.fm/roger/v7/internal/towercore/dispatch"
+	"rogerai.fm/roger/v7/internal/towercore/earnings"
+	"rogerai.fm/roger/v7/internal/towercore/fleet"
+	"rogerai.fm/roger/v7/internal/towercore/link"
+	"rogerai.fm/roger/v7/internal/towercore/reputation"
+	"rogerai.fm/roger/v7/internal/towerobj"
 )
 
 // maxEdgeSettleGrace is how long after the grant's deadline a receipt may still settle. The
@@ -313,7 +315,11 @@ func (b *broker) towerEdgeAuthorize(w http.ResponseWriter, r *http.Request) {
 	// rather than an orphaned grant. It is released on every path that abandons the attempt,
 	// and handed to edgeEnterInflight - which owns it from then until settle or expiry - on the
 	// one path that does not.
-	if !b.edgeAccountReserve(consumerWallet) {
+	if ok, rerr := b.edgeAccountReserveErr(consumerWallet); !ok {
+		if rerr != nil {
+			sharedUnavailable(w) // the cap cannot be checked: fail closed
+			return
+		}
 		w.Header().Set("Retry-After", "5")
 		jsonErr(w, http.StatusTooManyRequests,
 			"too many edge attempts open on this account at once - finish or abandon some before opening more")
@@ -418,7 +424,12 @@ func (b *broker) towerEdgeAuthorize(w http.ResponseWriter, r *http.Request) {
 		maxCost = tc
 	}
 	if maxCost > 0 {
-		if ok, herr := b.db.HoldFor(consumerWallet, g.AttemptID, maxCost); herr != nil || !ok {
+		ok, capStatus, capMsg, herr := b.holdUnderCap(w, r, consumerWallet, g.AttemptID, maxCost, time.Now())
+		if capStatus != 0 {
+			jsonErr(w, capStatus, capMsg)
+			return
+		}
+		if herr != nil || !ok {
 			jsonErr(w, http.StatusPaymentRequired, "insufficient balance for this request")
 			return
 		}
@@ -428,7 +439,7 @@ func (b *broker) towerEdgeAuthorize(w http.ResponseWriter, r *http.Request) {
 	// afterwards. The dispatch record is what makes the nonce one-use at settlement, and
 	// its deadline extends past the grant's by the settlement grace - the grant bounds
 	// execution, the record bounds evidence.
-	if err := b.openEdgeAttempt(g, target); err != nil {
+	if err := b.openEdgeAttempt(g, target, ""); err != nil {
 		log.Printf("edge authorize: could not record attempt %s: %v", g.AttemptID, err)
 		// If a hold was placed just above, release it: the attempt does not exist, so it will
 		// never settle to capture it, and leaving it would strand the consumer's funds until the
@@ -500,14 +511,14 @@ func (b *broker) towerEdgeAuthorize(w http.ResponseWriter, r *http.Request) {
 // grant's plus the settlement grace: the grant bounds execution, the record bounds evidence,
 // and a receipt for work done in time must not be refused because its courier - Station
 // outbox, Tower collection, one hop to Core - ran on a schedule.
-func (b *broker) openEdgeAttempt(g dispatch.EdgeGrant, target dispatch.Target) error {
+func (b *broker) openEdgeAttempt(g dispatch.EdgeGrant, target dispatch.Target, relayRequestID string) error {
 	ts := b.tower
 	if err := ts.dispatch.Store().Put(dispatch.Record{
 		AttemptID: g.AttemptID, JobID: g.JobID, TowerID: g.TowerID, StationID: g.StationID,
 		StationEpoch: g.StationEpoch, Model: g.Model, Modality: g.Modality,
 		Nonce: g.Nonce, Deadline: g.Deadline.Add(edgeSettleGrace()),
 		Grant: g.Signed, AssertionKey: target.AssertionKey, ConsumerKey: g.ConsumerKey,
-		State: dispatch.StateIssued,
+		RelayRequestID: relayRequestID, State: dispatch.StateIssued,
 	}); err != nil {
 		return err
 	}
@@ -544,6 +555,23 @@ func (b *broker) openEdgeAttempt(g dispatch.EdgeGrant, target dispatch.Target) e
 // tower-to-tower fallback never redials the relay that just dropped the work. Nil for
 // every single-shot caller.
 func (b *broker) edgeTargetFor(model string, rng *rand.Rand, exclude map[string]bool) (dispatch.Target, fleet.Station, bool) {
+	return b.edgeTargetForC(model, rng, exclude, edgeConstraints{})
+}
+
+// edgeTargetForC is edgeTargetFor under the consumer's routing constraints (the bridge's
+// parity with pickFor); the unconstrained form is what the authorize endpoint and the
+// canary use.
+func (b *broker) edgeTargetForC(model string, rng *rand.Rand, exclude map[string]bool, c edgeConstraints) (dispatch.Target, fleet.Station, bool) {
+	target, row, _, _, ok := b.edgePlacement(model, rng, exclude, c)
+	return target, row, ok
+}
+
+// edgePlacement is edgeTargetForC with the tier of the pool it drew from ("A" or "B"), so the
+// relay can hold the two-tier health gate ACROSS fabrics (contract §6: a Tier-B Tower row is
+// used only when no Tier-A candidate exists on either fabric). Under a strict sort
+// (c.sort) the pool is ordered by the one metric the consumer named instead of drawn by
+// power-of-two-choices, exactly as pickFor does on the direct fabric.
+func (b *broker) edgePlacement(model string, rng *rand.Rand, exclude map[string]bool, c edgeConstraints) (dispatch.Target, fleet.Station, string, edgeMetric, bool) {
 	ts := b.tower
 	if ts == nil || ts.routable == nil {
 		// SAID OUT LOUD, like every other refusal on this path. This one used to return in
@@ -553,12 +581,12 @@ func (b *broker) edgeTargetFor(model string, rng *rand.Rand, exclude map[string]
 		// from the outside identical to an empty fleet.
 		b.logEdgePlacementRefusal(model, 0, 0, 0,
 			"this broker has no tower subsystem, so it can place nothing on the edge fabric")
-		return dispatch.Target{}, fleet.Station{}, false
+		return dispatch.Target{}, fleet.Station{}, "", edgeMetric{}, false
 	}
 	rows, err := ts.routable.Candidates(model, time.Now())
 	if err != nil {
 		log.Printf("edge authorize: cannot read the routable fleet: %v", err)
-		return dispatch.Target{}, fleet.Station{}, false
+		return dispatch.Target{}, fleet.Station{}, "", edgeMetric{}, false
 	}
 	// RANK, DO NOT TAKE THE FIRST (M1 of docs/relay-selection-design.md).
 	//
@@ -629,6 +657,10 @@ func (b *broker) edgeTargetFor(model string, rng *rand.Rand, exclude map[string]
 			// fallback must never redial the relay that just dropped the work.
 			continue
 		}
+		if c.exclude[row.TowerID] || c.exclude[row.NodeID] {
+			c.note("exclude", row.TowerID)
+			continue // the consumer excluded this Tower (or the node behind it)
+		}
 		if row.Endpoint == "" {
 			continue
 		}
@@ -654,15 +686,15 @@ func (b *broker) edgeTargetFor(model string, rng *rand.Rand, exclude map[string]
 			reason = "every routable row is a legacy offer, has no data plane, or sits behind a Tower that may not take work"
 		}
 		b.logEdgePlacementRefusal(model, len(rows), 0, 0, reason)
-		return dispatch.Target{}, fleet.Station{}, false
+		return dispatch.Target{}, fleet.Station{}, "", edgeMetric{}, false
 	}
 	keep, targets := b.resolveEdgeCandidates(shortlist)
 	if len(keep) == 0 {
 		b.logEdgePlacementRefusal(model, len(rows), len(shortlist), 0,
 			"no candidate survived the attachment re-check")
-		return dispatch.Target{}, fleet.Station{}, false
+		return dispatch.Target{}, fleet.Station{}, "", edgeMetric{}, false
 	}
-	tierA, tierB := b.edgeEligible(keep, bannedNode, time.Now())
+	tierA, tierB, metrics := b.edgeEligibleM(keep, bannedNode, time.Now(), c)
 	// Healthy beats failing as an absolute gate, and Tier B exists so a transient blip never
 	// blanks the fleet - pickFor's own two-tier shape, for the same reason.
 	pool, tier := tierA, "A"
@@ -672,21 +704,43 @@ func (b *broker) edgeTargetFor(model string, rng *rand.Rand, exclude map[string]
 	if len(pool) == 0 {
 		b.logEdgePlacementRefusal(model, len(rows), len(shortlist), len(keep),
 			"every resolvable candidate's node is stale, banned or on a private band")
-		return dispatch.Target{}, fleet.Station{}, false
+		return dispatch.Target{}, fleet.Station{}, "", edgeMetric{}, false
 	}
 	// edgeBeta concentrates the sampling on the strong end of the band. A tie, or a nil rng,
 	// still resolves to the first row of a total order, so "same fleet, same answer" survives
 	// wherever it was true before.
-	chosen := selectP2C(pool, edgeBeta, rng)
+	chosen := -1
+	if c.sort == sortNone {
+		chosen = selectP2C(pool, c.pref.weights().beta, rng)
+	} else {
+		chosen = edgeStrictPick(pool, metrics, c.sort)
+	}
 	if chosen < 0 {
 		b.logEdgePlacementRefusal(model, len(rows), len(shortlist), len(keep),
 			"the selector drew nothing from a non-empty pool")
-		return dispatch.Target{}, fleet.Station{}, false
+		return dispatch.Target{}, fleet.Station{}, "", edgeMetric{}, false
 	}
 	b.logEdgePlacement(model, keep[chosen], pool, tier, chosen, len(rows), len(shortlist))
 	// The whole ROW rides back: the endpoint the consumer submits to, and the attachment's
 	// listed price that authorize pins into the grant.
-	return targets[chosen], keep[chosen], true
+	return targets[chosen], keep[chosen], tier, metrics[chosen], true
+}
+
+// edgeStrictPick is pickFor's strict ordering over the edge pool: one metric, ties on the
+// score, then the stable row order; an unmeasured speed sorts last.
+func edgeStrictPick(pool []scoredCand, metrics []edgeMetric, key sortKey) int {
+	if len(pool) == 0 {
+		return -1
+	}
+	less := func(a, b edgeMetric) (bool, bool) { return edgeMetricLess(key, a, b) } // (a before b, decided)
+	best := pool[0]
+	for _, sc := range pool[1:] {
+		before, decided := less(metrics[sc.idx], metrics[best.idx])
+		if (decided && before) || (!decided && (sc.score > best.score || (sc.score == best.score && sc.idx < best.idx))) {
+			best = sc
+		}
+	}
+	return best.idx
 }
 
 // resolveEdgeCandidates re-checks a shortlist against the attachment registry - the authority
@@ -836,10 +890,33 @@ func (b *broker) logEdgePlacementRefusal(model string, candidates, shortlisted, 
 // which is a ranking of a fleet state that never existed. It is also N times the lock traffic
 // on a path that runs per request.
 func (b *broker) edgeEligible(rows []fleet.Station, bannedNode map[string]bool, now time.Time) (tierA, tierB []scoredCand) {
+	return b.edgeEligibleC(rows, bannedNode, now, edgeConstraints{})
+}
+
+// edgeEligibleC is edgeEligible under the consumer's constraints and scoring profile.
+func (b *broker) edgeEligibleC(rows []fleet.Station, bannedNode map[string]bool, now time.Time, c edgeConstraints) (tierA, tierB []scoredCand) {
+	tierA, tierB, _ = b.edgeEligibleM(rows, bannedNode, now, c)
+	return tierA, tierB
+}
+
+// edgeEligibleM is edgeEligibleC returning, per row (indexed like rows), the metrics a strict
+// sort ranks by. It applies every consumer hard filter of contract §5 to the row, reading the
+// attributes a row does not carry from the registration of the node behind it.
+func (b *broker) edgeEligibleM(rows []fleet.Station, bannedNode map[string]bool, now time.Time, c edgeConstraints) (tierA, tierB []scoredCand, metrics []edgeMetric) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.metricsMu.Lock()
 	defer b.metricsMu.Unlock()
+	metrics = make([]edgeMetric, len(rows))
+	// The consumer's pref reshapes the score exactly as on the direct path: the same
+	// speedFit (request-size aware) and the same bounded priceMod over the eligible
+	// out-price range. Balanced weights on an unmeasured, single-price fleet multiply by
+	// the same neutral factor for every row, so "same fleet, same answer" survives.
+	w := c.pref.weights()
+	rangeMin, rangeMax, haveRange := 0.0, 0.0, false
+	for _, row := range rows {
+		rangeMin, rangeMax, haveRange = extendOutRange(edgeRowPrice(row.PriceOut), rangeMin, rangeMax, haveRange)
+	}
 	for i, row := range rows {
 		nodeID := row.NodeID
 		// NO JOIN, NO ROUTE. A row without a node id cannot be liveness-checked, ban-checked or
@@ -869,6 +946,73 @@ func (b *broker) edgeEligible(rows []fleet.Station, bannedNode map[string]bool, 
 			continue // a private band is reachable by frequency code, never by public placement
 		}
 		tq := b.trust[nodeID]
+		// The same min-tps floor pickFor applies: measured and too slow is out; unmeasured
+		// passes (a floor on a measurement cannot judge what was never measured).
+		tps := b.tps[nodeID]
+		rin, rout := edgeRowPrice(row.PriceIn), edgeRowPrice(row.PriceOut)
+		metrics[i] = edgeMetric{in: rin, out: rout, tps: tps, latency: b.latencyRankLocked(nodeID, tq.ttftMs),
+			cost: estRequestCost(c.promptTokens, expectedOutput(c.outTokens, c.promptTokens, 0), rin, rout)}
+		if c.minTPS > 0 && tps > 0 && tps < c.minTPS {
+			c.note("min_tps", row.TowerID)
+			continue
+		}
+		// --- the consumer's routing shape, evaluated on the row (contract §5/§6) ---
+		// A pin or an allow-list names a Tower by its TOWER id only. The row's node id is
+		// what the Tower published for the machine behind it, so matching it here would let
+		// a Tower pose as a direct station the consumer named (node_preference.feature: "a
+		// Tower cannot pose as a direct node id to appear in only"). Exclusion, the narrowing
+		// direction, matches both ids (above).
+		if c.pin != "" && c.pin != row.TowerID {
+			c.note("pin", row.TowerID)
+			continue
+		}
+		if c.allow != nil && !c.allow[row.TowerID] {
+			c.note("only", row.TowerID)
+			continue
+		}
+		if (c.maxPriceOut > 0 && metrics[i].out > c.maxPriceOut) || (c.maxPriceIn > 0 && metrics[i].in > c.maxPriceIn) {
+			c.note("max_price", row.TowerID)
+			continue
+		}
+		// :free on the bridge means the ROW costs nothing: owning the node behind a Tower does
+		// not make a bridged attempt self-use (the Tower's price is what the bridge bills), so
+		// the caller's freeFor set - their own direct stations - never applies here.
+		if c.freeOnly && (row.PriceIn != 0 || row.PriceOut != 0) {
+			c.note("free", row.TowerID)
+			continue
+		}
+		if _, drop := capBuys(c.capReq, c.promptTokens, metrics[i].in, metrics[i].out); c.capReq > 0 && drop {
+			c.note("max_price_request", row.TowerID)
+			continue
+		}
+		reg := b.nodes[nodeID]
+		offer, declared := edgeJoinedOffer(reg, row.Model)
+		if c.selfHostedOnly && reg.Curated {
+			c.note("self_hosted_only", row.TowerID)
+			continue
+		}
+		if !routingrules.QuantAdmits(c.quants, offer.Quant) {
+			c.note("quantizations", row.TowerID)
+			continue
+		}
+		if c.needTools && !b.toolsVerifiedForLocked(nodeID, row.Model) {
+			c.note("require", row.TowerID)
+			continue
+		}
+		if c.needVision && !(declared && slices.Contains(offer.Capabilities, protocol.CapVision)) {
+			c.note("require", row.TowerID)
+			continue
+		}
+		if c.promptTokens > 0 && declared && offer.Ctx > 0 && !offer.CtxEstimated && c.promptTokens > offer.Ctx {
+			c.note("ctx", row.TowerID)
+			continue
+		}
+		if c.netFilters.any() {
+			if why := b.netRejectLocked(c.netFilters, reg, offer, declared, now); why != "" {
+				c.note(why, row.TowerID)
+				continue
+			}
+		}
 		load := b.edgeLoadLocked(nodeID)
 		// REAL CAPACITY, DERIVED HERE RATHER THAN CARRIED. This is the one place the input is
 		// already under the lock that guards it - concurrentTPS under metricsMu - so it costs a
@@ -882,7 +1026,10 @@ func (b *broker) edgeEligible(rows []fleet.Station, bannedNode map[string]bool, 
 		// deriving it at the moment of the decision.
 		capacity := edgeCapacityOf(b.concurrentTPS[nodeID])
 		sc := scoredCand{
-			idx: i, score: edgeScore(tq, load, capacity),
+			idx: i,
+			score: edgeScore(tq, load, capacity) *
+				speedFit(tps, tq.ttftMs, c.promptTokens, w.speedMul) *
+				priceMod(edgeRowPrice(row.PriceOut), rangeMin, rangeMax, w.kPrice, w.priceExp),
 			// The P2C tie-break is load PER UNIT OF CAPACITY, exactly as router.go computes it -
 			// two open attempts mean something different on a four-slot rig than on a laptop.
 			load: float64(load) / float64(capacity),
@@ -905,7 +1052,20 @@ func (b *broker) edgeEligible(rows []fleet.Station, bannedNode map[string]bool, 
 			tierB = append(tierB, sc)
 		}
 	}
-	return tierA, tierB
+	return tierA, tierB, metrics
+}
+
+// edgeJoinedOffer is the offer the node behind a Tower row declared for the row's model -
+// where quant, capabilities and the context window live for any node. declared is false
+// when the node registered no such offer (a pre-join row): every declared attribute is
+// then absent, so a filter on one leaves the row ineligible.
+func edgeJoinedOffer(reg protocol.NodeRegistration, model string) (protocol.ModelOffer, bool) {
+	for _, o := range reg.Offers {
+		if o.Model == model {
+			return o, true
+		}
+	}
+	return protocol.ModelOffer{}, false
 }
 
 // edgeBeta is the P2C sampling concentration for edge placement (score^beta). The classic
@@ -1164,13 +1324,48 @@ const maxOpenEdgeAttemptsPerAccount = 32
 // account is holding the slot.
 type edgeAttemptLoad struct{ nodeID, account string }
 
+// edgeReserveTTL bounds a reservation that has not yet become an attempt (the authorize
+// between reserve and edgeEnterInflight). A process that dies in that window leaks the slot
+// for at most this long.
+const edgeReserveTTL = 2 * time.Minute
+
 // edgeAccountReserve claims one of an account's simultaneous-attempt slots, or reports that it
-// is at its cap. Every successful reserve must be matched by exactly one release - either
-// edgeAccountRelease on a path that abandons the attempt, or edgeEnterInflight, which takes
-// ownership of the slot and hands it to edgeExitInflight.
+// is at its cap (or that the cap cannot be checked). Every successful reserve must be matched
+// by exactly one release - either edgeAccountRelease on a path that abandons the attempt, or
+// edgeEnterInflight, which takes ownership of the slot and hands it to edgeExitInflight.
 func (b *broker) edgeAccountReserve(account string) bool {
+	ok, _ := b.edgeAccountReserveErr(account)
+	return ok
+}
+
+// edgeAccountReserveErr is edgeAccountReserve with the reason for a refusal: a nil error is
+// the cap, a non-nil one an unreachable shared store. With a shared store configured the
+// slots are one set per account across every instance (sharedStore.edgeSlotReserve), and an
+// outage fails CLOSED: this is an abuse limit, and counting locally would hand out a fresh
+// 32 per instance. Only a broker with no shared store keeps the in-process count.
+func (b *broker) edgeAccountReserveErr(account string) (bool, error) {
 	if account == "" {
-		return true // unattributable traffic is refused before it gets here; nothing to cap
+		return true, nil // unattributable traffic is refused before it gets here; nothing to cap
+	}
+	if b.shared != nil {
+		now := time.Now()
+		token := "r:" + newInstanceID()
+		ok, err := b.shared.edgeSlotReserve(account, token, now.Add(edgeReserveTTL), now, maxOpenEdgeAttemptsPerAccount)
+		if err == nil {
+			if ok {
+				b.metricsMu.Lock()
+				if b.edgeSlotTokens == nil {
+					b.edgeSlotTokens = map[string][]string{}
+				}
+				b.edgeSlotTokens[account] = append(b.edgeSlotTokens[account], token)
+				b.metricsMu.Unlock()
+			}
+			return ok, nil
+		}
+		if !errors.Is(err, errNoSharedStore) {
+			log.Printf("edge attempt cap: shared store unreachable, refusing (fail closed): %v", err)
+			return false, err
+		}
 	}
 	b.metricsMu.Lock()
 	defer b.metricsMu.Unlock()
@@ -1178,15 +1373,38 @@ func (b *broker) edgeAccountReserve(account string) bool {
 		b.edgeOpenByAccount = map[string]int{}
 	}
 	if b.edgeOpenByAccount[account] >= maxOpenEdgeAttemptsPerAccount {
-		return false
+		return false, nil
 	}
 	b.edgeOpenByAccount[account]++
-	return true
+	return true, nil
+}
+
+// takeSlotToken pops one shared reservation this instance holds for account ("" if none).
+func (b *broker) takeSlotToken(account string) string {
+	b.metricsMu.Lock()
+	defer b.metricsMu.Unlock()
+	toks := b.edgeSlotTokens[account]
+	if len(toks) == 0 {
+		return ""
+	}
+	tok := toks[len(toks)-1]
+	if len(toks) == 1 {
+		delete(b.edgeSlotTokens, account)
+	} else {
+		b.edgeSlotTokens[account] = toks[:len(toks)-1]
+	}
+	return tok
 }
 
 // edgeAccountRelease hands a reserved slot back. Idempotent below zero.
 func (b *broker) edgeAccountRelease(account string) {
 	if account == "" {
+		return
+	}
+	if tok := b.takeSlotToken(account); tok != "" {
+		if err := b.shared.edgeSlotDrop(account, tok); err != nil {
+			log.Printf("edge attempt cap: could not drop reservation (lapses in %s): %v", edgeReserveTTL, err)
+		}
 		return
 	}
 	b.metricsMu.Lock()
@@ -1248,6 +1466,15 @@ func (b *broker) edgeEnterInflight(attemptID, nodeID, account string, until time
 	b.edgeInflight[attemptID] = edgeAttemptLoad{nodeID: nodeID, account: account}
 	b.edgeLoad[nodeID]++
 	b.metricsMu.Unlock()
+	// The shared slot becomes the attempt, so whichever instance sees it end can free it.
+	if tok := b.takeSlotToken(account); tok != "" {
+		if err := b.shared.edgeSlotPromote(account, tok, attemptID, until); err != nil {
+			// Never leave an open attempt uncounted: keep trying to count it (adopt works
+			// even after the reservation lapsed) until it lands or the attempt is over.
+			log.Printf("edge attempt cap: could not bind attempt %s to its slot, retrying: %v", attemptID, err)
+			go b.adoptSlotUntilCounted(account, tok, attemptID, until)
+		}
+	}
 	// Publish OUTSIDE the lock, exactly as exitInflight does for the classic counter: metricsMu
 	// is held on the hot placement path and a shared-store round trip must never be taken under
 	// it. The publisher re-reads the count under that lock itself, so nothing is carried across
@@ -1261,24 +1488,48 @@ func (b *broker) edgeEnterInflight(attemptID, nodeID, account string, until time
 	}
 }
 
+// edgeSlotAdoptBackoff is the first retry wait of adoptSlotUntilCounted (doubling, capped at 5 s).
+var edgeSlotAdoptBackoff = 100 * time.Millisecond
+
+// adoptSlotUntilCounted retries counting an open attempt in the shared per-account cap after
+// its promotion failed, until it lands, the attempt closes on this instance, or its deadline
+// passes. Counting a just-closed attempt is harmless: the closing instance frees it by id.
+func (b *broker) adoptSlotUntilCounted(account, token, attemptID string, until time.Time) {
+	for d := edgeSlotAdoptBackoff; time.Now().Before(until); d = min(2*d, 5*time.Second) {
+		time.Sleep(d)
+		b.metricsMu.Lock()
+		_, open := b.edgeInflight[attemptID]
+		b.metricsMu.Unlock()
+		if !open {
+			return
+		}
+		if err := b.shared.edgeSlotAdopt(account, token, attemptID, until); err == nil {
+			return
+		}
+	}
+}
+
 // edgeExitInflight closes an open edge attempt. Idempotent by construction - the ledger entry
 // is what authorizes the decrement, and it is removed with it - so the settle path and the
 // expiry timer can both fire without double-counting, and a settlement for an attempt this
 // instance never opened (the ordinary multi-instance case) is a no-op rather than a
 // decrement of somebody else's count.
 //
-// That last case is also the one honest gap left here: authorize-on-A, settle-on-B leaves A
-// counting until the timer fires. The timer is now the grant's execution deadline rather than
-// the settlement ceiling, so the worst case is bounded by the same window the work itself had,
-// and the count it holds is the edge-only one - it no longer reaches the paid router or the
-// prober. Closing it properly wants the attempt ledger to carry the placement, which is M3-shaped
-// work (the relay binding moves to dispatch), not something to bolt on here.
+// The per-account SLOT is not part of that: with a shared store it is freed here on any
+// instance (sharedStore.edgeSlotFree), opener or not, so authorize-on-A, settle-on-B frees it
+// at once. Only the edge LOAD counter above stays with the opening instance until its timer.
 //
 // Deliberately NOT folded into the success EWMA the way exitInflight does it. That EWMA gates
 // Tier A on the classic path, and an edge attempt that expired unsettled is not evidence the
 // node is unhealthy - a consumer closing a laptop looks identical. Marking a good node down
 // on the fabric it is not even being judged on would be a worse error than the one this fixes.
 func (b *broker) edgeExitInflight(attemptID string) {
+	// The shared slot is freed by whichever instance sees the attempt end, opener or not.
+	if b.shared != nil && attemptID != "" {
+		if err := b.shared.edgeSlotFree(attemptID); err != nil && !errors.Is(err, errNoSharedStore) {
+			log.Printf("edge attempt cap: could not free the slot of %s (it lapses at its deadline): %v", attemptID, err)
+		}
+	}
 	b.metricsMu.Lock()
 	entry, open := b.edgeInflight[attemptID]
 	if !open {
@@ -2197,7 +2448,7 @@ func (b *broker) settleEdgeMoney(ts *towerSubsystem, towerID, stationID, station
 		link.PublicNetwork, rec.StationID); perr == nil && (pin > 0 || pout > 0) {
 		if settled.BillableTokens.In > 0 || settled.BillableTokens.Out > 0 {
 			cost := tokenCostCredits(settled.BillableTokens.In, settled.BillableTokens.Out, pin, pout)
-			b.captureEdgeCharge(towerID, stationID, stationOwner, parties, settled.AttemptID,
+			b.captureEdgeCharge(towerID, stationID, stationOwner, parties, settled.AttemptID, rec.RelayRequestID,
 				rec.Model, cost, settled.BillableTokens.In, settled.BillableTokens.Out, now)
 			return
 		}
@@ -2214,7 +2465,7 @@ func (b *broker) settleEdgeMoney(ts *towerSubsystem, towerID, stationID, station
 				byteCost = ceilingCost
 			}
 		}
-		b.captureEdgeCharge(towerID, stationID, stationOwner, parties, settled.AttemptID,
+		b.captureEdgeCharge(towerID, stationID, stationOwner, parties, settled.AttemptID, rec.RelayRequestID,
 			rec.Model, byteCost, settled.Billable.In, settled.Billable.Out, now)
 		return
 	}
@@ -2236,7 +2487,7 @@ func (b *broker) settleEdgeMoney(ts *towerSubsystem, towerID, stationID, station
 	// token-priced branch above prices tokens at the grant's pinned rate. Both share the
 	// split + wallet + SettleEdge logic in captureEdgeCharge.
 	cost := edgePriceCredits(settled.Billable.In, settled.Billable.Out)
-	b.captureEdgeCharge(towerID, stationID, stationOwner, parties, settled.AttemptID, rec.Model,
+	b.captureEdgeCharge(towerID, stationID, stationOwner, parties, settled.AttemptID, rec.RelayRequestID, rec.Model,
 		cost, settled.Billable.In, settled.Billable.Out, now)
 }
 
@@ -2289,7 +2540,7 @@ func (b *broker) edgeShares(cost float64) (stationShare, towerShare float64) {
 // earning lots via the 70/10/20 split. inUnits/outUnits are recorded on the lineage
 // receipt (bytes on the blind path, tokens on the overflow path). Shared by the
 // byte-priced settle and the token-priced overflow path so both bill identically.
-func (b *broker) captureEdgeCharge(towerID, stationID, stationOwner string, parties edgeParties, attemptID, model string, cost float64, inUnits, outUnits int64, now time.Time) {
+func (b *broker) captureEdgeCharge(towerID, stationID, stationOwner string, parties edgeParties, attemptID, relayRequestID, model string, cost float64, inUnits, outUnits int64, now time.Time) {
 	if !parties.billable {
 		// Not a billable account (e.g. an ephemeral canary key). No hold was ever placed
 		// against an account wallet, so there is nothing to capture and nothing to earn.
@@ -2359,7 +2610,7 @@ func (b *broker) captureEdgeCharge(towerID, stationID, stationOwner string, part
 	}
 	selfRelayed := b.recordSelfRelayed(attemptID, stationID, towerID, parties)
 	r := protocol.UsageReceipt{
-		RequestID: attemptID, Model: model,
+		RequestID: attemptID, RelayRequestID: relayRequestID, Model: model,
 		PromptTokens: int(inUnits), CompletionTokens: int(outUnits), TS: now.Unix(),
 		// The SAME verdict the split used, taken once - a second live read could differ
 		// mid-flight and stamp a receipt that contradicts its own settlement.

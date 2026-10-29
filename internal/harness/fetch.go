@@ -23,6 +23,8 @@ import (
 	"unicode/utf8"
 
 	"golang.org/x/text/encoding/charmap"
+
+	"rogerai.fm/roger/v7/internal/netpriv"
 )
 
 // maxFetchBytes caps a web_fetch body read.
@@ -63,8 +65,9 @@ var fetchVetIP = vetIP
 // internal in practice, and several IPv6 forms EMBED an IPv4 address that would otherwise
 // skip the v4 predicates entirely:
 //
-//	100.64.0.0/10     carrier-grade NAT - also where Tailscale tailnets and some
-//	                  managed-Kubernetes node ranges live, so this is the highest-value miss
+//	100.64.0.0/10     carrier-grade NAT - also where tailnets and some managed-Kubernetes
+//	                  node ranges live, the highest-value miss (refused by its internal/netpriv
+//	                  class, CGNAT, in vetIP rather than listed here)
 //	64:ff9b::/96      NAT64 well-known prefix: on an IPv6-only network this reaches
 //	                  169.254.169.254 (cloud metadata) as 64:ff9b::a9fe:a9fe
 //	2002::/16         6to4, which embeds an arbitrary IPv4 address
@@ -75,7 +78,6 @@ var fetchVetIP = vetIP
 //	240.0.0.0/4       reserved · fec0::/10 deprecated site-local
 //	the TEST-NET / documentation ranges, which no real fetch should target
 var blockedNets = []netip.Prefix{
-	netip.MustParsePrefix("100.64.0.0/10"),
 	netip.MustParsePrefix("192.0.0.0/24"),
 	netip.MustParsePrefix("198.18.0.0/15"),
 	netip.MustParsePrefix("192.0.2.0/24"),
@@ -105,13 +107,15 @@ func vetIP(ip net.IP) error {
 		return fmt.Errorf("blocked address %s (unparsable)", ip)
 	}
 	addr = addr.Unmap() // ::ffff:a.b.c.d is vetted as the v4 address it carries
-	switch {
-	case addr.IsLoopback():
+	switch class := netpriv.ClassifyAddr(addr); {
+	case class == netpriv.Loopback:
 		return fmt.Errorf("blocked address %s (loopback is not fetchable)", ip)
-	case addr.IsPrivate():
+	case class == netpriv.Private || class == netpriv.ULA:
 		return fmt.Errorf("blocked address %s (private ranges are not fetchable)", ip)
-	case addr.IsLinkLocalUnicast() || addr.IsLinkLocalMulticast():
+	case class == netpriv.LinkLocal || addr.IsLinkLocalMulticast():
 		return fmt.Errorf("blocked address %s (link-local / metadata space is not fetchable)", ip)
+	case class == netpriv.CGNAT:
+		return fmt.Errorf("blocked address %s (reserved or internal range 100.64.0.0/10)", ip)
 	case !addr.IsGlobalUnicast():
 		// Unspecified, multicast, and 255.255.255.255 all land here.
 		return fmt.Errorf("blocked address %s (not a global unicast address)", ip)

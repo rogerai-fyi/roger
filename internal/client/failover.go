@@ -2,11 +2,16 @@ package client
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"math"
 	"net/http"
+	"rogerai.fm/roger/v7/internal/coreclient"
+	"rogerai.fm/roger/v7/internal/servedfile"
+	"slices"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -23,6 +28,21 @@ type Criteria struct {
 	// balanced). It reshapes the composite SCORE (the bounded price modifier strength),
 	// never the hard filters - mirroring the broker so failover and normal routing agree.
 	Pref string
+	// The caller body's own routing keys (callerRoutingCriteria): hard filters the re-pick
+	// honors so it never prefers a station the broker would refuse.
+	Require        []string // roger.require (+ implicit tools when the body sends tools)
+	SelfHostedOnly bool
+	Quantizations  []string
+	Only           []string
+	OnlyNone       bool // the caller's and the owner's only share no station: none is admitted
+	Region         []string
+	TrustMin       string
+	// MinCtx / MaxTTFT are the context-window floor and first-token ceiling (0 = none), and
+	// Exclude the stations the owner or caller ignored. Offers carry no parameter size, so
+	// params_b is left to the broker.
+	MinCtx  int
+	MaxTTFT int
+	Exclude []string
 }
 
 // Offer is one discoverable provider offer (a subset of the broker's /discover
@@ -51,6 +71,15 @@ type Offer struct {
 	// when TPS==0, so it is the alignment key failover ranks on - the SAME composite
 	// the broker's pick uses, so normal + failover routing agree on "best".
 	Signal int `json:"signal"`
+	// Capabilities (tools / vision), Curated and Quant mirror /discover so the re-pick honors
+	// roger.require, roger.self_hosted_only and provider.quantizations.
+	Capabilities []string `json:"capabilities,omitempty"`
+	Curated      bool     `json:"curated,omitempty"`
+	Quant        string   `json:"quant,omitempty"`
+	// File is which exact file the model is, as a standalone Tower's station reported it, and
+	// FileBy whose word that is (features/models/short_names_nearby.feature). The market sends none.
+	File   *servedfile.File `json:"file,omitempty"`
+	FileBy string           `json:"file_by,omitempty"`
 	// Smart-router v2 selection fields surfaced from /discover so failover mirrors the
 	// broker's capacity-aware load factor (0 = unset, treated as neutral). InFlight is
 	// the node's current load; Capacity is its concurrency capacity (under-load TPS or
@@ -117,11 +146,33 @@ func PickBest(offers []Offer, model string) (string, bool) {
 	return pickAlternative(offers, Criteria{Model: model}, nil)
 }
 
+// hasFreeSugar reports whether a model id carries the :free variant among its suffixes.
+func hasFreeSugar(id string) bool {
+	for {
+		switch {
+		case strings.HasSuffix(id, ":free"):
+			return true
+		case strings.HasSuffix(id, ":floor"):
+			id = strings.TrimSuffix(id, ":floor")
+		case strings.HasSuffix(id, ":nitro"):
+			id = strings.TrimSuffix(id, ":nitro")
+		default:
+			return false
+		}
+	}
+}
+
 // pickAlternative is the pure selection step (no I/O) so it is unit-testable.
 func pickAlternative(offers []Offer, c Criteria, exclude map[string]bool) (string, bool) {
+	// The session model may carry a variant (`roger use m:free`); /discover lists bare ids.
+	// :free is a filter (only what costs the caller nothing now); :floor/:nitro are sorts.
+	want, freeOnly := sugarless(c.Model), hasFreeSugar(c.Model) // the band's id, never prefix-stripped
 	var eligible []Offer
 	for _, o := range offers {
-		if !o.Online || o.Model != c.Model {
+		if !o.Online || sugarless(o.Model) != want {
+			continue
+		}
+		if freeOnly && !o.FreeNow && (o.PriceIn > 0 || o.PriceOut > 0) {
 			continue
 		}
 		if exclude[o.NodeID] {
@@ -139,6 +190,9 @@ func pickAlternative(offers []Offer, c Criteria, exclude map[string]bool) (strin
 		// Only exclude nodes MEASURED as too slow; unmeasured (tps==0) get a
 		// chance so new providers aren't permanently passed over (mirrors broker).
 		if c.MinTPS > 0 && o.TPS > 0 && o.TPS < c.MinTPS {
+			continue
+		}
+		if !offerMeetsBody(o, c) {
 			continue
 		}
 		eligible = append(eligible, o)
@@ -332,6 +386,35 @@ func BandRangeFor(broker, model string) (BandRange, bool) {
 	return bandRange(offers, model)
 }
 
+// routedStation is the station a session's routing (--node / --order, --only, --exclude) has the
+// router try first for model, and how the preview says why; ok=false when the routing pins nothing,
+// so the preview names the cheapest station as before. An --order station is tried first when it is
+// on air, allowed and within the out-price cap (maxOut, 0 = none); otherwise the router falls back
+// to the cheapest it allows, unless fallbacks are off (--node). When the routing allows no station
+// on air, ok is true and the Offer's NodeID is empty.
+func routedStation(offers []Offer, model string, maxOut float64, opt UseOptions) (Offer, string, bool) {
+	if len(opt.Prefer) == 0 && len(opt.Only) == 0 && len(opt.ExcludeNodes) == 0 {
+		return Offer{}, "", false
+	}
+	var allowed []Offer
+	for _, o := range offers {
+		if o.Online && o.Model == model && (maxOut <= 0 || o.PriceOut <= maxOut) && (len(opt.Only) == 0 || slices.Contains(opt.Only, o.NodeID)) &&
+			!slices.Contains(opt.ExcludeNodes, o.NodeID) {
+			allowed = append(allowed, o)
+		}
+	}
+	for _, n := range opt.Prefer {
+		if i := slices.IndexFunc(allowed, func(o Offer) bool { return o.NodeID == n }); i >= 0 {
+			return allowed[i], "pinned by your routing", true
+		}
+	}
+	if len(allowed) == 0 || (opt.NoFallbacks && len(opt.Prefer) > 0) {
+		return Offer{}, "", true // nothing the routing allows is on air: an empty NodeID says so
+	}
+	cheapest := slices.MinFunc(allowed, func(a, b Offer) int { return cmp.Compare(a.PriceOut, b.PriceOut) })
+	return cheapest, "the cheapest your routing allows", true
+}
+
 // estReplyCost is the credits one typical reply costs at out-price `priceOut`,
 // given `outTokens` output tokens (default ~800). Input cost is negligible for
 // the headline estimate; we bill primarily on output.
@@ -418,6 +501,7 @@ func ResolveBand(broker, freq, model string) (offers []Offer, display string, ok
 // request: the signature is added only when a Tower asks for it, never on the public path, so
 // no browse reveals who is looking except where the Tower already requires an admitted client.
 func discover(broker string) ([]Offer, error) {
+	coreclient.Note("client: band discovery")
 	resp, err := http.Get(broker + "/discover")
 	if err != nil {
 		return nil, err
@@ -445,4 +529,174 @@ func discover(broker string) ([]Offer, error) {
 		return nil, err
 	}
 	return d.Offers, nil
+}
+
+// offerMeetsBody applies the caller body's own hard filters (Criteria's body fields) to one
+// offer: required capabilities, self-hosted only, quant labels ("unknown" admits an unlabeled
+// offer), the only list, regions, and the verified trust floor.
+func offerMeetsBody(o Offer, c Criteria) bool {
+	for _, need := range c.Require {
+		has := false
+		for _, cp := range o.Capabilities {
+			has = has || strings.EqualFold(cp, need)
+		}
+		if !has {
+			return false
+		}
+	}
+	if c.SelfHostedOnly && o.Curated {
+		return false
+	}
+	if len(c.Quantizations) > 0 {
+		q := o.Quant
+		if q == "" {
+			q = QuantUnknown
+		}
+		if !hasFold(c.Quantizations, q) {
+			return false
+		}
+	}
+	if c.OnlyNone || (len(c.Only) > 0 && !slices.Contains(c.Only, o.NodeID)) {
+		return false
+	}
+	if len(c.Region) > 0 && !slices.Contains(c.Region, o.Region) {
+		return false
+	}
+	if slices.Contains(c.Exclude, o.NodeID) {
+		return false
+	}
+	// As on the broker: a context floor needs a DECLARED window at least that large (an
+	// estimated or unknown one is no match); an unmeasured first token passes the ceiling.
+	if c.MinCtx > 0 && (o.Ctx <= 0 || o.CtxEstimated || o.Ctx < c.MinCtx) {
+		return false
+	}
+	if c.MaxTTFT > 0 && o.TTFTMs > 0 && o.TTFTMs > float64(c.MaxTTFT) {
+		return false
+	}
+	if c.TrustMin == "verified" && !o.Verified {
+		return false
+	}
+	if c.TrustMin == "confidential" && !o.Confidential {
+		return false
+	}
+	return true
+}
+
+// callerRoutingCriteria folds a caller body's own routing keys into c (the re-pick's filters)
+// and reports whether the caller set provider.allow_fallbacks:false (the proxy must not
+// re-pick on its behalf).
+func callerRoutingCriteria(body []byte, c *Criteria) (noRepick bool) {
+	var m map[string]any
+	if json.Unmarshal(body, &m) != nil {
+		return false
+	}
+	r, _ := m["roger"].(map[string]any)
+	p, _ := m["provider"].(map[string]any)
+	c.Require = append(c.Require, stringsOf(r["require"])...)
+	if tools, ok := m["tools"].([]any); ok && len(tools) > 0 {
+		c.Require = append(c.Require, "tools")
+	}
+	if v, ok := r["self_hosted_only"].(bool); ok && v {
+		c.SelfHostedOnly = true
+	}
+	if v, ok := r["confidential"].(bool); ok && v {
+		c.Confidential = true
+	}
+	if q := stringsOf(p["quantizations"]); len(q) > 0 {
+		c.Quantizations = q
+	}
+	if o := stringsOf(p["only"]); len(o) > 0 {
+		c.Only = o
+	}
+	if g := stringsOf(r["region"]); len(g) > 0 {
+		c.Region = g
+	}
+	if t, ok := r["trust_min"].(string); ok {
+		c.TrustMin = t
+	}
+	// A caller's caps and floor only tighten (the lower cap, the higher floor), as the owner's.
+	if mp, ok := p["max_price"].(map[string]any); ok {
+		if v, ok := mp["completion"].(float64); ok && v > 0 && (c.MaxPriceOut == 0 || v < c.MaxPriceOut) {
+			c.MaxPriceOut = v
+		}
+		if v, ok := mp["prompt"].(float64); ok && v > 0 && (c.MaxPriceIn == 0 || v < c.MaxPriceIn) {
+			c.MaxPriceIn = v
+		}
+	}
+	if v, ok := r["min_tps"].(float64); ok && v > c.MinTPS {
+		c.MinTPS = v
+	}
+	if v, ok := r["pref"].(string); ok && v != "" { // the guest's pref is what the broker scores with (Apply's setDefault)
+		c.Pref = v
+	}
+	if v, ok := r["min_ctx"].(float64); ok && int(v) > c.MinCtx {
+		c.MinCtx = int(v)
+	}
+	if v, ok := r["max_ttft_ms"].(float64); ok && v > 0 && (c.MaxTTFT == 0 || int(v) < c.MaxTTFT) {
+		c.MaxTTFT = int(v)
+	}
+	c.Exclude = append(c.Exclude, stringsOf(p["ignore"])...)
+	if v, ok := p["allow_fallbacks"].(bool); ok && !v {
+		noRepick = true
+	}
+	return noRepick
+}
+
+// ownerRoutingCriteria folds the session OWNER's routing into the re-pick criteria, so the
+// proxy's failover never prefers a station the owner's own constraints exclude. A caller's
+// `only` is narrowed to the owner's (the intersection); the owner's other filters apply when
+// the caller stated none (the caller may only tighten, so its own value is already within
+// them). It reports true when the owner forbids a re-pick (--no-fallbacks, or --node, which
+// sets NoFallbacks with a one-station Prefer).
+func ownerRoutingCriteria(opts ProxyOptions, c *Criteria) (noRepick bool) {
+	if len(opts.Only) > 0 {
+		if len(c.Only) == 0 {
+			c.Only = append([]string(nil), opts.Only...)
+		} else {
+			var both []string
+			for _, id := range c.Only {
+				if slices.Contains(opts.Only, id) {
+					both = append(both, id)
+				}
+			}
+			c.Only = both
+			c.OnlyNone = len(both) == 0 // an empty intersection admits no station
+		}
+	}
+	if opts.SelfHostedOnly {
+		c.SelfHostedOnly = true
+	}
+	if opts.MinCtx > c.MinCtx {
+		c.MinCtx = opts.MinCtx
+	}
+	if opts.MaxTTFT > 0 && (c.MaxTTFT == 0 || opts.MaxTTFT < c.MaxTTFT) {
+		c.MaxTTFT = opts.MaxTTFT
+	}
+	c.Exclude = append(c.Exclude, opts.ExcludeNodes...)
+	if len(c.Quantizations) == 0 && len(opts.Quantizations) > 0 {
+		c.Quantizations = append([]string(nil), opts.Quantizations...)
+	}
+	if len(c.Region) == 0 && len(opts.Region) > 0 {
+		c.Region = append([]string(nil), opts.Region...)
+	}
+	if trustRank(opts.TrustMin) > trustRank(c.TrustMin) {
+		c.TrustMin = opts.TrustMin
+	}
+	for _, r := range opts.Require {
+		if !slices.Contains(c.Require, r) {
+			c.Require = append(c.Require, r)
+		}
+	}
+	return opts.NoFallbacks
+}
+
+// errorCodeOf reads error.code from an error body ("" when absent).
+func errorCodeOf(raw []byte) string {
+	var e struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	_ = json.Unmarshal(raw, &e)
+	return e.Error.Code
 }

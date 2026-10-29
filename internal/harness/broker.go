@@ -8,12 +8,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/client"
+	"rogerai.fm/roger/v7/internal/client"
 )
 
 // CostFunc receives one model-call's BILLED result parsed from the relay's response
@@ -87,14 +86,17 @@ type BrokerRoute struct {
 	// Freq is the tuned private band's frequency code, or "" for the open market. Send it
 	// ONLY when the turn's model is the one that band serves - see the caller's guard.
 	Freq string
-	// ExcludeNodes are stations this caller will not accept, sent as X-Roger-Exclude-Nodes.
-	//
-	// It is how the operator's STANDING quant preference reaches an agent turn. The dial's
-	// filter cannot: the agent picks a model and runs while nobody is looking at a browse
-	// list. A rule that governed only the screen you were on would not be a rule.
-	ExcludeNodes    []string
+	// Routing is the consumer routing object (pref, self_hosted_only, quantizations, the
+	// standing exclusions as Ignore, ...). ONE carrier policy with the proxy and the chat
+	// path: it rides the request BODY on every attempt (or the X-Roger-* headers in
+	// HeaderMode, for an old broker) - contract §1; the TUI's [4] CONFIG rules reach an
+	// agent turn through it. Confidential below is OR'd into it.
+	Routing         client.Routing
 	OnCost          CostFunc
 	FallbackTimeout time.Duration
+	// OnServed receives the final usage chunk's account of a streamed turn: the model and
+	// station that served it and the receipt's price lock (nil = not reported).
+	OnServed func(Served)
 }
 
 func BrokerCompleterWithTimeout(broker, user, model string, confidential bool, maxOut float64, onCost CostFunc, fallbackTimeout time.Duration) Completer {
@@ -128,17 +130,26 @@ func BrokerCompleterRoute(rt BrokerRoute) Completer {
 			// model just ignores this field.
 			"tool_choice": "auto",
 			"max_tokens":  agentMaxTokens,
+			// Streamed with the final usage chunk: the chunk is the turn's meter and names
+			// the station and model that served it. A JSON reply is still read as before.
+			"stream":         true,
+			"stream_options": map[string]any{"include_usage": true},
 		})
-		req, _ := http.NewRequestWithContext(ctx, http.MethodPost, broker+"/v1/chat/completions", bytes.NewReader(reqBody))
+		routing := rt.Routing
+		routing.Confidential = routing.Confidential || confidential
+		req, _ := http.NewRequestWithContext(ctx, http.MethodPost, broker+"/v1/chat/completions", nil)
+		reqBody, cerr := client.CarryRouting(routing, req, reqBody)
+		if cerr != nil {
+			return Message{}, fmt.Errorf("agent turn: %v", cerr)
+		}
+		req.Body = io.NopCloser(bytes.NewReader(reqBody))
+		req.ContentLength = int64(len(reqBody))
 		req.Header.Set("Content-Type", "application/json")
 		// Sign with the local user key so the broker derives the spending wallet from the
 		// verified pubkey (the same P0-safe path the relay/Chat use). X-Roger-User is a
 		// legacy hint only.
 		client.SignRequest(req, reqBody)
 		req.Header.Set("X-Roger-User", user)
-		if confidential {
-			req.Header.Set("X-Roger-Confidential", "1")
-		}
 		// Always carry an out-price cap (the caller's, or the default consumer ceiling
 		// when none was set) so an agent turn is bounded against overpay exactly like
 		// `roger use` and the in-channel chat - the harness is just another consume path.
@@ -149,10 +160,11 @@ func BrokerCompleterRoute(rt BrokerRoute) Completer {
 		if rt.Freq != "" {
 			req.Header.Set("X-Roger-Freq", rt.Freq)
 		}
-		if ex := joinExcludes(rt.ExcludeNodes); ex != "" {
-			req.Header.Set("X-Roger-Exclude-Nodes", ex)
+		resp, inLAN := client.LANDo(req, reqBody)
+		var err error
+		if !inLAN {
+			resp, err = httpClient.Do(req) // LAN mode never reaches here: the local ladder served or refused
 		}
-		resp, err := httpClient.Do(req)
 		if err != nil {
 			// User aborted the turn (esc): a clean cancellation, not a network failure. An
 			// ExtendableTimeout that expired cancels with cause DeadlineExceeded - that is
@@ -172,6 +184,25 @@ func BrokerCompleterRoute(rt BrokerRoute) Completer {
 			return Message{}, fmt.Errorf("could not reach the broker: %v", err)
 		}
 		defer resp.Body.Close()
+		if resp.StatusCode == http.StatusOK && strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream") {
+			st := readStream(io.LimitReader(resp.Body, 4<<20))
+			if err := st.streamError(); err != nil {
+				return Message{}, err
+			}
+			if onCost != nil {
+				tps := st.tps
+				if tps == 0 { // an older broker set the header on a stream
+					tps, _ = strconv.ParseFloat(resp.Header.Get("X-RogerAI-TPS"), 64)
+				}
+				if st.cost > 0 || st.in > 0 || st.out > 0 || tps > 0 {
+					onCost(st.cost, st.in, st.out, tps)
+				}
+			}
+			if rt.OnServed != nil && (st.served.Model != "" || st.served.Node != "" || st.served.LockedUntil != "") {
+				rt.OnServed(st.served)
+			}
+			return st.msg, nil
+		}
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 
 		if onCost != nil {
@@ -263,20 +294,4 @@ func bytesTrim(b []byte) []byte {
 		j--
 	}
 	return b[i:j]
-}
-
-// joinExcludes renders the exclusion header the way the client path does: trimmed,
-// de-duplicated, sorted, and absent entirely when there is nothing to say. Two renderings
-// of the same header is how one path comes to send "a,,a " while the other sends "a".
-func joinExcludes(nodes []string) string {
-	seen := make(map[string]bool, len(nodes))
-	out := make([]string, 0, len(nodes))
-	for _, n := range nodes {
-		if n = strings.TrimSpace(n); n != "" && !seen[n] {
-			seen[n] = true
-			out = append(out, n)
-		}
-	}
-	sort.Strings(out)
-	return strings.Join(out, ",")
 }

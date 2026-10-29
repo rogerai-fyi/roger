@@ -15,7 +15,7 @@ import (
 
 	"bytes"
 	"encoding/base64"
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 func TestAudioKnobsHonourTheirOverrides(t *testing.T) {

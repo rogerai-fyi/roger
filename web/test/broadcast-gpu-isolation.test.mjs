@@ -9,7 +9,7 @@
 import { test, before } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "path";
 
@@ -102,31 +102,53 @@ test("gpu-isolation: the moderation claim is not an unqualified absolute", () =>
   assert.doesNotMatch(html, /never gets that far/i);
 });
 
-// grep exits 1 (not 0) when it finds nothing, which execFileSync treats as a thrown
-// error - so "no matches" is the expected, passing outcome here and must be caught,
-// while a real grep failure (exit >1) or an actual match (a real violation) must not be.
-function grepFiles(pattern, dirs) {
-  try {
-    return execFileSync("grep", ["-rlE", pattern, ...dirs], { cwd: ROOT, encoding: "utf8" })
-      .trim().split("\n").filter(Boolean);
-  } catch (e) {
-    if (e.status === 1) return []; // no matches - the clean, expected case
-    throw e;
-  }
+// THE SHARING PATH, as code: `roger share` wires its flags in cmd/rogerai (main.go's cmdShare,
+// share_meta.go) and runs in internal/agent (the poll loop that forwards a job to the operator's
+// own upstream) and internal/node (the controller). Founder ruling 2026-10-27: the claims below are
+// about THAT path, not the whole `roger` binary, which since v7 also carries the Edge face (an
+// inbound listener on the owner's LAN) and the Edge delegate runner (which uses the harness on the
+// owner's own machines). Those are reached from `roger edge`, never from `roger share`.
+const SHARE_ENTRY = ["cmd/rogerai/main.go", "cmd/rogerai/share_meta.go"];
+const SHARE_PACKAGES = ["internal/agent", "internal/node"];
+const goFilesIn = (dir) => readdirSync(path.join(ROOT, dir))
+  .filter((f) => f.endsWith(".go") && !f.endsWith("_test.go")).map((f) => path.join(dir, f));
+function goImports(file) {
+  const src = readSrc(file);
+  const block = /^import\s*\(([\s\S]*?)^\)/m.exec(src);
+  const single = [...src.matchAll(/^import\s+(?:\w+\s+)?"([^"]+)"/gm)].map((m) => m[1]);
+  return [...single, ...(block ? [...block[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]) : [])];
 }
+// Every package of this module the share packages reach, transitively, through their non-test files.
+function shareClosure() {
+  const seen = new Set();
+  const queue = [...SHARE_PACKAGES];
+  while (queue.length) {
+    const dir = queue.shift();
+    if (seen.has(dir)) continue;
+    seen.add(dir);
+    for (const f of goFilesIn(dir)) {
+      for (const imp of goImports(f)) {
+        const m = /^rogerai\.fm\/roger\/v\d+\/(.+)$/.exec(imp);
+        if (m && existsSync(path.join(ROOT, m[1]))) queue.push(m[1]);
+      }
+    }
+  }
+  return seen;
+}
+const HARNESS = /^rogerai\.fm\/roger\/v\d+\/internal\/harness$/;
 
 test("gpu-isolation: the tool-executing harness is never imported by the node/sharing path", () => {
-  // Positive control first: if this pattern stops matching its two known, legitimate
-  // importers (a module path bump, a directory rename), an empty result below would
-  // otherwise look identical to a genuine "not imported" pass - the exact vacuous-pass
-  // shape the listener test's own comment warns about.
-  const control = grepFiles("rogerai\\.fm/roger/v6/internal/harness", ["internal/tui", "internal/webui"]);
-  assert.ok(control.some((f) => f.startsWith("internal/tui/")), "the import pattern still matches internal/tui");
-  assert.ok(control.some((f) => f.startsWith("internal/webui/")), "the import pattern still matches internal/webui");
+  // Positive control first: the import matcher must still recognise the harness where it IS
+  // imported (the TUI and the console), or an empty result below would be a vacuous pass.
+  const tuiImports = goFilesIn("internal/tui").flatMap(goImports);
+  assert.ok(tuiImports.some((i) => HARNESS.test(i)), "the harness matcher still recognises internal/tui's import");
 
-  const importers = grepFiles("rogerai\\.fm/roger/v6/internal/harness", ["cmd/rogerai", "internal/agent", "internal/node"]);
-  assert.deepEqual(importers, [],
-    `the sharing path must never import internal/harness (the tool-executing agent), found: ${importers.join(", ")}`);
+  const closure = shareClosure();
+  assert.ok(closure.has("internal/protocol"), "the closure walker follows imports (positive control)");
+  assert.ok(!closure.has("internal/harness"),
+    `the sharing path reaches internal/harness (the tool-executing agent): ${[...closure].sort().join(", ")}`);
+  const entry = SHARE_ENTRY.filter((f) => goImports(f).some((i) => HARNESS.test(i)));
+  assert.deepEqual(entry, [], `share's entry files import internal/harness: ${entry.join(", ")}`);
 });
 
 // A first draft claimed every harness action is "confirmed before it runs" - the
@@ -157,16 +179,16 @@ test("gpu-isolation: the node's serve path forwards job.Body verbatim to cfg.Ups
     "the node's serve loop must not interpret tool/function calls server-side");
 });
 
+// A listener in the sharing path: the standard library's, and this repository's own helpers
+// (internal/netbind, the Edge's edgeListen), which a bare net.Listen grep would not see.
+const LISTEN = /ListenAndServe|net\.Listen\(|tls\.Listen\(|netbind\.(Listen\w*|Stated)\(|edgeListen\(/;
+
 test("gpu-isolation: no inbound listener exists in the share/node code path", () => {
-  const files = grepFiles("ListenAndServe|net\\.Listen\\(", ["cmd/rogerai", "internal/agent", "internal/node"]);
-  // Asserted as an EXACT set, not a loop over matches: a loop passes vacuously if the
-  // pattern or paths drift and grep starts matching nothing, which is exactly the failure
-  // mode a security claim like this one cannot afford. onboard.go's 127.0.0.1 OAuth-callback
-  // listener is the one known, unrelated exception - internal/webui and internal/tui also
-  // bind loopback-only listeners for local features (browser console, TUI proxy), but they
-  // sit outside these three directories entirely, so they never enter this comparison.
-  assert.deepEqual(files, ["cmd/rogerai/onboard.go"],
-    `expected only onboard.go's listener in the sharing path, found: ${files.join(", ") || "(none)"}`);
+  // Positive control: the pattern still finds the Edge face's listener outside the share path, so an
+  // empty result below cannot be a pattern that silently stopped matching anything.
+  assert.match(readSrc("cmd/rogerai/edgehost.go"), LISTEN, "the listener pattern still matches the Edge face");
+  const files = [...SHARE_ENTRY, ...SHARE_PACKAGES.flatMap(goFilesIn)].filter((f) => LISTEN.test(readSrc(f)));
+  assert.deepEqual(files, [], `a listener in the sharing path: ${files.join(", ")}`);
 });
 
 test("gpu-isolation: no em dashes in the copy", () => {

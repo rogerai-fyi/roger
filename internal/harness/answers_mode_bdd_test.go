@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strings"
 	"testing"
 	"time"
@@ -496,7 +497,7 @@ func TestAnswersModeBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("answers mode behavior scenarios failed (see godog output above)")
 	}
 }

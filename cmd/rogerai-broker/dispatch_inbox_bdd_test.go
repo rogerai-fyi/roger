@@ -28,8 +28,9 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/cucumber/godog"
 	"github.com/redis/go-redis/v9"
-	"rogerai.fm/roger/v6/internal/protocol"
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/bddrun"
+	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 const dqModel = "dq-paid"
@@ -60,12 +61,16 @@ type dqState struct {
 	t       *testing.T
 	servers []*miniredis.Miniredis
 	urls    []string
-	db      store.Store
-	priv    ed25519.PrivateKey
-	inst    [2]*broker
-	origin  *broker // a third instance, for the stale-route scenario
-	nudges0 int64
-	nodes   map[string]*dqNode
+	// inProcess forces the in-process miniredis even when ROGERAI_TEST_REDIS_URL names a real
+	// Valkey: a runner that simulates a store outage does it by closing these servers, which a
+	// shared external Valkey would not notice.
+	inProcess bool
+	db        store.Store
+	priv      ed25519.PrivateKey
+	inst      [2]*broker
+	origin    *broker // a third instance, for the stale-route scenario
+	nudges0   int64
+	nodes     map[string]*dqNode
 
 	release  chan struct{} // closes to end every "10 s" serve
 	relOnce  sync.Once
@@ -122,6 +127,13 @@ func (s *dqState) cleanup() {
 		_ = s.origin.shared.(*valkeyStore).Close()
 		s.origin = nil
 	}
+	// Release the scenario's Postgres pool (xiStore opens a fresh one per scenario, up to 8
+	// connections). Leaving it open leaked a pool per scenario for the rest of the test binary,
+	// which under the gate's parallel run pushed the shared server past max_connections.
+	if c, ok := s.db.(interface{ Close() error }); ok {
+		_ = c.Close()
+	}
+	s.db = nil
 }
 
 func (s *dqState) releaseServes() { s.relOnce.Do(func() { close(s.release) }) }
@@ -155,7 +167,7 @@ func (s *dqState) newInstance(urls []string) *broker {
 }
 
 func (s *dqState) redisURL() string {
-	if url := os.Getenv("ROGERAI_TEST_REDIS_URL"); url != "" {
+	if url := os.Getenv("ROGERAI_TEST_REDIS_URL"); url != "" && !s.inProcess {
 		return xiRedisURL(s.t)
 	}
 	mr := miniredis.RunT(s.t)
@@ -891,7 +903,7 @@ func TestDispatchInboxBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("multinode/dispatch_inbox scenarios failed (see godog output above)")
 	}
 }

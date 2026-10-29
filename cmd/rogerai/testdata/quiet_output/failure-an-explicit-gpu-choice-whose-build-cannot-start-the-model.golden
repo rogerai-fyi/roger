@@ -1,0 +1,2 @@
+error: the cuda build could not start it: the runtime binary is not there: <config>/cuda/llama-server
+  nothing was served; `roger model runtime cpu` would serve it with the CPU build

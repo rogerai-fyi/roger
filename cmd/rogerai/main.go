@@ -17,32 +17,28 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"reflect"
-	"sort"
+	"rogerai.fm/roger/v7/internal/lanmode"
 	"strconv"
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/agent"
-	"rogerai.fm/roger/v6/internal/client"
-	"rogerai.fm/roger/v6/internal/detect"
-	"rogerai.fm/roger/v6/internal/protocol"
-	"rogerai.fm/roger/v6/internal/session"
-	"rogerai.fm/roger/v6/internal/tui"
-	"rogerai.fm/roger/v6/internal/update"
+	"rogerai.fm/roger/v7/internal/agent"
+	"rogerai.fm/roger/v7/internal/buildinfo"
+	"rogerai.fm/roger/v7/internal/client"
+	"rogerai.fm/roger/v7/internal/detect"
+	"rogerai.fm/roger/v7/internal/keyfile"
+	roggnode "rogerai.fm/roger/v7/internal/node"
+	"rogerai.fm/roger/v7/internal/onair"
+	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/session"
+	"rogerai.fm/roger/v7/internal/towercli"
+	"rogerai.fm/roger/v7/internal/tui"
+	"rogerai.fm/roger/v7/internal/update"
 )
-
-// Version is the client version (compared against the latest GitHub release for
-// the update check / `roger upgrade`). It is a var (not a const) so a release/beta
-// build can stamp a semver via the linker without editing source:
-//
-//	go build -ldflags "-X main.Version=4.8.0-beta.1" ./cmd/rogerai
-//
-// The default below is the fallback for a plain `go build`. Keep it in sync with
-// releases. Use semver, optionally with a prerelease suffix (e.g. 4.8.0-beta.1).
-var Version = "6.9.0"
 
 // The production broker is the default - `rogerai` works out of the box, no config.
 // Override per-session with ROGER_BROKER=... or persist with `roger config set broker`.
@@ -70,15 +66,31 @@ type Limit struct {
 	MinTPS float64 `json:"min_tps,omitempty"`
 	// Quants is the operator's accepted compression labels for this band (empty = any).
 	// Persisted like the price caps because it is the same kind of statement: what this
-	// operator is willing to be routed to.
+	// operator is willing to be routed to. On the wire it is provider.quantizations plus
+	// "unknown" (a standing RULE lets an unlabeled station pass; client.RuleQuantizations).
 	Quants []string `json:"quants,omitempty"`
+	// Pref is the routing profile the broker scores with (cheap / balanced / fast /
+	// reliable; empty = balanced). Sent as roger.pref; a scoring knob, never a filter.
+	Pref string `json:"pref,omitempty"`
+	// The rest of the routing body object a limit may hold (roger config set-limit; contract
+	// §10): each maps to one body key, exactly as the matching `roger use` flag does.
+	Require    []string  `json:"require,omitempty"`     // roger.require
+	ParamsB    []float64 `json:"params_b,omitempty"`    // roger.params_b [min, max]
+	MinCtx     int       `json:"min_ctx,omitempty"`     // roger.min_ctx
+	MaxTTFTMs  int       `json:"max_ttft_ms,omitempty"` // roger.max_ttft_ms
+	TrustMin   string    `json:"trust_min,omitempty"`   // roger.trust_min
+	SelfHosted bool      `json:"self_hosted,omitempty"` // roger.self_hosted_only
+	Region     []string  `json:"region,omitempty"`      // roger.region
+	MaxCost    float64   `json:"max_cost,omitempty"`    // provider.max_price.request
 }
 
 // unset reports whether nothing at all is configured. It replaces a `== Limit{}` compare,
 // which stopped compiling once the struct held a slice - and a hand-written check is the
 // honest fix, because equality on a slice field was never going to mean what it read like.
 func (l Limit) unset() bool {
-	return l.MaxIn == 0 && l.MaxOut == 0 && l.MinTPS == 0 && len(l.Quants) == 0
+	return l.MaxIn == 0 && l.MaxOut == 0 && l.MinTPS == 0 && len(l.Quants) == 0 && l.Pref == "" &&
+		len(l.Require) == 0 && len(l.ParamsB) == 0 && l.MinCtx == 0 && l.MaxTTFTMs == 0 && l.TrustMin == "" &&
+		!l.SelfHosted && len(l.Region) == 0 && l.MaxCost == 0
 }
 
 // Limits is the optional, backward-compatible spend-limits section of the config:
@@ -92,19 +104,45 @@ type Limits struct {
 }
 
 type config struct {
-	Broker          string                `json:"broker"`
-	User            string                `json:"user"`
-	Limits          Limits                `json:"limits"`
-	Onboarded       bool                  `json:"onboarded,omitempty"`         // first-run wizard completed
-	Share           *Share                `json:"share,omitempty"`             // saved provider config (the wizard's earn/free choice)
-	Prices          map[string]SharePrice `json:"share_prices,omitempty"`      // per-model price + schedule from the in-TUI editor
-	Voices          map[string]ShareVoice `json:"share_voices,omitempty"`      // per-model voice identity (dj name / voice / speed / language / sample_url)
-	Compact         bool                  `json:"compact,omitempty"`           // windowshade compact-mode toggle (the in-TUI [m] choice, persisted)
-	Webui           *bool                 `json:"webui,omitempty"`             // browser node console: nil/true = on (default), false = off; --no-webui overrides off for a run
-	WebuiOpen       *bool                 `json:"webui_open,omitempty"`        // auto-open the console in a browser at launch: nil/false = no (default; founder respec 2026-07-14 - it hijacked terminal-embedded browsers), true = yes
-	Palette         string                `json:"palette,omitempty"`           // TUI color layer: ""/"full" = the lamp board (default), "mono" = the mono+red escape hatch. ROGER_PALETTE overrides per-run. (design overhaul increment 0)
-	Deck            string                `json:"deck,omitempty"`              // the painted deck ground behind the whole TUI: ""/"on" = the RogerAI faceplate (default), "off" = inherit the terminal's own background. ROGER_DECK overrides per-run.
-	LastSeenVersion string                `json:"last_seen_version,omitempty"` // the Version last launched; the tube warm-up boot plays only when this differs (first run + after an upgrade). (design overhaul increment 10)
+	Broker          string                       `json:"broker"`
+	User            string                       `json:"user"`
+	Limits          Limits                       `json:"limits"`
+	Onboarded       bool                         `json:"onboarded,omitempty"`         // share setup completed (`roger onboard`)
+	WelcomeSeen     bool                         `json:"welcome_seen,omitempty"`      // the one-time welcome card was shown and closed
+	WelcomeAgain    bool                         `json:"welcome_again,omitempty"`     // show the card once more (`roger onboard --welcome` / --reset)
+	Share           *Share                       `json:"share,omitempty"`             // saved provider config (the wizard's earn/free choice)
+	Prices          map[string]SharePrice        `json:"share_prices,omitempty"`      // per-model price + schedule from the in-TUI editor
+	Voices          map[string]ShareVoice        `json:"share_voices,omitempty"`      // per-model voice identity (dj name / voice / speed / language / sample_url)
+	Meta            map[string]protocol.Taxonomy `json:"share_meta,omitempty"`        // per-model DECLARED taxonomy (category, tags, tuning, policy, license, base model)
+	Compact         bool                         `json:"compact,omitempty"`           // windowshade compact-mode toggle (the in-TUI [m] choice, persisted)
+	Webui           *bool                        `json:"webui,omitempty"`             // browser node console: nil/true = on (default), false = off; --no-webui overrides off for a run
+	WebuiOpen       *bool                        `json:"webui_open,omitempty"`        // auto-open the console in a browser at launch: nil/false = no (default; founder respec 2026-07-14 - it hijacked terminal-embedded browsers), true = yes
+	Palette         string                       `json:"palette,omitempty"`           // TUI color layer: ""/"full" = the lamp board (default), "mono" = the mono+red escape hatch. ROGER_PALETTE overrides per-run. (design overhaul increment 0)
+	Deck            string                       `json:"deck,omitempty"`              // the painted deck ground behind the whole TUI: ""/"on" = the RogerAI faceplate (default), "off" = inherit the terminal's own background. ROGER_DECK overrides per-run.
+	LastSeenVersion string                       `json:"last_seen_version,omitempty"` // the Version last launched; the tube warm-up boot plays only when this differs (first run + after an upgrade). (design overhaul increment 10)
+	// EdgeInstance is the name THIS roger goes by on its node's Edge (features/edge/
+	// instances.feature). Empty = a default derived from the node's name. Set by
+	// `roger edge name . <name>`; a running roger picks a change up on its next pass.
+	EdgeInstance string `json:"edge_instance,omitempty"`
+	// EdgePrefer is where a turn goes first (features/edge/mode.feature): "" or "local"
+	// tries this Edge before the market, "market" goes out first, "local-only" never
+	// leaves. Set by `roger edge prefer`.
+	EdgePrefer string `json:"edge_prefer,omitempty"`
+	// EdgeAgent is the config ROLE that marks this roger an agent on its Edge (features/edge/
+	// agents.feature): it operates on other nodes and draws as ◆. Set by `roger edge agent on`;
+	// the ROGER_EDGE_AGENT env overrides per-run for a launched agent job.
+	EdgeAgent bool `json:"edge_agent,omitempty"`
+	// EdgeMaintenance lets another member of this Edge start a persistent agent HERE, under an
+	// authority-signed grant scoped to maintain (features/edge/maintenance.feature). Off by
+	// default: without it this machine declares no maintain capability and its face refuses every
+	// maintenance invoke, grant or not.
+	EdgeMaintenance bool `json:"edge_maintenance,omitempty"`
+	// EdgeServeControl lets a member holding a serve-control grant change WHICH MODEL this machine
+	// serves (features/edge/remote_model.feature). Off unless the owner turns it on HERE.
+	EdgeServeControl bool `json:"edge_serve_control,omitempty"`
+	// UseKey is an account key (`rog-key_...`) `roger use` relays with instead of the device
+	// signature. Written ONLY by `roger use --key ... --save-key`; never stored otherwise.
+	UseKey string `json:"use_key,omitempty"`
 	// Station is this install's friendly, NON-SENSITIVE broadcast callsign (e.g.
 	// `brave-otter-37`). It is the public-facing identity in /discover - NOT the
 	// hostname - so it never leaks the machine name. Auto-generated once and persisted
@@ -119,6 +157,36 @@ type config struct {
 	// AgentTimeoutSeconds is the optional per-model-call AGENT timeout. Zero is the
 	// default and means unlimited; a positive value enables the soft cap + grace UI.
 	AgentTimeoutSeconds int `json:"agent_timeout_seconds,omitempty"`
+	// Mode is the sticky run mode (features/lan/launch_and_config.feature): "" is the default,
+	// "lan" is LAN mode. --lan/--no-lan and ROGER_LAN win per run (lanmode.Decide).
+	Mode string `json:"mode,omitempty"`
+	// LanTowers are the standalone Towers LAN mode uses, as host:port (`roger lan add`).
+	LanTowers []string `json:"lan_towers,omitempty"`
+	// LanTowerPins is each joined Tower's identity fingerprint (SHA-256 of its TLS key, 64 hex),
+	// keyed by its lan_towers address (features/join/tower_identity.feature).
+	LanTowerPins map[string]string `json:"lan_tower_pins,omitempty"`
+	// StationOffer is what this machine chose to offer Towers as a station (stationoffer.go):
+	// models roger serves are always offered; others only when picked or named with --models.
+	StationOffer *StationOffer `json:"station_offer,omitempty"`
+	// LanTowerPinFirstUse marks the pins taken on first contact after the upgrade (a Tower added
+	// before joins were by invite), so the record says where each pin came from.
+	LanTowerPinFirstUse map[string]bool `json:"lan_tower_pins_first_use,omitempty"`
+	// LanTowerPinDeclined are Towers the owner chose not to pin at `roger lan add`: they stay
+	// unverified until joined with an invite, and the first-use migration never pins them.
+	LanTowerPinDeclined map[string]bool `json:"lan_tower_pins_declined,omitempty"`
+	// LanNotTower are configured addresses that answered a turn without the standalone Tower's
+	// local marker; LAN mode sends them nothing until `roger lan add` re-adds them.
+	LanNotTower []string `json:"lan_not_tower,omitempty"`
+	// LanBrokerChecked is the broker setting last checked for a standalone Tower to fold into
+	// LanTowers (features/packaging/one_binary.feature section 7.2): it is checked once per value.
+	LanBrokerChecked string `json:"lan_broker_checked,omitempty"`
+	// LanTrustNoted records that the plain-http trust note was shown once
+	// (features/lan/trust_and_honesty.feature).
+	LanTrustNoted bool `json:"lan_trust_noted,omitempty"`
+
+	// lan is THIS process's decided mode (never persisted): run() decides it once from flag,
+	// environment and config, and every surface reads this one answer.
+	lan lanmode.Mode
 }
 
 // SharePrice is a per-model price + time-of-use schedule the in-TUI pricing editor
@@ -213,18 +281,67 @@ func (c config) shareMaxOnAir() int {
 	return defaultShareMaxOnAir
 }
 
-// resolve returns the effective limit for model m: the per-model limit if set,
-// else the Default. typicalOut is the configured reply size, or 800.
+// resolve returns the effective limit for model m: the Default with each field the per-model
+// limit sets laid over it (a shallow merge per key, contract §10). typicalOut is the
+// configured reply size, or 800.
 func (c config) resolve(m string) (Limit, int) {
 	typ := c.Limits.TypicalOutTok
 	if typ <= 0 {
 		typ = 800
 	}
-	if l, ok := c.Limits.Models[m]; ok {
-		return l, typ
+	l := c.Limits.Default
+	if o, ok := c.Limits.Models[m]; ok {
+		l = overLimit(l, o)
 	}
-	return c.Limits.Default, typ
+	return l, typ
 }
+
+// overLimit lays every field o sets over base, by the one rule the booth uses too
+// (tui.MergeLimit), so `roger use` and the TUI can never resolve a band differently.
+func overLimit(base, o Limit) Limit {
+	return fromTUILimit(tui.MergeLimit(toTUILimit(base), toTUILimit(o)))
+}
+
+// prefFlag is the --pref flag value: one of client.RoutingPrefs, refused at parse time with
+// a message naming the four accepted values (before any request is made).
+type prefFlag struct{ v string }
+
+func (p *prefFlag) String() string { return p.v }
+func (p *prefFlag) Set(v string) error {
+	v = strings.ToLower(strings.TrimSpace(v))
+	if !client.ValidPref(v) {
+		return fmt.Errorf("%q is not a routing pref: use one of %s", v, strings.Join(client.RoutingPrefs, ", "))
+	}
+	p.v = v
+	return nil
+}
+
+// maxOutFlag is the --max-out flag value: a $/1M output price (0 = the default $10/1M cap,
+// which the relay applies when no cap is set) or the word "unlimited" (= the network's
+// register ceiling, above which nothing is offered). set tells "passed at all" apart from
+// "passed 0", replacing the old -1 sentinel that made a negative price unrefusable.
+type maxOutFlag struct {
+	v   float64
+	set bool
+}
+
+func (m *maxOutFlag) String() string { return fmt.Sprintf("%g", m.v) }
+func (m *maxOutFlag) Set(raw string) error {
+	t := strings.ToLower(strings.TrimSpace(raw))
+	if t == "unlimited" {
+		m.v, m.set = client.ConsumerCeilingMaxOut, true
+		return nil
+	}
+	f, err := strconv.ParseFloat(t, 64)
+	if err != nil || math.IsNaN(f) || math.IsInf(f, 0) || f < 0 {
+		return fmt.Errorf("%q is not a $/1M price or the word unlimited", raw)
+	}
+	m.v, m.set = f, true
+	return nil
+}
+
+// maxOutHelp is the one description both `roger use` and `roger config set-limit` print.
+const maxOutHelp = "skip stations above this $/1M OUTPUT price (the headline cap); 0 = the default $10/1M consumer cap; unlimited = the network ceiling"
 
 func configPath() string {
 	d, _ := os.UserConfigDir()
@@ -275,8 +392,33 @@ func loadConfig() config {
 //   - C5 unchanged for the common single-writer path: it writes the struct in canonical field
 //     order, byte-identical to before, taking the merge path only when it is actually needed.
 func saveConfig(c config) error {
+	// The same lock profile edits take (editConfigRaw), so this merge never reads a file a
+	// concurrent `roger profile set` is about to replace.
+	release, err := acquireConfigLock()
+	if err != nil {
+		return err
+	}
+	defer release()
+	return saveConfigLocked(c)
+}
+
+// acquireConfigLock takes the config.json lock (the one every writer takes). A writer that
+// reads, edits and writes holds it across all three (load, then saveConfigLocked), so a
+// concurrent writer's edit is never read stale and overwritten.
+func acquireConfigLock() (func(), error) {
+	if err := os.MkdirAll(filepath.Dir(configPath()), 0o700); err != nil {
+		return nil, err
+	}
+	return lockConfig(configPath() + ".lock")
+}
+
+// saveConfigLocked is saveConfig for a caller already holding acquireConfigLock.
+func saveConfigLocked(c config) error {
 	mine := toRawConfig(c)
-	theirs := readRawConfig(configPath())
+	theirs, rerr := readRawConfigErr(configPath()) // read under the lock: this is the file replaced
+	if rerr != nil {
+		return fmt.Errorf("%s could not be read (%v); not overwriting it - fix it first", configPath(), rerr)
+	}
 	if !configNeedsMerge(mine, theirs) {
 		// Fast path: nothing unknown on disk and no concurrent change to a field we left alone,
 		// so our canonical struct bytes are authoritative (C5 byte-identical).
@@ -345,14 +487,23 @@ func toRawConfig(c config) map[string]json.RawMessage {
 	return m
 }
 
-// readRawConfig reads the on-disk config as a per-key raw-JSON map; a missing or corrupt file
-// yields an empty map (best-effort: the corrupt case is handled by loadConfig's C4 backup).
-func readRawConfig(path string) map[string]json.RawMessage {
+// readRawConfigErr reads the on-disk config as a per-key raw-JSON map. A missing file is
+// empty; a file it cannot read or parse is an error, and saveConfig then refuses to replace it.
+// (A file already corrupt at load is renamed aside by loadConfig first, C4, so this catches one
+// that became unreadable or corrupt after load.)
+func readRawConfigErr(path string) (map[string]json.RawMessage, error) {
 	m := map[string]json.RawMessage{}
-	if b, err := os.ReadFile(path); err == nil {
-		_ = json.Unmarshal(b, &m)
+	b, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return m, nil
+		}
+		return m, err
 	}
-	return m
+	if err := json.Unmarshal(b, &m); err != nil {
+		return m, fmt.Errorf("not valid JSON: %w", err)
+	}
+	return m, nil
 }
 
 // knownConfigKeys is the set of JSON keys the `config` struct owns (including omitempty fields,
@@ -495,31 +646,96 @@ func agentSlugStation(s string) string { return agent.SlugStation(s) }
 
 // tuiLimits builds the TUI spend-limit store from the config, with a Save
 // callback that persists edits back to config.json (the TUI owns no I/O).
+
+// toTUILimit / fromTUILimit carry EVERY key of a limit across the TUI boundary: a key left
+// out here is erased from config.json by the next [4] CONFIG edit.
+func toTUILimit(l Limit) tui.Limit {
+	return tui.Limit{MaxIn: l.MaxIn, MaxOut: l.MaxOut, MinTPS: l.MinTPS, Quants: l.Quants, Pref: l.Pref,
+		MaxCost: l.MaxCost, Require: l.Require, ParamsB: l.ParamsB, MinCtx: l.MinCtx, MaxTTFTMs: l.MaxTTFTMs,
+		TrustMin: l.TrustMin, SelfHosted: l.SelfHosted, Region: l.Region}
+}
+
+func fromTUILimit(l tui.Limit) Limit {
+	return Limit{MaxIn: l.MaxIn, MaxOut: l.MaxOut, MinTPS: l.MinTPS, Quants: l.Quants, Pref: l.Pref,
+		MaxCost: l.MaxCost, Require: l.Require, ParamsB: l.ParamsB, MinCtx: l.MinCtx, MaxTTFTMs: l.MaxTTFTMs,
+		TrustMin: l.TrustMin, SelfHosted: l.SelfHosted, Region: l.Region}
+}
+
+// mergeLimitFields applies to fresh (the row as config.json holds it now) only the fields the
+// booth changed since base, so a concurrent roger set-limit on another field of the same row
+// is kept.
+func mergeLimitFields(fresh, base, booth tui.Limit) tui.Limit {
+	f, b, n := reflect.ValueOf(&fresh).Elem(), reflect.ValueOf(base), reflect.ValueOf(booth)
+	for i := 0; i < n.NumField(); i++ {
+		if !reflect.DeepEqual(b.Field(i).Interface(), n.Field(i).Interface()) {
+			f.Field(i).Set(n.Field(i))
+		}
+	}
+	return fresh
+}
+
 func tuiLimits(cfg config) *tui.LimitStore {
 	models := map[string]tui.Limit{}
 	for m, l := range cfg.Limits.Models {
-		models[m] = tui.Limit{MaxIn: l.MaxIn, MaxOut: l.MaxOut, MinTPS: l.MinTPS, Quants: l.Quants}
+		models[m] = toTUILimit(l)
 	}
 	typ := cfg.Limits.TypicalOutTok
 	if typ <= 0 {
 		typ = 800
 	}
-	return &tui.LimitStore{
+	ls := &tui.LimitStore{
 		Models:     models,
-		Default:    tui.Limit{MaxIn: cfg.Limits.Default.MaxIn, MaxOut: cfg.Limits.Default.MaxOut, MinTPS: cfg.Limits.Default.MinTPS},
+		Default:    toTUILimit(cfg.Limits.Default),
 		TypicalOut: typ,
-		Save: func(tm map[string]tui.Limit, def tui.Limit) {
-			c := loadConfig()
-			c.Limits.Models = map[string]Limit{}
-			for m, l := range tm {
-				c.Limits.Models[m] = Limit{MaxIn: l.MaxIn, MaxOut: l.MaxOut, MinTPS: l.MinTPS, Quants: l.Quants}
-			}
-			// Quants carried too: a default rule that survived a save without its quant
-			// list would silently stop binding on the next launch.
-			c.Limits.Default = Limit{MaxIn: def.MaxIn, MaxOut: def.MaxOut, MinTPS: def.MinTPS, Quants: def.Quants}
-			_ = saveConfig(c)
-		},
+		Profiles:   client.NewProfileStore(""), // config.json's profiles, re-read on change
 	}
+	// The booth writes only what it changed since its last save (against this baseline), onto
+	// the config read under the lock: a limit another roger process set meanwhile, on any
+	// other model or the default, is kept rather than overwritten by the booth's older copy.
+	baseModels := map[string]tui.Limit{}
+	for m, l := range models {
+		baseModels[m] = l
+	}
+	baseDef := toTUILimit(cfg.Limits.Default)
+	ls.Save = func(tm map[string]tui.Limit, def tui.Limit) { // runs with ls's lock held
+		release, err := acquireConfigLock() // held across load, edit and save
+		if err != nil {
+			ls.ReportSaveErr(err)
+			return
+		}
+		defer release()
+		c := loadConfig()
+		if c.Limits.Models == nil {
+			c.Limits.Models = map[string]Limit{}
+		}
+		for m, l := range tm { // added or changed in the booth: only the changed fields
+			if b, had := baseModels[m]; !had || !reflect.DeepEqual(b, l) {
+				merged := mergeLimitFields(toTUILimit(c.Limits.Models[m]), baseModels[m], l)
+				c.Limits.Models[m] = fromTUILimit(merged)
+				tm[m] = merged // the booth routes on what was saved
+			}
+		}
+		for m := range baseModels { // cleared in the booth
+			if _, still := tm[m]; !still {
+				delete(c.Limits.Models, m)
+			}
+		}
+		if !reflect.DeepEqual(def, baseDef) {
+			def = mergeLimitFields(toTUILimit(c.Limits.Default), baseDef, def)
+			c.Limits.Default = fromTUILimit(def)
+			ls.Default = def
+		}
+		if err := saveConfigLocked(c); err != nil {
+			ls.ReportSaveErr(err) // the booth says so on its next tick
+			return
+		}
+		baseModels = map[string]tui.Limit{}
+		for m, l := range tm {
+			baseModels[m] = l
+		}
+		baseDef = def
+	}
+	return ls
 }
 
 // tuiHooks supplies the host bits the TUI can't compute (the broadcast station, HW,
@@ -528,6 +744,16 @@ func tuiLimits(cfg config) *tui.LimitStore {
 func tuiHooks(cfg config) tui.Hooks {
 	sessionStore := session.NewStore(session.DefaultDir())
 	h := tui.Hooks{
+		// THE SAME `roger model` the CLI and the console run (modelweb.go).
+		Models: modelWebHooks(cfg),
+		// A LAN station started here says which file each model roger serves is, as `roger share` does.
+		StationFiles: stationFiles,
+		// A screen that is open is a request to scan (edgescan.go, scan_on_request.feature).
+		EdgeScan: func(kind string) func() { return edgeScans.Begin(scanKind(kind)) },
+		// ...and the same request carried to a member (edgeservecontrol.go).
+		EdgeServeModel: edgeServeModelHook,
+		// The owner's side of joining, from the same code the CLI runs (ownerjoin.go).
+		Owner: ownerJoinHooks(),
 		// Station is the PUBLIC, NON-SENSITIVE callsign the TUI derives every band's node
 		// id from (`<station>-<model>`). It is the saved/auto-generated station, NEVER the
 		// hostname, so going on air in the TUI leaks no machine name or port. SaveStation
@@ -587,6 +813,12 @@ func tuiHooks(cfg config) tui.Hooks {
 			c.Prices[model] = sp
 			_ = saveConfig(c)
 		},
+		// Persist a model's declared taxonomy (share_meta); an empty one removes it.
+		SaveMeta: func(model string, t protocol.Taxonomy) {
+			c := loadConfig()
+			setShareMeta(&c, model, t)
+			_ = saveConfig(c)
+		},
 		// Persist the per-model auto-start decision beside its price (share_prices), so
 		// the models an operator chose come back on air at the next launch. Merges for
 		// the same reason SavePrice does.
@@ -615,6 +847,8 @@ func tuiHooks(cfg config) tui.Hooks {
 		// Seed + persist the windowshade compact-mode choice so [m] sticks across launches
 		// (the host owns the config write; the TUI does no disk I/O).
 		Compact: cfg.Compact,
+		// The welcome card's one write: welcome_seen and nothing else.
+		SaveWelcomeSeen: saveWelcomeSeen,
 		SaveCompact: func(on bool) {
 			c := loadConfig()
 			c.Compact = on
@@ -711,6 +945,7 @@ func tuiHooks(cfg config) tui.Hooks {
 			}
 		}
 	}
+	h.SavedMeta = cfg.Meta
 	// Seed each model's saved voice identity (share_voices) so the on-air offer carries
 	// the operator's dj name / voice / speed / language / sample_url without a BOOTH pass.
 	if len(cfg.Voices) > 0 {
@@ -718,6 +953,19 @@ func tuiHooks(cfg config) tui.Hooks {
 		for mdl, v := range cfg.Voices {
 			h.SavedVoices[mdl] = tui.VoiceConfig{Name: v.Name, Voice: v.Voice, Speed: v.Speed, Language: v.Language, SampleURL: v.SampleURL}
 		}
+	}
+	if cfg.lan.LAN {
+		h.LANTowers = func() []string { return lanTowerBases(cfg) } // none under edge-only
+		h.LANEdgeOnly = cfg.lan.EdgeOnly
+		h.LANAddTower = func(addr string) (string, error) {
+			var out strings.Builder
+			err := lanAddTo(&out, []string{addr})
+			return strings.TrimSpace(out.String()), err
+		}
+	} else if base, ok := brokerTower(cfg); ok {
+		// A broker setting that is a standalone Tower is served the way headless `roger share`
+		// serves it (features/lan/regressions.feature): poll it, never register with it.
+		h.LANTowers = func() []string { return []string{base} }
 	}
 	return h
 }
@@ -774,6 +1022,13 @@ var (
 )
 
 func main() {
+	// `roger tower ...` is the Tower operator's command set (internal/towercli). It runs before
+	// anything of roger's own starts - config, keys, update checks - because a Tower host may
+	// never have run roger, and a standalone serve must construct nothing it does not need.
+	if len(os.Args) > 1 && os.Args[1] == "tower" {
+		towercli.Platform = towerPlatform()
+		os.Exit(towercli.Run(os.Args[2:], os.Stdout, os.Stderr))
+	}
 	err := run(os.Args[1:], loadConfig())
 	if errors.Is(err, tui.ErrRestart) {
 		// The in-TUI upgrade finished and the user chose "restart now": re-exec the
@@ -786,7 +1041,9 @@ func main() {
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(1)
+		// 2 for a usage mistake, 1 for a real failure - so a script can tell the two
+		// apart, and tell both from an empty-but-working answer (0).
+		os.Exit(exitCode(err))
 	}
 }
 
@@ -796,7 +1053,7 @@ func main() {
 // or dispatches a subcommand. It returns an error instead of calling os.Exit so a test
 // can drive every branch; main() owns turning that error into a stderr line + exit 1.
 func run(argv []string, cfg config) error {
-	tui.SetVersion(Version)                // help/about surfaces match `roger version`
+	tui.SetVersion(buildinfo.Version)      // help/about surfaces match `roger version`
 	tui.SetPalette(paletteFromConfig(cfg)) // point the lamp/mono color switch from config+ROGER_PALETTE
 	tui.SetDeck(deckFromConfig(cfg))       // and the painted deck ground from config+ROGER_DECK
 	// Sweep a leftover binary from a prior Windows self-update (the locked .old that
@@ -804,11 +1061,25 @@ func run(argv []string, cfg config) error {
 	update.CleanupOld()
 	// A subtle, cached (~daily), non-blocking update banner. Computed once here so
 	// the TUI does no network at startup; the cache refreshes in the background.
-	notice := update.CachedNotice(Version)
+	notice := update.CachedNotice(buildinfo.Version)
 	// Global browser-console flags (--no-webui / --webui / --webui-port=N) are not
 	// subcommands; strip them here so the dispatcher reads the real command, and resolve
 	// whether the console comes up (ON by default; saved config or --no-webui opts out).
 	rest, webuiOn, webuiPort := stripWebuiFlags(argv, cfg.webuiEnabled(), defaultWebuiPort)
+	// A damaged identity key is refused before anything signs, with the one message naming its
+	// path; it is never replaced (features/packaging/one_binary.feature section 7.5).
+	if err := checkIdentityKeys(); err != nil {
+		return err
+	}
+	// LAN mode is decided ONCE here, from flag, then environment, then config.
+	rest, cfg, err := decideLAN(rest, cfg)
+	if err != nil {
+		return err
+	}
+	// A broker setting that is a standalone Tower is folded into lan_towers once, so LAN Tower
+	// discovery reads one list. Under edge-only it is not even probed (no Tower is contacted).
+	cfg = foldBrokerTower(cfg, os.Stderr)
+	installLANRelay(cfg)
 	// Global approval-mode flags (--yolo / --perms <mode>) apply to this run only;
 	// with no flag, a persisted `roger perms` default seeds the env the TUI reads.
 	rest, permsFlag, err := stripPermsFlags(rest)
@@ -817,32 +1088,60 @@ func run(argv []string, cfg config) error {
 	}
 	applyPermsDefault(permsFlag, cfg.AgentPerms)
 	applyAgentTimeoutDefault(cfg.AgentTimeoutSeconds)
+	// A spawned Edge agent runs HEADLESS (no TUI), before any of the interactive setup below.
+	if len(rest) == 1 && rest[0] == edgeAgentRunArg {
+		return runEdgeAgent(cfg)
+	}
+	if len(rest) == 0 && launchTUIForTest != nil {
+		return launchTUIForTest(cfg)
+	}
 	if len(rest) == 0 {
 		// Tube warm-up boot (design overhaul §5.6): the ROGER·AI set glows up ONCE per
 		// version - the first-ever run and after an upgrade, never an ordinary re-launch.
 		// tui.PlayBoot self-skips under quiet / NO_COLOR; we stamp last_seen_version either
 		// way so it plays at most once for this build.
-		if bootShouldPlay(cfg.LastSeenVersion, Version) {
-			tui.PlayBoot(os.Stdout, time.Sleep)
-			cfg.LastSeenVersion = Version
-			_ = saveConfig(cfg)
-		}
-		// First run: a tiny guided wizard (consume vs share, free vs earn) before the
-		// app. Non-interactive / already-onboarded runs skip it and launch straight in.
-		cfg = maybeOnboard(cfg)
+		// The first-ever run opens the TUI with the one-time welcome card (tuiLaunch decides
+		// it after the boot); nothing runs before the TUI any more.
 		// no args -> launch the interactive radio TUI with the in-TUI flow hooks, plus the
 		// browser console (unless disabled) over the SAME shared node controller, so a
 		// change in either front-end shows up in the other.
-		hooks := tuiHooks(cfg)
+		var hooks tui.Hooks
+		cfg, hooks = tuiLaunch(cfg, interactive(), func() { tui.PlayBoot(os.Stdout, time.Sleep) })
+		// ROGER EDGE: give [3] EDGE this machine's real fleet - the one `roger edge`
+		// keeps - and start LAN discovery on its own goroutine behind it. Nothing here
+		// blocks the launch, and ROGERAI_EDGE_DISCOVERY=0 starts nothing at all.
+		stopEdge := startEdge(&hooks)
+		defer stopEdge()
 		ctrl := tui.NewController(cfg.Broker, hooks)
+
+		// This roger's bands on air feed its Edge registration (edgeinstance.go): the
+		// household says what each process is really serving.
+		edgeAttachOnAir(func() []string {
+			var out []string
+			for _, r := range ctrl.Snapshot().Rows {
+				if r.Link == "on-air" {
+					out = append(out, r.Model)
+				}
+			}
+			return out
+		})
+
+		// The peer-serving upstream: a model this process has on air is served to Edge
+		// peers from the same backend the market uses (features/edge/local_inference.feature).
+		edgeAttachUpstream(func(band string) (string, string, bool) { return ctrl.ServeUpstreamFor(band) })
+		edgeSpeechOf = ctrl.ServeSpeechFor
+
+		// The dispatch ladder: the booth tries a peer on this Edge before the market
+		// (features/edge/local_inference.feature), the same wiring `roger use` gets.
+		hooks.EdgeLadder = frontEndLadder(cfg)
 		// ONE limit store for BOTH front-ends. Built here rather than at the runTUI call so
-		// the console gets the same pointer - the browser's spend table and [3] CONFIG are
+		// the console gets the same pointer - the browser's spend table and [4] CONFIG are
 		// two views of one setting, and two stores would silently diverge.
 		limits := tuiLimits(cfg)
 		if webuiOn {
 			// The console URL rides into the TUI so `w` / /webui open it on demand
 			// (the console itself no longer auto-opens a browser by default).
-			hooks.ConsoleURL = startWebConsoleFn(cfg, ctrl, webuiPort, limits)
+			hooks.ConsoleURL = startWebConsoleFn(cfg, ctrl, webuiPort, limits, &hooks)
 		}
 		return runTUI(cfg.Broker, cfg.User, limits, notice, hooks, ctrl)
 	}
@@ -858,8 +1157,16 @@ func run(argv []string, cfg config) error {
 			fmt.Fprintln(os.Stderr, notice)
 		}
 	}
-	return dispatch(cfg, rest)
+	noteLAN(cfg, rest[0])
+	return runDispatch(cfg, rest)
 }
+
+// runDispatch and launchTUIForTest are run()'s test seams: a runner observes the decided
+// config (the LAN mode above all) on the real run() path without dialing or opening a TUI.
+var (
+	runDispatch      = dispatch
+	launchTUIForTest func(cfg config) error
+)
 
 // detectFull / detectProbeKey are behaviour-preserving seams over the local-LLM
 // detector (default detect.DetectFull / detect.ProbeKey). Production calls the real
@@ -879,6 +1186,17 @@ var errUnknownCommand = fmt.Errorf("unknown command")
 // dispatch routes a parsed argv (args[0] is the subcommand, args[1:] its arguments) to
 // the matching handler and returns its error. main() owns the process-exit; this owns
 // only the routing, so a test can drive every verb.
+// checkIdentityKeys refuses a damaged node.key or user.key (keyfile.Check); a missing one is
+// created when first needed.
+func checkIdentityKeys() error {
+	for _, p := range []string{agent.NodeKeyPath(), client.UserKeyPath()} {
+		if err := keyfile.Check(p); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func dispatch(cfg config, args []string) error {
 	if len(args) == 0 {
 		usage()
@@ -886,7 +1204,16 @@ func dispatch(cfg config, args []string) error {
 	}
 	switch args[0] {
 	case "search", "discover", "models":
+		if cfg.lan.LAN {
+			return cmdLANSearch(cfg, args[1:])
+		}
 		return client.Search(cfg.Broker)
+	case "lan":
+		return cmdLAN(cfg, args[1:])
+	case "join":
+		return cmdJoin(cfg, args[1:])
+	case "status":
+		return cmdStatus(cfg, args[1:])
 	case "balance":
 		return cmdBalance(cfg, args[1:])
 	case "account", "identity":
@@ -903,7 +1230,7 @@ func dispatch(cfg config, args []string) error {
 		return cmdUse(cfg, args[1:])
 	case "say", "speak":
 		return cmdSay(cfg, args[1:])
-	case "remote", "rc":
+	case "remote", "rc", "remote-control":
 		return cmdRemote(cfg, args[1:])
 	case "resume", "continue":
 		return cmdResume(cfg, args[1:])
@@ -915,6 +1242,8 @@ func dispatch(cfg config, args []string) error {
 		return cmdPerms(cfg, args[1:])
 	case "limits":
 		return cmdConfig(append([]string{"limits"}, args[1:]...))
+	case "profile", "profiles":
+		return cmdProfile(args[1:])
 	case "limit":
 		return cmdLimit(cfg, args[1:])
 	case "payout", "payouts", "cashout":
@@ -927,6 +1256,12 @@ func dispatch(cfg config, args []string) error {
 		return cmdWebui(cfg, args[1:])
 	case "grant":
 		return cmdGrant(cfg, args[1:])
+	case "model":
+		return cmdModel(cfg, args[1:])
+	case "edge":
+		return cmdEdge(cfg, args[1:])
+	case "keys":
+		return cmdKeys(cfg, args[1:])
 	case "context":
 		return cmdContext(cfg, args[1:])
 	case "onboard", "setup":
@@ -950,22 +1285,8 @@ func dispatch(cfg config, args []string) error {
 		// animation can be re-watched (and its timing tuned) without touching config.
 		tui.PlayBoot(os.Stdout, time.Sleep)
 		return nil
-	case "tower", "roger-tower":
-		// "unknown command" is a useless answer to a word this product uses for a real
-		// thing. Running a Tower is a different binary; being CARRIED by one needs no
-		// command at all any more, which is the part worth saying out loud.
-		return fmt.Errorf(`%w %q.
-
-To RUN a Tower (the relay itself) use the separate roger-tower binary:
-    curl -fsSL https://rogerai.fm/install.sh | ROGERAI_COMPONENT=tower sh
-    roger-tower init --dir /var/lib/roger-tower --mode joined
-    roger-tower register && roger-tower serve --hub :8444
-
-To SERVE YOUR MODEL THROUGH a Tower (you are a station, not the relay):
-    roger share          # nothing extra - a share reaches the relay fabric on its own`,
-			errUnknownCommand, args[0])
-	case "version":
-		fmt.Printf("roger %s\n", Version)
+	case "version", "--version":
+		fmt.Printf("roger %s\n", buildinfo.Version)
 		return nil
 	case "-h", "--help", "help":
 		usage()
@@ -991,59 +1312,17 @@ func cmdSupport() error {
 	return nil
 }
 
-func cmdUse(cfg config, args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: roger use <model> [--max-out $] [--advanced]")
+// useKeyNote is the connect plate's KEY line for the account key a session relays with: its
+// hint (never the key) and where it came from.
+func useKeyNote(useKey, saved string, fromFlag bool) string {
+	hint := "..." + useKey[len(useKey)-4:]
+	switch {
+	case useKey == saved:
+		return "saved key " + hint + " in use (roger use --forget-key to clear)"
+	case fromFlag:
+		return "account key " + hint + " from --key"
 	}
-	// The model is the first positional; flags follow it. (Go's flag package stops
-	// at the first non-flag arg, so we pull the model out before parsing.)
-	model := args[0]
-	fs := flag.NewFlagSet("use", flag.ExitOnError)
-	// The headline cap, in everyone's face.
-	maxOut := fs.Float64("max-out", -1, "cap: skip stations above this $/1M OUTPUT price (the headline cap); 0 = no cap")
-	// Advanced - defaulted and tucked away (CLI-SIMPLICITY-AUDIT C7). --port 0 =
-	// auto-pick a free port; --max-in is the rare input-heavy cap (C1 drops the
-	// --max-price alias entirely).
-	advanced := fs.Bool("advanced", false, "show advanced flags (--port --max-in --min-tps --confidential --yes --raw)")
-	port := fs.Int("port", 0, "local endpoint port (0 = auto-pick a free one)")
-	confidential := fs.Bool("confidential", false, "route only to confidential (TEE-attested) nodes")
-	maxIn := fs.Float64("max-in", -1, "cap: skip stations above this $/1M INPUT price; 0 = no cap")
-	minTPS := fs.Float64("min-tps", -1, "require at least this measured throughput (tok/s); 0 = no floor")
-	yes := fs.Bool("yes", false, "skip the connect-time confirm (for scripts / Hermes / bots)")
-	freq := fs.String("freq", "", "tune in to a PRIVATE band by its frequency code, e.g. \"147.520 MHz 8F3K-9M2Q\" (the code is what matters; cosmetic part optional)")
-	// --raw disables the reasoning->content fallback for this session (raw provider body).
-	// Default off = fallback ON (an empty-content reasoning reply is surfaced as content).
-	// ROGERAI_REASONING_RAW=1 does the same via the environment (client.Use ORs them).
-	raw := fs.Bool("raw", false, "raw passthrough: disable the reasoning->content fallback for this session")
-	fs.Parse(args[1:])
-	if *advanced {
-		fmt.Println("advanced flags: --port --max-in --min-tps --confidential --yes --raw")
-	}
-	// Start from the resolved per-model limit (or Default), then let flags override
-	// it for this session. -1 sentinel = flag not passed (keep the stored limit).
-	lim, typical := cfg.resolve(model)
-	if *maxIn >= 0 {
-		lim.MaxIn = *maxIn
-	}
-	if *maxOut >= 0 {
-		lim.MaxOut = *maxOut
-	}
-	if *minTPS >= 0 {
-		lim.MinTPS = *minTPS
-	}
-	useport := *port
-	if useport == 0 {
-		p, err := freePort(4141) // auto-pick + the endpoint line prints the chosen port
-		if err != nil {
-			return err
-		}
-		useport = p
-	}
-	return client.Use(cfg.Broker, cfg.User, model, client.UseOptions{
-		Port: useport, Confidential: *confidential,
-		MaxIn: lim.MaxIn, MaxOut: lim.MaxOut, MinTPS: lim.MinTPS,
-		TypicalOut: typical, Yes: *yes, Freq: strings.TrimSpace(*freq), Raw: *raw,
-	})
+	return "account key " + hint + " from ROGER_KEY"
 }
 
 // shareModelArg pulls an optional LEADING positional model token out of `share`'s
@@ -1123,8 +1402,21 @@ func cmdShare(cfg config, args []string) error {
 	// `--tower` parsed until the relay fabric stopped being a mode. Answer it with the reason
 	// rather than with flag.ExitOnError's "flag provided but not defined: -tower", which reads
 	// as a broken binary to anybody running a script written a month ago.
+	// `roger share --tower <invite>` joins the Tower as a Station first, then shares to it.
+	args, err := shareTowerInvite(&cfg, args)
+	if err != nil {
+		return err
+	}
 	if err := refusedTowerFlag(args); err != nil {
 		return err
+	}
+	if cfg.lan.LAN {
+		// LAN sharing is free and serves the LAN only: refuse the network-only flags with the
+		// reason, and ignore a saved earn price (it would otherwise demand a login to earn).
+		if why := lanShareRefusal(args); why != "" {
+			return errors.New(why)
+		}
+		defIn, defOut = 0, 0
 	}
 	posModel, rest := shareModelArg(args)
 	defModelFlag := defModel
@@ -1183,8 +1475,9 @@ func cmdShare(cfg config, args []string) error {
 	curated := fs.String("curated", "", "declare this station a CURATED proxy for the named commercial provider (e.g. openrouter). Requires an explicit --upstream (the commercial endpoint); declare its list via --upstream-price-in/out (zero = a free upstream). The broker posts list + its routing markup and settles back your list plus half the routing fee. Verification: one canary at registration earns the check mark, then a minimal weekly recheck - billed to your upstream, typically under a cent a month per band")
 	upIn := fs.Float64("upstream-price-in", 0, "curated: the upstream's list $/1M input the broker derives the posted price from")
 	upOut := fs.Float64("upstream-price-out", 0, "curated: the upstream's list $/1M output")
+	meta := addShareMetaFlags(fs)
 	probeMin := fs.Duration("probe-min", 0, probeMinUsage)
-	advanced := fs.Bool("advanced", false, "show advanced flags (--node --region --parallel --upstream --modality --ctx --confidential --free-window --schedule --curated --upstream-price-in --upstream-price-out --probe-min)")
+	advanced := fs.Bool("advanced", false, "show advanced flags (--node --region --parallel --upstream --modality --ctx --confidential --free-window --schedule --curated --upstream-price-in --upstream-price-out --probe-min --category --tag --tuning --policy --license --base-model)")
 	fs.Usage = func() {
 		fmt.Print(`roger share - go on air as a provider (auto-detects your local model)
 
@@ -1199,6 +1492,7 @@ func cmdShare(cfg config, args []string) error {
   --private           hidden band, frequency-code only (needs ` + "`roger login`" + `)
   --check             hardware preflight: report and exit (never blocks a share)
   --advanced          reveal: --node --region --parallel --upstream --modality --ctx --confidential --free-window --schedule --curated --upstream-price-in/out --probe-min
+                      and the model taxonomy: --category --tag --tuning --policy --license --base-model
 
 Earning needs a GitHub-linked owner: run ` + "`roger login`" + ` first. Free sharing
 needs no login. When you earn, payouts are a 30-day hold (10% reserved to day 90), $25 min, monthly.
@@ -1218,7 +1512,7 @@ needs no login. When you earn, payouts are a 30-day hold (10% reserved to day 90
 		return fmt.Errorf("--probe-min %s: %v", *probeMin, err)
 	}
 	if *advanced {
-		fmt.Println("advanced flags: --node --region --parallel --upstream --upstream-key --modality --ctx --confidential --free-window --schedule --curated --upstream-price-in --upstream-price-out --probe-min")
+		fmt.Println("advanced flags: --node --region --parallel --upstream --upstream-key --modality --ctx --confidential --free-window --schedule --curated --upstream-price-in --upstream-price-out --probe-min --category --tag --tuning --policy --license --base-model")
 	}
 	// EARN login-gate, UP FRONT (mirrors the --private pre-check below): a priced share
 	// 401s at the broker if the owner is not GitHub-linked. Fail FAST here - before any
@@ -1273,19 +1567,29 @@ needs no login. When you earn, payouts are a 30-day hold (10% reserved to day 90
 	// A saved upstream key belongs to the SAVED endpoint: reuse it on a bare re-share
 	// (or an explicit --upstream pointing at that same endpoint), but NEVER default it
 	// onto a DIFFERENT --upstream - that would send a stale bearer to another server.
+	savedKeyUsed := false // the key came from config, not from the user's --upstream-key
 	if *upKey == "" && savedKey != "" && (up == "" || sameEndpoint(up, savedUp)) {
-		*upKey = savedKey
+		*upKey, savedKeyUsed = savedKey, true
 	}
 	// osaurusBrand records that DETECTION already fingerprinted the resolved upstream as Osaurus
 	// (a real GET / banner match during the scan). It is authoritative and, unlike a fresh probe at
 	// Config time, cannot fail open if the local server is momentarily slow - so the Osaurus-only
 	// hardenings (X-Persist + model-pin) never silently drop out under load. OR-ed with the probe below.
 	osaurusBrand := false
+	var pickedModels []string // the detected server's models, when the share picked one
+	// autoPicked: the model was chosen by detection, not named; it needs a yes before the
+	// public market (marketconsent.go). autoFrom is the server it came from.
+	var autoPicked bool
+	var autoFrom detect.Found
+	// persistUpstream remembers the detected server for next launch. It runs only once the share is
+	// going ahead: a model the operator declined to put on the market leaves nothing behind.
+	persistUpstream := func() {}
 	if up == "" {
 		// Saved keyed upstream: try it WITH its key first (the broad DetectFull scan does
 		// not carry the saved key), so a custom keyed endpoint is reused without a re-prompt.
 		var found []detect.Found
 		var needKey []string
+		guided := false // the operator picked the server in the guided setup
 		if savedUp != "" && *upKey != "" {
 			if f, st := detectProbeKey(savedUp, *upKey); st == detect.Reachable {
 				found = []detect.Found{f}
@@ -1307,6 +1611,7 @@ needs no login. When you earn, payouts are a 30-day hold (10% reserved to day 90
 				return fmt.Errorf("no local LLM detected (tried common hosts including Ollama, LM Studio, Unsloth, llama.cpp, vLLM, Jan, LiteLLM, plus your open ports). Start one, then `roger share`; any other OpenAI-compatible host works with --upstream <url>")
 			}
 			found = []detect.Found{picked}
+			guided = true
 		}
 		// prefer one that serves the requested model; else the first
 		pick := found[0]
@@ -1320,7 +1625,13 @@ needs no login. When you earn, payouts are a 30-day hold (10% reserved to day 90
 			}
 		}
 		up = pick.Chat
+		pickedModels = pick.Models
 		osaurusBrand = pick.Name == "osaurus" // detection's authoritative fingerprint (see above)
+		// The saved key belongs to the saved endpoint. When detection landed somewhere else (the
+		// saved one is gone, say after a restart), that endpoint's own key is the one to send.
+		if savedKeyUsed && !sameEndpoint(pick.BaseURL, savedUp) {
+			*upKey = pick.Key
+		}
 		// A key-protected upstream the detector authenticated to (from env or the guided
 		// paste) carries its working key on the Found; adopt it unless --upstream-key was
 		// given explicitly, so the agent forwards jobs with the same Bearer.
@@ -1329,6 +1640,7 @@ needs no login. When you earn, payouts are a 30-day hold (10% reserved to day 90
 		}
 		if mdl == "" && len(pick.Models) > 0 {
 			mdl = pick.Models[0]
+			autoPicked, autoFrom = !guided, pick
 		}
 		// tts/stt/chat for the model we're about to share. A BARE voice server (Kokoro/Whisper,
 		// no /v1/models) synthesizes one offer under a default id; if the operator renamed it with
@@ -1350,15 +1662,18 @@ needs no login. When you earn, payouts are a 30-day hold (10% reserved to day 90
 		// guided-fallback / key-protected endpoint is not re-hunted or re-prompted next
 		// launch (the (e) saved-config source).
 		if shouldPersistShareUpstream(foundModality, pick.BaseURL, savedUp, *upKey, cfg.Share) {
-			c := loadConfig()
-			if c.Share == nil {
-				c.Share = &Share{}
+			base, key := pick.BaseURL, *upKey
+			persistUpstream = func() {
+				c := loadConfig()
+				if c.Share == nil {
+					c.Share = &Share{}
+				}
+				if base != "" {
+					c.Share.Upstream = base
+				}
+				c.Share.UpstreamKey = key
+				_ = saveConfig(c)
 			}
-			if pick.BaseURL != "" {
-				c.Share.Upstream = pick.BaseURL
-			}
-			c.Share.UpstreamKey = *upKey
-			_ = saveConfig(c)
 		}
 	} else if *upKey == "" {
 		// Explicit --upstream with no key resolved: best-effort harvest a working key
@@ -1488,7 +1803,7 @@ needs no login. When you earn, payouts are a 30-day hold (10% reserved to day 90
 	// advertised class and the operator's own report from ever describing two different
 	// machines, and it saves shelling out to nvidia-smi a second time.
 	pre := sharePreflight()
-	if line := shareAdvisory(pre); line != "" {
+	if line := shareAdvisoryFor(cfg.lan.LAN, pre); line != "" {
 		fmt.Println(line)
 	}
 	// Osaurus shares Jan's :1337 and needs two relay hardenings (X-Persist + model-pin). Decide
@@ -1516,15 +1831,68 @@ needs no login. When you earn, payouts are a 30-day hold (10% reserved to day 90
 	// language / sample_url + default voice/speed) rides the headless offer exactly as it
 	// does the TUI's, explicit flags winning.
 	applyShareVoice(cfg, mdl, &cfgRun)
+	// A standalone Tower's poll says what this station serves now (features/join/invite.feature).
+	cfgRun.StationModels = stationServing(up, *upKey, mdl, pickedModels, cfg.StationOffer.orZero())
+	cfgRun.StationFiles = stationFiles
+	if cfg.lan.LAN && cfg.StationOffer != nil {
+		withStationRoutes(&cfgRun, stationRoutes(*cfg.StationOffer, up))
+	}
+
+	// The declared taxonomy (flags, else the saved share_meta) or, failing both, the guess.
+	// Validated BEFORE anything goes on air: a typo must stop the share, not vanish.
+	tax, metaErr := resolveShareMeta(fs, meta, mdl, foundModality, foundCapabilities)
+	if metaErr != nil {
+		return metaErr
+	}
+	cfgRun.Taxonomy = tax
+
+	// This machine's LAN relay (another roger process, in LAN mode) routes a chat band this
+	// share serves to the share's own upstream, and `roger --lan say` speaks through a voice it
+	// serves: a local, owner-only record, gone when we stop.
+	if (foundModality == "" || foundModality == protocol.ModalityChat || foundModality == protocol.ModalityTTS) && up != "" {
+		rec := onair.Share{PID: os.Getpid(), Band: mdl, ChatURL: roggnode.NormalizeUpstream(up), Key: *upKey}
+		if foundModality == protocol.ModalityTTS {
+			rec.Modality, rec.SpeechURL = protocol.ModalityTTS, roggnode.SpeechURL(up)
+		}
+		if stop, err := onair.WriteShare(rec); err == nil {
+			defer stop()
+		}
+	}
 
 	// A STANDALONE Tower as the broker: serve its own local network directly. A probe of
 	// /local/poll tells a standalone Tower (which answers) apart from the public broker (which
 	// 404s), so `roger share` pointed at a local Tower Just Works - no registration, no relay
 	// fabric, no on-air lock, no login. The node polls the Tower and serves its stations for
 	// free, and returns here only when the operator stops it.
-	if isLocalTowerBroker(cfgRun.Broker) {
-		return serveLocalTowerShare(cfgRun, os.Stdout)
+	if cfg.lan.LAN {
+		persistUpstream() // not the public market: nothing here waits on a market yes
+		return shareLAN(cfg, cfgRun, station, mdl, os.Stdout)
 	}
+	// The broker this share runs against is --broker's when given (cfgRun.Broker), not only the
+	// config's: `roger share --broker http://<tower>` serves that Tower.
+	shareCfg := cfg
+	shareCfg.Broker = cfgRun.Broker
+	if base, ok := brokerTower(shareCfg); ok {
+		fmt.Fprintf(os.Stdout, "this broker is a standalone Tower - serving its local network directly (free, no login).\n")
+		if cfgRun.Upstream == "" {
+			return fmt.Errorf("no local model found to serve: pass --upstream http://127.0.0.1:PORT/v1/chat/completions")
+		}
+		persistUpstream()
+		serveBrokerTower(cfg, cfgRun, base, os.Stdout)
+		fmt.Fprintln(os.Stdout, "\nstopped serving the local network.")
+		return nil
+	}
+
+	// Nothing auto-detected goes on the public market without a yes (founder ruling 2026-10-11).
+	if autoPicked && !*private {
+		if err := confirmMarketOffer(os.Stdout, mdl, autoFrom); err != nil {
+			if errors.Is(err, errNotOffered) {
+				return nil
+			}
+			return err
+		}
+	}
+	persistUpstream()
 
 	// Single-instance guard: detect (via a per-node-id lockfile) a `roger share`
 	// already on air for THIS node id and bow out, rather than double-registering it
@@ -1807,7 +2175,7 @@ ROGERAI_NO_UPDATE_CHECK=1.
 	}
 	fs.Parse(args)
 	if *check {
-		res, err := updateCheck(Version)
+		res, err := updateCheck(buildinfo.Version)
 		if err != nil {
 			fmt.Printf("could not check for updates (offline?): %v\n", err)
 			return nil // never fail the command on a network hiccup
@@ -1819,7 +2187,7 @@ ROGERAI_NO_UPDATE_CHECK=1.
 		}
 		return nil
 	}
-	return updateUpgrade(Version, os.Stdout)
+	return updateUpgrade(buildinfo.Version, os.Stdout)
 }
 
 // updateCheck / updateUpgrade are behaviour-preserving seams over the self-update
@@ -2090,7 +2458,13 @@ func cmdBalance(cfg config, args []string) error {
 		}
 		return client.Topup(cfg.Broker, cfg.User, usd, tui.OpenURL)
 	}
-	return client.Balance(cfg.Broker, cfg.User)
+	if err := client.Balance(cfg.Broker, cfg.User); err != nil {
+		return err
+	}
+	if cfg.lan.LAN {
+		fmt.Println("turns in LAN mode are free and do not touch this balance")
+	}
+	return nil
 }
 
 // balanceTopupAlias recognizes the retired-but-still-working topup spellings under
@@ -2185,7 +2559,7 @@ func cmdAccount(cfg config, args []string) error {
 			return err
 		}
 		fmt.Printf("  node id: %s\n", agent.NodeID())
-		fmt.Printf("    (serving a standalone Tower? its operator attaches this node: `roger-tower attach --key <node id>`)\n")
+		fmt.Printf("    (serving a standalone Tower? its operator attaches this node: `roger tower attach --key <node id>`)\n")
 		return nil
 	}
 	if len(args) == 0 {
@@ -2222,15 +2596,24 @@ func cmdConfig(args []string) error {
 		return nil
 	case "set-limit":
 		return cmdSetLimit(args[1:])
+	case "show":
+		return cmdConfigShow(args[1:])
 	case "clear-limit":
 		if len(args) < 2 {
-			return fmt.Errorf("usage: roger config clear-limit <model>")
+			return fmt.Errorf("usage: roger config clear-limit <model|default>")
 		}
+		release, err := acquireConfigLock() // held across load, edit and save
+		if err != nil {
+			return err
+		}
+		defer release()
 		c := loadConfig()
-		if c.Limits.Models != nil {
+		if args[1] == "default" { // limits.default, the rule every band inherits
+			c.Limits.Default = Limit{}
+		} else if c.Limits.Models != nil {
 			delete(c.Limits.Models, args[1])
 		}
-		if err := saveConfig(c); err != nil {
+		if err := saveConfigLocked(c); err != nil {
 			return err
 		}
 		fmt.Printf("cleared limit for %s\n", args[1])
@@ -2260,9 +2643,19 @@ func cmdConfig(args []string) error {
 			return nil
 		}
 		fmt.Printf("broker = %s\nuser   = %s\n", c.Broker, c.User)
+	case "unset":
+		if len(args) < 2 || args[1] != "mode" {
+			return fmt.Errorf("usage: roger config unset mode")
+		}
+		c := loadConfig()
+		c.Mode = ""
+		if err := saveConfig(c); err != nil {
+			return err
+		}
+		fmt.Println("unset mode (the default mode is back)")
 	case "set":
 		if len(args) < 3 {
-			return fmt.Errorf("usage: roger config set <broker|user|webui-open|palette|agent-timeout> <value>")
+			return fmt.Errorf("usage: roger config set <broker|user|webui-open|palette|agent-timeout|mode> <value>")
 		}
 		c := loadConfig()
 		switch args[1] {
@@ -2300,6 +2693,13 @@ func cmdConfig(args []string) error {
 				return err
 			}
 			c.AgentTimeoutSeconds = seconds
+		case "mode":
+			// The sticky run mode (features/lan/launch_and_config.feature): lan, or default.
+			m, err := lanmode.ConfigMode(args[2])
+			if err != nil {
+				return err
+			}
+			c.Mode = m
 		default:
 			return fmt.Errorf("unknown key %q", args[1])
 		}
@@ -2309,93 +2709,6 @@ func cmdConfig(args []string) error {
 		fmt.Printf("set %s = %s\n", args[1], args[2])
 	}
 	return nil
-}
-
-// cmdSetLimit handles `roger config set-limit <model> [--max-in P] [--max-out P]
-// [--min-tps N]`. Use "default" as the model to set the fallback limit. Only the
-// flags passed are changed (the rest of that model's limit is preserved).
-func cmdSetLimit(args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: roger config set-limit <model|default> [--max-in P] [--max-out P] [--min-tps N]")
-	}
-	// The model is the first positional; flags follow it. (Go's flag package stops
-	// at the first non-flag arg, so we pull the model out before parsing.)
-	model := args[0]
-	fs := flag.NewFlagSet("set-limit", flag.ExitOnError)
-	maxIn := fs.Float64("max-in", -1, "$/1M input price cap (0 = no cap)")
-	maxOut := fs.Float64("max-out", -1, "$/1M output price cap (the headline cap; 0 = no cap)")
-	minTPS := fs.Float64("min-tps", -1, "min throughput floor in tok/s (0 = no floor)")
-	fs.Parse(args[1:])
-	c := loadConfig()
-	var cur Limit
-	if model == "default" {
-		cur = c.Limits.Default
-	} else if c.Limits.Models != nil {
-		cur = c.Limits.Models[model]
-	}
-	if *maxIn >= 0 {
-		cur.MaxIn = *maxIn
-	}
-	if *maxOut >= 0 {
-		cur.MaxOut = *maxOut
-	}
-	if *minTPS >= 0 {
-		cur.MinTPS = *minTPS
-	}
-	if model == "default" {
-		c.Limits.Default = cur
-	} else {
-		if c.Limits.Models == nil {
-			c.Limits.Models = map[string]Limit{}
-		}
-		c.Limits.Models[model] = cur
-	}
-	if err := saveConfig(c); err != nil {
-		return err
-	}
-	fmt.Printf("set limit for %s: %s\n", model, limitStr(cur))
-	return nil
-}
-
-// limitStr renders a Limit as a compact human line.
-func limitStr(l Limit) string {
-	parts := []string{}
-	if l.MaxOut > 0 {
-		parts = append(parts, fmt.Sprintf("max-out=%g", l.MaxOut))
-	}
-	if l.MaxIn > 0 {
-		parts = append(parts, fmt.Sprintf("max-in=%g", l.MaxIn))
-	}
-	if l.MinTPS > 0 {
-		parts = append(parts, fmt.Sprintf("min-tps=%g", l.MinTPS))
-	}
-	if len(parts) == 0 {
-		return "no caps"
-	}
-	return strings.Join(parts, "  ")
-}
-
-// printLimits shows the spend-limits section (the static 3.4 view) on the CLI.
-func printLimits(c config) {
-	d := c.Limits.Default
-	typ := c.Limits.TypicalOutTok
-	if typ <= 0 {
-		typ = 800
-	}
-	fmt.Printf("limits (typical reply ~%d out tokens):\n", typ)
-	if len(c.Limits.Models) == 0 && d.unset() {
-		fmt.Println("  (none set - no caps; `roger config set-limit <model> --max-out P`)")
-		return
-	}
-	models := make([]string, 0, len(c.Limits.Models))
-	for m := range c.Limits.Models {
-		models = append(models, m)
-	}
-	sort.Strings(models)
-	for _, m := range models {
-		fmt.Printf("  %-22s %s\n", m, limitStr(c.Limits.Models[m]))
-	}
-	fmt.Printf("  %-22s %s\n", "· default (any other)", limitStr(d))
 }
 
 // sameEndpoint reports whether two upstream URLs point at the same server, comparing
@@ -2471,19 +2784,25 @@ func usage() {
   roger --ping                full-screen "Ping World" screensaver (or press z in the app)
   roger search                list models, cheapest first
   roger use <model>           local OpenAI endpoint for your bots  (alias: connect · --max-out $ caps spend)
-  roger voices                list on-air voices, cheapest first
-  roger say --voice <v> "..." speak a line through a voice and play it
+  roger voices                list on-air text-to-speech (TTS) models, cheapest first
+  roger say --voice <v> "..." speak a line through a TTS model and play it
   roger balance               your wallet balance
   roger topup <amt>           add funds to your wallet
   roger limit --monthly $X    cap your spend per calendar month  (0/off = no cap)
+  roger keys                  account API keys for scripts and CI: list · mint · set · rm
   roger perms <mode>          agent tool approvals default: confirm | edits | all
   roger --perms <m> / --yolo  same, for THIS run only (yolo = all)
+  roger model                 serve a model yourself, no other software: search · files · get · serve · stop
+  roger edge                  your fleet: the machines you own (list · describe · name · forget · adopt · scan)
   roger remote                your private remote sessions: list · attach <code> · off · link
-  roger resume [session-id]   resume a saved local AGENT session  (alias: continue)
+  roger resume [session-id]   re-open your last roger session (a saved local AGENT session; alias: continue)
+  roger status                this machine's roger mode and connection
+  roger doctor                this machine's roger health (clock vs broker)
+  roger tower <command>       run a self-hosted relay (a Tower): roger tower help
 
 providers (share a local model):
   roger share <model>         go on air - FREE by default, no login (auto-detects your model)
-  roger login                 link GitHub - only needed to EARN
+  roger login                 sign this machine in to RogerAI (only needed to EARN)
   roger payout                cash out your earnings (status · onboard · request · history)
   roger bands                 your private bands: list · move · new-code · revoke
   roger grant create --name my-bots   a free private key for your bots/family
@@ -2498,3 +2817,7 @@ roger share --advanced, roger grant create --advanced).
 env: ROGER_BROKER, ROGER_USER override config (%s)
 `, configPath())
 }
+
+// towerPlatform is the platform `roger tower` judges itself by (a seam: the tower runner sets it
+// to exercise another platform's refusals from a Linux test process).
+var towerPlatform = func() string { return towercli.Platform }

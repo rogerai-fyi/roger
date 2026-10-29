@@ -9,11 +9,12 @@ package brief
 import (
 	"context"
 	"fmt"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strings"
 	"testing"
 
 	"github.com/cucumber/godog"
-	"rogerai.fm/roger/v6/internal/capsule"
+	"rogerai.fm/roger/v7/internal/capsule"
 )
 
 type briefState struct {
@@ -442,7 +443,7 @@ func TestBriefBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("brief scenarios failed (see godog output above)")
 	}
 }

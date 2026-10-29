@@ -244,11 +244,12 @@ test("the vanity-import redirect is scoped to the apex and preserves the go-get 
 
   const covered = [...paths[1].matchAll(/"([^"]+)"/g)].map((x) => x[1]).sort();
   // Go fetches the FULL module path, suffix included. Covering only /roger would leave
-  // `go install rogerai.fm/roger/v6/...` resolving nothing, which is the whole point.
+  // `go install rogerai.fm/roger/v7/...` resolving nothing, which is the whole point.
   // Sorted, so the majors read in order. The superseded major stays covered: its tags
   // still name it in go.mod, so dropping it would break `go install .../v5/...` for
   // everyone who has not migrated.
-  assert.deepEqual(covered, ["/roger", "/roger/v5", "/roger/v6"]);
+  // The next major is covered before its first tag, so that tag resolves the moment it exists.
+  assert.deepEqual(covered, ["/roger", "/roger/v5", "/roger/v6", "/roger/v7"]);
 
   const from = rule.action_parameters.from_value;
   assert.equal(from.status_code, 301, "a permanent move, so the module path is cacheable");

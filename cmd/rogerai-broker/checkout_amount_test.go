@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"testing"
 
-	"rogerai.fm/roger/v6/internal/client"
+	"rogerai.fm/roger/v7/internal/client"
 )
 
 // int(usd*100) truncates, and binary floats put most decimal cents just under their

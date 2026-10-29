@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -14,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 func TestWithUsageOption(t *testing.T) {
@@ -648,5 +649,56 @@ func TestVariantFieldsReachTheRegisteredOffer(t *testing.T) {
 	// the possession proof, so carrying them must not break the signature.
 	if !got.VerifyRegistration() {
 		t.Error("carrying the variant fields broke the registration signature")
+	}
+}
+
+// THE TAXONOMY REACHES THE OFFER a node registers (MODEL-CATEGORIES-DESIGN-2026-10-05). The
+// share path puts it on agent.Config; it must ride the registration the broker receives, and
+// like the variant fields it is outside the possession proof, so it must not break the sig.
+func TestTaxonomyReachesTheRegisteredOffer(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		tx   protocol.Taxonomy
+	}{
+		{"none", protocol.Taxonomy{}},
+		{"full", protocol.Taxonomy{
+			Category: "vision", Subcategory: "ocr", Tags: []string{"nameplate-ocr", "manufacturing"},
+			Tuning: "finetune", BaseModel: "Qwen/Qwen3-VL-8B-Instruct", ContentPolicy: "aligned",
+			License: "Apache-2.0", TaxonomySource: "declared",
+		}},
+		{"inferred category only", protocol.Taxonomy{Category: "retrieval", Subcategory: "embeddings", TaxonomySource: "inferred"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var got protocol.NodeRegistration
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/nodes/register" {
+					_ = json.NewDecoder(r.Body).Decode(&got)
+					_, _ = w.Write([]byte(`{"ok":true}`))
+					return
+				}
+				w.WriteHeader(http.StatusNotFound)
+			}))
+			defer srv.Close()
+
+			sess, err := Start(Config{
+				Broker: srv.URL, NodeID: "amber-fox-qwen", Station: "amber-fox",
+				Model: "qwen3-vl-8b", Upstream: "http://127.0.0.1:0/v1/chat/completions",
+				Taxonomy: tc.tx,
+			})
+			if err != nil {
+				t.Fatalf("start: %v", err)
+			}
+			defer sess.Stop()
+
+			if len(got.Offers) != 1 {
+				t.Fatalf("the broker received %d offers", len(got.Offers))
+			}
+			if !reflect.DeepEqual(got.Offers[0].Taxonomy, tc.tx) {
+				t.Errorf("taxonomy on the offer = %+v, want %+v", got.Offers[0].Taxonomy, tc.tx)
+			}
+			if !got.VerifyRegistration() {
+				t.Error("carrying the taxonomy broke the registration signature")
+			}
+		})
 	}
 }

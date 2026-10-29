@@ -1,0 +1,4 @@
+error: it did not come on the air within 1s (log: <config>/rogerai/local/serve.log)
+  bartowski/SmolLM2-135M-Instruct-GGUF:Q4_K_M: fits at 8K context by llama.cpp's own check: needs 630.0 MiB, leaving its margin free
+  starting llama.cpp b11146, the cuda build on SmolLM2-135M-Instruct-Q4_K_M.gguf at 8192 context...
+  error: the runtime exited instead of serving: exit status 1

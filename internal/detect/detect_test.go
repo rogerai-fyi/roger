@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // fakeServer mimics an OpenAI-compatible GET /v1/models response.
@@ -23,15 +25,13 @@ func fakeServer(models ...string) *httptest.Server {
 	return httptest.NewServer(mux)
 }
 
-// quietSources makes detection deterministic in a unit test by disabling the
-// env-var and real-listening-port sources, so only the (swapped) probe table is
-// consulted. Returns a restore func.
+// quietSources makes detection deterministic in a unit test by disabling the env-var
+// source, so only the (swapped) probe table is consulted. Returns a restore func.
 func quietSources(t *testing.T) func() {
 	t.Helper()
-	oldEnum, oldEnv := enumPorts, envCands
-	enumPorts = func() []int { return nil }
+	oldEnv := envCands
 	envCands = func() []candidate { return nil }
-	return func() { enumPorts, envCands = oldEnum, oldEnv }
+	return func() { envCands = oldEnv }
 }
 
 // TestProbe exercises the GET /v1/models parsing against a real test server by
@@ -106,37 +106,32 @@ func hostPort(t *testing.T, srvURL string) (host string, port int) {
 	return u.Hostname(), p
 }
 
-// TestDetectFindsCustomPort: a model on a NON-default port (not in the probe
-// table) is still found via real listening-port enumeration - no brute scan, just
-// probing the OS's actual open ports. We simulate the enumerator returning the
-// test server's port.
-func TestDetectFindsCustomPort(t *testing.T) {
+// TestDetectFindsACustomPortOnlyWhenConfigured: a model on a NON-default port (not in the
+// probe table) is not found by looking around this host - detection probes named ports only
+// (founder ruling 2026-10-28) - and is found once its URL is configured.
+func TestDetectFindsACustomPortOnlyWhenConfigured(t *testing.T) {
 	defer quietSources(t)()
 	srv := fakeServer("custom-model")
 	defer srv.Close()
-	_, port := hostPort(t, srv.URL)
-
-	// Empty probe table (no defaults match), but the enumerator "sees" the port.
 	old := probes
 	probes = nil
 	defer func() { probes = old }()
-	enumPorts = func() []int { return []int{port} }
 
-	found, _ := DetectFull()
-	if len(found) != 1 || len(found[0].Models) != 1 || found[0].Models[0] != "custom-model" {
-		t.Fatalf("custom-port detection failed: %+v", found)
+	if found, _ := DetectFull(); len(found) != 0 {
+		t.Fatalf("a port nobody named was found: %+v", found)
 	}
-	if !strings.HasPrefix(found[0].Name, "port:") {
-		t.Errorf("custom-port source should be labeled port:N, got %q", found[0].Name)
+	found, _ := DetectFull(srv.URL)
+	if len(found) != 1 || len(found[0].Models) != 1 || found[0].Models[0] != "custom-model" {
+		t.Fatalf("a configured custom port was not detected: %+v", found)
+	}
+	if found[0].Name != "configured" {
+		t.Errorf("a configured endpoint keeps the configured label, got %q", found[0].Name)
 	}
 }
 
 // TestDetectEnvVar: an OPENAI_BASE_URL pointing at a server is detected even when
-// it is on no default port and not enumerated.
+// it is on no default port.
 func TestDetectEnvVar(t *testing.T) {
-	oldEnum := enumPorts
-	enumPorts = func() []int { return nil }
-	defer func() { enumPorts = oldEnum }()
 	srv := fakeServer("env-model")
 	defer srv.Close()
 	old := probes
@@ -219,7 +214,7 @@ func TestUnslothStudioAuthTokenIsRead(t *testing.T) {
 // TestUnslothDefaultPortDoesNotGetTheGlobalKeyPool guards a collision the port
 // number makes likely: :8888 is JupyterLab's default, and Jupyter answers 403 to
 // an unauthenticated caller. Because the Unsloth default is a NAMED candidate it
-// escapes the "port:" blind-scan guard, so without this it would receive every
+// earns the harvested-key retry, so without this it would receive every
 // harvested key (OPENAI_API_KEY and friends) as a Bearer. A local service that is
 // not a model server must never be handed the user's cloud credentials.
 func TestUnslothDefaultPortDoesNotGetTheGlobalKeyPool(t *testing.T) {
@@ -346,18 +341,16 @@ func TestUnslothKeyIsScopedToUnslothCandidates(t *testing.T) {
 }
 
 // TestDetectDedup: the same server reachable via two sources (a default probe and
-// the port enumerator) yields ONE Found, not a duplicate.
+// a configured URL) yields ONE Found, not a duplicate.
 func TestDetectDedup(t *testing.T) {
 	defer quietSources(t)()
 	srv := fakeServer("dup-model")
 	defer srv.Close()
-	_, port := hostPort(t, srv.URL)
 	old := probes
 	probes = []struct{ name, base string }{{"test", srv.URL + "/v1"}}
 	defer func() { probes = old }()
-	enumPorts = func() []int { return []int{port} }
 
-	if found, _ := DetectFull(); len(found) != 1 {
+	if found, _ := DetectFull(srv.URL); len(found) != 1 {
 		t.Fatalf("same server via two sources should de-dup to 1, got %d: %+v", len(found), found)
 	}
 }
@@ -447,29 +440,6 @@ func TestDetectFullSurfacesNeedsKey(t *testing.T) {
 	}
 	if len(needKey) != 1 || needKey[0] != srv.URL+"/v1" {
 		t.Fatalf("needKey should surface the key-protected base, got %v", needKey)
-	}
-}
-
-// TestDetectDoesNotSprayEnvKeysToPortScans: a BLIND port-scan hit (candidate named
-// "port:N") must never receive the user's harvested env API keys on a 401 — an arbitrary
-// local service could be listening there. The key-protected server stays unauthenticated
-// and surfaces via needKey instead, even though the matching key IS in the environment.
-func TestDetectDoesNotSprayEnvKeysToPortScans(t *testing.T) {
-	defer quietSources(t)()
-	srv := keyedServer("sk-secret", "keyed-model")
-	defer srv.Close()
-	t.Setenv("OPENAI_API_KEY", "sk-secret") // the working key is in the env...
-
-	old := probes
-	probes = []struct{ name, base string }{{"port:9999", srv.URL + "/v1"}} // ...but this hit is a blind scan
-	defer func() { probes = old }()
-
-	found, needKey := DetectFull()
-	if len(found) != 0 {
-		t.Fatalf("env key must NOT be sprayed at a blind port-scan candidate; got %+v", found)
-	}
-	if len(needKey) != 1 || needKey[0] != srv.URL+"/v1" {
-		t.Fatalf("a key-protected port-scan hit should surface via needKey, got %v", needKey)
 	}
 }
 
@@ -574,4 +544,35 @@ func TestDetectWithExplicitUpstreamWins(t *testing.T) {
 	if found[0].Name != "configured" {
 		t.Errorf("explicit upstream should win the name, got %q", found[0].Name)
 	}
+}
+
+// A runtime roger started itself sits on an unchosen port behind a key nobody exported. Nothing
+// names its port, so it is found only through the served rung - and WITH its key.
+func TestARuntimeRogerStartedIsFoundWithItsKey(t *testing.T) {
+	defer quietSources(t)()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer k1" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]string{{"id": "qwen3-4b"}}})
+	}))
+	defer srv.Close()
+	old := probes
+	probes = nil
+	defer func() { probes = old }()
+
+	found, needKey := DetectFull()
+	require.Empty(t, found, "without the served rung nothing names its port")
+	require.Empty(t, needKey)
+
+	oldServed := Served
+	defer func() { Served = oldServed }()
+	Served = func() []Endpoint { return []Endpoint{{Name: "roger", Base: srv.URL + "/v1", Key: "k1"}} }
+	found, needKey = DetectFull()
+	require.Empty(t, needKey)
+	require.Len(t, found, 1)
+	require.Equal(t, "roger", found[0].Name)
+	require.Equal(t, "k1", found[0].Key)
+	require.Equal(t, []string{"qwen3-4b"}, found[0].Models)
 }

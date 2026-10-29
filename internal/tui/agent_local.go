@@ -2,8 +2,8 @@ package tui
 
 import (
 	tea "github.com/charmbracelet/bubbletea"
-	"rogerai.fm/roger/v6/internal/detect"
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/detect"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // LOCAL MODELS IN THE AGENT'S /model PICKER.
@@ -227,9 +227,14 @@ func (m model) rowForModel(mdl string) (agentPickerRow, bool) {
 //
 // A LOCAL row never reaches here: it is routed direct, and a direct call never touches the
 // broker that the code is addressed to.
+//
+// With no ~ band tuned, the tuned profile's roger.freq applies to the band it was tuned on.
 func (m model) agentFreqFor(mdl string) string {
-	if m.tuneFreq == "" || mdl == "" {
+	if mdl == "" {
 		return ""
+	}
+	if m.tuneFreq == "" {
+		return m.freqFor(mdl)
 	}
 	if _, ok := m.bandForModel(mdl); !ok {
 		return ""

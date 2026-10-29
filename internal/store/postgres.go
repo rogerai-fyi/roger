@@ -9,8 +9,8 @@ import (
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
-	"rogerai.fm/roger/v6/internal/pgmigrate"
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/pgmigrate"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // Postgres is a durable Store. Tables are prefixed `rogerai_` so they share an
@@ -36,6 +36,10 @@ CREATE TABLE IF NOT EXISTS rogerai.receipts (
     prompt_tokens INT, completion_tokens INT, cost DOUBLE PRECISION,
     ts BIGINT, receipt JSONB, created_at TIMESTAMPTZ DEFAULT now());
 ALTER TABLE rogerai.receipts ADD COLUMN IF NOT EXISTS owner_share DOUBLE PRECISION NOT NULL DEFAULT 0;
+-- The consumer-facing request id an attempt belongs to (contract §14.B7 #13): the receipt's
+-- request_id is the per-attempt id the station signed; this column ties it back for the
+-- consumer's own rows and is never selected for a station owner's.
+ALTER TABLE rogerai.receipts ADD COLUMN IF NOT EXISTS relay_request_id TEXT;
 CREATE INDEX IF NOT EXISTS receipts_usr_ts  ON rogerai.receipts (usr, ts DESC);
 CREATE INDEX IF NOT EXISTS receipts_node_ts ON rogerai.receipts (node, ts DESC);
 CREATE TABLE IF NOT EXISTS rogerai.processed_events (key TEXT PRIMARY KEY, at TIMESTAMPTZ DEFAULT now());
@@ -76,12 +80,38 @@ ALTER TABLE rogerai.owners ADD COLUMN IF NOT EXISTS apple_sub TEXT;
 -- resolving a login against it would let anyone who can type an address claim the account
 -- it belongs to. Additive + NULLable, so every existing owner is unaffected.
 ALTER TABLE rogerai.owners ADD COLUMN IF NOT EXISTS email_verified_at TIMESTAMPTZ;
--- One VERIFIED address belongs to at most one live account. Partial, so the unlimited
--- unverified/NULL emails and the anonymized rows of deleted accounts are untouched - a
--- deleted account's address must be reusable by a new one, not held hostage forever.
-CREATE UNIQUE INDEX IF NOT EXISTS owners_verified_email_uniq
+-- One VERIFIED address belongs to at most one live PROVIDER account (GitHub- or Apple-linked).
+-- Partial, so the unlimited unverified/NULL emails and the anonymized rows of deleted accounts
+-- are untouched - a deleted account's address must be reusable by a new one, not held hostage
+-- forever. Provider-less rows are left out on purpose (founder ruling 2026-10-04): they ARE an
+-- email account, one row per approved device, all sharing the verified address that defines
+-- the account, so a second device must not collide with the first.
+--
+-- Migration: the first version of this index (owners_verified_email_uniq) covered every row and
+-- refused an email account's second device. Dropped by name, then the scoped index is created
+-- under a new name; both statements are idempotent, so this runs safely on every start.
+--
+-- ROLLBACK HAZARD: a broker binary from BEFORE this change re-runs its own startup DDL, which
+-- recreates owners_verified_email_uniq over EVERY row. Once any email account has approved a
+-- second device (two live rows sharing one verified address), that CREATE UNIQUE INDEX fails
+-- and the old binary cannot start (dropping the index by hand does not help: the old binary
+-- recreates it on every start). Do not roll back past this change. A rollback is only possible
+-- after making the old index creatable again, i.e. no two live verified rows share an address.
+DROP INDEX IF EXISTS rogerai.owners_verified_email_uniq;
+CREATE UNIQUE INDEX IF NOT EXISTS owners_verified_provider_email_uniq
     ON rogerai.owners (lower(email))
-    WHERE email_verified_at IS NOT NULL AND NOT COALESCE(anonymized,false);
+    WHERE email_verified_at IS NOT NULL AND NOT COALESCE(anonymized,false)
+      AND (github_id <> 0 OR COALESCE(apple_sub,'') <> '');
+-- A profile address the account TYPED (PATCH /account) is not proven: a provider-reported
+-- address (filled from GitHub/Apple at bind) or a code-proven one is. Cap notices are mailed only
+-- to a proven or provider-reported address (founder ruling 2026-10-04). Additive, default false,
+-- so every existing address keeps its current standing.
+ALTER TABLE rogerai.owners ADD COLUMN IF NOT EXISTS email_unproven BOOLEAN NOT NULL DEFAULT false;
+-- The address each provider reported at its last sign-in (NULL = not reported since tracking
+-- began), so an account linked to BOTH GitHub and Apple is judged against both reports and an
+-- Apple relay address never withdraws the GitHub one (audit fix 2026-10-05). Additive.
+ALTER TABLE rogerai.owners ADD COLUMN IF NOT EXISTS github_reported_email TEXT;
+ALTER TABLE rogerai.owners ADD COLUMN IF NOT EXISTS apple_reported_email TEXT;
 -- node -> operator account (owner pubkey) binding, so a node's earnings attribute
 -- to an account at payout/Connect time. TOFU: first account to bind a node wins.
 CREATE TABLE IF NOT EXISTS rogerai.node_owner (
@@ -275,6 +305,16 @@ CREATE TABLE IF NOT EXISTS rogerai.offer_overrides (
     updated_at BIGINT NOT NULL DEFAULT 0,
     PRIMARY KEY (node, model));
 CREATE INDEX IF NOT EXISTS offer_overrides_owner ON rogerai.offer_overrides (owner);
+-- owner-authored TAXONOMY (what the model is for) per (node, model), set from the web
+-- console. A sibling of offer_overrides, never the same row, so a category edit can never
+-- change a price. Re-applied on every register like the price.
+CREATE TABLE IF NOT EXISTS rogerai.offer_meta_overrides (
+    node       TEXT NOT NULL,
+    model      TEXT NOT NULL,
+    owner      TEXT NOT NULL,
+    taxonomy   JSONB NOT NULL DEFAULT '{}'::jsonb,
+    updated_at BIGINT NOT NULL DEFAULT 0,
+    PRIMARY KEY (node, model));
 -- safety: preserved child-exploitation hits (18 USC 2258A). ACCESS-RESTRICTED +
 -- retention-limited: the offending prompt is stored ENCRYPTED-AT-REST (the broker
 -- encrypts before insert; the column is ciphertext, never plaintext). report_state
@@ -422,7 +462,81 @@ CREATE TABLE IF NOT EXISTS rogerai.pending_holds (
     usr        TEXT NOT NULL,
     amount     DOUBLE PRECISION NOT NULL,
     placed_at  BIGINT NOT NULL);
-CREATE INDEX IF NOT EXISTS pending_holds_placed_at ON rogerai.pending_holds (placed_at);`
+CREATE INDEX IF NOT EXISTS pending_holds_placed_at ON rogerai.pending_holds (placed_at);
+-- Roger Edge fleet (features/edge/node_identity.feature): the account-scoped node
+-- record. Deliberately NOT rogerai.nodes - that table is the Station/market registry
+-- and its semantics stay untouched, so a Station keeps registering, offering and
+-- receipting byte-identically whether or not it also has an Edge record. The record
+-- travels as JSONB; the three things the DATABASE must enforce are lifted into
+-- columns and indexes, because a rule enforced only in Go is a rule that does not
+-- hold when two brokers write at once:
+--   PRIMARY KEY (account,node_id) - one record per node per Edge
+--   edge_nodes_one_edge  UNIQUE (node_id)        - a node belongs to exactly one Edge
+--   edge_nodes_name      UNIQUE (account,name)   - a name is unique WITHIN an account
+CREATE TABLE IF NOT EXISTS rogerai.edge_nodes (
+    account TEXT NOT NULL,
+    node_id TEXT NOT NULL,
+    name    TEXT NOT NULL,
+    rec     JSONB NOT NULL,
+    PRIMARY KEY (account, node_id));
+CREATE UNIQUE INDEX IF NOT EXISTS edge_nodes_one_edge ON rogerai.edge_nodes (node_id);
+CREATE UNIQUE INDEX IF NOT EXISTS edge_nodes_name ON rogerai.edge_nodes (account, name);
+-- account keys (ROUTING-EXPRESSION-CONTRACT section 11): a reservation attributed to a key is a
+-- pending hold carrying its key id; key_ts is the request's start, which dates the key spend.
+ALTER TABLE rogerai.pending_holds ADD COLUMN IF NOT EXISTS key_id TEXT;
+ALTER TABLE rogerai.pending_holds ADD COLUMN IF NOT EXISTS key_ts BIGINT;
+CREATE INDEX IF NOT EXISTS pending_holds_key ON rogerai.pending_holds (key_id) WHERE key_id IS NOT NULL;
+-- account keys: guardrailed bearer credentials an account mints for itself. secret_hash is the
+-- auth lookup key; the secret itself is never stored. A deleted key is kept revoked.
+CREATE TABLE IF NOT EXISTS rogerai.account_keys (
+    id             TEXT PRIMARY KEY,            -- key_<rand>
+    secret_hash    TEXT NOT NULL UNIQUE,        -- sha256(secret)
+    account        TEXT NOT NULL,               -- the minting account's wallet (the payer)
+    name           TEXT NOT NULL DEFAULT '',
+    hint           TEXT NOT NULL DEFAULT '',
+    limit_usd      DOUBLE PRECISION NOT NULL DEFAULT 0,
+    reset          TEXT NOT NULL DEFAULT 'none',
+    anchor         BIGINT NOT NULL DEFAULT 0,
+    expires_at     BIGINT NOT NULL DEFAULT 0,
+    allowed_models JSONB DEFAULT '[]',
+    allowed_nodes  JSONB DEFAULT '[]',
+    disabled       BOOLEAN NOT NULL DEFAULT false,
+    revoked        BOOLEAN NOT NULL DEFAULT false,
+    idem_key       TEXT NOT NULL DEFAULT '',
+    created_at     BIGINT NOT NULL,
+    last_used      BIGINT NOT NULL DEFAULT 0,
+    requests       BIGINT NOT NULL DEFAULT 0,
+    owner_pub      TEXT NOT NULL DEFAULT '');   -- the minting owner key (notice mail)
+CREATE INDEX IF NOT EXISTS account_keys_account ON rogerai.account_keys (account);
+-- Idempotency-Key claims (contract 14.B2): one row per (payer, key); the first insert wins, so a
+-- retry never starts a second job, hold or settle. Rows past the window are taken over.
+CREATE TABLE IF NOT EXISTS rogerai.idempotency_claims (
+    payer       TEXT NOT NULL,
+    key         TEXT NOT NULL,
+    fingerprint TEXT NOT NULL,
+    request_id  TEXT NOT NULL,
+    state       TEXT NOT NULL,
+    deadline    BIGINT NOT NULL DEFAULT 0,
+    created     BIGINT NOT NULL,
+    seq         BIGSERIAL,                   -- claim order: breaks a tie on created for eviction
+    PRIMARY KEY (payer, key));
+-- pending_holds_usr: the capped hold (HoldForCapped) sums one wallet's open holds under its row lock.
+CREATE INDEX IF NOT EXISTS pending_holds_usr ON rogerai.pending_holds (usr);
+-- price_quotes: the 24 h price lock (features/money/price_lock_durable.feature). One row per
+-- (payer, station, model); minting is insert-if-absent, an expired row is replaced, so racing
+-- broker instances bill under ONE quote and the promise survives restarts and cache flushes.
+CREATE TABLE IF NOT EXISTS rogerai.price_quotes (
+    usr          TEXT NOT NULL,
+    node         TEXT NOT NULL,
+    model        TEXT NOT NULL,
+    price_in     DOUBLE PRECISION NOT NULL,
+    price_out    DOUBLE PRECISION NOT NULL,
+    locked_until BIGINT NOT NULL,
+    PRIMARY KEY (usr, node, model));
+-- price_quotes_locked_until: the hold sweep prunes expired quotes (PruneExpiredPriceQuotes).
+CREATE INDEX IF NOT EXISTS price_quotes_locked_until ON rogerai.price_quotes (locked_until);
+-- price_quotes.promo: a lock minted under a price posted too briefly ends with that price (§14.12).
+ALTER TABLE rogerai.price_quotes ADD COLUMN IF NOT EXISTS promo BOOLEAN NOT NULL DEFAULT false;`
 
 // poolLimits reads the connection-pool bounds from the environment. The production
 // cluster is a small shared managed Postgres (~22 usable backends across every app on
@@ -725,6 +839,20 @@ func (p *Postgres) Settle(user, node string, cost, ownerShare float64, rec proto
 		return 0, err
 	}
 	defer tx.Rollback()
+	// A $0 metering settle (signed self-use, a free grant, a voided attempt's lineage receipt)
+	// has no hold in front of it, so nothing has created the payer's wallet row: it reaches
+	// here for a wallet that was never read or seeded. Create the row at balance 0 - the same
+	// upsert BalanceOf performs, WITHOUT the seed grant - so the receipt is recorded instead
+	// of the whole settle failing on a missing row. No money is created, and the wallet's
+	// one-time starter seed is still granted by its first seeding read. In this transaction:
+	// a settle that records nothing leaves no row behind. A PAID settle (cost > 0) is left to
+	// fail on a missing row: debiting a wallet that does not exist is an upstream bug, and
+	// the hold gate (which seeds first) is what makes a paid wallet exist.
+	if cost == 0 {
+		if _, err := tx.Exec(`INSERT INTO rogerai.wallet(usr,balance) VALUES($1,0) ON CONFLICT (usr) DO NOTHING`, user); err != nil {
+			return 0, err
+		}
+	}
 	// Idempotency claim: the receipt row IS the lock. A non-empty request id is
 	// inserted FIRST (owner_share backfilled below once the seed-scaled share is
 	// known); a duplicate finds the row already present, touches NO money, and
@@ -779,9 +907,9 @@ func (p *Postgres) claimReceipt(tx *sql.Tx, user, node string, cost float64, rec
 	rj, _ := json.Marshal(rec)
 	bpt, bct := billedTokens(rec)
 	res, err := tx.Exec(`INSERT INTO rogerai.receipts
-		(request_id,usr,node,model,prompt_tokens,completion_tokens,cost,owner_share,ts,receipt,grant_id)
-		VALUES($1,$2,$3,$4,$5,$6,$7,0,$8,$9,$10) ON CONFLICT (request_id) DO NOTHING`,
-		rec.RequestID, user, node, rec.Model, bpt, bct, cost, rec.TS, rj, nullStr(rec.GrantID))
+		(request_id,usr,node,model,prompt_tokens,completion_tokens,cost,owner_share,ts,receipt,grant_id,relay_request_id)
+		VALUES($1,$2,$3,$4,$5,$6,$7,0,$8,$9,$10,$11) ON CONFLICT (request_id) DO NOTHING`,
+		rec.RequestID, user, node, rec.ServedModel(), bpt, bct, cost, rec.TS, rj, nullStr(rec.GrantID), nullStr(rec.RelayRequestID))
 	if err != nil {
 		return false, 0, err
 	}
@@ -806,9 +934,9 @@ func (p *Postgres) fillEarnShare(tx *sql.Tx, user, node string, cost float64, re
 	rj, _ := json.Marshal(rec)
 	bpt, bct := billedTokens(rec)
 	_, err := tx.Exec(`INSERT INTO rogerai.receipts
-		(request_id,usr,node,model,prompt_tokens,completion_tokens,cost,owner_share,ts,receipt,grant_id)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (request_id) DO NOTHING`,
-		rec.RequestID, user, node, rec.Model, bpt, bct, cost, earnShare, rec.TS, rj, nullStr(rec.GrantID))
+		(request_id,usr,node,model,prompt_tokens,completion_tokens,cost,owner_share,ts,receipt,grant_id,relay_request_id)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) ON CONFLICT (request_id) DO NOTHING`,
+		rec.RequestID, user, node, rec.ServedModel(), bpt, bct, cost, earnShare, rec.TS, rj, nullStr(rec.GrantID), nullStr(rec.RelayRequestID))
 	return err
 }
 
@@ -844,7 +972,12 @@ func (p *Postgres) recent(col, val string, limit int) ([]Entry, error) {
 	if limit <= 0 {
 		limit = 50
 	}
-	rows, err := p.db.Query(`SELECT request_id,usr,node,model,prompt_tokens,completion_tokens,cost,owner_share,ts
+	// Only the consumer's own rows carry the attempt's request id (never an owner's).
+	relay := `''`
+	if col == `usr` {
+		relay = `COALESCE(relay_request_id,'')`
+	}
+	rows, err := p.db.Query(`SELECT request_id,usr,node,model,prompt_tokens,completion_tokens,cost,owner_share,ts,`+relay+`
 		FROM rogerai.receipts WHERE `+col+`=$1 ORDER BY ts DESC LIMIT $2`, val, limit)
 	if err != nil {
 		return nil, err
@@ -853,7 +986,7 @@ func (p *Postgres) recent(col, val string, limit int) ([]Entry, error) {
 	var out []Entry
 	for rows.Next() {
 		var e Entry
-		if err := rows.Scan(&e.RequestID, &e.User, &e.Node, &e.Model, &e.PromptTokens, &e.CompletionTokens, &e.Cost, &e.OwnerShare, &e.TS); err != nil {
+		if err := rows.Scan(&e.RequestID, &e.User, &e.Node, &e.Model, &e.PromptTokens, &e.CompletionTokens, &e.Cost, &e.OwnerShare, &e.TS, &e.RelayRequestID); err != nil {
 			return nil, err
 		}
 		out = append(out, e)
@@ -1044,8 +1177,16 @@ func (p *Postgres) Finalize(user, node string, held, cost, ownerShare float64, r
 		return 0, err
 	}
 	// Capture clears the tracked hold (no-op if untracked) IN THIS TX, so the deploy-orphan
-	// sweep never double-refunds a settled request.
-	if _, err := tx.Exec(`DELETE FROM rogerai.pending_holds WHERE request_id=$1`, rec.RequestID); err != nil {
+	// sweep never double-refunds a settled request. A hold attributed to an account key turns
+	// into that key's spend in the same step.
+	var holdKeyID sql.NullString
+	var holdKeyTS sql.NullInt64
+	switch err := tx.QueryRow(`DELETE FROM rogerai.pending_holds WHERE request_id=$1 RETURNING key_id, key_ts`, rec.RequestID).Scan(&holdKeyID, &holdKeyTS); err {
+	case nil, sql.ErrNoRows:
+	default:
+		return 0, err
+	}
+	if err := keySpendCaptureTx(tx, holdKeyID.String, holdKeyTS.Int64, rec.RequestID, cost); err != nil {
 		return 0, err
 	}
 	// Only the REAL (non-seed) funded portion of this cost earns the operator (P0-1):
@@ -1102,7 +1243,9 @@ func (p *Postgres) SettleEdge(user, stationNode, stationAcct, towerNode, towerAc
 	// wrong refund. (The receipt is claimed above, so this no-op path still records the attempt as
 	// settled - correct, because with no reservation there is nothing to bill for it, ever.)
 	var held float64
-	switch err := tx.QueryRow(`DELETE FROM rogerai.pending_holds WHERE request_id=$1 RETURNING amount`, rec.RequestID).Scan(&held); err {
+	var edgeKeyID sql.NullString
+	var edgeKeyTS sql.NullInt64
+	switch err := tx.QueryRow(`DELETE FROM rogerai.pending_holds WHERE request_id=$1 RETURNING amount, key_id, key_ts`, rec.RequestID).Scan(&held, &edgeKeyID, &edgeKeyTS); err {
 	case sql.ErrNoRows:
 		return 0, tx.Commit() // no hold: no-op
 	case nil:
@@ -1117,6 +1260,9 @@ func (p *Postgres) SettleEdge(user, stationNode, stationAcct, towerNode, towerAc
 		stationShare *= scale
 		towerShare *= scale
 		cost = held
+	}
+	if err := keySpendCaptureTx(tx, edgeKeyID.String, edgeKeyTS.Int64, rec.RequestID, cost); err != nil {
+		return 0, err
 	}
 	var bal float64
 	if err := tx.QueryRow(`UPDATE rogerai.wallet SET balance=balance+$2 WHERE usr=$1 RETURNING balance`, user, held-cost).Scan(&bal); err != nil {
@@ -1214,6 +1360,188 @@ func (p *Postgres) HoldFor(user, requestID string, amount float64) (bool, error)
 		return false, err
 	}
 	return true, tx.Commit()
+}
+
+// HoldForCapped is HoldFor under the monthly cap. The wallet row is locked FOR UPDATE first,
+// so every capped hold, settle and release of this wallet serializes on it; the month spend
+// and the open pending holds are then read inside the same transaction and the hold placed
+// only if spend + pending + amount fits the cap. See the Store interface.
+func (p *Postgres) HoldForCapped(user, requestID string, amount, monthlyCap float64, now time.Time) (CappedHold, error) {
+	return p.HoldGuarded(user, requestID, amount, HoldGuard{MonthlyCap: monthlyCap, Now: now})
+}
+
+// HoldGuarded: see Store. ONE transaction decides every limit and the debit: the key row lock
+// first (it serializes every limited hold on the key across instances), then the wallet row
+// lock (it serializes the wallet's holds, so the monthly cap's sum cannot be overtaken), then
+// the checks, then the debit. The lock order is the same on every path, so two holds cannot
+// deadlock on these rows.
+func (p *Postgres) HoldGuarded(user, requestID string, amount float64, g HoldGuard) (CappedHold, error) {
+	var res CappedHold
+	tx, err := p.db.Begin()
+	if err != nil {
+		return res, err
+	}
+	defer tx.Rollback()
+	if g.KeyID != "" && g.Key.USD > 0 {
+		// The reservations and the window spend are read in ONE statement (one snapshot), so a
+		// capture committing in between can neither be counted twice nor missed.
+		if _, err := tx.Exec(`SELECT 1 FROM rogerai.account_keys WHERE id=$1 FOR UPDATE`, g.KeyID); err != nil {
+			return res, err
+		}
+		to := g.Key.To
+		if to <= 0 {
+			to = 1 << 62
+		}
+		var reserved, spend float64
+		if err := tx.QueryRow(`SELECT
+			(SELECT COALESCE(SUM(amount),0) FROM rogerai.pending_holds WHERE key_id=$1 AND request_id<>$2),
+			(SELECT COALESCE(SUM(-amount),0) FROM rogerai.ledger
+				WHERE holder=$1 AND kind IN ($3,$4) AND state<>'reversed' AND ts>=$5 AND ts<$6)`,
+			g.KeyID, requestID, KindKeySpend, KindKeyReversal, g.Key.From, to).Scan(&reserved, &spend); err != nil {
+			return res, err
+		}
+		if !g.Key.fits(spend, reserved, amount) {
+			return res, ErrKeyLimit
+		}
+	}
+	var bal float64
+	switch err := tx.QueryRow(`SELECT balance FROM rogerai.wallet WHERE usr=$1 FOR UPDATE`, user).Scan(&bal); err {
+	case sql.ErrNoRows:
+		return res, nil // no wallet row: the balance can't cover it
+	case nil:
+	default:
+		return res, err
+	}
+	if g.MonthlyCap > 0 {
+		start, end := monthRange(g.Now)
+		if err := tx.QueryRow(`SELECT COALESCE(SUM(-amount),0) FROM rogerai.ledger
+			WHERE holder=$1 AND kind=$2 AND state<>'reversed' AND ts>=$3 AND ts<$4`,
+			user, KindSpend, start, end).Scan(&res.Spend); err != nil {
+			return res, err
+		}
+		if err := tx.QueryRow(`SELECT COALESCE(SUM(amount),0) FROM rogerai.pending_holds WHERE usr=$1`, user).Scan(&res.Pending); err != nil {
+			return res, err
+		}
+		if overCap(res.Spend, res.Pending, amount, g.MonthlyCap) {
+			res.OverCap = true
+			return res, nil
+		}
+	}
+	if bal < amount {
+		return res, nil
+	}
+	if _, err := tx.Exec(`UPDATE rogerai.wallet SET balance=balance-$2 WHERE usr=$1`, user, amount); err != nil {
+		return res, err
+	}
+	ref := ""
+	if g.KeyID != "" {
+		ref = requestID // a key's hold names its request in the ledger, as HoldForKey always did
+	}
+	if err := appendLedger(tx, user, "consumer", KindHold, -amount, "", StatePending, ref, 0); err != nil {
+		return res, err
+	}
+	if g.KeyID != "" {
+		if _, err := tx.Exec(`INSERT INTO rogerai.pending_holds(request_id,usr,amount,placed_at,key_id,key_ts) VALUES($1,$2,$3,$4,$5,$6)
+			ON CONFLICT (request_id) DO UPDATE SET usr=EXCLUDED.usr, amount=EXCLUDED.amount, placed_at=EXCLUDED.placed_at,
+			key_id=EXCLUDED.key_id, key_ts=EXCLUDED.key_ts`,
+			requestID, user, amount, time.Now().Unix(), g.KeyID, g.KeyTS); err != nil {
+			return res, err
+		}
+	} else if _, err := tx.Exec(`INSERT INTO rogerai.pending_holds(request_id,usr,amount,placed_at) VALUES($1,$2,$3,$4)
+		ON CONFLICT (request_id) DO UPDATE SET usr=EXCLUDED.usr, amount=EXCLUDED.amount, placed_at=EXCLUDED.placed_at`,
+		requestID, user, amount, time.Now().Unix()); err != nil {
+		return res, err
+	}
+	res.OK = true
+	return res, tx.Commit()
+}
+
+// quoteReadBackGapForTest, when set, runs right after QuotePrice's statement, where a two-step
+// read-back once let a concurrent prune delete the live quote in between. Nil in production.
+var quoteReadBackGapForTest func()
+
+// QuotePrice returns the live price quote for (user, node, model), minting it from (in, out)
+// with a lock of window when none exists or the existing one has expired. ONE statement: on a
+// conflict with a LIVE row the update keeps that row's values and RETURNING reads them under
+// the same row lock, so racing instances all bill under the first quote and no prune can
+// remove the row between deciding and reading it back. See the Store interface.
+func (p *Postgres) QuotePrice(user, node, model string, in, out float64, now time.Time, window time.Duration) (PriceQuote, error) {
+	q, _, err := p.LockPrice(user, node, model, in, out, now, window, LockOpts{Mint: true})
+	return q, err
+}
+
+// PriceQuotes: see Store.
+func (p *Postgres) PriceQuotes(node, model string) ([]StoredQuote, error) {
+	rows, err := p.db.Query(`SELECT usr, node, model, price_in, price_out, locked_until, promo FROM rogerai.price_quotes
+		WHERE ($1 = '' OR node = $1) AND ($2 = '' OR model = $2)`, node, model)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []StoredQuote
+	for rows.Next() {
+		var q StoredQuote
+		var until int64
+		if err := rows.Scan(&q.User, &q.Node, &q.Model, &q.In, &q.Out, &until, &q.Promo); err != nil {
+			return nil, err
+		}
+		q.Until = time.Unix(0, until)
+		out = append(out, q)
+	}
+	return out, rows.Err()
+}
+
+// LockPrice: see Store. A mint is ONE statement - insert-if-absent, with a dead row (expired,
+// or a promo lock whose price has moved) replaced and a live one kept - and the row it returns
+// is the one that decides, so racing instances bill under one quote. A read writes nothing.
+func (p *Postgres) LockPrice(user, node, model string, in, out float64, now time.Time, window time.Duration, o LockOpts) (PriceQuote, bool, error) {
+	var q PriceQuote
+	if !o.Mint {
+		var until int64
+		err := p.db.QueryRow(`SELECT price_in, price_out, locked_until, promo FROM rogerai.price_quotes
+			WHERE usr=$1 AND node=$2 AND model=$3`, user, node, model).Scan(&q.In, &q.Out, &until, &q.Promo)
+		if err == sql.ErrNoRows {
+			return PriceQuote{}, false, nil
+		}
+		if err != nil {
+			return PriceQuote{}, false, err
+		}
+		q.Until = time.Unix(0, until)
+		if !q.live(now, in, out) {
+			return PriceQuote{}, false, nil
+		}
+		return q, true, nil
+	}
+	until := now.Add(window).UnixNano()
+	err := p.db.QueryRow(`INSERT INTO rogerai.price_quotes AS pq (usr,node,model,price_in,price_out,locked_until,promo)
+		VALUES($1,$2,$3,$4,$5,$6,$8)
+		ON CONFLICT (usr,node,model) DO UPDATE SET
+			price_in     = CASE WHEN pq.locked_until <= $7 OR (pq.promo AND (pq.price_in <> EXCLUDED.price_in OR pq.price_out <> EXCLUDED.price_out)) THEN EXCLUDED.price_in ELSE pq.price_in END,
+			price_out    = CASE WHEN pq.locked_until <= $7 OR (pq.promo AND (pq.price_in <> EXCLUDED.price_in OR pq.price_out <> EXCLUDED.price_out)) THEN EXCLUDED.price_out ELSE pq.price_out END,
+			promo        = CASE WHEN pq.locked_until <= $7 OR (pq.promo AND (pq.price_in <> EXCLUDED.price_in OR pq.price_out <> EXCLUDED.price_out)) THEN EXCLUDED.promo ELSE pq.promo END,
+			locked_until = CASE WHEN pq.locked_until <= $7 OR (pq.promo AND (pq.price_in <> EXCLUDED.price_in OR pq.price_out <> EXCLUDED.price_out)) THEN EXCLUDED.locked_until ELSE pq.locked_until END
+		RETURNING price_in, price_out, locked_until, promo`,
+		user, node, model, in, out, until, now.UnixNano(), o.Promo).Scan(&q.In, &q.Out, &until, &q.Promo)
+	if quoteReadBackGapForTest != nil {
+		quoteReadBackGapForTest()
+	}
+	if err != nil {
+		return q, false, err
+	}
+	q.Until = time.Unix(0, until)
+	return q, true, nil
+}
+
+// PruneExpiredPriceQuotes deletes up to limit quotes whose lock ended at or before now, in one
+// bounded statement. See the Store interface.
+func (p *Postgres) PruneExpiredPriceQuotes(now time.Time, limit int) (int, error) {
+	res, err := p.db.Exec(`DELETE FROM rogerai.price_quotes WHERE ctid IN (
+		SELECT ctid FROM rogerai.price_quotes WHERE locked_until <= $1 LIMIT $2)`, now.UnixNano(), limit)
+	if err != nil {
+		return 0, err
+	}
+	n, err := res.RowsAffected()
+	return int(n), err
 }
 
 // ReleaseHoldFor returns a TRACKED reservation idempotently: the atomic DELETE ... RETURNING
@@ -1338,29 +1666,35 @@ func (p *Postgres) BindOwner(o Owner) error {
 				WHEN rogerai.owners.email_verified_at IS NOT NULL THEN rogerai.owners.email
 				WHEN EXCLUDED.email_verified_at IS NOT NULL THEN EXCLUDED.email
 				ELSE COALESCE(NULLIF(rogerai.owners.email,''), $6) END,
-			email_verified_at=COALESCE(EXCLUDED.email_verified_at, rogerai.owners.email_verified_at)`,
+			email_verified_at=COALESCE(EXCLUDED.email_verified_at, rogerai.owners.email_verified_at),
+			-- a proof landing on a row that held none takes the proven address, so the row is no
+			-- longer carrying a typed, unproven one
+			email_unproven=CASE
+				WHEN rogerai.owners.email_verified_at IS NULL AND EXCLUDED.email_verified_at IS NOT NULL THEN false
+				ELSE rogerai.owners.email_unproven END`,
 		o.Pubkey, o.GitHubID, o.Login, o.AppleSub, o.Name, o.Email, verified)
 	return err
 }
 
 func (p *Postgres) OwnerByPubkey(pubkey string) (Owner, bool, error) {
-	return p.scanOwner(`SELECT pubkey,github_id,login,created_at,email,stripe_connect_id,connect_status,deleted_at,anonymized,name,welcomed_at,apple_sub,email_verified_at
+	return p.scanOwner(`SELECT pubkey,github_id,login,created_at,email,stripe_connect_id,connect_status,deleted_at,anonymized,name,welcomed_at,apple_sub,email_verified_at,email_unproven
 		FROM rogerai.owners WHERE pubkey=$1`, pubkey)
 }
 
 func (p *Postgres) OwnerByLogin(login string) (Owner, bool, error) {
-	return p.scanOwner(`SELECT pubkey,github_id,login,created_at,email,stripe_connect_id,connect_status,deleted_at,anonymized,name,welcomed_at,apple_sub,email_verified_at
+	return p.scanOwner(`SELECT pubkey,github_id,login,created_at,email,stripe_connect_id,connect_status,deleted_at,anonymized,name,welcomed_at,apple_sub,email_verified_at,email_unproven
 		FROM rogerai.owners WHERE login=$1 AND NOT COALESCE(anonymized,false)
 		ORDER BY created_at ASC, pubkey ASC LIMIT 1`, login)
 }
 
-// LinkVerifiedEmail: the partial unique index owners_verified_email_uniq is the arbiter of
-// "one live account per verified address", so a concurrent pair of links cannot both win.
+// LinkVerifiedEmail: the partial unique index owners_verified_provider_email_uniq is the arbiter
+// of "one live provider-linked account per verified address", so a concurrent pair of links
+// cannot both win. A proven address is no longer unproven.
 func (p *Postgres) LinkVerifiedEmail(pubkey, email string, at int64) error {
-	res, err := p.db.Exec(`UPDATE rogerai.owners SET email=$2, email_verified_at=$3
+	res, err := p.db.Exec(`UPDATE rogerai.owners SET email=$2, email_verified_at=$3, email_unproven=false
 		WHERE pubkey=$1 AND NOT COALESCE(anonymized,false)`, pubkey, email, time.Unix(at, 0).UTC())
 	if err != nil {
-		if strings.Contains(err.Error(), "owners_verified_email_uniq") {
+		if strings.Contains(err.Error(), "owners_verified_provider_email_uniq") {
 			return ErrEmailTaken
 		}
 		return err
@@ -1378,9 +1712,46 @@ func (p *Postgres) LinkVerifiedEmail(pubkey, email string, at int64) error {
 // claim the account it belongs to. lower() matches the partial unique index, so the
 // lookup uses it rather than scanning.
 func (p *Postgres) OwnerByVerifiedEmail(email string) (Owner, bool, error) {
-	return p.scanOwner(`SELECT pubkey,github_id,login,created_at,email,stripe_connect_id,connect_status,deleted_at,anonymized,name,welcomed_at,apple_sub,email_verified_at
+	return p.scanOwner(`SELECT pubkey,github_id,login,created_at,email,stripe_connect_id,connect_status,deleted_at,anonymized,name,welcomed_at,apple_sub,email_verified_at,email_unproven
 		FROM rogerai.owners WHERE lower(email)=lower($1) AND email_verified_at IS NOT NULL AND NOT COALESCE(anonymized,false)
 		ORDER BY created_at ASC, pubkey ASC LIMIT 1`, email)
+}
+
+// ReconcileProviderEmail records the address a provider reported at sign-in on every live row
+// of that identity, then re-judges each row whose address was not proven by code against the
+// last report of every provider the row is linked to (see the Store interface): mailable on
+// any match, unproven when all linked providers have reported and none matches, otherwise left
+// as it was. One statement, so the record and the judgement can never disagree.
+func (p *Postgres) ReconcileProviderEmail(githubID int64, appleSub, reported string, verified ...string) error {
+	if (reported == "" && len(verified) == 0) || (githubID == 0 && appleSub == "") {
+		return nil
+	}
+	// rep is this row's report: the verified address matching its stored address (as the
+	// provider spells it), else the primary report; NULL (keep the last report) when neither.
+	_, err := p.db.Exec(`WITH r0 AS (
+		  SELECT pubkey, github_id, apple_sub, github_reported_email, apple_reported_email,
+		         COALESCE((SELECT v FROM unnest($4::text[]) v WHERE lower(v) = lower(email) LIMIT 1), NULLIF($3,'')) AS rep
+		  FROM rogerai.owners
+		  WHERE ((github_id = $1 AND $1 <> 0) OR apple_sub = NULLIF($2,''))
+		    AND NOT COALESCE(anonymized,false)),
+		r AS (
+		  SELECT pubkey, rep,
+		         CASE WHEN github_id = $1 AND $1 <> 0 AND rep IS NOT NULL THEN rep ELSE github_reported_email END AS gh,
+		         CASE WHEN apple_sub = NULLIF($2,'') AND rep IS NOT NULL THEN rep ELSE apple_reported_email END AS ap
+		  FROM r0
+		)
+		UPDATE rogerai.owners o SET
+		  github_reported_email = r.gh,
+		  apple_reported_email = r.ap,
+		  email_unproven = CASE
+		    WHEN r.rep IS NULL OR o.email_verified_at IS NOT NULL OR COALESCE(o.email,'') = '' THEN o.email_unproven
+		    WHEN (r.gh IS NOT NULL AND lower(o.email) = lower(r.gh))
+		      OR (r.ap IS NOT NULL AND lower(o.email) = lower(r.ap)) THEN false
+		    WHEN (o.github_id = 0 OR r.gh IS NOT NULL)
+		     AND (COALESCE(o.apple_sub,'') = '' OR r.ap IS NOT NULL) THEN true
+		    ELSE o.email_unproven END
+		FROM r WHERE o.pubkey = r.pubkey`, githubID, appleSub, reported, verified)
+	return err
 }
 
 // OwnerByAppleSub resolves the account linked to this Apple identity. apple_sub is
@@ -1390,7 +1761,7 @@ func (p *Postgres) OwnerByAppleSub(sub string) (Owner, bool, error) {
 	if sub == "" {
 		return Owner{}, false, nil
 	}
-	return p.scanOwner(`SELECT pubkey,github_id,login,created_at,email,stripe_connect_id,connect_status,deleted_at,anonymized,name,welcomed_at,apple_sub,email_verified_at
+	return p.scanOwner(`SELECT pubkey,github_id,login,created_at,email,stripe_connect_id,connect_status,deleted_at,anonymized,name,welcomed_at,apple_sub,email_verified_at,email_unproven
 		FROM rogerai.owners WHERE apple_sub=$1 AND NOT COALESCE(anonymized,false)
 		ORDER BY created_at ASC, pubkey ASC LIMIT 1`, sub)
 }
@@ -1402,7 +1773,7 @@ func (p *Postgres) scanOwner(query string, arg string) (Owner, bool, error) {
 	var email, connectID, connectStatus, name, appleSub sql.NullString
 	var anon sql.NullBool
 	err := p.db.QueryRow(query, arg).Scan(
-		&o.Pubkey, &o.GitHubID, &o.Login, &created, &email, &connectID, &connectStatus, &deleted, &anon, &name, &welcomed, &appleSub, &emailVerified)
+		&o.Pubkey, &o.GitHubID, &o.Login, &created, &email, &connectID, &connectStatus, &deleted, &anon, &name, &welcomed, &appleSub, &emailVerified, &o.EmailUnproven)
 	if err == sql.ErrNoRows {
 		return Owner{}, false, nil
 	}
@@ -1431,11 +1802,14 @@ func (p *Postgres) scanOwner(query string, arg string) (Owner, bool, error) {
 }
 
 func (p *Postgres) UpdateAccount(login, email string) (Owner, bool, error) {
-	// A changed address drops the verified stamp (the proof was for the old one); SET
-	// expressions read the OLD row, so the comparison sees the previous email.
-	res, err := p.db.Exec(`UPDATE rogerai.owners
-		SET email_verified_at = CASE WHEN lower(email) IS NOT DISTINCT FROM lower($2) THEN email_verified_at ELSE NULL END,
-		    email=$2
+	// A typed address is unproven, and it replaces the proof the previous address carried: an
+	// account that changes its address must prove the new one before it is an identity or is
+	// mailed. Re-typing the SAME address (any letter case) changes nothing, so a proven address
+	// stays proven and keeps its stored spelling.
+	res, err := p.db.Exec(`UPDATE rogerai.owners SET
+		email_verified_at = CASE WHEN lower(COALESCE(email,''))=lower($2) THEN email_verified_at ELSE NULL END,
+		email_unproven    = CASE WHEN lower(COALESCE(email,''))=lower($2) THEN email_unproven ELSE ($2 <> '') END,
+		email             = CASE WHEN lower(COALESCE(email,''))=lower($2) THEN email ELSE $2 END
 		WHERE login=$1 AND NOT COALESCE(anonymized,false)`, login, email)
 	if err != nil {
 		return Owner{}, false, err
@@ -1477,7 +1851,7 @@ func (p *Postgres) DeleteAccount(login string) (bool, error) {
 	// not a lookup key at all here, apple_sub and the verified email are, and both are
 	// gated on NOT anonymized. github_id is NOT NULL, hence 0 rather than NULL.
 	res, err := p.db.Exec(`UPDATE rogerai.owners
-		SET email=NULL, email_verified_at=NULL, name=NULL, github_id=0, apple_sub=NULL,
+		SET email=NULL, email_verified_at=NULL, email_unproven=false, github_reported_email=NULL, apple_reported_email=NULL, name=NULL, github_id=0, apple_sub=NULL,
 		    login='deleted_'||left(md5(pubkey),8), anonymized=true, deleted_at=now()
 		WHERE login=$1 AND NOT COALESCE(anonymized,false)`, login)
 	if err != nil {
@@ -2239,6 +2613,9 @@ func (p *Postgres) recoverLineageTx(tx *sql.Tx, id, consumerKind, consumerRefPre
 		return ChargebackResult{}, err
 	}
 	if err := appendLedger(tx, wallet, "consumer", consumerKind, -amount, consumerRefPrefix+id, StatePosted, id, now.Unix()); err != nil {
+		return ChargebackResult{}, err
+	}
+	if err := keyReverseTx(tx, requestID, amount); err != nil {
 		return ChargebackResult{}, err
 	}
 	disputeID := id

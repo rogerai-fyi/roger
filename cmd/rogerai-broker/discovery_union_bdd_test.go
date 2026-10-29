@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"testing"
 	"time"
 
@@ -304,7 +305,7 @@ func TestDiscoveryUnionBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("multinode/discovery_union scenarios failed (see godog output above)")
 	}
 }

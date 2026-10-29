@@ -43,14 +43,15 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/cucumber/godog"
-	"rogerai.fm/roger/v6/internal/protocol"
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 type kvState struct {
@@ -374,7 +375,7 @@ func (s *kvState) rsnReasoningReply(reasoning, claim string) error {
 func (s *kvState) rsnEvaluateSettle() error {
 	rec := protocol.UsageReceipt{RequestID: "rsn-eval", Model: "m", CompletionTokens: 5, TS: s.nextTS()}
 	if !s.rsnProduced {
-		s.b.flagEmptyOutput("n1", rec, 200)
+		s.b.flagEmptyOutput("n1", rec, 200, "")
 		if _, err := s.mem.Settle("rsn-payer", "n1", 0, 0, rec); err != nil {
 			return err
 		}
@@ -1325,7 +1326,7 @@ func TestKnownVulnerabilitiesBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("known-vulnerability regression scenarios failed (see godog output above)")
 	}
 }

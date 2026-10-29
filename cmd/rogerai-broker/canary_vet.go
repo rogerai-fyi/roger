@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net"
 	"time"
+
+	"rogerai.fm/roger/v7/internal/netpriv"
 )
 
 // errNotPublic marks an endpoint that is UNREACHABLE BY DESIGN - loopback, LAN, or
@@ -24,16 +26,21 @@ func vetPublicIP(ip net.IP) error {
 	if v4 := ip.To4(); v4 != nil {
 		ip = v4
 	}
-	switch {
-	case ip.IsLoopback():
+	// The classes are the one rule's (internal/netpriv); link-local multicast is named with
+	// link-local, as before, because that is where the metadata service lives.
+	switch netpriv.Classify(ip) {
+	case netpriv.Loopback:
 		return fmt.Errorf("%w: %s is loopback", errNotPublic, ip)
-	case ip.IsPrivate():
+	case netpriv.Private, netpriv.ULA:
 		return fmt.Errorf("%w: %s is a private (LAN) range", errNotPublic, ip)
-	case ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast():
+	case netpriv.LinkLocal:
 		return fmt.Errorf("%w: %s is link-local (the metadata service lives here)", errNotPublic, ip)
-	case ip.IsUnspecified():
+	case netpriv.Unspecified:
 		return fmt.Errorf("%w: %s is unspecified", errNotPublic, ip)
-	case ip.IsMulticast():
+	case netpriv.Multicast:
+		if ip.IsLinkLocalMulticast() {
+			return fmt.Errorf("%w: %s is link-local (the metadata service lives here)", errNotPublic, ip)
+		}
 		return fmt.Errorf("%w: %s is multicast", errNotPublic, ip)
 	}
 	return nil

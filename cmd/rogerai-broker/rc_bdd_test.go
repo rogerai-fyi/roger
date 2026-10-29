@@ -14,13 +14,14 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strconv"
 	"testing"
 	"time"
 
 	"github.com/cucumber/godog"
-	"rogerai.fm/roger/v6/internal/protocol"
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 type rcSessState struct {
@@ -350,7 +351,7 @@ func rcSuite(t *testing.T, path string, init func(*godog.ScenarioContext, *rcSes
 		},
 		Options: &godog.Options{Format: "pretty", Paths: []string{path}, TestingT: t, Strict: true},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatalf("%s scenarios failed", path)
 	}
 }

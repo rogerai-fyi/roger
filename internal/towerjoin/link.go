@@ -32,11 +32,12 @@ import (
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/protocol"
-	"rogerai.fm/roger/v6/internal/tower"
-	"rogerai.fm/roger/v6/internal/towercore/inv"
-	"rogerai.fm/roger/v6/internal/towercore/link"
-	"rogerai.fm/roger/v6/internal/towerobj"
+	"rogerai.fm/roger/v7/internal/coreclient"
+	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/tower"
+	"rogerai.fm/roger/v7/internal/towercore/inv"
+	"rogerai.fm/roger/v7/internal/towercore/link"
+	"rogerai.fm/roger/v7/internal/towerobj"
 )
 
 // ErrNeedFullInventory is Core saying it cannot place what we sent and wants a snapshot. It
@@ -84,7 +85,7 @@ type Head struct {
 func OpenSession(st *tower.State, head Head, relay link.RelayPlane) (Session, error) {
 	adm, ok := LoadAdmission(st.Dir())
 	if !ok || adm.TowerID == "" {
-		return Session{}, errors.New("this Tower is not registered yet - run `roger-tower register` first")
+		return Session{}, errors.New("this Tower is not registered yet - run `roger tower register` first")
 	}
 	body, err := json.Marshal(link.Hello{
 		Network:  link.PublicNetwork,
@@ -257,6 +258,7 @@ func towerPostStatus(st *tower.State, path string, body []byte, out any, client 
 	if client == nil {
 		client = httpClient
 	}
+	coreclient.Note("towerjoin: link")
 	resp, err := client.Do(req)
 	if err != nil {
 		return 0, fmt.Errorf("%w: %v", ErrUnreachable, err)

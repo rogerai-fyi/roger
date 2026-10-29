@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strings"
 	"testing"
 	"time"
@@ -799,7 +800,7 @@ func TestAgentToolSuiteFeatures(t *testing.T) {
 			},
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("agent tool suite scenarios failed")
 	}
 }

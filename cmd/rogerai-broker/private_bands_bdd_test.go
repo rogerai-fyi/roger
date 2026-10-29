@@ -19,12 +19,13 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"testing"
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
-	"rogerai.fm/roger/v6/internal/protocol"
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/store"
 
 	"github.com/cucumber/godog"
 )
@@ -217,7 +218,7 @@ func TestMultinodePrivateBandsBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("multinode/private_bands behavior scenarios failed (see godog output above)")
 	}
 }

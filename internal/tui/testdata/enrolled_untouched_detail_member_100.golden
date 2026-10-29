@@ -1,0 +1,12 @@
+                                   ▣  garage   member machine
+
+  STATUS        HEARD 20s · no control path - actions that need its face (serve model, maintenance, 
+  KIND          machine  (host)
+  ID            n_gggggggggggggggggggggggggggggggggggggggggggggggg
+  CAN DO        none declared
+  PATH          shed → garage  ·  1 hop
+  LAST SEEN     20s ago
+  LATELY        0s ago    enrolled    garage
+  ASK           serves no model yet - nothing to ask
+
+  esc back to the map · ←→ move to another node

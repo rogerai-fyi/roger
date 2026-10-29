@@ -1,12 +1,12 @@
-# roger-tower, JOINED: a relay that carries other people's traffic on the public network.
+# A Tower (`roger tower`), JOINED: a relay that carries other people's traffic on the public network.
 #
 # Joining needs an account, because a joined Tower relays strangers' work and has to stay
 # accountable for it. It holds a link to Roger Core and hosts the sealed data plane.
 #
-#   roger-tower init --dir /var/lib/roger-tower --mode joined
-#   roger-tower login    --dir /var/lib/roger-tower
-#   roger-tower register --dir /var/lib/roger-tower
-#   roger-tower serve    --dir /var/lib/roger-tower --config /etc/roger-tower/tower.yaml
+#   roger tower init --dir /var/lib/roger-tower --mode joined
+#   roger tower login    --dir /var/lib/roger-tower
+#   roger tower register --dir /var/lib/roger-tower
+#   roger tower serve    --dir /var/lib/roger-tower --config /etc/roger-tower/tower.yaml
 #
 # A data directory is ONE mode for life. To move between modes, init a second directory:
 # nothing is copied, because an identity, trust root or Station registry must never cross

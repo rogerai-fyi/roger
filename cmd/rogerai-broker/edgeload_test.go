@@ -9,7 +9,7 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 // The shared store these tests run against is the REAL valkeyStore over miniredis, not a map
@@ -262,6 +262,11 @@ func TestWriteThroughEdgeLoadIsFreeSingleInstance(t *testing.T) {
 
 // panicStore fails the test loudly if the single-instance edge path reaches the shared store.
 type panicStore struct{ sharedStore }
+
+// The per-account attempt SLOT is a separate concern that is shared whenever a store is
+// wired (features/tower/edge_attempt_cap_shared.feature); this fixture guards only the load
+// publisher, so its slot set reports "no shared store".
+func (panicStore) edgeSlotFree(string) error { return errNoSharedStore }
 
 func (panicStore) markEdgeInflight(string, string, int, time.Time) error {
 	panic("single-instance edge path must not touch the shared store")

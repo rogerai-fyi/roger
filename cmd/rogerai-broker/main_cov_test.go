@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 // TestBuildBroker covers the broker construction + wiring extracted from main(): every
@@ -34,7 +34,7 @@ func TestBuildBroker(t *testing.T) {
 	for name, ok := range map[string]bool{
 		"nodes": b.nodes != nil, "tunnels": b.tunnels != nil, "lastSeen": b.lastSeen != nil,
 		"trust": b.trust != nil, "banned": b.banned != nil, "bannedOwners": b.bannedOwners != nil,
-		"quotes": b.quotes != nil, "pubOfUser": b.pubOfUser != nil, "inflight": b.inflight != nil,
+		"pubOfUser": b.pubOfUser != nil, "inflight": b.inflight != nil,
 	} {
 		if !ok {
 			t.Errorf("map %q not initialized", name)

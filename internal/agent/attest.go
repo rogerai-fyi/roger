@@ -24,7 +24,7 @@ import (
 	"io"
 	"net/http"
 
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // teeKind identifies the attestation backend the running node can produce. Empty

@@ -1,0 +1,145 @@
+package localmodel
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
+
+	"rogerai.fm/roger/v7/internal/hfhub"
+	"rogerai.fm/roger/v7/internal/provision"
+)
+
+func slowHub(t *testing.T, body []byte, gate chan struct{}) *hfhub.Client {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		half := len(body) / 2
+		_, _ = w.Write(body[:half])
+		w.(http.Flusher).Flush()
+		if gate != nil {
+			<-gate
+		}
+		_, _ = w.Write(body[half:])
+	}))
+	t.Cleanup(srv.Close)
+	return &hfhub.Client{Base: srv.URL}
+}
+
+func waitJob(t *testing.T, h Home, state string) Job {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if j, ok := h.Job(); ok && j.State == state {
+			return j
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	j, _ := h.Job()
+	t.Fatalf("the fetch never reached %q (last: %+v)", state, j)
+	return Job{}
+}
+
+func TestAFetchIsRecordedWhileItRunsAndWhenItEnds(t *testing.T) {
+	body := []byte(strings.Repeat("w", 64<<10))
+	gate := make(chan struct{})
+	h := Home{Dir: t.TempDir()}
+	f := provision.Fetcher{FreeSpace: func(string) (int64, bool) { return 1 << 40, true }}
+	got := make(chan error, 1)
+	require.NoError(t, h.StartFetch(slowHub(t, body, gate), f, "acme/Tiny-GGUF", fileFor("Tiny-Q4_K_M.gguf", body), "mit",
+		func(m Model, err error) { got <- err }))
+
+	j := waitJob(t, h, JobFetching)
+	require.Equal(t, "acme/Tiny-GGUF", j.Repo)
+	require.Equal(t, int64(len(body)), j.Total)
+	require.Equal(t, os.Getpid(), j.PID)
+
+	// A second fetch while one runs is refused, by name.
+	require.ErrorIs(t, h.StartFetch(slowHub(t, body, nil), f, "acme/Tiny-GGUF", fileFor("Tiny-Q4_K_M.gguf", body), "", nil), ErrBusy)
+
+	close(gate)
+	require.NoError(t, <-got)
+	j = waitJob(t, h, JobDone)
+	require.Equal(t, "acme/Tiny-GGUF:Q4_K_M", j.ID)
+	require.Equal(t, j.Total, j.Done)
+}
+
+func TestAFailedFetchSaysWhyAndAnInterruptedOneIsNotDone(t *testing.T) {
+	body := []byte("weights")
+	h := Home{Dir: t.TempDir()}
+	f := provision.Fetcher{FreeSpace: func(string) (int64, bool) { return 1 << 40, true }}
+	bad := fileFor("Tiny-Q4_K_M.gguf", body)
+	bad.SHA256 = strings.Repeat("0", 64)
+	_, err := h.Fetch(context.Background(), slowHub(t, body, nil), f, "acme/Tiny-GGUF", bad, "")
+	require.ErrorIs(t, err, provision.ErrCorrupt)
+	j, ok := h.Job()
+	require.True(t, ok)
+	require.Equal(t, JobFailed, j.State)
+	require.Contains(t, j.Err, "not what was promised")
+	require.Equal(t, "corrupt", j.Reason, "the record says which failure, for a screen in another process")
+	for err, want := range map[error]string{provision.ErrNoSpace: "no_space", provision.ErrGated: "gated",
+		provision.ErrUnreachable: "unreachable", provision.ErrNotFound: "not_found", provision.ErrRateLimited: "rate_limited",
+		provision.ErrUpstream: "upstream", context.Canceled: ""} {
+		require.Equal(t, want, Reason(err))
+	}
+
+	// A record left "fetching" by a roger that has gone is interrupted, never running, never done.
+	h.writeJob(Job{Repo: "acme/x", File: "x.gguf", State: JobFetching, PID: 424242})
+	defer func(a func(int) bool) { alive = a }(alive)
+	alive = func(int) bool { return false }
+	j, _ = h.Job()
+	require.Equal(t, JobInterrupted, j.State)
+	// ...and does not block the next fetch.
+	_, err = h.Fetch(context.Background(), slowHub(t, body, nil), f, "acme/Tiny-GGUF", fileFor("Tiny-Q4_K_M.gguf", body), "")
+	require.NoError(t, err)
+
+	// Nothing recorded yet is no job, and nonsense in the record is no job.
+	_, ok = Home{Dir: t.TempDir()}.Job()
+	require.False(t, ok)
+	h2 := Home{Dir: t.TempDir()}
+	require.NoError(t, os.WriteFile(h2.jobPath(), []byte("{nope"), 0o644))
+	_, ok = h2.Job()
+	require.False(t, ok)
+}
+
+func TestStartFetchRefusesWhatCouldNeverBeServedBeforeAnyByteMoves(t *testing.T) {
+	h := Home{Dir: t.TempDir()}
+	f := provision.Fetcher{}
+	require.ErrorContains(t, h.StartFetch(&hfhub.Client{}, f, "acme/x", hfhub.File{Path: "mmproj-F16.gguf"}, "", nil), "projector")
+	require.Error(t, h.StartFetch(&hfhub.Client{}, f, "../etc", hfhub.File{Path: "x.gguf"}, "", nil))
+	_, ok := h.Job()
+	require.False(t, ok, "a refused fetch left a record")
+}
+
+// Review 2026-10-01: the one-fetch rule holds across processes (a lock, not a mutex), the record is
+// the owner's alone (0600), and a "fetching" record that stopped moving long ago - a reused pid that
+// happens to be alive - reads interrupted, never busy forever.
+func TestTheOneFetchRuleHoldsAcrossProcessesAndNeverWedges(t *testing.T) {
+	h := Home{Dir: t.TempDir()}
+	claimed, err := h.claimFetch(Job{Repo: "a/b", File: "x.gguf"})
+	require.NoError(t, err)
+	require.True(t, claimed)
+	fi, err := os.Stat(h.jobPath())
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o600), fi.Mode().Perm())
+	// Another claim while that one is fetching (and its roger alive) is refused under the lock.
+	claimed, err = h.claimFetch(Job{Repo: "c/d", File: "y.gguf"})
+	require.NoError(t, err)
+	require.False(t, claimed)
+
+	// A record that has not moved for longer than the stall window is not believed.
+	j, _ := h.Job()
+	j.Updated = time.Now().Add(-2 * jobStall)
+	b, _ := json.Marshal(j)
+	require.NoError(t, os.WriteFile(h.jobPath(), b, 0o600))
+	j, _ = h.Job()
+	require.Equal(t, JobInterrupted, j.State)
+	claimed, err = h.claimFetch(Job{Repo: "c/d", File: "y.gguf"})
+	require.NoError(t, err)
+	require.True(t, claimed, "a stalled record does not block the next fetch")
+}

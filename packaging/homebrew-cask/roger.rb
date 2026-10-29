@@ -9,11 +9,11 @@ cask "roger" do
   arch arm: "arm64", intel: "amd64"
   os macos: "darwin", linux: "linux"
 
-  version "6.13.0"
-  sha256 arm:          "9618c1104c640b1ab67b723a7948746a9d6a752600b213fb28aaa40f36002e9e",
-         x86_64:       "292f8ca7c0329ad7bad75ac4b7885f720ca84cbc833cc6c55b3bda99d695c1f2",
-         arm64_linux:  "ba132ab5c3864aef1e355c2f8f702ed990abad9d013b1539b90ed8532ef76eb2",
-         x86_64_linux: "68af2bf86550d16f6bd16c92f63aa073543f335399abbc9c30643da4341c9b55"
+  version "7.0.0"
+  sha256 arm:          "6ee05f752dedcbab355dcaf00ba3d61de05b2c3e1a5df707e604112761646ead",
+         x86_64:       "d0cbed60b21bc71e9a063d915713284bae56ef8a5bb01f44a943a4ca223e4bbc",
+         arm64_linux:  "e1b4d093b0f024161b673e8a190ce8eecfac7d3ab42789e77a78ffc41067d418",
+         x86_64_linux: "950c0c5cf166e56b4a3abd9208017c3f4db10d782c2df4cbd3c1295b1d66165b"
 
   url "https://github.com/rogerai-fyi/roger/releases/download/v#{version}/roger-#{os}-#{arch}"
   name "RogerAI"

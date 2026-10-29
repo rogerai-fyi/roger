@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/harness"
+	"rogerai.fm/roger/v7/internal/harness"
 )
 
 // A COST REPORTED FOR A TURN THAT WAS ALREADY ABANDONED IS DROPPED, NOT QUEUED. The cost

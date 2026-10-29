@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 // TestSettleRecountPrompt covers the input re-count settle path: the zero-doubt byte

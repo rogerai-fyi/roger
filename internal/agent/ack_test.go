@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 func TestAcceptedJobsRemembersForTheTTL(t *testing.T) {
@@ -177,13 +177,18 @@ func TestPollDoesNotAckWhenNotAsked(t *testing.T) {
 func TestAckRetriedOnceOnServerError(t *testing.T) {
 	defer func(d time.Duration) { ackRetryDelay = d }(ackRetryDelay)
 	ackRetryDelay = 10 * time.Millisecond
+	// Only THIS ack is counted. A loopback port is reused quickly, so a node an earlier test left
+	// polling can reach this server too (seen in a loopback-only network namespace, 2026-10-28).
+	const job = "ack-retried-once"
 	var acks atomic.Int64
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		acks.Add(1)
+		if r.URL.Path == "/agent/ack" && r.URL.Query().Get("job") == job {
+			acks.Add(1)
+		}
 		http.Error(w, "ack not delivered", http.StatusServiceUnavailable)
 	}))
 	defer srv.Close()
-	ackJob(Config{Broker: srv.URL, NodeID: "n1"}, "tok", "j")
+	ackJob(Config{Broker: srv.URL, NodeID: "n1"}, "tok", job)
 	time.Sleep(200 * time.Millisecond)
 	if n := acks.Load(); n != 2 {
 		t.Fatalf("the ack was sent %d times, want the first try plus one retry", n)

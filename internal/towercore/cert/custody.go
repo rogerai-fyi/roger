@@ -89,9 +89,11 @@ func LoadOrCreate(cfg Config, store Custody) (*Authority, error) {
 	if err := store.SaveRoot(keyPEM, certPEM); err != nil {
 		return nil, err
 	}
-	log.Printf("tower CA: generated a new issuing root and stored it. " +
-		"This root can mint a certificate for ANY Tower - move it to your secret store and " +
-		"supply it as configuration before running in production.")
+	// Not "tower CA": this same ladder now roots a Roger Edge as well, and a message
+	// naming the wrong thing is a message an operator learns to ignore.
+	log.Printf("certificate authority: generated a new issuing root and stored it. " +
+		"This root can mint a certificate for ANY identity under it - keep it where you keep " +
+		"secrets, and supply it as configuration before running in production.")
 	return authorityFromPEM(cfg, keyPEM, certPEM, store)
 }
 

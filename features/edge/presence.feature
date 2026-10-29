@@ -1,0 +1,136 @@
+# ROGER EDGE - DIAL-OUT PRESENCE: a node that cannot serve still appears, verified (PROPOSED).
+#
+# STATUS: PROPOSED 2026-09-22, founder-greenlit as "the small Go-side dial-out fallback endpoint"
+# for the phone. Implemented alongside this spec.
+#
+# WHY: the Edge's normal membership presence is PULL - discovery dials a node's LAN face, reads its
+# certificate and its /edge/describe, and records it as a verified member (discovery.feature,
+# topology_view.feature). That assumes the node can SERVE TLS on an inbound port. A phone cannot
+# assume that: it sleeps, roams between networks, and iOS may not serve an Ed25519 TLS identity.
+# So a member needs a second, equivalent way to be present: PUSH. The node dials OUT to the
+# authority and says "I am here", and the authority records it as the same verified member it would
+# have observed by dialing.
+#
+# THE TRUST IS UNCHANGED. Presence by push is authenticated by exactly what presence by pull is: the
+# node's authority-ISSUED certificate. The authority verifies the certificate chains to its own root
+# (it issued it), that the node id is the one the certificate's key derives, and that the request is
+# freshly SIGNED by that key - so only a node this authority really enrolled, holding its private
+# key, can present, and a captured request cannot be replayed. Nothing new is trusted; only the
+# direction of the dial changes.
+#
+# HONESTY: a pushed member is a real verified member, drawn like any other, and it goes DARK if the
+# pushes stop, exactly as a dialed member goes dark when it stops answering. The endpoint records a
+# self-reported describe (kind, caps) - the same self-report /edge/describe carries - never more.
+#
+# GROUND TRUTH: internal/edge/presence.go (PresenceHandler, PresenceRequest), internal/edge/
+# fleet.go (Observe - the same sink discovery uses), internal/towercore/cert (Authenticate),
+# internal/edge/verify.go (the pull-side check this mirrors), cmd/rogerai/edgehost.go (mounts it on
+# the authority server beside /edge/enroll).
+#
+# Tags: @edge (the endpoint + verification), @security (the trust checks).
+
+Feature: A node can present itself to the authority by dialing out, and be recorded as a verified member without serving an inbound face
+
+  @edge
+  Scenario: a node with a valid issued certificate presents and becomes a verified member
+    Given a node enrolled on this Edge, holding the certificate the authority issued it
+    When it POSTs a freshly signed presence to /edge/present with its describe
+    Then the authority records it as a VERIFIED member with its kind and capabilities
+    And the member is drawn on the map exactly like one discovery had dialed
+
+  @edge
+  Scenario: presence refreshes last-seen, and a member that stops presenting goes dark
+    Given a member that presented a moment ago
+    When it presents again
+    Then its last-seen advances
+    When it stops presenting past the dark threshold
+    Then it goes dark and is kept, like any member that stopped answering
+
+  @security
+  Scenario: a presence whose certificate was not issued by this authority is refused
+    Given a presence carrying a certificate signed by some other authority
+    When it is POSTed to /edge/present
+    Then it is refused, and nothing is written to the fleet
+
+  @security
+  Scenario: a presence whose node id does not match its certificate key is refused
+    Given a presence whose node_id is not the id the certificate's key derives
+    When it is POSTed
+    Then it is refused as an identity mismatch, and nothing is written
+
+  @security
+  Scenario: a presence with a bad or missing signature is refused
+    Given a presence not signed by the certificate's key
+    When it is POSTed
+    Then it is refused, and nothing is written
+
+  @security
+  Scenario: a stale presence is refused
+    Given a presence whose timestamp is far outside the freshness window
+    When it is POSTed
+    Then it is refused as stale
+
+  @security
+  Scenario: a replayed presence is refused
+    Given a valid presence that was already accepted
+    When the exact same signed presence is POSTed again
+    Then it is refused as a replay, and the member is not double-written
+
+  @security
+  Scenario: a revoked node's presence is refused
+    Given a node whose certificate the authority has revoked
+    When it presents
+    Then it is refused, so a node taken off the Edge cannot re-appear by pushing
+
+  # =========================================================================
+  # PRESENCE v3: POWER, FOR ANY KIND OF NODE
+  # =========================================================================
+  # RULED 2026-10-13 (founder). JSON: "v": 3, and beside "vitals" (phone only: "thermal", "foreground")
+  # a "power" object valid for ANY kind: "battery_pct" (0..100), "charging" (bool), "source" ("ac" |
+  # "battery" | "unknown"), "low_power" (bool), "minutes_left" (int, 0 to a year); every field optional,
+  # absent is absent. In v3 a phone's battery and charging travel under "power", and under "vitals"
+  # they are refused. Signed by the node key over these lines joined by "\n", an absent reading an
+  # EMPTY line:
+  #   "rogerai-edge-present/v3", node_id, name, kind, caps (comma-joined), addr, nonce, ts,
+  #   thermal, foreground ("1"/"0"/""), battery_pct, charging ("1"/"0"/""), source,
+  #   low_power ("1"/"0"/""), minutes_left
+  # Golden vectors: internal/edge/testdata/presence_v3_vectors.json (pure-Python RFC 8032 generator).
+  # Also served on the authority's TLS listener (docs/edge-authority-https.md).
+  @security
+  Scenario: a v3 presence carries any node's power, signed
+    Given a host on a UPS HAT that dials out
+    When it presents v3 with power: battery 81%, not charging, source battery, 120 minutes left
+    Then it is recorded with that power, and the window and the power rules read it
+
+  # Review 2026-10-26: bounded, so no reading overflows a duration when it is printed.
+  @security
+  Scenario: a time remaining over a year is refused, and never printed as one
+    When a v3 presence says more than a year of battery is left
+    Then it is refused as a reading that cannot be true
+    And a reading already held that says so is shown as "over a year left"
+
+  # Review 2026-10-26: a nonce is 16 random bytes as 32 lowercase hex. One of another shape (a UUID,
+  # uppercase hex) is refused in words that say what is wrong with it, not as a replay.
+  @security
+  Scenario: a malformed nonce is refused as malformed, not as already seen
+    When a presence, an invocation or a phone's turn carries a UUID or uppercase hex as its nonce
+    Then it is refused with "malformed nonce", and nothing about a replay
+
+  # Adversarial review 2026-10-27: a full quota is not a replay either.
+  @security
+  Scenario: a node at its quota of live nonces is told to slow down
+    Given a node has spent its 600 nonces within the last five minutes
+    When it sends one more request with a fresh nonce
+    Then it is refused as sending too many requests, and told to wait, not that it was already seen
+
+  @security
+  Scenario: power outside the version that signs it is refused
+    When a v1 or v2 presence carries a power object, or a v3 one carries a battery under vitals
+    Then it is refused, because those readings would not be signed
+
+  @security
+  Scenario: an authority that does not read v3 says so, and the sender falls back
+    Given an authority from before v3
+    When a node presents v3
+    Then it is refused with 403 and the exact words "that presence version is not one this authority reads"
+    And the node sends the same beat as v2 (a phone) or v1 (anything else), without the power block

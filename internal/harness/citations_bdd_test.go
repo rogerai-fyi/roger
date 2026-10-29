@@ -17,11 +17,12 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strings"
 	"testing"
 
 	"github.com/cucumber/godog"
-	"rogerai.fm/roger/v6/internal/capsule"
+	"rogerai.fm/roger/v7/internal/capsule"
 )
 
 type citeState struct {
@@ -661,7 +662,7 @@ func TestCitationsBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("citation behavior scenarios failed (see godog output above)")
 	}
 }

@@ -12,12 +12,13 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/cucumber/godog"
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 type curatedState struct {
@@ -272,7 +273,7 @@ func TestCuratedIdentityFeature(t *testing.T) {
 			Paths: []string{"../../features/curated/curated_identity.feature"},
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("curated identity scenarios failed")
 	}
 }

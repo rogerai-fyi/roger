@@ -24,13 +24,14 @@ import (
 	"net/http/httptest"
 	"os"
 	"os/exec"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/cucumber/godog"
-	"rogerai.fm/roger/v6/internal/agent"
-	"rogerai.fm/roger/v6/internal/node"
+	"rogerai.fm/roger/v7/internal/agent"
+	"rogerai.fm/roger/v7/internal/node"
 )
 
 // TestOnAirLockHelper is the RE-EXEC entry point, not a test: it only runs when the
@@ -407,7 +408,7 @@ func TestOnAirLockBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("on-air lock scenarios failed (see godog output above)")
 	}
 }

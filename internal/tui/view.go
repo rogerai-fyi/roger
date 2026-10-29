@@ -15,7 +15,8 @@ import (
 
 	"github.com/charmbracelet/bubbles/cursor"
 	"github.com/charmbracelet/bubbles/textarea"
-	"rogerai.fm/roger/v6/internal/glyphs"
+	"rogerai.fm/roger/v7/internal/glyphs"
+	"rogerai.fm/roger/v7/internal/look"
 )
 
 // alertBox is a tiny thread-safe mailbox: the relay's failover callback (running
@@ -68,8 +69,13 @@ func (m model) loginView(w int) string {
 	}
 
 	// LOGGED OUT -> press enter to start the GitHub device flow (#5).
+	credit := ""
+	if m.promoOn != nil && *m.promoOn {
+		// Only while the broker still offers it, and never an amount (welcome_card.feature R3).
+		credit = stDim.Render("  new accounts get a starter credit") + "\n"
+	}
 	body := stKey.Render("GITHUB LOGIN") + "\n\n" +
-		stDim.Render("  log in with GitHub to use your wallet + earn as a provider") + "\n\n" +
+		stDim.Render("  log in with GitHub to use your wallet + earn as a provider") + "\n" + credit + "\n" +
 		"  " + stDim.Render("press ") + stKey.Render("enter") + stDim.Render(" to start (opens your browser) · esc cancels")
 	return "\n" + panelFit(body, w) + "\n"
 }
@@ -83,6 +89,7 @@ func (m model) View() string {
 	}
 	w := m.effWidth()
 	var b strings.Builder
+	edgeAt := -1 // where [3] EDGE's body goes, once the chrome around it has been counted
 	// COMPACT (the "windowshade"): no expanded preset bar and no spacer - the dense
 	// one-line header carries the section + counts + account + the `m:expand` hint, so
 	// the whole top collapses to a single strip + a hairline rule.
@@ -96,21 +103,22 @@ func (m model) View() string {
 		b.WriteString(m.presetBar(w) + "\n\n")
 		b.WriteString(m.header(w) + "\n")
 	}
+	b.WriteString(m.ownerJoinBanner(w))
+	if m.welcome && m.mode != modePingWorld {
+		// The one-time welcome card, over the dial and under the brand (welcome.go).
+		rows := 0
+		if m.height > 0 {
+			rows = max(1, m.height-lineRows(b.String()))
+		}
+		b.WriteString(m.welcomeView(w, rows))
+		return m.finishFrame(b.String(), w)
+	}
 	switch m.mode {
 	case modeHelp:
-		content := m.helpView()
-		budget := m.height - 8
-		if budget < 6 {
-			budget = 6
-		}
-		// No measured height (tests / pipes) renders the whole thing - the pager only
-		// engages when we KNOW the content will not fit.
-		if m.height <= 0 || lineRows(content) <= budget {
+		content, paged := m.helpPaged(w)
+		if !paged {
 			b.WriteString(content)
 		} else {
-			m.helpVP.Width = w
-			m.helpVP.Height = budget
-			m.helpVP.SetContent(content)
 			b.WriteString(m.helpVP.View() + "\n")
 			pct := int(m.helpVP.ScrollPercent() * 100)
 			b.WriteString("  " + stDim.Render(fmt.Sprintf("── %d%% · ↑↓ / pgdn scroll · esc back ──", pct)) + "\n")
@@ -127,14 +135,21 @@ func (m model) View() string {
 		b.WriteString(m.overLimitView(w))
 	case modeLimits:
 		b.WriteString(m.limitsView(w))
+	case modeEdge:
+		b.WriteString(m.ownerEdgeView(w))
+		edgeAt = b.Len()
 	case modeShare:
 		b.WriteString(m.shareView(w))
 	case modeBandCard:
 		b.WriteString(m.bandCardView(w))
 	case modeShareEditor:
 		b.WriteString(m.shareEditorView(w))
+	case modeShareMeta:
+		b.WriteString(m.shareMetaView(w))
 	case modeShareSetup:
 		b.WriteString(m.shareSetupView(w))
+	case modeModels:
+		b.WriteString(m.modelsView(w))
 	case modeQuitConfirm:
 		b.WriteString(m.quitConfirmView(w))
 	case modeAgent:
@@ -210,12 +225,45 @@ func (m model) View() string {
 		b.WriteString("\n" + m.promptLine(w))
 	}
 	b.WriteString("\n" + m.footer(w))
+	out := b.String()
+	if edgeAt >= 0 {
+		// [3] EDGE fits itself to the rows the chrome leaves it (features/edge/enrolled_edge_look.feature
+		// D3), so the height backstop never has to cut its top off. No measured height: draw it all.
+		rows := 0
+		if m.height > 0 {
+			rows = max(1, m.height-(strings.Count(strings.TrimRight(out, "\n"), "\n")+1))
+		}
+		out = out[:edgeAt] + m.edgeViewH(w, rows) + out[edgeAt:]
+	}
+	return m.finishFrame(out, w)
+}
+
+// finishFrame bounds a built frame to the terminal and paints the deck ground under it.
+// helpPaged sizes and fills the HELP pager for this frame, or reports that the whole page fits
+// (no measured height - tests, pipes - renders the whole thing; the pager only engages when the
+// content is KNOWN not to fit). Shared by View and the scroll keys: the viewport is a value, so
+// filling it only inside View left the model's copy empty and every scroll key a no-op.
+func (m *model) helpPaged(w int) (content string, paged bool) {
+	content = m.helpView()
+	budget := m.height - 8
+	if budget < 6 {
+		budget = 6
+	}
+	if m.height <= 0 || lineRows(content) <= budget {
+		return content, false
+	}
+	m.helpVP.Width = w
+	m.helpVP.Height = budget
+	m.helpVP.SetContent(content)
+	return content, true
+}
+
+func (m model) finishFrame(out string, w int) string {
 	// Alt-screen: pad a short frame with blank lines up to the terminal height so it
 	// fully overwrites a TALLER previous frame (e.g. a long model list that overflowed
 	// a small terminal) rather than leaving ghost remnants of the old frame - the
 	// duplicated brand/header/"scanning…" the founder hit after going on-air. Guarded
 	// on height>0 so headless tests (no WindowSizeMsg) keep their exact, unpadded output.
-	out := b.String()
 	// THE BOTTOM PIN: agentView marks where its slack belongs (agentPinMark); spend it
 	// HERE, where the whole frame - chrome, footer, status - has actually been built
 	// and can be counted. Padding inside the view instead only knows that view's row
@@ -278,7 +326,8 @@ var paletteCmds = []paletteCmd{
 	{"/search", "re-scan the band for stations", "r"},
 	{"/connect", "tune in to the selected station", "⏎"},
 	{"/share", "put a local model on air (earn or free)", "2"},
-	{"/limits", "your per-model spend caps", "3"},
+	{"/edge", "your fleet, and how it is connected", "3"},
+	{"/limits", "your per-model spend caps", "4"},
 	{"/login", "link GitHub (needed to earn)", "L"},
 	{"/balance", "wallet balance", ""},
 	{"/topup", "add funds", ""},
@@ -370,6 +419,10 @@ func (m model) browseView(w int) string {
 	if m.tuneTab == tabPrivate {
 		return m.privateTabView(w)
 	}
+	if len(m.bands) == 0 && LANMode() && (m.scanned || m.scanErr || len(m.lanCandidates()) > 0) {
+		// The empty LAN dial says what it looked at and how to get a band; never the market's line.
+		return m.lanEmptyView(w)
+	}
 	if len(m.bands) == 0 {
 		// ASYNC LOADING: the initial /discover (and any r re-scan) runs off the Bubble
 		// Tea event loop, so until the first offers land we show the SAME ((•)) scanning
@@ -443,6 +496,9 @@ func (m model) browseView(w int) string {
 	// load-bearing state, and the status line also carries it on tune-in.
 	freqTag := ""
 	switch {
+	case LANMode():
+		// The LAN dial: only local bands, so the title says which dial this is at every width.
+		freqTag = stDim.Render(" · ") + stKey.Render(lanModeName()+" DIAL")
 	case m.tuneFreq != "" && (m.narrow() || m.compact):
 		// Narrow: the "PRIVATE FREQ <code>" label would overflow the slim heading - show a
 		// bare accented ◉ marker. The red glyph alone still signals "off the open market"
@@ -499,7 +555,7 @@ func (m model) browseView(w int) string {
 	// Narrow (< 64 col): a slim three-column table (band · on air · price), dropping
 	// the signal + flags columns so nothing overflows the real width. Wide: the full
 	// fixed grid (band · on air · range · signal · flags). (TUI-V2-CRITIQUE A.)
-	nameW := 20
+	nameW := m.bandNameW()
 	// The ctx + t/s columns ride ONLY when the terminal is wide enough to add them
 	// without overflowing the fixed 80-col grid (the default wide layout at w=80 stays
 	// exactly as it was). The expanded station log [i] always carries per-station ctx +
@@ -510,15 +566,20 @@ func (m model) browseView(w int) string {
 	showTPS := !m.narrow() && w >= 88
 	showCtx := !m.narrow() && w >= 90
 	if m.narrow() {
-		nameW = 14
 		if !m.compact {
-			b.WriteString("  " + stDim.Render(fmt.Sprintf("%-14s  %-9s  %s", "band", "on air", "$/1M out")) + "\n")
+			priceHdr := "$/1M out"
+			if LANMode() {
+				priceHdr = "source"
+			}
+			b.WriteString("  " + stDim.Render(fmt.Sprintf("%-14s  %-9s  %s", "band", "on air", priceHdr)) + "\n")
 		}
 	} else {
 		// Column header, tabular. Widths match the body cells exactly so price + t/s +
 		// signal columns line up under a fixed grid (lipgloss width, not eyeballed
 		// spacing). COMPACT omits the header row entirely (denser; cells stay self-evident).
-		if !m.compact {
+		if !m.compact && LANMode() {
+			b.WriteString("  " + stDim.Render(fmt.Sprintf("%-20s  %-9s  %-*s  %s", "band", "on air", m.lanSourceW(w), "source", "flags")) + "\n")
+		} else if !m.compact {
 			tpsHdr := ""
 			if showTPS {
 				tpsHdr = "  " + fmt.Sprintf("%-5s", "t/s")
@@ -593,9 +654,18 @@ func (m model) browseView(w int) string {
 				free = "  FREE"
 			}
 			// PLAIN row for the reverse-video bar; the selected row is one accent bar.
-			plain := fmt.Sprintf("%s  %s  %s%s", pad(bd.model, nameW), pad(stationsLbl, 9), rangeStr(bd), free)
+			// The SELECTED row's name marquees when it overflows; every other row (and
+			// offset 0 of this one) is exactly the static pad it always was. marqueeSel
+			// measures the cell this row actually draws - including the two columns the
+			// ◉ marker costs a connected row - so the offset is right for either branch.
+			off := 0
+			if sel {
+				off = m.marqueeOff()
+			}
+			cell := m.narrowPriceCell(bd, w, nameW)
+			plain := fmt.Sprintf("%s  %s  %s%s%s", padMarquee(bd.model, nameW, off), pad(stationsLbl, 9), cell, free, lanTrustTag(bd))
 			if connected {
-				plain = glyphOnAir + " " + fmt.Sprintf("%s  %s  %s", pad(bd.model, nameW-2), pad(stationsLbl, 9), rangeStr(bd))
+				plain = glyphOnAir + " " + fmt.Sprintf("%s  %s  %s", padMarquee(bd.model, nameW-2, off), pad(stationsLbl, 9), cell)
 			}
 			if sel {
 				b.WriteString(m.caratGutter() + rowSel(true, plain, tableW) + "\n")
@@ -605,7 +675,7 @@ func (m model) browseView(w int) string {
 			// lit ◉ marker and a red "connected" label so it stands out in the list.
 			if connected {
 				b.WriteString(selCarat(false) + " " + stRed.Render(glyphOnAir) + " " + stKey.Render(pad(bd.model, nameW-2)) + "  " +
-					stRed.Render(pad(stationsLbl, 9)) + "  " + stEmber.Render(rangeStr(bd)) + bandTierSuffix(bd) + "\n")
+					stRed.Render(pad(stationsLbl, 9)) + "  " + stEmber.Render(cell) + bandTierSuffix(bd) + "\n")
 				continue
 			}
 			freeTag := ""
@@ -613,7 +683,11 @@ func (m model) browseView(w int) string {
 				freeTag = "  " + stLive.Render("FREE")
 			}
 			b.WriteString(selCarat(false) + " " + stDim.Render(pad(bd.model, nameW)) + "  " +
-				stDim.Render(pad(stationsLbl, 9)) + "  " + stEmber.Render(rangeStr(bd)) + bandTierSuffix(bd) + freeTag + "\n")
+				stDim.Render(pad(stationsLbl, 9)) + "  " + stEmber.Render(cell) + bandTierSuffix(bd) + freeTag + stDim.Render(lanTrustTag(bd)) + "\n")
+			continue
+		}
+		if LANMode() {
+			b.WriteString(m.lanWideRow(bd, w, nameW, stationsLbl, sel, connected, tableW))
 			continue
 		}
 		// Signal from the cheapest station: the broker's 0..100 signal drives the
@@ -673,7 +747,7 @@ func (m model) browseView(w int) string {
 			// whole row (a colored cell inside an accent bg reads as noise).
 			rawSig := m.bandSMeter(m.sigFrame(), sigSignal, sigTPS, online, sigInFlight, bd.stations, true)
 			plain := fmt.Sprintf("%s  %s  %s%s%s  %s  %s",
-				bandNameCell(bd, nameW), pad(stationsLbl, 9), pad(priceInOutTier(bd, 17), 17), ctxSelCell, tpsSelCell, rawSig, plainBandBadge(bd, m.limits, connected))
+				bandNameCellAt(bd, nameW, m.marqueeOff()), pad(stationsLbl, 9), pad(priceInOutTier(bd, 17), 17), ctxSelCell, tpsSelCell, rawSig, plainBandBadge(bd, m.limits, connected)+lanTrustTag(bd))
 			b.WriteString(m.caratGutter() + rowSel(true, plain, tableW) + "\n")
 			continue
 		}
@@ -688,7 +762,7 @@ func (m model) browseView(w int) string {
 			statCell = stRed.Render(pad(stationsLbl, 9))
 		}
 		b.WriteString(selCarat(false) + " " + nameCell + "  " +
-			statCell + "  " + rng + ctxRowCell + tpsRowCell + "  " + sig + "  " + bandBadge(bd, m.limits, connected) + "\n")
+			statCell + "  " + rng + ctxRowCell + tpsRowCell + "  " + sig + "  " + bandBadge(bd, m.limits, connected) + stDim.Render(lanTrustTag(bd)) + "\n")
 	}
 	// Bottom "more" hint: rows scrolled off below.
 	if end < matched {
@@ -722,6 +796,10 @@ func (m model) browseView(w int) string {
 	// screen), so voice is additive and can never rival the LLM bands above it. Absent on a
 	// pure-LLM screen. Not drawn while a name filter is active (the filtered LLM view is the
 	// focus) or in compact (voices fold into the header count, never a deck cell).
+	if LANMode() {
+		b.WriteString(lanEdgeUnreadLine(w))
+		b.WriteString(m.lanCandidateView(w))
+	}
 	if !m.compact && !m.filterMode && strings.TrimSpace(m.filterApplied) == "" {
 		if foot := m.voiceFootnote(); foot != "" {
 			b.WriteString(foot + "\n")
@@ -786,6 +864,9 @@ func (m model) filterLine(matched, total int) string {
 		// human story is countable at a glance and the U toggle is discoverable next to
 		// the number it would act on.
 		toggles = append(toggles, stDim.Render(fmt.Sprintf("%s%d curated · U hides", glyphCurated, n)))
+	}
+	if m.fCat != "" {
+		toggles = append(toggles, stKey.Render("cat:"+m.fCat))
 	}
 	if m.fQuant != "" {
 		// Named, not a bare "quant" lamp: WHICH one is the whole content of this filter,
@@ -886,21 +967,21 @@ func renderComposer(input textarea.Model, placeholder, lead string, leadWidth, w
 }
 
 func (m model) helpView() string {
-	// Lead with the few things a new user needs - the two-way radio in one breath.
-	start := [][2]string{
-		{"0", "AGENT: a small tool-capable agent (dj.md persona) - reads files, runs commands (you confirm)"},
+	// "start here" IS the welcome card's six lines, keys and all (welcome_card.feature): the
+	// card says "you can always get here again with ?", and this is where.
+	// The rest of the keys follow at the end, under "more keys".
+	more := [][2]string{
 		{"←/→", "switch section: cycle the [0] AGENT … [?] HELP bar (same as pressing its number)"},
-		{"↑↓ then enter", "TUNE IN: pick a band, open a channel, chat"},
 		{"f", "FILTER the band by name (live) - esc clears, enter keeps it applied"},
 		{"t", "YOUR BANDS: switch the dial between OPEN MARKET and your own PRIVATE bands. A private band is hidden from the public list - including from you - so this is where you find it. ⏎ on one whose model runs here opens a DIRECT channel (no broker, no meter); n mints a new code, f clears a revoked row"},
 		{"~", "PRIVATE FREQ: enter SOMEONE ELSE'S frequency code to tune onto their hidden band - esc returns to OPEN MARKET"},
 		{"b", "BAND CARD: every setting for the band under the cursor in one place - on air, public/private, its dial, its price, what was detected about it, your spend caps"},
 		{"s", "SORT cycle (strongest / cheapest / fastest / most-stations)"},
 		{"F/C/O", "filters: free-now / confidential / on-air"},
+		{"G", "CATEGORY filter: show only one category (vision, retrieval…). A category is the station's own description, or a guess marked ~ - not verified"},
 		{"Q", "QUANT filter: show only one compression label (Q4_K_M, IQ4_XS, 4bit…). Two stations serving the same model name are not serving the same weights - only labels actually on air are offered"},
 		{"m  ·  alt+m", "MINIMIZE to the dense compact windowshade · alt+m (or /compact) works from anywhere, even mid-chat"},
 		{"z", "SCREENSAVER: zone out to Ping's world (fullscreen, any key wakes) · also /ping"},
-		{"w", "WEB CONSOLE: open this station's browser console (it no longer auto-opens at launch)"},
 		{"esc (in a channel)", "disconnect - leave the channel, back to the band"},
 		{"q (browsing)", "quit RogerAI"},
 	}
@@ -911,7 +992,8 @@ func (m model) helpView() string {
 		{"/share [off]", "SHARE: the provider table - flip your models on/off air"},
 		{"/login", "link GitHub - only needed to EARN (CLI: roger login)"},
 		{"/balance · /topup", "your wallet balance · add funds (CLI: roger balance)"},
-		{"/limits", "see + edit your per-model spend maxes"},
+		{"/edge ([3])", "your Edge: what is on it, and how it is connected"},
+		{"/limits ([4])", "see + edit your per-model spend maxes"},
 		{"/grant [create <name>]", "private free keys for your bots/family"},
 		{"/confidential", "toggle: route only to TEE-attested nodes"},
 		{"/endpoint · /config", "endpoint + key · broker/identity"},
@@ -930,9 +1012,9 @@ func (m model) helpView() string {
 	ping := renderPing(pingIdleFrames[pf%len(pingIdleFrames)], "•")
 	b.WriteString("\n" + indentBlock(ping, "    ") + "\n")
 	b.WriteString("    " + stPingDim.Render("Ping · on air, go ahead") + "\n\n")
-	b.WriteString(stBrand.Render("  start here") + stDim.Render("  (a two-way radio for Local Models)") + "\n\n")
-	for _, c := range start {
-		b.WriteString("  " + stKey.Render(fmt.Sprintf("%-20s", c[0])) + stDim.Render(c[1]) + "\n")
+	b.WriteString(stBrand.Render("  start here") + stDim.Render("  (a two-way radio for Local Models · m compact view · more keys at the end)") + "\n\n")
+	for _, o := range look.WelcomeOptions {
+		b.WriteString("  " + stKey.Render(fmt.Sprintf("%-4s", o.Key)) + stKey.Render(fmt.Sprintf("%-20s", o.Label)) + stDim.Render(o.What) + "\n")
 	}
 	b.WriteString("\n" + stBrand.Render("  all commands") + stDim.Render("  (each is also a `roger <cmd>` you can script)") + "\n\n")
 	for _, c := range cmds {
@@ -973,6 +1055,25 @@ func (m model) helpView() string {
 	b.WriteString("\n  " + stDim.Render("signal X/100 breaks down into six factors:") + "\n")
 	for _, g := range signalGloss {
 		b.WriteString("  " + stKey.Render(fmt.Sprintf("%-16s", g[0])) + stDim.Render(g[1]) + "\n")
+	}
+
+	// [4] CONFIG's own keys: they live only inside that screen and never shadow a global.
+	config := [][2]string{
+		{"tab · shift+tab", "walk the selected band's routing fields"},
+		{"enter", "edit the focused field (type, enter saves, esc cancels)"},
+		{"space", "cycle a choice field: quant, pref, trust, self-hosted"},
+		{"p", "cycle the band's pref (balanced, cheap, fast, reliable)"},
+		{"t · v", "require: toggle tools / vision"},
+		{"a · d", "add a band row · clear the row's rule"},
+	}
+	b.WriteString("\n" + stBrand.Render("  [4] CONFIG") + stDim.Render("  (your routing rules, per band and default)") + "\n\n")
+	for _, c := range config {
+		b.WriteString("  " + stKey.Render(fmt.Sprintf("%-16s", c[0])) + stDim.Render(c[1]) + "\n")
+	}
+
+	b.WriteString("\n" + stBrand.Render("  more keys") + "\n\n")
+	for _, c := range more {
+		b.WriteString("  " + stKey.Render(fmt.Sprintf("%-20s", c[0])) + stDim.Render(c[1]) + "\n")
 	}
 
 	lockup := "rogerai"

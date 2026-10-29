@@ -34,10 +34,10 @@ import (
 	"time"
 
 	"errors"
-	"rogerai.fm/roger/v6/internal/towercore/dispatch"
-	"rogerai.fm/roger/v6/internal/towercore/envelope"
-	"rogerai.fm/roger/v6/internal/towercore/fleet"
-	"rogerai.fm/roger/v6/internal/towercore/reputation"
+	"rogerai.fm/roger/v7/internal/towercore/dispatch"
+	"rogerai.fm/roger/v7/internal/towercore/envelope"
+	"rogerai.fm/roger/v7/internal/towercore/fleet"
+	"rogerai.fm/roger/v7/internal/towercore/reputation"
 )
 
 // canaryPrompts are innocuous requests a canary rotates between. The BODY names the grant's
@@ -117,7 +117,7 @@ func (b *broker) RunCanary(towerID string) reputation.Outcome {
 	}
 	// Recorded exactly as a customer attempt is - if a canary skipped this it would BE
 	// distinguishable, and an attempt nobody recorded could not settle through the courier.
-	if err := b.openEdgeAttempt(grant, target); err != nil {
+	if err := b.openEdgeAttempt(grant, target, ""); err != nil {
 		log.Printf("canary: could not record attempt for tower %s: %v", towerID, err)
 		return ""
 	}

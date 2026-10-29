@@ -1,34 +1,29 @@
-.PHONY: build demo clean kill test test-db check site site-serve smoke smoke-live beta cover cover-html cover-gate cover-gate-fast tdd reach
+.PHONY: build demo clean kill test test-db check site site-serve smoke smoke-live beta cover cover-html cover-gate cover-gate-fast cross tdd reach
 GOTOOLCHAIN := local
 export GOTOOLCHAIN
 
-# VERSION stamps the client semver into the binary (main.Version) at link time.
-# Default: the source fallback in cmd/rogerai/main.go. Override for a release/beta:
+# VERSION stamps the one build version (internal/buildinfo.Version) at link time, for roger and
+# the broker alike. Default: the release this source is (internal/buildinfo). Override for a
+# release/beta:
 #   make build VERSION=4.8.0
 #   make beta  VERSION=4.8.0-beta.1
+# The linker SILENTLY IGNORES -X for a symbol that does not exist, so this is the only -X any
+# build passes, and a test (one_binary.feature, "one version") pins that.
 VERSION ?=
-VERSION_LDFLAGS := $(if $(VERSION),-X main.Version=$(VERSION),)
-# roger-tower carries its own symbol: `var version` in package main, LOWERCASE, where the
-# client has `var Version`. The distinction is load-bearing rather than cosmetic - the Go
-# linker SILENTLY IGNORES -X for a symbol that does not exist, so stamping the tower with
-# VERSION_LDFLAGS above would look correct in the recipe, exit 0, and ship a binary still
-# reporting "dev". Keep this in step with the tower ldflags in .goreleaser.yaml, which is
-# what stamps the binaries an operator actually downloads.
-TOWER_VERSION_LDFLAGS := $(if $(VERSION),-X main.version=$(VERSION),)
+VERSION_LDFLAGS := $(if $(VERSION),-X rogerai.fm/roger/v7/internal/buildinfo.Version=$(VERSION),)
 
 build:
-	go build -o bin/rogerai-broker    ./cmd/rogerai-broker
+	go build -ldflags "$(VERSION_LDFLAGS)" -o bin/rogerai-broker ./cmd/rogerai-broker
 	go build -ldflags "$(VERSION_LDFLAGS)" -o bin/roger ./cmd/rogerai
 	ln -sf roger bin/rogerai          # back-compat alias: the command is `roger`, `rogerai` still works
-	go build -o bin/tokenizer-sidecar ./cmd/tokenizer-sidecar
-	go build -ldflags "$(TOWER_VERSION_LDFLAGS)" -o bin/roger-tower ./cmd/roger-tower
-	go build -ldflags "$(TOWER_VERSION_LDFLAGS)" -o bin/roger-tower-local ./cmd/roger-tower-local
+	go build -o bin/roger-tower ./cmd/roger-tower              # one-release shim: hands off to roger
+	go build -o bin/roger-tower-local ./cmd/roger-tower-local  # one-release shim: hands off to roger
 
 # beta: a single stamped, trimmed binary for the host platform, named by its semver
 # (e.g. bin/roger-4.8.0-beta.1). Requires VERSION, which must be a semver.
 beta:
 	@test -n "$(VERSION)" || { echo "usage: make beta VERSION=4.8.0-beta.1"; exit 1; }
-	CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.Version=$(VERSION)" -o bin/roger-$(VERSION) ./cmd/rogerai
+	CGO_ENABLED=0 go build -trimpath -ldflags "-s -w $(VERSION_LDFLAGS)" -o bin/roger-$(VERSION) ./cmd/rogerai
 	@echo "built bin/roger-$(VERSION)"
 
 # Build the marketing + account site: resolve the shared chrome partials
@@ -59,22 +54,25 @@ test:
 # developer almost never does, which is how a dropped column in PGStore.ByTower once sat
 # behind a passing parity suite.
 #
-# TWO things have to be right, and both are easy to get wrong by hand:
+# Two things have to be right; the target handles both:
 #
 #   the schema  - production provisions `rogerai` out-of-band and NewPostgres owns only the
-#                 tables inside it, by design. A bare container has no such schema, and the
-#                 suites that do not create their own (admit, enroll) fail with
-#                 `schema "rogerai" does not exist` in a way that reads like a code defect.
+#                 tables inside it, by design. A bare container has no such schema; it is
+#                 created here (internal/pgtest gives each package's private database its
+#                 own), and the CREATE is also the signal that the server is ready.
 #
-#   -p 1        - a dozen suites TRUNCATE tables in that ONE shared schema, so packages run
-#                 in parallel wipe each other's fixtures. It scales with core count: a
-#                 2-core CI runner almost never trips it and a 64-core workstation trips it
-#                 most runs, which is the worst possible distribution for believing a
-#                 failure. Serial here costs minutes and buys a result you can act on.
+#   isolation   - a dozen suites TRUNCATE or migrate tables, so packages sharing ONE
+#                 database wipe each other's fixtures or deadlock on each other's locks.
+#                 Every package's tests now get a private database on this server from
+#                 internal/pgtest, so they run in parallel safely and -p 1 is gone.
 #
 # Usage: make test-db            (starts and stops its own postgres:16)
 #        make test-db PKGS=./internal/towercore/attach/...
 PG_TEST_PORT ?= 55432
+# The throwaway database skips durability flushes (same as scripts/cover-gate.sh): it is
+# deleted afterwards, and the flush dominated the money-path suites. Locking and isolation
+# are unchanged.
+PG_TEST_FLAGS := -c fsync=off -c synchronous_commit=off -c full_page_writes=off
 PKGS ?= ./internal/towercore/... ./internal/store/...
 .PHONY: test-db
 test-db:
@@ -89,9 +87,9 @@ test-db:
 			|| podman ps -a --format '{{.Names}}' 2>/dev/null | grep -qx rogerai-test-pg; then sleep 1; else break; fi; \
 	done
 	@(docker run -d --rm --name rogerai-test-pg -e POSTGRES_PASSWORD=test -e POSTGRES_DB=roger_test \
-		-p $(PG_TEST_PORT):5432 postgres:16 >/dev/null 2>&1 \
+		-p $(PG_TEST_PORT):5432 postgres:16 $(PG_TEST_FLAGS) >/dev/null 2>&1 \
 		|| podman run -d --rm --name rogerai-test-pg -e POSTGRES_PASSWORD=test -e POSTGRES_DB=roger_test \
-		-p $(PG_TEST_PORT):5432 postgres:16 >/dev/null) \
+		-p $(PG_TEST_PORT):5432 postgres:16 $(PG_TEST_FLAGS) >/dev/null) \
 		&& echo "postgres:16 up on $(PG_TEST_PORT)"
 	@until (docker exec rogerai-test-pg pg_isready -U postgres >/dev/null 2>&1 \
 		|| podman exec rogerai-test-pg pg_isready -U postgres >/dev/null 2>&1); do sleep 1; done
@@ -103,17 +101,19 @@ test-db:
 		if [ $$i = 30 ]; then echo "could not create the rogerai schema" >&2; exit 1; fi; \
 		sleep 1; \
 	done
-	@echo "running $(PKGS) with -p 1"
+	@echo "running $(PKGS)"
 	@ROGERAI_TEST_DATABASE_URL="postgres://postgres:test@127.0.0.1:$(PG_TEST_PORT)/roger_test?sslmode=disable" \
-		go test -p 1 -count=1 $(PKGS); \
+		go test -count=1 $(PKGS); \
 		status=$$?; \
 		(docker stop rogerai-test-pg >/dev/null 2>&1 || podman stop rogerai-test-pg >/dev/null 2>&1 || true); \
 		exit $$status
 
 # ---- spec-first TDD / coverage (see TDD-WORKFLOW.md) -------------------------
 # cover: full self-coverage profile across the module + the total line.
+# 45m per package: the broker package (routing slices 0-6 + two-instance state suites) is large
+# and shares the CPUs with every other package (founder-approved 2026-10-08).
 cover:
-	go test -timeout 20m -covermode=atomic -coverprofile=cover.out ./...
+	go test -timeout 45m -covermode=atomic -coverprofile=cover.out ./...
 	@go tool cover -func=cover.out | tail -1
 
 # cover-html: per-file green/red drill-down (also what we publish to GitHub Pages).
@@ -255,3 +255,9 @@ kill:
 
 clean: kill
 	rm -rf bin
+
+# cross: build every binary for every GOOS/GOARCH .goreleaser.yaml releases (CGO off), so a
+# platform break (a Unix-only call reaching Windows) fails here, not at release time. The same
+# test runs inside `make cover-gate`, so the gate already enforces it; this is the quick local run.
+cross:
+	@go test ./cmd/rogerai -run '^TestEveryReleaseTargetCompiles$$' -count=1

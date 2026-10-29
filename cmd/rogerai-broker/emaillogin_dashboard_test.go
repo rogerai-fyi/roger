@@ -12,7 +12,7 @@ import (
 
 	"net/http"
 	"net/http/httptest"
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/store"
 	"testing"
 
 	"github.com/stretchr/testify/require"

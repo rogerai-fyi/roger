@@ -12,11 +12,11 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"rogerai.fm/roger/v6/internal/agent"
-	"rogerai.fm/roger/v6/internal/glyphs"
-	"rogerai.fm/roger/v6/internal/node"
-	"rogerai.fm/roger/v6/internal/pricetier"
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/agent"
+	"rogerai.fm/roger/v7/internal/glyphs"
+	"rogerai.fm/roger/v7/internal/node"
+	"rogerai.fm/roger/v7/internal/pricetier"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // SchedWindow is the TUI's editable view of a time-of-use price window (mirrors
@@ -50,6 +50,8 @@ type shareRow struct {
 	quant   string
 	weights string
 	variant string
+	// declared / inferred are the model's taxonomy halves (node.Controller.MetaFor).
+	declared, inferred protocol.Taxonomy
 }
 
 // schedToProtocol converts the TUI's editable windows into the wire
@@ -66,11 +68,11 @@ type presetKey struct {
 
 // presetButtons returns the preset bank for the current mode, with exactly one
 // preset lit (the section/screen the user is in). TUNE IN covers browse/command/
-// chat/connect; SHARE covers the provider table / editor / setup; CONFIG maps to
-// the limits screen (the in-TUI config surface). LOGIN + HELP are always-available
+// chat/connect; SHARE covers the provider table / editor / setup; EDGE is the fleet
+// topology; CONFIG maps to the limits screen (the in-TUI config surface). LOGIN + HELP are always-available
 // actions (lit only while their screen shows).
 func (m model) presetButtons() []presetKey {
-	tuneActive := !m.inShareSection() && m.mode != modeLimits && m.mode != modeHelp && m.mode != modeAgent && m.mode != modeLogin
+	tuneActive := !m.inShareSection() && m.mode != modeLimits && m.mode != modeEdge && m.mode != modeHelp && m.mode != modeAgent && m.mode != modeLogin
 	// [L] flips its label by state: LOGOUT when an account is linked, LOGIN otherwise.
 	// It is a resting-capable mode now (the confirmable panel), so it lights while open.
 	loginLabel := "LOGIN"
@@ -81,14 +83,15 @@ func (m model) presetButtons() []presetKey {
 		{"0", "AGENT", m.mode == modeAgent},
 		{"1", "TUNE IN", tuneActive},
 		{"2", "SHARE", m.inShareSection()},
-		{"3", "CONFIG", m.mode == modeLimits},
+		{"3", "EDGE", m.mode == modeEdge},
+		{"4", "CONFIG", m.mode == modeLimits},
 		{"L", loginLabel, m.mode == modeLogin},
 		{"?", "HELP", m.mode == modeHelp},
 	}
 }
 
 // presetBar renders the always-visible "preset bank" of radio-station buttons:
-// [1] TUNE IN  [2] SHARE  [3] CONFIG  [L] LOGIN  [?] HELP, with the CURRENT mode
+// [1] TUNE IN  [2] SHARE  [3] EDGE  [4] CONFIG  [L] LOGIN  [?] HELP, with the CURRENT mode
 // lit like a pressed preset. It replaces the buried single "s share" hint and makes
 // the two modes unmistakable. Compact + NO_COLOR-safe: under a narrow width it drops
 // to just key glyphs ([1][2][3][L][?]) so it never overflows.
@@ -129,7 +132,7 @@ func (m model) presetForKey(key string) (tea.Model, tea.Cmd, bool) {
 	switch key {
 	case "right":
 		// Sequential tab navigation across the preset bank: step to the NEXT preset
-		// (0 -> 1 -> 2 -> 3 -> L -> ? -> wrap to 0) and fire its jump, so left/right
+		// (0 -> 1 -> 2 -> 3 -> 4 -> L -> ? -> wrap to 0) and fire its jump, so left/right
 		// behave exactly like pressing the number/letter. presetForKey is only ever
 		// consulted from non-text-entry contexts (browse / a SHARE sub-screen not pasting
 		// / limits-not-editing / help), so left/right inherit that exact guard and never
@@ -137,7 +140,7 @@ func (m model) presetForKey(key string) (tea.Model, tea.Cmd, bool) {
 		// palette, chat, the AGENT prompt, the `f` filter, or a numeric field.
 		return m.cyclePreset(+1)
 	case "left":
-		// Previous preset (wraps the other way: 0 -> ? -> L -> 3 -> 2 -> 1 -> 0).
+		// Previous preset (wraps the other way: 0 -> ? -> L -> 4 -> 3 -> 2 -> 1 -> 0).
 		return m.cyclePreset(-1)
 	case "m":
 		// COMPACT (the "windowshade"): toggle the calm, dense, animation-free view. Lives
@@ -155,7 +158,7 @@ func (m model) presetForKey(key string) (tea.Model, tea.Cmd, bool) {
 	case "1":
 		// TUNE IN: leave any SHARE/limits screen, back to the band browser. A live
 		// channel stays open (tab/c returns to it).
-		if m.inShareSection() || m.mode == modeLimits {
+		if m.inShareSection() || m.mode == modeLimits || m.mode == modeEdge {
 			m.mode = modeBrowse
 			m.status = stDim.Render("TUNE IN - browse the band, enter to tune in")
 		}
@@ -166,6 +169,10 @@ func (m model) presetForKey(key string) (tea.Model, tea.Cmd, bool) {
 		nm, cmd := m.doShare(nil)
 		return nm, cmd, true
 	case "3":
+		// EDGE: the fleet topology - what is on my Edge, and how is it connected.
+		m.enterEdge()
+		return m, m.edgeResume(), true
+	case "4":
 		// CONFIG: the in-TUI per-model spend-limits screen.
 		m.enterLimits()
 		return m, nil, true
@@ -248,6 +255,29 @@ func (m model) sharePrice(row shareRow, live *agent.Session) (in, out float64) {
 	return p.In, p.Out
 }
 
+// shareDense reports whether the SHARE table is on its 3-column layout (the full grid is
+// ~88 cols; the windowshade forces dense regardless of width). shareNameW is that
+// layout's MODEL column width. Both mirror what shareView computes, from the one width
+// View draws at, so the marquee measures the column the row actually renders in.
+func (m model) shareDense(w int) bool { return w < 88 || m.compact }
+
+func (m model) shareNameW(w int) int {
+	if m.shareDense(w) {
+		return 14
+	}
+	return 24
+}
+
+// shareModelCell is a SHARE row's MODEL cell text: the model, plus the tiny mono modality
+// tag a voice row carries (♪ tts / ▽ stt), so the operator sees which rows are voices
+// without a separate section.
+func shareModelCell(r shareRow) string {
+	if tag := shareModalityTag(r.modality); tag != "" {
+		return r.model + "  " + tag
+	}
+	return r.model
+}
+
 // shareView is the k9s-style provider table: one row per locally-detected model
 // with an unmistakable reverse-video selection cursor, a clear ON-AIR / OFF-AIR
 // status column, the price (FREE or $/1M out), and the live earning metrics
@@ -260,12 +290,15 @@ func (m model) sharePrice(row shareRow, live *agent.Session) (in, out float64) {
 // brand-volt reverse-video bar, with a `>` carat under NO_COLOR), status columns
 // per resource, and a contextual key footer - k9scli.io + github.com/derailed/k9s.
 func (m model) shareView(w int) string {
+	if LANMode() {
+		return m.lanShareView(w)
+	}
 	var b strings.Builder
 	// dense drops the metrics columns (SERVED/OUT TOK/EARNINGS): the full grid is
 	// ~88 cols, so anything narrower uses the 3-column model·status·price layout to
 	// stay width-safe (the band grid uses the same idea at its own threshold). The
 	// windowshade compact mode forces the dense layout regardless of width.
-	dense := w < 88 || m.compact
+	dense := m.shareDense(w)
 	head := stSelBar.Render("▌") + " " + stBrand.Render("SHARE")
 	// Slot meter: ON AIR n/max (the soft share.max_on_air cap). At the cap the count
 	// reads in the ember accent so the operator sees there are no free slots; below it,
@@ -282,6 +315,22 @@ func (m model) shareView(w int) string {
 		b.WriteString("  " + head +
 			stDim.Render(fmt.Sprintf("   your local model as a station   %s detected   ", plural(len(m.shareRows), "model"))) +
 			slotCell + "\n")
+	}
+	textW := w - 4 // (max is shadowed by the slot cap above)
+	if textW < 20 {
+		textW = 20
+	}
+	if m.shareIntro {
+		// Opened from the welcome card: free vs earn, in one line.
+		b.WriteString("  " + stDim.Render(truncVisible(welcomeShareLine, textW)) + "\n")
+	}
+	if m.earnShown {
+		// The earn disclosure, before any price is asked: the old earn wizard's two lines.
+		for _, line := range []string{EarnLoginLine, EarnPayoutLine} {
+			for _, part := range wordWrap(line, textW) {
+				b.WriteString("  " + stEmber.Render(part) + "\n")
+			}
+		}
 	}
 
 	// Station line: the friendly broadcast callsign every band's node id carries into
@@ -314,15 +363,25 @@ func (m model) shareView(w int) string {
 	}
 
 	if len(m.shareRows) == 0 {
-		return b.String() + "\n  " + stEmber.Render("no local models detected") +
-			stDim.Render(" - start a local LLM and press r to re-detect") + "\n"
+		b.WriteString("\n  " + stEmber.Render("no local models detected") +
+			stDim.Render(" - start a local LLM and press r to re-detect") + "\n")
+		tw := w - 4
+		if tw < 20 {
+			tw = 20
+		}
+		if extras := m.shareExtrasView(w, m.shareNameW(w), tw); extras != "" {
+			// ...or let roger serve one itself: the rows that need no other software at all.
+			b.WriteString("\n" + extras)
+			if e, ok := m.shareExtraAt(m.shareCursor); ok {
+				b.WriteString("\n  " + stSelBar.Render("▌") + stDim.Render(" "+truncVisible(m.shareExtraDetail(e), w-4)) + "\n")
+			}
+			b.WriteString(m.shareAskView(w))
+		}
+		return b.String()
 	}
 
 	// Column geometry. dense drops the metrics columns so nothing overflows.
-	nameW := 24
-	if dense {
-		nameW = 14
-	}
+	nameW := m.shareNameW(w)
 	// Header (k9s-style ALL-CAPS column labels). Windowshade compact omits the header
 	// row entirely for density (the cells stay self-evident).
 	switch {
@@ -331,8 +390,10 @@ func (m model) shareView(w int) string {
 	case dense:
 		b.WriteString("  " + stDim.Render(fmt.Sprintf("  %-14s  %-8s  %s", "MODEL", "STATUS", "PRICE")) + "\n")
 	default:
-		b.WriteString("  " + stDim.Render(fmt.Sprintf("  %-24s  %-9s  %-12s  %-9s  %-10s  %s",
-			"MODEL", "STATUS", "PRICE", "SERVED", "OUT TOK", "AT LIST")) + "\n")
+		// Clamped to the terminal: the CATEGORY column made the full row wider than the
+		// widths just above the dense cut-off (taxonomy_share_layout_test.go).
+		b.WriteString(truncVisible("  "+stDim.Render(fmt.Sprintf("  %-24s  %-9s  %-12s  %-9s  %-10s  %-9s  %s",
+			"MODEL", "STATUS", "PRICE", "SERVED", "OUT TOK", "AT LIST", "CATEGORY")), w) + "\n")
 	}
 
 	// WHY "AT LIST" AND NOT "EARNINGS".
@@ -386,10 +447,7 @@ func (m model) shareView(w int) string {
 		// operator sees which rows are voices without a separate section (founder DELTA §D2). A tts
 		// row's price is in its REAL unit ($/1k chars); until a voice is picked it prompts "set
 		// voice…" (you can't go on air as a nameless default). An stt row can go straight on air.
-		modelCell := row.model
-		if tag := shareModalityTag(row.modality); tag != "" {
-			modelCell = row.model + "  " + tag
-		}
+		modelCell := shareModelCell(row)
 		if row.modality == "tts" {
 			vc := m.ctrl.VoiceConfigFor(row.model)
 			if vc.Voice == "" {
@@ -409,9 +467,15 @@ func (m model) shareView(w int) string {
 		// Build the row body as PLAIN text first (cells padded), then color it: a
 		// selected row is one reverse-video bar; an unselected row tints the status
 		// + price cells. This keeps the k9s "the cursor row is obvious" contract.
+		// The SELECTED row's model name marquees when it overflows; offset 0 (every other
+		// row) is the static pad the table has always rendered.
+		off := 0
+		if sel {
+			off = m.marqueeOff()
+		}
 		var plain string
 		if dense {
-			plain = fmt.Sprintf("%s %-14s  %-8s  %s", lampG, pad(modelCell, 14), statusTxt, priceTxt)
+			plain = fmt.Sprintf("%s %s  %-8s  %s", lampG, padMarquee(modelCell, nameW, off), statusTxt, priceTxt)
 		} else {
 			served, outTok, earn := "-", "-", "-"
 			if on {
@@ -420,13 +484,13 @@ func (m model) shareView(w int) string {
 				outTok = fmt.Sprintf("%d", toks)
 				earn = dollars(live.Earnings())
 			}
-			plain = fmt.Sprintf("%s %-24s  %-9s  %-12s  %-9s  %-10s  %s",
-				lampG, pad(modelCell, nameW), statusTxt, priceTxt, served, outTok, earn)
+			plain = fmt.Sprintf("%s %-24s  %-9s  %-12s  %-9s  %-10s  %-9s  %s",
+				lampG, padMarquee(modelCell, nameW, off), statusTxt, priceTxt, served, outTok, earn, shareCategoryCell(row))
 		}
 
 		if sel {
 			// Reverse-video accent bar across the whole row - unmistakable cursor.
-			b.WriteString(selCarat(true) + rowSel(true, plain, tableW) + "\n")
+			b.WriteString(truncVisible(selCarat(true)+rowSel(true, plain, tableW), w) + "\n")
 			continue
 		}
 		// Unselected: a dot/blank gutter, dim model, colored status + price cells.
@@ -442,25 +506,34 @@ func (m model) shareView(w int) string {
 			b.WriteString(selCarat(false) + lampS.Render(lampG) + " " + stDim.Render(pad(modelCell, 14)) + "  " + stN + "  " + sharePriceCell(priceTxt) + "\n")
 			continue
 		}
-		served, outTok, earn := stDim.Render(pad("-", 9)), stDim.Render(pad("-", 10)), stDim.Render("-")
+		served, outTok, earn := stDim.Render(pad("-", 9)), stDim.Render(pad("-", 10)), stDim.Render(pad("-", 9))
 		if on {
 			reqs, toks := live.Served()
 			served = stLive.Render(pad(fmt.Sprintf("%d", reqs), 9))
 			outTok = stDim.Render(pad(fmt.Sprintf("%d", toks), 10))
-			earn = stEmber.Render(dollars(live.Earnings()))
+			earn = stEmber.Render(pad(dollars(live.Earnings()), 9))
 		}
-		b.WriteString(selCarat(false) + lampS.Render(lampG) + " " + stDim.Render(pad(modelCell, nameW)) + "  " + st + "  " +
-			sharePriceCell(pad(priceTxt, 12)) + "  " + served + "  " + outTok + "  " + earn + "\n")
+		b.WriteString(truncVisible(selCarat(false)+lampS.Render(lampG)+" "+stDim.Render(pad(modelCell, nameW))+"  "+st+"  "+
+			sharePriceCell(pad(priceTxt, 12))+"  "+served+"  "+outTok+"  "+earn+"  "+stDim.Render(shareCategoryCell(row)), w) + "\n")
 	}
+
+	// Roger's own rows - models on this disk, a download, and the way to get a model - follow the
+	// detected ones in the same table (local_models.feature §9).
+	b.WriteString(m.shareExtrasView(w, nameW, tableW))
 
 	// DETAIL BANNER: a full-width contextual line for the SELECTED row (only when
 	// there ARE rows and the cursor is on one), so a terse cell like "set voice…" reads
 	// as its full state + next action. A ▌-barred, dim line matching the SHARE chrome; it
 	// marquee-scrolls only if the detail overflows the available width (static otherwise),
 	// driven by the SAME frame counter as the signal bars (sigFrame — frozen when compact).
-	if len(m.shareRows) > 0 && m.shareCursor >= 0 && m.shareCursor < len(m.shareRows) {
+	if e, ok := m.shareExtraAt(m.shareCursor); ok {
+		b.WriteString("\n  " + stSelBar.Render("▌") + stDim.Render(" "+truncVisible(m.shareExtraDetail(e), w-4)) + "\n")
+	} else if len(m.shareRows) > 0 && m.shareCursor >= 0 && m.shareCursor < len(m.shareRows) {
 		row := m.shareRows[m.shareCursor]
 		detail := m.shareRowDetail(row, m.shares[row.model])
+		if own, ok := m.servedByRoger(row); ok {
+			detail = own + " · " + detail
+		}
 		// The bar + a leading space cost 2 cols; the 2-col left margin costs 2 more.
 		avail := w - 4
 		if avail < 8 {
@@ -469,6 +542,8 @@ func (m model) shareView(w int) string {
 		detail = marquee(glyphs.Fold(detail), avail, m.sigFrame())
 		b.WriteString("\n  " + stSelBar.Render("▌") + stDim.Render(" "+detail) + "\n")
 	}
+
+	b.WriteString(m.shareAskView(w))
 
 	// Pricing affordance: logged in -> the per-model editor; anonymous -> the clear
 	// "log in to earn" gate (free sharing still works without an account).

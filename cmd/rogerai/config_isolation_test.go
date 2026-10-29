@@ -2,7 +2,9 @@ package main
 
 import (
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 // useTempConfig isolates configPath() to a throwaway directory for the duration of a
@@ -29,6 +31,9 @@ func useTempConfig(t *testing.T) string {
 	t.Setenv("AppData", dir)         // Windows (%AppData%)
 	t.Setenv("ROGER_BROKER", "")     // don't let an ambient env override leak in
 	t.Setenv("ROGER_USER", "")
+	// Registered after the env, so it runs BEFORE the env is restored and the dir removed: every Edge
+	// host started under this config is stopped while its paths still point here.
+	t.Cleanup(func() { drainEdgeHosts(t) })
 	if got := configPath(); !strings.HasPrefix(got, dir) {
 		t.Fatalf("config isolation FAILED: configPath()=%q is not under the temp dir %q - "+
 			"this test would pollute the REAL user config. os.UserConfigDir resolves from a "+
@@ -49,5 +54,37 @@ func TestConfigIsolationIsCrossPlatform(t *testing.T) {
 	}
 	if lp := onAirLockPath("any-node"); !strings.HasPrefix(lp, dir) {
 		t.Fatalf("onAirLockPath()=%q not isolated under %q", lp, dir)
+	}
+}
+
+// liveEdgeHosts are the hosts started since the last drain (edgeHostStarted, wired in TestMain).
+var liveEdgeHosts struct {
+	sync.Mutex
+	hosts []*edgeHost
+}
+
+func trackEdgeHost(h *edgeHost) {
+	liveEdgeHosts.Lock()
+	liveEdgeHosts.hosts = append(liveEdgeHosts.hosts, h)
+	liveEdgeHosts.Unlock()
+}
+
+// drainEdgeHosts stops every host started under this test's config and waits for its serve loop to
+// END, not just for stop's grace: a loop still in a pass would write into the next test's config.
+func drainEdgeHosts(t *testing.T) {
+	liveEdgeHosts.Lock()
+	hosts := liveEdgeHosts.hosts
+	liveEdgeHosts.hosts = nil
+	liveEdgeHosts.Unlock()
+	for _, h := range hosts {
+		h.stop()
+		h.mu.Lock()
+		done := h.done
+		h.mu.Unlock()
+		select {
+		case <-done:
+		case <-time.After(30 * time.Second):
+			t.Errorf("an Edge host started by %s was still running 30s after it was stopped", t.Name())
+		}
 	}
 }

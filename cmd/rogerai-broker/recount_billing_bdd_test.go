@@ -28,14 +28,15 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/cucumber/godog"
-	"rogerai.fm/roger/v6/internal/protocol"
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 type rcState struct {
@@ -468,7 +469,7 @@ func (s *rcState) requestSettles() error {
 		s.voided = false
 	} else {
 		s.voided = true
-		s.b.maybeFlagEmptyOutput(s.node, s.model, rec, s.status, 0, "")       // the relay's gate (a 429 never strikes)
+		s.b.maybeFlagEmptyOutput(s.node, s.model, rec, s.status, 0, "", "")   // the relay's gate (a 429 never strikes)
 		if _, err := s.b.db.Settle(s.wallet, s.node, 0, 0, rec); err != nil { // $0 metering receipt
 			return err
 		}
@@ -978,7 +979,7 @@ func TestRecountBillingBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("money/recount_billing behavior scenarios failed (see godog output above)")
 	}
 }

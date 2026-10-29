@@ -28,10 +28,10 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"rogerai.fm/roger/v6/internal/audio"
-	"rogerai.fm/roger/v6/internal/client"
-	"rogerai.fm/roger/v6/internal/glyphs"
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/audio"
+	"rogerai.fm/roger/v7/internal/client"
+	"rogerai.fm/roger/v7/internal/glyphs"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // sampleVoiceText is the fixed short line a tts preview synthesizes. Kept tiny (a handful of
@@ -120,10 +120,13 @@ func (m model) startVoicePreview(bd band) (tea.Model, tea.Cmd) {
 	m.previewPath = ""
 	m.previewPlayed = false
 	m.previewCost = sampleVoiceCost(bd)
+	if lanSpeaker() != nil {
+		m.previewCost = 0 // a local voice is free: no confirm gate, nothing to spend
+	}
 	switch {
 	case !bd.online:
 		m.previewStage = previewOffline
-		m.status = stEmber.Render(noStationServing(bd.model)) + stDim.Render(" - no voice to preview right now")
+		m.status = stEmber.Render(noStationServing(bd.model)) + stDim.Render(" - no text-to-speech (TTS) model to preview right now")
 		return m, nil
 	case bd.isSTT():
 		m.previewStage = previewInfoSTT
@@ -207,6 +210,22 @@ func (m model) synthVoiceSample() tea.Cmd {
 	if play == nil {
 		play = systemAudioPlayer // the real system player when not stubbed
 	}
+	if speak := lanSpeaker(); speak != nil {
+		// LAN mode: a local voice speaks it (this machine, then an Edge member); the network's
+		// /v1/audio/speech is never asked, and nothing is billed.
+		return func() tea.Msg {
+			audio, err := speak(model, sampleVoiceText)
+			if err != nil {
+				return voicePreviewMsg{err: err.Error()}
+			}
+			path, played, perr := play(audio)
+			msg := voicePreviewMsg{played: played, path: path}
+			if perr != nil {
+				msg.err = "playback failed: " + perr.Error()
+			}
+			return msg
+		}
+	}
 	return func() tea.Msg {
 		// Body: {model, input, response_format:"wav"} and DELIBERATELY NO `voice` field. WAV is
 		// requested for the LOCAL preview because it is universally + trivially playable (afplay /
@@ -259,6 +278,8 @@ func (m model) applyVoicePreview(msg voicePreviewMsg) model {
 	}
 	m.previewStage = previewDone
 	switch {
+	case msg.played && lanSpeaker() != nil:
+		m.status = stLive.Render("played a sample") + stDim.Render(" · free · local")
 	case msg.played:
 		m.status = stLive.Render("played a sample") + stDim.Render(" · billed "+dollars(msg.cost))
 	case msg.path != "":
@@ -303,7 +324,7 @@ func (m model) voicePreviewView(w int) string {
 
 	switch m.previewStage {
 	case previewOffline:
-		s.WriteString("  " + stEmber.Render("off air") + stDim.Render(" - no station is serving this voice right now. esc goes back; r re-checks.") + "\n")
+		s.WriteString("  " + stEmber.Render("off air") + stDim.Render(" - no station is serving this text-to-speech (TTS) model right now. esc goes back; r re-checks.") + "\n")
 	case previewInfoSTT:
 		s.WriteString("  " + stDim.Render("This is a LISTEN (speech-to-text) station: it transcribes audio you send.") + "\n")
 		s.WriteString("  " + stDim.Render("There is no chat preview - send audio via the RogerAI app or the ") + stKey.Render("/v1/audio/transcriptions") + stDim.Render(" API.") + "\n")
@@ -317,6 +338,8 @@ func (m model) voicePreviewView(w int) string {
 		s.WriteString("  " + stDim.Render("press ") + stKey.Render("r") + stDim.Render(" to try again, ") + stKey.Render("esc") + stDim.Render(" to go back.") + "\n")
 	case previewDone:
 		switch {
+		case m.previewPlayed && lanSpeaker() != nil:
+			s.WriteString("  " + stLive.Render("♪ played a sample") + stDim.Render(" · free · local") + "\n")
 		case m.previewPlayed:
 			s.WriteString("  " + stLive.Render("♪ played a sample") + stDim.Render(" · billed ") + stKey.Render(dollars(m.previewCost)) + "\n")
 		case m.previewPath != "":
@@ -336,6 +359,9 @@ func (m model) voicePreviewView(w int) string {
 func voicePriceLabel(b band) string {
 	if !b.online {
 		return "-"
+	}
+	if lanSpeaker() != nil {
+		return "free · local" // LAN mode: a local voice is never billed
 	}
 	if b.free || b.minIn == 0 {
 		return "free"

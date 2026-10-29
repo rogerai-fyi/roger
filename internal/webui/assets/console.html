@@ -33,6 +33,7 @@
       <div class="topbar-left">
         <span class="brand-mark">Roger</span>
         <span class="station-callsign mono" id="top-callsign">&mdash;</span>
+        <span class="lan-badge mono" id="top-lan" title="LAN mode: only local bands, nothing billed" hidden></span>
         <span class="slot-meter" id="top-slots" title="slots on air">
           <span class="dot-on">&#9673;</span> <span id="top-slots-text">0/0</span>
         </span>
@@ -42,6 +43,7 @@
         <button class="tab" data-tab="share" role="tab" aria-selected="false">SHARE</button>
         <button class="tab" data-tab="account" role="tab" aria-selected="false">ACCOUNT</button>
         <button class="tab" data-tab="browse" role="tab" aria-selected="false">BROWSE</button>
+        <button class="tab" data-tab="edge" role="tab" aria-selected="false">EDGE</button>
         <button class="tab" data-tab="settings" role="tab" aria-selected="false">SETTINGS</button>
       </nav>
       <div class="topbar-right">
@@ -52,6 +54,8 @@
     </header>
 
     <main class="content">
+      <!-- The one-time welcome card (console-welcome.js); hidden once seen here or in the TUI. -->
+      <section id="welcome" class="welcome" aria-label="Welcome" hidden></section>
 
       <!-- ===================== CHAT =====================
            Founder 2026-08-20: the chat mechanics lived only in the TUI, so the console
@@ -144,13 +148,87 @@
                 <th class="num">SERVED</th>
                 <th class="num">OUT TOK</th>
                 <th class="num">AT LIST</th>
+                <th class="col-cat">CATEGORY</th>
                 <th class="col-actions">ACTIONS</th>
               </tr>
             </thead>
             <tbody id="share-rows">
-              <tr class="empty-row"><td colspan="8">No models detected yet. Try <b>re-detect</b>.</td></tr>
+              <tr class="empty-row"><td colspan="9">No other model server detected. Try <b>re-detect</b>.</td></tr>
             </tbody>
+            <!-- roger's own rows (local_models.feature §9): what it serves itself, what is on this
+                 disk, a download in progress, and always last the way to get a model -->
+            <tbody id="share-roger-rows" class="share-roger"></tbody>
           </table>
+        </div>
+        <!-- roger's serving settings (local_models.feature §11): one line under its rows, each
+             changed in place, asked first, the CLI's own sentence back -->
+        <div class="share-settings mono small" id="share-settings" hidden>
+          <div class="set-item">
+            <span class="set-now" id="share-set-runtime-now"></span>
+            <select class="inp small" id="share-set-runtime" aria-label="runtime build choice"></select>
+          </div>
+          <div class="set-item">
+            <span class="set-now" id="share-set-idle-now"></span>
+            <input class="inp small" id="share-set-idle" type="text" maxlength="16" placeholder="2h or off" aria-label="idle timeout">
+            <button class="btn small ghost" type="button" id="share-set-idle-apply">apply</button>
+          </div>
+          <div class="set-item">
+            <span class="set-now" id="share-set-budget-now"></span>
+            <input class="inp small" id="share-set-budget" type="text" maxlength="16" placeholder="20G or off" aria-label="disk budget for models">
+            <button class="btn small ghost" type="button" id="share-set-budget-apply">apply</button>
+          </div>
+          <pre class="set-says" id="share-set-says" hidden></pre>
+        </div>
+        <div class="not-configured" id="models-disabled" hidden></div>
+        <div class="models-card" id="models-servelog" hidden>
+          <div class="models-card-head"><b class="mono">THE LAST SERVE DID NOT COME ON THE AIR</b> <span class="muted small">its last words</span></div>
+          <pre class="mono small" id="models-servelog-text"></pre>
+        </div>
+
+        <!-- SHARE › GET A MODEL: opened by the last row of the table, never a tab of its own -->
+        <div class="share-getmodel" id="share-getmodel" hidden>
+          <div class="panel-head-row">
+            <h3 class="models-h">SHARE &rsaquo; GET A MODEL</h3>
+            <button class="btn small ghost" id="btn-getmodel-close">close</button>
+          </div>
+          <div class="models-facts mono small">
+            <div class="kv"><span>THIS MACHINE</span><b id="models-machine">&hellip;</b></div>
+            <div class="kv"><span>RUNTIME</span><b id="models-runtime">&hellip;</b></div>
+            <div class="kv"><span>ON DISK</span><b id="models-disk">&hellip;</b></div>
+          </div>
+          <div id="models-nearby" hidden>
+            <p class="muted small" id="models-nearby-note"></p>
+            <div class="table-wrap" id="models-nearby-wrap" hidden>
+              <table class="data-table models-table">
+                <thead><tr><th class="col-model">NEARBY</th><th>FILE</th><th class="num">SIZE</th><th>VERDICT &middot; SOURCE</th><th></th></tr></thead>
+                <tbody id="models-nearby-rows"></tbody>
+              </table>
+            </div>
+          </div>
+          <form class="models-search" id="models-search">
+            <input class="inp" id="models-q" type="search" maxlength="200" placeholder="qwen3 4b, gemma, smollm&hellip;" aria-label="search models">
+            <button class="btn" type="submit">search</button>
+          </form>
+          <p class="muted small" id="models-results-note" hidden>From HuggingFace - what their authors published, not RogerAI's word.</p>
+          <div class="table-wrap" id="models-results-wrap" hidden>
+            <table class="data-table models-table">
+              <thead><tr><th class="col-model">REPOSITORY</th><th class="num">DOWNLOADS</th><th>LICENCE</th><th></th></tr></thead>
+              <tbody id="models-results"></tbody>
+            </table>
+          </div>
+          <div class="models-repo" id="models-repo" hidden>
+            <div class="models-card-head"><b class="mono" id="models-repo-name"></b>
+              <span class="muted small" id="models-repo-licence"></span></div>
+            <p class="small" id="models-repo-machine"></p>
+            <label class="field models-ctx"><span>Context (tokens; empty proposes one)</span>
+              <input class="inp" id="models-ctx" type="number" min="256" step="256" placeholder="8192"></label>
+            <div class="table-wrap">
+              <table class="data-table models-table">
+                <thead><tr><th>QUANT</th><th class="num">SIZE</th><th>WILL IT RUN HERE</th><th></th></tr></thead>
+                <tbody id="models-files"></tbody>
+              </table>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -232,6 +310,216 @@
         <div class="not-configured" id="account-disabled" hidden>
           The broker is not configured for this node, so account, payout and grant
           features are unavailable.
+        </div>
+      </section>
+
+      <!-- ===================== EDGE =====================
+           ROGER EDGE (founder 2026-09-11/13): the console's window on THIS machine's Edge -
+           the same fleet, candidates, adopt path and session ledger the terminal's [3] EDGE
+           screen draws. One rule: it never draws a link it has not seen. Solid = reached
+           directly on this network and verified; dashed = reached through a relay, and the
+           relay is drawn as its own node so the hop is visible; broken + dim = not heard
+           from lately, and KEPT. A pulse travels an edge only when that node's last-seen
+           really advanced between two reads. Sessions are a window over receipts the relay
+           already wrote: this tab can look, it cannot dial, it cannot spend. -->
+      <section class="panel" id="panel-edge" role="tabpanel" hidden>
+        <div class="panel-head">
+          <div class="panel-head-row">
+            <h2>EDGE <span class="mono edge-mode" id="edge-mode"></span> <span class="mono muted edge-headline" id="edge-headline"></span></h2>
+            <div class="panel-head-actions">
+              <button class="btn" id="btn-edge-refresh">re-read</button>
+            </div>
+          </div>
+          <p class="muted small">
+            What is on your Edge, and how it is connected. Solid: reached directly on this
+            network. Dashed: reached through a relay, drawn as its own node. Broken: not heard
+            from lately, and kept.
+          </p>
+        </div>
+
+        <div class="edge-self-controls" id="edge-self-controls" hidden></div>
+
+        <div class="edge-towers" id="edge-towers" hidden></div>
+        <div class="edge-invite" id="edge-invite" hidden></div>
+
+        <div class="not-configured" id="edge-error" hidden></div>
+        <div class="not-configured" id="edge-disabled" hidden>
+          This build has no Edge host, so there is nothing to draw here. Start
+          <code>roger</code> on this machine and the fleet it keeps appears in this tab.
+        </div>
+
+        <!-- an EMPTY Edge explains itself instead of drawing an empty box -->
+        <!-- A machine in no Edge: the simple empty state (console-edge-empty.js), the same words as the TUI's [3]. -->
+        <div class="edgeempty" id="edge-empty-simple" hidden></div>
+        <!-- The devices pinging nearby, not on the Edge: Invite and Approve (console-edge-nearby.js, §7). -->
+        <div class="edgenearby" id="edge-nearby" hidden></div>
+        <div class="edge-empty" id="edge-empty" hidden>
+          <p><b class="mono" id="edge-self-name">this machine</b> is the only node on the Edge.
+             Nothing else has been seen, and this screen draws only what it has seen.</p>
+          <!-- THE THREE FACTS, worded by the server (one wording for every surface) -->
+          <div class="edge-facts mono small" id="edge-facts" hidden>
+            <div class="kv"><span>THIS MACHINE</span><b id="edge-fact-machine"></b></div>
+            <div class="kv"><span>AUTHORITY</span><b id="edge-fact-authority"></b></div>
+            <div class="kv"><span>DISCOVERY</span><b id="edge-fact-discovery"></b></div>
+          </div>
+          <div class="not-configured" id="edge-status-error" hidden></div>
+          <p class="muted small"><b>ADD A NODE</b> &mdash; run <code>roger edge invite</code> on this Edge's authority,
+             then paste the line it prints on the other machine: <code>roger join &lt;invite&gt;</code>.
+             Or on the other machine run
+             <code id="edge-fact-enroll">roger join &lt;address&gt;</code> and approve its request here.</p>
+          <p class="muted small" id="edge-fact-setup" hidden><b>SET UP</b> <span id="edge-fact-setup-text"></span></p>
+        </div>
+
+        <div class="edge-stage" id="edge-stage" hidden>
+          <div class="edge-graph" id="edge-graph-wrap">
+            <svg id="edge-graph" viewBox="0 0 640 400" role="img" aria-label="Edge topology"></svg>
+            <div class="edge-legend mono small muted" id="edge-legend"></div>
+          </div>
+          <!-- past the graph bound the fleet is a LIST that says so, not a broken picture -->
+          <div class="table-wrap" id="edge-list-wrap" hidden>
+            <table class="data-table edge-table">
+              <thead>
+                <tr><th>NODE</th><th>KIND</th><th>CAPS</th><th>LINK</th><th>PRESENCE</th><th class="num">LAST SEEN</th></tr>
+              </thead>
+              <tbody id="edge-list"></tbody>
+            </table>
+          </div>
+          <div class="card edge-detail" id="edge-detail" hidden></div>
+        </div>
+
+        <h3 class="sub-head">Candidates</h3>
+        <p class="muted small">Seen on this network, not on your Edge. Nothing about a candidate is verified until you adopt it.</p>
+        <div class="edge-cands" id="edge-candidates"><span class="muted small">none seen on this network</span></div>
+        <div class="edge-adopting" id="edge-adopting" hidden></div>
+
+        <h3 class="sub-head">Sessions</h3>
+        <p class="muted small">The traffic this Edge really carried, from the relay's receipts. Sessions fade after 90 seconds.</p>
+        <div class="table-wrap">
+          <table class="data-table sess-table">
+            <thead>
+              <tr><th>WHO</th><th>BAND</th><th>ROUTE</th><th>PATH</th><th>OUTCOME</th></tr>
+            </thead>
+            <tbody id="edge-sessions">
+              <tr class="empty-row"><td colspan="5">The Edge is quiet: no sessions in the last 90 seconds.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="edge-floor-wrap" id="edge-floor-wrap" hidden>
+          <h3 class="sub-head">Andon</h3>
+          <p class="muted small">The rack in two seconds: one tile per unit, one word, one colour, its airtime over the last hour and its log strip.</p>
+          <div id="edge-andon" class="edge-andon"></div>
+          <p id="edge-andon-foot" class="mono small muted"></p>
+          <h3 class="sub-head">Trouble</h3>
+          <p id="edge-trouble-head" class="muted small">Standing calls, priority first, oldest first. Roger acknowledges; stand by quiets a call for an hour.</p>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr><th>PRI</th><th>AGE</th><th>UNIT</th><th>CALL</th><th>NOW</th><th>ACKNOWLEDGED</th><th></th></tr>
+              </thead>
+              <tbody id="edge-trouble">
+                <tr class="empty-row"><td colspan="7">All clear.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p id="edge-signoff" class="mono small muted"></p>
+
+          <h3 class="sub-head">Events</h3>
+          <p class="muted small">What happened on this Edge, newest first: the units' own records and the alert crossings, in one list. A run of the same thing reads once, with a count.</p>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr><th>AGE</th><th>UNIT</th><th>WHAT</th><th>DETAIL</th></tr>
+              </thead>
+              <tbody id="edge-events">
+                <tr class="empty-row"><td colspan="4">Nothing has happened on this Edge yet.</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3 class="sub-head">Expected</h3>
+          <p class="muted small">What this Edge should look like, and how many units differ from each. The most specific scope wins: a node's own, then a tag it carries, then the fleet.</p>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr><th>EXPECTED</th><th>OF</th><th>STANDING</th></tr>
+              </thead>
+              <tbody id="edge-expect">
+                <tr class="empty-row"><td colspan="3">Nothing is expected of this Edge yet.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr><th>UNIT</th><th>EXPECTED</th><th>FOUND</th><th></th></tr>
+              </thead>
+              <tbody id="edge-drift">
+                <tr class="empty-row"><td colspan="4">Nothing to compare yet.</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3 class="sub-head">Standing</h3>
+          <p class="muted small">Actions left standing on this machine, run on its own pass through the same gate a typed maintain goes through. A run that could not be made is recorded and waited out.</p>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr><th>JOB</th><th>ACTION</th><th>OF</th><th>CADENCE</th><th>LAST</th><th>NEXT</th></tr>
+              </thead>
+              <tbody id="edge-schedule">
+                <tr class="empty-row"><td colspan="6">Nothing is scheduled on this machine.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="edge-rules-wrap" id="edge-rules-wrap" hidden>
+          <h3 class="sub-head">Alarms</h3>
+          <p class="muted small">What raises an alarm on this Edge. The most specific scope wins: a node's own rule, then the tightest rule on a tag it carries, then the fleet. A rule takes effect on the next health read.</p>
+          <div id="edge-rule-form" class="edge-rule-form"></div>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr><th>RULE</th><th>OF</th><th>ID</th><th>STATE</th><th></th></tr>
+              </thead>
+              <tbody id="edge-rules">
+                <tr class="empty-row"><td colspan="5">No rules are in force.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="edge-sinks-wrap" id="edge-sinks-wrap" hidden>
+          <h3 class="sub-head">Where alerts go</h3>
+          <p class="muted small">Nothing leaves this machine until you say where. With no destination an alarm still shows on every fleet surface and in the log, it simply travels nowhere. A webhook URL is a credential: it is stored here and never shown again, not even to you.</p>
+          <div id="edge-sink-form" class="edge-rule-form"></div>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr><th>KIND</th><th>GOES TO</th><th>ID</th><th></th></tr>
+              </thead>
+              <tbody id="edge-sinks">
+                <tr class="empty-row"><td colspan="4">Alerts stay on this machine.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="edge-grants-wrap" id="edge-grants-wrap" hidden>
+          <h3 class="sub-head">Grants</h3>
+          <p class="muted small">Authority-signed permissions: who may act on which node, and for how long. A member verifies a grant with your Edge's public root alone - no broker.</p>
+          <div id="edge-grant-form" class="edge-grant-form"></div>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr><th>ID</th><th>CALLER</th><th>CAP</th><th>CALLEE</th><th>UNTIL</th><th>STATE</th><th></th></tr>
+              </thead>
+              <tbody id="edge-grants">
+                <tr class="empty-row"><td colspan="7">No grants issued yet.</td></tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </section>
 
@@ -319,6 +607,7 @@
         </div>
       </section>
 
+
       <!-- ===================== BROWSE ===================== -->
       <section class="panel" id="panel-browse" role="tabpanel" hidden>
         <div class="panel-head">
@@ -353,6 +642,17 @@
 
   <!-- ===================== MODALS / TOASTS ===================== -->
   <div class="modal-backdrop" id="modal-backdrop" hidden>
+
+    <!-- the safe-by-default question: Cancel is focused, so Enter alone answers No -->
+    <div class="modal wide" id="modal-ask" hidden>
+      <h3 id="ask-title"></h3>
+      <pre class="mono small ask-body" id="ask-body"></pre>
+      <div class="modal-actions">
+        <button class="btn ghost" id="ask-no">Cancel</button>
+        <button class="btn primary" id="ask-yes">Yes</button>
+      </div>
+    </div>
+
     <!-- rename modal -->
     <div class="modal" id="modal-rename" hidden>
       <h3>Rename station</h3>
@@ -398,10 +698,39 @@
         <button class="btn primary" id="price-save">Save pricing</button>
       </div>
     </div>
+
+    <!-- category modal (features/categories/console_editor.feature) -->
+    <div class="modal wide" id="modal-cat" hidden>
+      <h3>Category <span class="mono" id="cat-model">&mdash;</span> <span class="muted small" id="cat-guess" hidden>guess until saved</span></h3>
+      <div class="price-grid">
+        <label class="field"><span>Category</span><select class="inp" id="cat-cat"></select></label>
+        <label class="field"><span>Subcategory</span><select class="inp" id="cat-sub"></select></label>
+        <label class="field"><span>Tags (comma-separated)</span><input class="inp" id="cat-tags" type="text" placeholder="manufacturing, ppe"></label>
+        <label class="field"><span>Tuning</span><select class="inp" id="cat-tuning">
+          <option value="">(none)</option><option>base</option><option>instruct</option><option>finetune</option>
+          <option>merge</option><option>quantized</option><option>adapter</option></select></label>
+        <label class="field"><span>Content policy</span><select class="inp" id="cat-policy">
+          <option value="">(none)</option><option>aligned</option><option>reduced-refusal</option><option>uncensored</option></select></label>
+        <label class="field"><span>License</span><input class="inp" id="cat-license" type="text" placeholder="Apache-2.0"></label>
+        <label class="field"><span>Base model</span><input class="inp" id="cat-base" type="text" placeholder="Qwen/Qwen3-VL-8B-Instruct"></label>
+      </div>
+      <p class="muted small">A category is your own description: consumers see whether it was declared or guessed. A content-policy grade describes the weights - RogerAI still screens every request.</p>
+      <p class="err small" id="cat-err" hidden></p>
+      <div class="modal-actions">
+        <button class="btn ghost" data-close>Cancel</button>
+        <button class="btn ghost" id="cat-clear">Clear</button>
+        <button class="btn primary" id="cat-save">Save category</button>
+      </div>
+    </div>
   </div>
 
   <div class="toasts" id="toasts" aria-live="polite"></div>
 
+  <script src="/assets/console-welcome.js" defer></script>
+  <script src="/assets/console-edge-empty.js" defer></script>
+  <script src="/assets/console-edge-nearby.js" defer></script>
+  <script src="/assets/console-lan.js" defer></script>
+  <script src="/assets/console-towers.js" defer></script>
   <script src="/assets/console.js" defer></script>
 </body>
 </html>

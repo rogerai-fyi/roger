@@ -4,8 +4,8 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"rogerai.fm/roger/v6/internal/agent"
-	"rogerai.fm/roger/v6/internal/node"
+	"rogerai.fm/roger/v7/internal/agent"
+	"rogerai.fm/roger/v7/internal/node"
 )
 
 // THE PRIVATE TAB IN [1] TUNE IN.
@@ -228,7 +228,7 @@ func (m model) onPrivateTabKey(k tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 	// [d] would drop a channel the operator cannot see from here, and [f] would open a
 	// filter that narrows a list this view does not render.
 	switch k.String() {
-	case "q", "w", "z", "/", ":", "?", "~", "p", "P", "v", "V", "0", "1", "2", "3", "l", "L":
+	case "q", "w", "z", "/", ":", "?", "~", "p", "P", "v", "V", "0", "1", "2", "3", "4", "l", "L":
 		return m, nil, false
 	}
 	return m, nil, true
@@ -374,6 +374,7 @@ func (m model) openLocalChannel(r privRow) model {
 	node := agent.ShareNodeID(m.ctrl.Station(), r.model, 0)
 	m.connected = &offer{NodeID: node, Model: r.model, Online: true}
 	m.chatLocalChat, m.chatLocalKey = r.chat, r.key
+	m.tunedProfile = ""
 	m.transcript = nil
 	m.chatUnstuck = false // a fresh transcript starts stuck
 	m.sessCost = 0

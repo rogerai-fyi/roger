@@ -10,11 +10,12 @@ import (
 	"context"
 	"crypto/ed25519"
 	"fmt"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"testing"
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/store"
 
 	"github.com/cucumber/godog"
 )
@@ -157,7 +158,7 @@ func TestMultinodeRateLimitsBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("multinode/rate_limits behavior scenarios failed (see godog output above)")
 	}
 }

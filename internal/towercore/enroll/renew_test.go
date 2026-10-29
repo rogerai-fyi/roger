@@ -19,8 +19,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"rogerai.fm/roger/v6/internal/keypurpose"
-	"rogerai.fm/roger/v6/internal/towercore/admit"
+	"rogerai.fm/roger/v7/internal/keypurpose"
+	"rogerai.fm/roger/v7/internal/towercore/admit"
 )
 
 // admitted enrolls a Tower and returns it with the keys it holds.

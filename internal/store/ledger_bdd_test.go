@@ -11,15 +11,17 @@ package store
 // Skipped (like every Postgres path here) when ROGERAI_TEST_DATABASE_URL is unset.
 
 import (
+	"context"
 	"fmt"
 	"math"
-	"os"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strconv"
 	"testing"
 	"time"
 
 	"github.com/cucumber/godog"
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/pgtest"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // freshLedgerPG opens the real Postgres store and TRUNCATEs every data table (same reset the
@@ -40,10 +42,12 @@ func freshLedgerPG(dsn string) (*Postgres, error) {
 		rogerai.banned_nodes, rogerai.banned_owners, rogerai.owner_strikes,
 		rogerai.checkout_charges, rogerai.offer_overrides, rogerai.private_bands
 		RESTART IDENTITY CASCADE`); err != nil {
+		_ = pg.Close()
 		return nil, fmt.Errorf("truncate: %w", err)
 	}
 	if _, err := pg.db.Exec(`INSERT INTO rogerai.seed_counter(id,count) VALUES(1,0)
 		ON CONFLICT (id) DO UPDATE SET count=0`); err != nil {
+		_ = pg.Close()
 		return nil, fmt.Errorf("reset seed_counter: %w", err)
 	}
 	return pg, nil
@@ -367,19 +371,24 @@ func (s *lgState) balanceUnchangedRedeliv() error {
 }
 
 func TestLedgerBDD(t *testing.T) {
-	dsn := os.Getenv("ROGERAI_TEST_DATABASE_URL")
+	dsn := pgtest.DSN(t)
 	if dsn == "" {
 		t.Skip("ledger.feature requires ROGERAI_TEST_DATABASE_URL (a real Postgres) - skipping")
 	}
-	// Package test binaries run concurrently under `go test ./...`. Never let this
-	// scenario's per-case TRUNCATE erase broker-package fixtures in the shared database.
-	dsn = storePrivateDSN(t, dsn)
 	suite := godog.TestSuite{
 		ScenarioInitializer: func(sc *godog.ScenarioContext) {
 			st := &lgState{dsn: dsn}
 			// No Before hook: the Background "a fresh Postgres-backed store" step opens + TRUNCATEs
 			// once per scenario (a Before would double the NewPostgres pool + truncate).
 			sc.Step(`^a fresh Postgres-backed store$`, st.freshPGStore)
+			// Give the scenario's pool back (NewPostgres opens up to 8 connections). Without
+			// this every scenario leaked a pool for the rest of the test binary.
+			sc.After(func(ctx context.Context, _ *godog.Scenario, _ error) (context.Context, error) {
+				if st.pg != nil {
+					_ = st.pg.Close()
+				}
+				return ctx, nil
+			})
 			sc.Step(`^the platform fee rate is (\d+)%$`, st.feePct)
 			sc.Step(`^wallet "([^"]*)" has ([\d.]+) in real credits$`, st.walletReal)
 			sc.Step(`^wallet "([^"]*)" has ([\d.]+) in FREE seed credits$`, st.walletSeed)
@@ -413,7 +422,7 @@ func TestLedgerBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("money/ledger behavior scenarios failed (see godog output above)")
 	}
 }

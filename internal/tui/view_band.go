@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/glyphs"
-	"rogerai.fm/roger/v6/internal/pricetier"
+	"rogerai.fm/roger/v7/internal/glyphs"
+	"rogerai.fm/roger/v7/internal/pricetier"
 )
 
 // BandRow is a compact private-band summary for BASE STATION (metadata only, no secret).
@@ -77,7 +77,8 @@ type band struct {
 	inFlight int // active (in-flight) requests summed across online stations - the REAL
 	// activity that animates the signal meter (idle band steady, busy band scans). Honest:
 	// it is the broker's live load, never a fabricated pulse.
-	all []offer // every station in this band (online first)
+	all []offer      // every station in this band (online first)
+	tax bandTaxonomy // what the stations say the band is for (foldTaxonomy)
 }
 
 // confirmView is the connect-time cost confirmation (3.2): the deal + an explicit
@@ -119,7 +120,11 @@ func (m model) bandDetailView(w int) string {
 	b.WriteString("  " + truncVisible(stSelBar.Render("▌")+" "+stBrand.Render("STATION LOG")+
 		stDim.Render("   ")+stKey.Render(bd.model)+stDim.Render(" · ")+on+ctxTag+curTag, w-2) + "\n")
 	// One line of purpose (founder, 2026-09-02: "what am I actually seeing?").
-	b.WriteString("  " + truncVisible(stDim.Render("every station carrying this band, with its real numbers - ◉ marks the route the switchboard dials first"), w-2) + "\n\n")
+	b.WriteString("  " + truncVisible(stDim.Render("every station carrying this band, with its real numbers - ◉ marks the route the switchboard dials first"), w-2) + "\n")
+	for _, line := range bandTaxonomyDetail(bd) {
+		b.WriteString("  " + truncVisible(stDim.Render(line), w-2) + "\n")
+	}
+	b.WriteString("\n")
 
 	if len(bd.all) == 0 {
 		empty := "no station detail for this band right now - r to re-scan, esc to go back"
@@ -376,6 +381,13 @@ func bandBadge(bd band, limits *LimitStore, connected bool) string {
 	if connected {
 		parts = append(parts, stRed.Render(glyphOnAir+" connected"))
 	}
+	// What the band is FOR (a guess marked ~), and a reduced-refusal/uncensored grade.
+	if l := bandCategoryLabel(bd); l != "" {
+		parts = append(parts, stKey.Render(l))
+	}
+	if g := bandGrade(bd); g != "" {
+		parts = append(parts, stEmber.Render(g))
+	}
 	// verified ✓ = a station passed the broker's live serving probe (the IDENTITY/lineage
 	// glint), kept DISTINCT from the gold confidential ◆ tier per the codebase's mark split.
 	if bd.verified {
@@ -417,7 +429,8 @@ func bandBadge(bd band, limits *LimitStore, connected bool) string {
 // Rendered plain (dim) and folded for ASCII so a legacy console shows "%~ / [v]".
 func bandBadgeLegend() string {
 	ar := agentReadyGlyph()
-	return stDim.Render("  " + ar + " agent-ready (" + ar + "~ inferred) · " + visionGlyph() + " vision")
+	return stDim.Render("  " + ar + " agent-ready (" + ar + "~ inferred) · " + visionGlyph() + " vision · " +
+		guessMark + " guessed, not declared")
 }
 
 // groupBands groups offers by model into bands, computing each band's live
@@ -436,18 +449,46 @@ func bandBadgeLegend() string {
 //
 // A band with no stated quant renders as just the model. Absent is absent: no placeholder,
 // no "unknown", nothing that could be mistaken for a station's claim.
-func bandNameCell(bd band, w int) string {
+// bandNameW is the band table's identity-column width: the narrow grid's 14, the wide
+// grid's 20. ONE source, so the marquee measures the very column the row renders in - a
+// second, drifting copy of a column width is how a "width-safe" panel stops being one.
+func (m model) bandNameW() int {
+	if m.narrow() {
+		return 14
+	}
+	return 20
+}
+
+func bandNameCell(bd band, w int) string { return bandNameCellAt(bd, w, 0) }
+
+// bandNameParts splits the identity cell into the part that can SCROLL, the column width
+// it scrolls inside, and whether that column's static form is a hard cut (no ellipsis).
+//
+// With no quant the model owns the whole cell. With one, the QUANT IS PINNED on the right
+// - it is the half of the identity that tells two same-named rows apart - and only the
+// model moves, inside what is left. That is also why the quanted flavour hard-cuts: an
+// ellipsis was never in that sub-cell, and frame zero may not invent one.
+func bandNameParts(bd band, w int) (text string, cw int, hardCut bool) {
 	if bd.quant == "" || w <= 0 {
-		return pad(bd.model, w)
+		return bd.model, w, false
 	}
 	// Keep at least a few characters of the model, or the row loses the other half of its
 	// identity; below that there is no room for both and the name wins.
 	const minModel = 6
 	if w < minModel+1+len([]rune(bd.quant)) {
-		return pad(bd.model, w)
+		return bd.model, w, false
 	}
-	name := truncVisible(bd.model, w-1-len([]rune(bd.quant)))
-	return pad(name+" "+bd.quant, w)
+	return bd.model, w - 1 - len([]rune(bd.quant)), true
+}
+
+// bandNameCellAt is bandNameCell with the selected-row marquee applied at column offset
+// off. off 0 renders exactly what bandNameCell always has, byte for byte.
+func bandNameCellAt(bd band, w, off int) string {
+	text, cw, hardCut := bandNameParts(bd, w)
+	if !hardCut {
+		return padMarquee(text, cw, off)
+	}
+	return pad(cutMarquee(text, cw, off)+" "+bd.quant, w)
 }
 
 func groupBands(offers []offer, limits *LimitStore) []band {
@@ -533,7 +574,9 @@ func groupBands(offers []offer, limits *LimitStore) []band {
 	}
 	out := make([]band, 0, len(order))
 	for _, k := range order {
-		out = append(out, *byKey[k])
+		b := byKey[k]
+		b.tax = foldTaxonomy(b.all) // by the /market rule: online human stations vote
+		out = append(out, *b)
 	}
 	sort.SliceStable(out, func(i, j int) bool {
 		oi := bandOverLimit(out[i], limits)

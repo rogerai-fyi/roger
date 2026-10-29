@@ -54,7 +54,7 @@ import (
 	"strconv"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/towerobj"
+	"rogerai.fm/roger/v7/internal/towerobj"
 )
 
 // TypeGrant and Version identify the signed object, so a grant can never be replayed as some
@@ -187,7 +187,11 @@ type Record struct {
 	// bound to the authorized consumer rather than accepted from anyone who learns the id.
 	// Empty on the relayed path, which has no consumer. A review found the ack unbound.
 	ConsumerKey []byte
-	State       string
+	// RelayRequestID is the consumer-facing request id a relayed attempt belongs to (the
+	// broker's X-RogerAI-Request-Id), so whichever instance settles it can tie the consumer's
+	// ledger row back to the request. Empty for attempts no relay made (canaries, direct edge).
+	RelayRequestID string
+	State          string
 }
 
 func (r Record) grant() Grant {

@@ -4,7 +4,7 @@ import (
 	"sync"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // replayWindow is how long an accepted nonce is remembered. It must cover the WHOLE span a

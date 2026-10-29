@@ -11,7 +11,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"rogerai.fm/roger/v6/internal/harness"
+	"rogerai.fm/roger/v7/internal/harness"
 )
 
 // toolCallBroker answers the FIRST completion with a tool call and every later one with

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/harness"
+	"rogerai.fm/roger/v7/internal/harness"
 )
 
 // TestDrainRetryTurnNeverSendsOnClosedChannel is the permanent guard for the founder's

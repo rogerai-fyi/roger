@@ -1,6 +1,9 @@
 package node
 
-import "rogerai.fm/roger/v6/internal/agent"
+import (
+	"rogerai.fm/roger/v7/internal/agent"
+	"rogerai.fm/roger/v7/internal/protocol"
+)
 
 // Snapshot is a consistent, JSON-able read of the node's live state, taken under the
 // lock. The web console renders it (GET /api/state + the SSE stream) and the TUI uses
@@ -14,6 +17,10 @@ type Snapshot struct {
 	Upstream string    `json:"upstream"`
 	Rows     []RowView `json:"rows"`
 	Totals   Totals    `json:"totals"`
+	// LAN is set when SHARE runs in LAN mode: the console marks the mode and bills nothing.
+	LAN bool `json:"lan,omitempty"`
+	// EdgeOnly is set when that LAN share is edge-only: Edge members only, never a Tower.
+	EdgeOnly bool `json:"edge_only,omitempty"`
 }
 
 // RowView is one model in the share table: its catalog facts plus live counters when
@@ -62,6 +69,10 @@ type RowView struct {
 	Quant   string `json:"quant,omitempty"`
 	Weights string `json:"weights,omitempty"`
 	Variant string `json:"variant,omitempty"`
+	// Declared / Inferred are this model's taxonomy halves: what the operator declared, and
+	// what detection guessed. Omitted when empty, so "nothing declared" stays an absence.
+	Declared *protocol.Taxonomy `json:"declared,omitempty"`
+	Inferred *protocol.Taxonomy `json:"inferred,omitempty"`
 }
 
 // Totals sum every live band (the ON-AIR panel footer).
@@ -96,6 +107,8 @@ func (c *Controller) Snapshot() Snapshot {
 		LoggedIn: c.loggedIn,
 		Upstream: c.upstream,
 		Rows:     make([]RowView, 0, len(c.rows)),
+		LAN:      c.lanTowers != nil,
+		EdgeOnly: c.lanTowers != nil && c.lanEdgeOnly,
 	}
 	for _, r := range c.rows {
 		p := c.pricingForLocked(r.Model)
@@ -113,6 +126,12 @@ func (c *Controller) Snapshot() Snapshot {
 			Quant:        r.Quant,
 			Weights:      r.Weights,
 			Variant:      r.Variant,
+		}
+		if d := c.meta[r.Model]; d.Declared() {
+			rv.Declared = &d
+		}
+		if inf := r.Inferred; inf.Declared() {
+			rv.Inferred = &inf
 		}
 		if sess := c.sessions[r.Model]; sess != nil {
 			rv.OnAir = true

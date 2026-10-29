@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // transcriptText pulls the screenable text out of an STT result body. The OpenAI STT
@@ -355,7 +355,7 @@ func (b *broker) audioRelayCore(w http.ResponseWriter, r *http.Request, spec aud
 			return
 		}
 	}
-	requestID := protocol.NewRequestID()
+	requestID := b.attemptID(protocol.NewRequestID(), 1) // station-facing: the attempt-id shape, never a request id
 	b.mu.Lock()
 	node, offer, ok := b.pickFor(routeModel, false, 0, 0, 0, pinNode, nil, allow, nil,
 		pickReq{modality: spec.modality, rng: seededRand(requestID)})
@@ -400,20 +400,27 @@ func (b *broker) audioRelayCore(w http.ResponseWriter, r *http.Request, spec aud
 
 	// Hold the exact unit cost before dispatch (hold == finalize; count known up front).
 	settled := false
+	knownCap := capUnknown // the cap the pre-hold check reads, reused by the settle notice
 	if cost > 0 {
-		if st, msg := b.monthlyCapCheck(w, payer, cost, time.Now()); st != 0 {
+		st, msg, capRead := b.monthlyCapCheckCap(w, r, payer, cost, time.Now())
+		if st != 0 {
 			jsonErr(w, st, msg)
 			return
 		}
+		knownCap = capRead
 		// A seed-tx failure must never fall through to HoldFor, where the unseeded
 		// wallet would misread as a 402 (features/money/seed_failure.feature).
 		if serr := b.ensureSeeded(payer); serr != nil {
 			jsonErr(w, http.StatusInternalServerError, "wallet error")
 			return
 		}
-		held, herr := b.db.HoldFor(payer, requestID, cost)
+		held, capStatus, capMsg, herr := b.holdUnderCap(w, r, payer, requestID, cost, time.Now())
 		if herr != nil {
 			jsonErr(w, http.StatusInternalServerError, "wallet error")
+			return
+		}
+		if capStatus != 0 {
+			jsonErr(w, capStatus, capMsg)
 			return
 		}
 		if !held {
@@ -515,6 +522,7 @@ func (b *broker) audioRelayCore(w http.ResponseWriter, r *http.Request, spec aud
 					return 0
 				}
 				settled = true
+				b.capNoticeAfterSettle(nil, r, payer, knownCap, time.Now())
 				return nb
 			}
 			if b.db != nil { // free path: record a $0 metering receipt for lineage (as chat does)

@@ -153,6 +153,9 @@ var asciiFold = map[rune]rune{
 	// through). The vision ◪ is a 1->3 expansion ("[v]"), so it is a string-level
 	// pre-pass in Fold (like the ellipsis), not a rune entry here.
 	'⌁': '%',
+	// The Health/Fleet look (internal/look): the selection rail, the magic eye before and
+	// after a pass, the card's glyphs and the Edge emblem.
+	'▌': '>', '◌': 'o', '◎': 'O', '▸': '>', '◇': 'o', '◈': '+', '▟': '[', '▙': ']',
 }
 
 // Fold replaces non-ASCII art/signal runes with ASCII stand-ins WHEN ASCII() is in
@@ -166,6 +169,12 @@ func Fold(s string) string {
 	}
 	// 1->N expansions run as a string pre-pass (asciiFold is rune-to-rune): the
 	// ellipsis, and the vision badge ◪ -> "[v]".
+	return FoldASCII(s)
+}
+
+// FoldASCII folds s to ASCII unconditionally: the same table as Fold, for a caller that has
+// already decided to fold (a frame drawn with no color at all, internal/look).
+func FoldASCII(s string) string {
 	s = strings.ReplaceAll(s, "…", "...")
 	s = strings.ReplaceAll(s, "◪", "[v]")
 	return foldASCII(s)

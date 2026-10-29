@@ -20,12 +20,13 @@ package main
 import (
 	"context"
 	"fmt"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"testing"
 	"time"
 
 	"github.com/cucumber/godog"
-	"rogerai.fm/roger/v6/internal/protocol"
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 // This suite reuses the package-local countingStore (cacheaccel_test.go), which wraps a
@@ -379,7 +380,7 @@ func (s *routeState) oversizedPicked() error {
 }
 func (s *routeState) voidOversized() error {
 	s.struck = s.b.maybeFlagEmptyOutput("ctx1", "mctx",
-		protocol.UsageReceipt{RequestID: "req_ov", NodeID: "ctx1", Model: "mctx"}, 400, 13073, "")
+		protocol.UsageReceipt{RequestID: "req_ov", NodeID: "ctx1", Model: "mctx"}, 400, 13073, "", "")
 	return nil
 }
 func (s *routeState) noStrikeRecorded() error {
@@ -455,7 +456,7 @@ func TestRoutingEligibilityBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("routing/eligibility behavior scenarios failed (see godog output above)")
 	}
 }

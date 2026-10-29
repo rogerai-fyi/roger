@@ -25,6 +25,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -743,7 +744,7 @@ func TestFetchHardeningBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("fetch hardening behavior scenarios failed (see godog output above)")
 	}
 }

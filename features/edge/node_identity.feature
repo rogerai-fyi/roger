@@ -1,0 +1,266 @@
+# ROGER EDGE - THE NODE RECORD ("a node does not have to host a model to belong").
+#
+# WHY THIS EXISTS
+#
+# Every machine-shaped thing in RogerAI today is a STATION: something that serves a model into
+# the market. That is the only device class there is, and it is the wrong shape for a fleet. A
+# sensor produces readings and serves nothing. A relay board accepts commands and serves nothing.
+# A Mac in the other room might serve a model on Tuesday and be a plain member on Wednesday.
+# None of those are Stations, and a layer that can only see Stations cannot show an owner their
+# own machines.
+#
+# So the node record is the account-scoped, capability-typed thing an owner owns. A Station
+# becomes ONE capability a node may declare (`serve`), not the definition of a node.
+#
+# FOUNDER RULING 2026-09-11: "a device that hosts NO model is a first-class member, with declared
+# capabilities". That is the whole reason this file exists, and it is why `sense` and `actuate`
+# are peers of `serve` rather than afterthoughts.
+#
+# THE ONE CAPABILITY THAT IS NEVER INFERRED
+#
+# `actuate` means the node can change the physical world. It is DECLARED and owner-confirmed,
+# never derived from a probe, because the cost of guessing wrong is not a bad answer, it is a
+# moving machine. Everything else may be verified by observation; `actuate` may only be granted.
+#
+# GROUND TRUTH: internal/store (where the record lives beside wallets, nodes and grants),
+# internal/towercore/cert (the identity a node's key and certificate come from), the existing
+# `nodes` table and its `reg` payload (the Station shape this must not disturb).
+#
+# SCOPE: the record, its identity, its capabilities, its lifecycle. Discovery is
+# features/edge/discovery.feature. Enrollment ergonomics are enrollment.feature. What a node can
+# be asked to DO is protocol.feature and control.feature.
+
+Feature: A node is the owner's machine, typed by what it can do rather than by whether it serves a model
+
+  # =========================================================================
+  # 1. IDENTITY
+  # =========================================================================
+
+  Scenario: a node's identity is its own keypair, never issued to it
+    When a node joins an Edge
+    Then the private key was generated on the node and never transmitted
+    And the node id is derived from the public key
+    And two nodes can never share an id without sharing a key
+
+  Scenario: the record is scoped to exactly one account
+    Given a node enrolled to account "acct-1"
+    Then its record carries account "acct-1"
+    And no surface of account "acct-2" can list it, describe it, or address it
+
+  Scenario: a name is the owner's, and unique within the account
+    Given a node enrolled to account "acct-1"
+    When the owner names it "bench-pi"
+    Then it is addressable as "bench-pi" within that account
+    And a second node in the same account cannot take the name "bench-pi"
+    And a node in a DIFFERENT account may hold the same name without conflict
+
+  Scenario: renaming keeps identity, history and grants
+    Given a node "bench-pi" with a history and a grant addressed to it
+    When the owner renames it to "cabinet-pi"
+    Then its id is unchanged
+    And its history is unchanged
+    And the grant still addresses it
+
+  Scenario Outline: a name must be usable in a command line and a graph
+    When the owner names a node "<name>"
+    Then the name is <verdict>
+
+    Examples:
+      | name                  | verdict  |
+      | bench-pi              | accepted |
+      | pi5-cabinet-2         | accepted |
+      | a                     | accepted |
+      | (empty)               | rejected |
+      | bench pi              | rejected |
+      | ../etc/passwd         | rejected |
+      | a-name-of-65-chars... | rejected |
+      | UPPER                 | accepted |
+
+  # =========================================================================
+  # 2. CAPABILITIES
+  # =========================================================================
+
+  Scenario: a node with no capability at all is still a member
+    Given a node that declares nothing
+    When the fleet is listed
+    Then it appears with no capability marks
+    And it is a member, because membership is ownership, not usefulness
+
+  Scenario Outline: each capability means one thing and is verified its own way
+    Given a node declaring "<capability>"
+    When the fleet verifies it
+    Then verification is "<how>"
+
+    Examples:
+      | capability | how                                        |
+      | serve      | the existing serving probe                 |
+      | classify   | a canary sample with a known label         |
+      | sense      | a read that returns a well-formed sample   |
+      | actuate    | declared only, owner-confirmed, never probed |
+      | relay      | reachability observed from a second node   |
+      | operate    | declared, and gated by grant at use time   |
+
+  Scenario: a declared capability that fails verification is shown as claimed, not granted
+    Given a node declaring "serve"
+    And its serving probe fails
+    Then the capability is shown as CLAIMED and not VERIFIED
+    And nothing routes to it on the strength of that claim
+
+  Scenario: actuate is never inferred from behavior
+    Given a node that has accepted commands that changed the world
+    And it does not declare "actuate"
+    Then the fleet does not add "actuate"
+    And the next such command is refused
+
+  Scenario: the owner must confirm actuate before it takes effect
+    Given a node declaring "actuate" for the first time
+    Then it is PENDING CONFIRMATION
+    And it accepts no invoke until the owner confirms
+    And the confirmation is recorded with who confirmed it and when
+
+  # THE CEREMONY ITSELF. Added 2026-09-29, approved by the founder. The rule above shipped with the
+  # fleet and NOTHING could perform it: Fleet.ConfirmActuate existed, recorded who and when, and had
+  # no caller on any surface, so a node declaring actuate was pending for ever and the owner had no
+  # way to say yes. That is worse than not having the feature, because the node looks adopted and is
+  # quietly inert.
+  #
+  # Confirming actuate is the one action on this Edge that licenses a machine to CHANGE THE PHYSICAL
+  # WORLD. So it is never a single keystroke anywhere, it always names the node and what it will be
+  # allowed to do, and it always records who said yes.
+
+  @cli
+  Scenario: the owner confirms actuate from the terminal
+    Given a node "shed-door" declaring "actuate", pending confirmation
+    When the owner runs roger edge actuate shed-door
+    Then it says what confirming means: this node may change the physical world
+    And it asks y/N before anything changes
+    And answering no leaves the capability pending
+    When the owner answers yes
+    Then actuate is VERIFIED on that node
+    And the confirmation records who confirmed it and when
+    And the node's history gains the confirmation
+
+  @cli
+  Scenario: confirming is refused when there is nothing to confirm
+    Given a node that does not declare "actuate"
+    When the owner runs roger edge actuate on it
+    Then it is refused, saying the node does not declare actuate
+    And nothing on the node changes
+
+  @cli
+  Scenario: confirming an already-confirmed node says so rather than re-recording
+    Given a node whose actuate the owner already confirmed
+    When the owner runs roger edge actuate on it again
+    Then it says it is already confirmed, and by whom
+    And the original confirmation's who and when are untouched
+
+  @tui
+  Scenario: the node page offers the ceremony when actuate is pending
+    Given a member declaring "actuate", pending confirmation
+    When its node page is opened
+    Then it says actuate is awaiting the owner's confirmation
+    And the panel offers to confirm it, naming what it licenses
+    And confirming asks first, exactly as forget does
+
+  @web
+  Scenario: the console performs the same ceremony, never a bare button
+    Given a console over an Edge with a node pending actuate confirmation
+    When the manage view draws that node
+    Then it says actuate is pending and what confirming licenses
+    And the confirm action is POST-only and token-gated like every other mutation
+    And it is confirmed in the browser before it is sent
+    And the host records who confirmed it, never the browser's word for who
+
+  Scenario: capabilities can change without the node changing identity
+    Given a verified node with "serve"
+    When it stops serving and declares "sense" instead
+    Then its id and name are unchanged
+    And "serve" is dropped and "sense" is added
+    And the change is visible in its history
+
+  Scenario: a Station is a node with the serve capability, and the existing Station path is untouched
+    Given an existing `roger share` Station registered the way Stations register today
+    Then it appears in the owner's fleet as a node with capability "serve"
+    And its market registration, its offers and its receipts are byte-identical to before
+    And nothing about the Edge record is required for it to serve
+
+  # =========================================================================
+  # 3. KIND, TRANSPORTS, LIFECYCLE
+  # =========================================================================
+
+  Scenario Outline: kind describes what the thing is, and bounds what may be asked of it
+    Given a node of kind "<kind>"
+    Then its encoding is "<encoding>"
+    And it may declare <caps>
+
+    Examples:
+      | kind   | encoding | caps                          |
+      | host   | json     | any capability                |
+      | board  | compact  | classify, sense, actuate only |
+      | mobile | json     | any except relay              |
+
+  Scenario: transports are ordered by preference, not by discovery order
+    Given a node reachable on the LAN and through a relay
+    Then its transports read LAN first, relay second
+    And the LAN entry carries the pinned certificate fingerprint
+
+  Scenario: forgetting a node removes it and its pin, and nothing else
+    Given a verified node with a pin and a history
+    When the owner forgets it
+    Then it is gone from the fleet
+    And its pin is cleared, so it may be adopted again later
+    And its receipts and ledger rows are untouched, because money is not fleet state
+
+  Scenario: forgetting a node revokes what was addressed to it
+    Given a grant addressed to a node
+    When the owner forgets that node
+    Then the grant no longer authorizes anything on it
+    And a later invoke against that id is refused
+
+  Scenario: a node may belong to exactly one Edge at a time
+    Given a node enrolled to account "acct-1"
+    When it attempts to enroll to account "acct-2" while still enrolled
+    Then the second enrollment is refused
+    And the refusal names the account it already belongs to
+    And the owner of "acct-2" learns nothing about "acct-1"
+
+  # =========================================================================
+  # RE-ADMITTING A FORGOTTEN DEVICE - FOUNDER DIRECTION 2026-10-02 ("iterate and enhance")
+  #
+  # STATUS: APPROVED by the founder 2026-10-02.
+  # BUILD STATUS (2026-10-02, wt/limoni-readmit): BUILT - the record is edge-departed.json beside
+  # edge.json (0600), written by every forget path (CLI, fleet screen, console/TUI host, a pending
+  # grant); `roger edge readmit [<name>]` resolves, asks, lists; the fleet names a returning device.
+  # Executable here under godog (internal/edge) and pinned in cmd/rogerai/edgereadmit_test.go.
+  #
+  # Found 2026-10-01: forgetting a device removed its record, name and all, so re-admitting it later
+  # could only echo the raw id the owner typed ("re-admit n_gone?"), its old name no longer resolved,
+  # and the claim it was granted was named with the id, so it came back named by its id. Forgetting
+  # still removes the device from the fleet; what is kept is a short record THAT it was forgotten.
+  # =========================================================================
+
+  Scenario: forgetting a device leaves a short record that it left
+    When the owner forgets a device
+    Then this Edge keeps, for that device only, its last name, its kind and hardware word, and when it was forgotten
+    And nothing else of it is kept: not its pin, its grants, its tags or its history
+    And the record is bounded: the oldest is dropped once there are more than 64
+
+  # superseded 2026-10-06 by founder ruling (enrollment root trust)
+  # Re-admitting also mints a fresh enrollment code; a device still holding this Edge's root
+  # needs none (enrollment_root_trust.feature section 10).
+  Scenario: a forgotten device is re-admitted by the name it had
+    Given a device named "attic" that was forgotten
+    When the owner re-admits "attic"
+    Then it resolves to that device without its id being typed
+    And the question names it as "attic", with its hardware and when it was forgotten
+    And when it claims its fresh certificate it comes back named "attic"
+
+  Scenario: an id this Edge has no record of is said as typed, never as a name
+    When the owner re-admits by an id this Edge has no record of
+    Then the question quotes it as what the owner typed and says this Edge has no record of it
+    And the device it admits is given no name until the owner names it
+
+  Scenario: re-admit with nothing named lists what can be re-admitted
+    When the owner runs re-admit with no device
+    Then it lists the forgotten devices by name, hardware and when, newest first
+    And says how to re-admit one

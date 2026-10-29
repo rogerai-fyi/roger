@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/protocol"
-	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 // TestServerTimeoutsConfigured asserts the tuned http.Server keeps the SAFE timeouts
@@ -123,7 +123,6 @@ func TestDiscoverNotAnonGated(t *testing.T) {
 		inflight:     map[string]int{},
 		success:      map[string]float64{},
 		trust:        map[string]trustState{},
-		quotes:       map[string]priceQuote{},
 		banned:       map[string]bool{},
 		// A tiny bucket, then DRAINED below: if /discover still consulted it, the next request
 		// would already 429. It must not.

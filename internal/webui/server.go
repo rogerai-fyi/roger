@@ -16,12 +16,13 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
-	"strconv"
+	"rogerai.fm/roger/v7/internal/ownerjoin"
 	"strings"
 	"sync"
 
-	"rogerai.fm/roger/v6/internal/client"
-	"rogerai.fm/roger/v6/internal/node"
+	"rogerai.fm/roger/v7/internal/client"
+	"rogerai.fm/roger/v7/internal/netbind"
+	"rogerai.fm/roger/v7/internal/node"
 )
 
 //go:embed assets/*
@@ -40,13 +41,29 @@ type Options struct {
 	User     string // signed user id (X-Roger-User)
 	ClientID string // GitHub OAuth client id for the device-flow login
 	// ReadLimits / WriteLimit expose the operator's PER-BAND spend caps to the console.
-	// They are wired to the SAME store the TUI's [3] CONFIG edits: two copies would let
+	// They are wired to the SAME store the TUI's [4] CONFIG edits: two copies would let
 	// the browser and the terminal disagree about what the operator is willing to pay,
 	// and the one that loses is whichever wrote first. Nil = the node cannot edit them
 	// (the console then shows the table as unavailable rather than empty, which would
 	// read as "you have no caps").
 	ReadLimits func() map[string]SpendLimit
 	WriteLimit func(model string, l SpendLimit)
+	// Edge is this machine's Edge, for the EDGE tab (edge.go): the same fleet, candidates,
+	// adopt path and session ledger the TUI's [3] EDGE screen holds. Zero = no Edge host.
+	Edge EdgeHooks
+	// Models is the MODELS tab (models.go): `roger model` from the browser, through the same code.
+	Models ModelHooks
+	// LANDial is the merged LAN dial in LAN mode (the same function the TUI's dial reads), nil
+	// otherwise. With it set, BROWSE lists the LAN and never asks the broker.
+	LANDial func() client.LANDial
+	// Owner is the owner's side of joining (towers.go), the same hooks the TUI uses. Nil = the
+	// console shows no Towers.
+	Owner *ownerjoin.Hooks
+	// WelcomeSeen / SaveWelcomeSeen are the one-time welcome card's flag, the same welcome_seen
+	// the TUI's card writes (features/onboarding/welcome_card.feature): seeing it in either
+	// front-end counts for both. Nil = the console shows no card.
+	WelcomeSeen     func() bool
+	SaveWelcomeSeen func() error
 }
 
 // Server is the node console HTTP server. It is safe for concurrent requests: all live
@@ -56,6 +73,9 @@ type Server struct {
 	token string
 	mux   *http.ServeMux
 	opts  Options
+
+	// joinPrompt is the empty state's ask by address in flight, if any (edge_joinprompt.go).
+	joinPrompt edgeJoinPromptRun
 
 	loginMu     sync.Mutex
 	loginDevice *client.Device // the in-flight device-flow login between begin and poll
@@ -94,6 +114,8 @@ func (s *Server) routes() {
 	})
 	s.mux.Handle("/assets/", http.StripPrefix("/assets/", files))
 	s.mux.HandleFunc("/api/state", s.auth(s.handleState))
+	s.mux.HandleFunc("/api/welcome", s.auth(s.handleWelcome))
+	s.mux.HandleFunc("/api/welcome/seen", s.action(s.handleWelcomeSeen))
 	s.mux.HandleFunc("/api/events", s.auth(s.handleEvents))
 	// Operator write actions (POST-only, token-gated). Each returns the new snapshot.
 	s.mux.HandleFunc("/api/share/onair", s.action(s.handleOnAir))
@@ -101,6 +123,10 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/share/price", s.action(s.handlePrice))
 	s.mux.HandleFunc("/api/share/rename", s.action(s.handleRename))
 	s.mux.HandleFunc("/api/share/detect", s.action(s.handleDetect))
+	// A model's declared + inferred taxonomy: GET reads, POST declares, DELETE clears
+	// (token-gated like every /api route; features/categories/declaration.feature).
+	s.mux.HandleFunc("/api/share/meta", s.auth(s.handleMeta))
+	s.mux.HandleFunc("/api/categories", s.auth(s.handleCategories))
 	// Account (reads token-gated; writes POST-only).
 	s.mux.HandleFunc("/api/account", s.auth(s.handleAccount))
 	s.mux.HandleFunc("/api/account/login/begin", s.action(s.handleLoginBegin))
@@ -121,6 +147,38 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/bands", s.auth(s.handleBands))
 	s.mux.HandleFunc("/api/bands/", s.action(s.handleBandAction))
 	s.mux.HandleFunc("/api/grants", s.auth(s.handleGrants)) // GET lists, POST creates
+	// EDGE: the fleet snapshot (read, GET only) and the owner's adopt (POST only).
+	s.modelRoutes()
+	s.mux.HandleFunc("/api/towers", s.auth(s.handleTowers))
+	s.mux.HandleFunc("/api/towers/invite", s.action(s.handleTowerInvite))
+	s.mux.HandleFunc("/api/towers/invite/outcome", s.auth(s.handleTowerInviteOutcome))
+	s.mux.HandleFunc("/api/towers/decide", s.action(s.handleTowerDecide))
+	s.mux.HandleFunc("/api/edge", s.auth(s.handleEdge))
+	s.mux.HandleFunc("/api/edge/adopt", s.action(s.handleEdgeAdopt))
+	s.mux.HandleFunc("/api/edge/nearby/invite", s.action(s.handleEdgeNearbyInvite))
+	s.mux.HandleFunc("/api/edge/nearby/approve", s.action(s.handleEdgeNearbyApprove))
+	s.mux.HandleFunc("/api/edge/nearby/asked", s.auth(s.handleEdgeNearbyAsked))
+	s.mux.HandleFunc("/api/edge/join", s.action(s.handleEdgeJoin))
+	s.mux.HandleFunc("/api/edge/joinprompt", s.auth(s.handleEdgeJoinPrompt))
+	s.mux.HandleFunc("/api/edge/name", s.action(s.handleEdgeName))
+	s.mux.HandleFunc("/api/edge/forget", s.action(s.handleEdgeForget))
+	s.mux.HandleFunc("/api/edge/agent", s.action(s.handleEdgeAgent))
+	s.mux.HandleFunc("/api/edge/agent/add", s.action(s.handleEdgeAddAgent))
+	s.mux.HandleFunc("/api/edge/prefer", s.action(s.handleEdgePrefer))
+	s.mux.HandleFunc("/api/edge/job", s.action(s.handleEdgeJob))
+	s.mux.HandleFunc("/api/edge/job/clear", s.action(s.handleEdgeJobClear))
+	s.mux.HandleFunc("/api/edge/grant", s.action(s.handleEdgeGrantIssue))
+	s.mux.HandleFunc("/api/edge/grant/revoke", s.action(s.handleEdgeGrantRevoke))
+	s.mux.HandleFunc("/api/edge/tags", s.action(s.handleEdgeTags))
+	s.mux.HandleFunc("/api/edge/rule", s.action(s.handleEdgeRule))
+	s.mux.HandleFunc("/api/edge/rule/off", s.action(s.handleEdgeRuleOff))
+	s.mux.HandleFunc("/api/edge/rule/remove", s.action(s.handleEdgeRuleRemove))
+	s.mux.HandleFunc("/api/edge/maintain", s.action(s.handleEdgeMaintain))
+	s.mux.HandleFunc("/api/edge/actuate", s.action(s.handleEdgeActuate))
+	s.mux.HandleFunc("/api/edge/serve-model", s.action(s.handleEdgeServeModel))
+	s.mux.HandleFunc("/api/edge/sink", s.action(s.handleEdgeSink))
+	s.mux.HandleFunc("/api/edge/roger", s.action(s.handleEdgeRoger))
+	s.mux.HandleFunc("/api/edge/standby", s.action(s.handleEdgeStandBy))
 	// Browse (the open-market discover feed).
 	s.mux.HandleFunc("/api/browse", s.auth(s.handleBrowse))
 }
@@ -165,41 +223,15 @@ func (s *Server) localhostOnly(next http.Handler) http.Handler {
 	})
 }
 
-// Listen binds a free localhost port at/after addr and returns the listener plus the URL
-// (with the access token) to open. addr like "127.0.0.1:4180"; if that port is taken it
-// scans upward, mirroring the TUI's listenFreePort so a busy port never dead-ends.
+// Listen binds a free localhost port at/after addr (netbind.ListenFree: one bind, scanning
+// upward when the port is taken) and returns the listener plus the URL (with the access token)
+// to open. addr like "127.0.0.1:4180".
 func (s *Server) Listen(addr string) (net.Listener, string, error) {
-	ln, err := listenFreePort(addr)
+	ln, err := netbind.ListenFree(addr)
 	if err != nil {
 		return nil, "", err
 	}
 	return ln, "http://" + ln.Addr().String() + "/?t=" + s.token, nil
-}
-
-// listenFreePort binds addr, or — if its port is taken — scans upward to the first free
-// port on the same host (bounded). Mirrors internal/tui.listenFreePort.
-func listenFreePort(addr string) (net.Listener, error) {
-	host, port, err := net.SplitHostPort(addr)
-	if err != nil {
-		host, port = "127.0.0.1", "0"
-	}
-	if port == "0" {
-		return net.Listen("tcp", net.JoinHostPort(host, "0"))
-	}
-	start, _ := strconv.Atoi(port)
-	var lastErr error
-	for p := start; p < start+64; p++ {
-		ln, err := net.Listen("tcp", net.JoinHostPort(host, strconv.Itoa(p)))
-		if err == nil {
-			return ln, nil
-		}
-		lastErr = err
-	}
-	// Last resort: let the OS pick any free port rather than dead-end.
-	if ln, err := net.Listen("tcp", net.JoinHostPort(host, "0")); err == nil {
-		return ln, nil
-	}
-	return nil, lastErr
 }
 
 func newToken() string {

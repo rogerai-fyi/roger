@@ -1,6 +1,8 @@
 package client
 
 import (
+	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -22,16 +24,42 @@ func withStdin(t *testing.T, input string) {
 }
 
 // captureServe points useServe at a capture func (so the relay never blocks), restored
-// after. It records the address Use would have served on.
+// after. It records the address of the listener Use bound and closes it.
 func captureServe(t *testing.T, gotAddr *string) {
 	t.Helper()
-	old := useServe
-	useServe = func(addr string, _ http.Handler) error {
-		*gotAddr = addr
+	oldServe, oldListen := useServe, useListen
+	useListen = func(port int) (net.Listener, error) { // a listener that only reports the port asked for
+		if port == 0 {
+			port = DefaultUsePort
+		}
+		return addrListener{&net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port}}, nil
+	}
+	useServe = func(ln net.Listener, _ http.Handler) error {
+		*gotAddr = ln.Addr().String()
 		return nil
 	}
-	t.Cleanup(func() { useServe = old })
+	t.Cleanup(func() { useServe, useListen = oldServe, oldListen })
 }
+
+// freeTestPort is a loopback port free at the moment of asking, for a test that must name a
+// port explicitly.
+func freeTestPort(t *testing.T) int {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	_ = ln.Close()
+	return port
+}
+
+// addrListener is a listener that holds no socket: it only reports an address.
+type addrListener struct{ addr net.Addr }
+
+func (l addrListener) Accept() (net.Conn, error) { return nil, net.ErrClosed }
+func (l addrListener) Close() error              { return nil }
+func (l addrListener) Addr() net.Addr            { return l.addr }
 
 // TestUseNoStation covers the early return when no station is on air for the model.
 func TestUseNoStation(t *testing.T) {
@@ -80,11 +108,12 @@ func TestUseConfirmYesOpensChannel(t *testing.T) {
 	var addr string
 	captureServe(t, &addr)
 	b := fakeBroker(t)
-	if err := Use(b, "u_gh_1", "m1", UseOptions{Port: 4321}); err != nil {
+	port := freeTestPort(t)
+	if err := Use(b, "u_gh_1", "m1", UseOptions{Port: port}); err != nil {
 		t.Fatalf("Use(confirm yes) = %v, want nil", err)
 	}
-	if addr != "127.0.0.1:4321" {
-		t.Errorf("relay addr = %q, want 127.0.0.1:4321", addr)
+	if want := fmt.Sprintf("127.0.0.1:%d", port); addr != want {
+		t.Errorf("relay addr = %q, want %s", addr, want)
 	}
 }
 
@@ -106,11 +135,12 @@ func TestUseHighPriceConfirmExact(t *testing.T) {
 	withStdin(t, "25\n")
 	var addr string
 	captureServe(t, &addr)
-	if err := Use(fakeBrokerExpensive(t), "u_gh_1", "big", UseOptions{MaxOut: 30, Port: 9100}); err != nil {
+	port := freeTestPort(t)
+	if err := Use(fakeBrokerExpensive(t), "u_gh_1", "big", UseOptions{MaxOut: 30, Port: port}); err != nil {
 		t.Fatalf("Use(typed exact price) = %v, want nil", err)
 	}
-	if addr != "127.0.0.1:9100" {
-		t.Errorf("high-price confirm relay addr = %q, want :9100", addr)
+	if want := fmt.Sprintf("127.0.0.1:%d", port); addr != want {
+		t.Errorf("high-price confirm relay addr = %q, want %s", addr, want)
 	}
 }
 
@@ -132,10 +162,11 @@ func TestUseYesNonInteractiveOpens(t *testing.T) {
 	var addr string
 	captureServe(t, &addr)
 	b := fakeBroker(t)
-	if err := Use(b, "u_gh_1", "m1", UseOptions{Yes: true, MaxOut: 5, Port: 7000}); err != nil {
+	port := freeTestPort(t)
+	if err := Use(b, "u_gh_1", "m1", UseOptions{Yes: true, MaxOut: 5, Port: port}); err != nil {
 		t.Fatalf("Use(--yes within limit) = %v, want nil", err)
 	}
-	if addr != "127.0.0.1:7000" {
-		t.Errorf("relay addr = %q, want 127.0.0.1:7000", addr)
+	if want := fmt.Sprintf("127.0.0.1:%d", port); addr != want {
+		t.Errorf("relay addr = %q, want %s", addr, want)
 	}
 }

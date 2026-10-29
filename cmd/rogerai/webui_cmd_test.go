@@ -4,8 +4,9 @@ import (
 	"strings"
 	"testing"
 
-	"rogerai.fm/roger/v6/internal/node"
-	"rogerai.fm/roger/v6/internal/tui"
+	"rogerai.fm/roger/v7/internal/edge"
+	"rogerai.fm/roger/v7/internal/node"
+	"rogerai.fm/roger/v7/internal/tui"
 )
 
 // `roger webui` - the console on its own. The command BLOCKS on a signal by design (it is
@@ -60,14 +61,24 @@ func TestWebuiHelpSpellings(t *testing.T) {
 // case can drive cmdWebui to completion without binding a port or blocking on a signal.
 func withWebuiSeams(t *testing.T, url string, stopped *bool) {
 	t.Helper()
+	webuiOffline(t)
 	oldFor, oldWait := webConsoleFor, waitForStop
-	webConsoleFor = func(config, *node.Controller, string, *tui.LimitStore) string { return url }
+	webConsoleFor = func(config, *node.Controller, string, *tui.LimitStore, *tui.Hooks) string { return url }
 	waitForStop = func() {
 		if stopped != nil {
 			*stopped = true
 		}
 	}
 	t.Cleanup(func() { webConsoleFor, waitForStop = oldFor, oldWait })
+}
+
+// webuiOffline keeps a cmdWebui test hermetic: the command starts the REAL Edge host (startEdge),
+// so without this a unit test opens a multicast socket, advertises this machine on the LAN and
+// dials whatever answers - real network traffic from `go test`, and a source of flakes.
+func webuiOffline(t *testing.T) {
+	t.Helper()
+	t.Setenv(edge.EnvDiscovery, "0")
+	t.Setenv("ROGER_BROKER", "http://127.0.0.1:1")
 }
 
 // The happy path: it serves, reports, and waits to be stopped rather than returning
@@ -108,9 +119,10 @@ func TestWebuiReportsABindFailure(t *testing.T) {
 // --port is threaded through to the listener rather than swallowed.
 func TestWebuiPassesThePortThrough(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	webuiOffline(t)
 	var gotPort string
 	oldFor, oldWait := webConsoleFor, waitForStop
-	webConsoleFor = func(_ config, _ *node.Controller, port string, _ *tui.LimitStore) string {
+	webConsoleFor = func(_ config, _ *node.Controller, port string, _ *tui.LimitStore, _ *tui.Hooks) string {
 		gotPort = port
 		return "http://127.0.0.1:8391/?t=abc"
 	}
@@ -134,7 +146,7 @@ func TestWebuiPortAcceptsBothSpellings(t *testing.T) {
 	} {
 		var gotPort string
 		prev := webConsoleFor
-		webConsoleFor = func(_ config, _ *node.Controller, port string, _ *tui.LimitStore) string {
+		webConsoleFor = func(_ config, _ *node.Controller, port string, _ *tui.LimitStore, _ *tui.Hooks) string {
 			gotPort = port
 			return "http://127.0.0.1:8391"
 		}

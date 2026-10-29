@@ -20,6 +20,7 @@ import (
 	"crypto/sha512"
 	"encoding/hex"
 	"encoding/json"
+	"math"
 	"net/http"
 	"regexp"
 	"sort"
@@ -67,9 +68,18 @@ type ModelOffer struct {
 	// the reason spelled out on Capabilities above: a node and a broker on different
 	// binaries must produce byte-identical signed bytes, or a broker upgrade 401s validly-
 	// signed nodes. Locked in registration_test.go / variants_test.go.
-	Quant    string  `json:"quant,omitempty"`
-	Weights  string  `json:"weights,omitempty"`
-	Variant  string  `json:"variant,omitempty"`
+	Quant   string `json:"quant,omitempty"`
+	Weights string `json:"weights,omitempty"`
+	Variant string `json:"variant,omitempty"`
+	// ParamsB is the model's parameter count in billions as the STATION declares it
+	// (ROUTING-EXPRESSION-CONTRACT §5): a declared attribute, never measured or verified.
+	// 0 = not declared (the broker may estimate it from the model id, marked as an estimate).
+	// Excluded from the possession proof and omitempty for the reason given on Capabilities.
+	ParamsB float64 `json:"params_b,omitempty"`
+	// Taxonomy says what the model is FOR (category, tags, lineage, content policy). Embedded
+	// so its keys sit flat on the offer. Unverified DISPLAY + FILTER attributes, excluded from
+	// the possession proof for the same reason as Capabilities. See taxonomy.go.
+	Taxonomy
 	PriceIn  float64 `json:"price_in"`  // credits per 1,000,000 input units (tokens or chars; see Unit)
 	PriceOut float64 `json:"price_out"` // credits per 1,000,000 output units (tokens or audio-bytes)
 	Ctx      int     `json:"ctx"`
@@ -87,6 +97,10 @@ type ModelOffer struct {
 	// of the registration (regSigningBytes excludes only Sig and the display fields).
 	UpstreamIn  float64 `json:"upstream_in,omitempty"`
 	UpstreamOut float64 `json:"upstream_out,omitempty"`
+	// TPM is a CURATED station's declared tokens-per-minute budget at its provider (0 = none
+	// declared). The broker never dispatches one request whose measured prompt exceeds
+	// ROGERAI_TPM_REQUEST_SHARE of it (contract §14.2); a human station may not declare one.
+	TPM int `json:"tpm,omitempty"`
 	// Voice metadata (optional; set only for voice offers) — surfaced by GET /voices for the app
 	// picker (BROKER-VOICE-API.md). Passive display labels ONLY; a node address is never here.
 	Name      string `json:"name,omitempty"`
@@ -103,6 +117,19 @@ type ModelOffer struct {
 	Voice string  `json:"voice,omitempty"`
 	Speed float64 `json:"speed,omitempty"`
 }
+
+// ParamsBMax is the largest parameter count (billions) a station may declare.
+const ParamsBMax = 10000
+
+// ValidParamsB reports whether a declared parameter count is acceptable: finite, positive,
+// at most ParamsBMax. Zero means "not declared" and is checked separately by the caller.
+func ValidParamsB(v float64) bool {
+	return !math.IsNaN(v) && !math.IsInf(v, 0) && v > 0 && v <= ParamsBMax
+}
+
+// QuantUnknown is the reserved quantization value a consumer uses to admit an UNLABELED
+// offer (contract §5). A station may not label itself with it.
+const QuantUnknown = "unknown"
 
 // Modality + Unit values. The enum is CLOSED (ValidModality); the unit is DERIVED from the
 // modality (canonicalUnit), never trusted from the wire — truth-in-labeling for how a request
@@ -142,6 +169,7 @@ func (o *ModelOffer) Normalize() {
 	o.Quant = CanonicalQuant(o.Quant)
 	o.Weights = CanonicalVariantText(o.Weights)
 	o.Variant = CanonicalVariantText(o.Variant)
+	o.Taxonomy.normalize(o.Modality)
 }
 
 // variantTextMax bounds ONE variant field. These are node-supplied strings that end up on
@@ -199,25 +227,38 @@ func canonicalQuantCase(s string) string {
 // Control characters are removed rather than escaped: this text is rendered into a
 // terminal, and a node that could embed an ANSI escape or a newline in its "weights" could
 // repaint another operator's screen or break a row in half. Nothing legitimate needs them.
-func CanonicalVariantText(s string) string {
+func CanonicalVariantText(s string) string { return boundedText(s, variantTextMax) }
+
+// boundedText is CanonicalVariantText with a caller-chosen byte cap (the taxonomy's base model
+// and license are longer names than a quant label).
+func boundedText(s string, max int) string {
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return ""
 	}
 	var b strings.Builder
 	b.Grow(len(s))
+	n := 0
 	for _, r := range s {
-		// Drop C0/C1 controls and DEL. Everything printable survives, including the
-		// non-ASCII a publisher might legitimately use in a name.
-		if r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f) {
+		// Drop C0/C1 controls and DEL, and the display-spoofing characters: bidi embeddings,
+		// overrides and isolates (one name rendered as another), zero-width characters, and
+		// the line/paragraph separators (a row broken as a newline would). Everything else
+		// printable survives, including the non-ASCII a publisher might use in a name.
+		if r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f) || spoofing(r) {
 			continue
 		}
 		b.WriteRune(r)
-		if b.Len() >= variantTextMax {
+		// The cap counts CHARACTERS, so a non-ASCII name gets the same room as an ASCII one.
+		if n++; n >= max {
 			break
 		}
 	}
 	return strings.TrimSpace(b.String())
+}
+
+func spoofing(r rune) bool {
+	return (r >= 0x200B && r <= 0x200F) || (r >= 0x2028 && r <= 0x202E) ||
+		(r >= 0x2066 && r <= 0x2069) || r == 0xFEFF
 }
 
 // CapVision marks a chat model that accepts image_url content (the photo path). It is
@@ -351,10 +392,14 @@ type NodeRegistration struct {
 	// BridgeToken is a shared secret the broker presents (Bearer) when relaying
 	// to the node's bridge. It secures the PUBLIC tunnel URL so only the broker
 	// can use it - randoms who discover the *.trycloudflare.com URL can't.
-	BridgeToken string       `json:"bridge_token"`
-	Region      string       `json:"region"`
-	HW          string       `json:"hw"`
-	Offers      []ModelOffer `json:"offers"`
+	BridgeToken string `json:"bridge_token"`
+	Region      string `json:"region"`
+	// NetContinent is BROKER-set at register: the continent the node's connecting address falls
+	// in under the operator's network table ("" = none). It is outside the node's signed bytes
+	// (regSigningBytes), rides the shared registry mirror, and is never emitted to consumers.
+	NetContinent string       `json:"net_continent,omitempty"`
+	HW           string       `json:"hw"`
+	Offers       []ModelOffer `json:"offers"`
 	// Confidential: node claims it runs inference in a TEE/confidential VM where
 	// the owner cannot read memory; Attestation is the (to-be-verified) hardware
 	// quote. The broker only surfaces `confidential ◆` after CRYPTOGRAPHICALLY
@@ -441,6 +486,7 @@ type NodeRegistration struct {
 func (r NodeRegistration) regSigningBytes() []byte {
 	c := r
 	c.Sig = ""
+	c.NetContinent = "" // broker-set after the node signs
 	if len(c.Offers) > 0 {
 		offers := make([]ModelOffer, len(c.Offers))
 		copy(offers, c.Offers)
@@ -449,6 +495,8 @@ func (r NodeRegistration) regSigningBytes() []byte {
 			// The variant fields are excluded for the same reason and with the same
 			// consequence if they are not: see their doc on ModelOffer.
 			offers[i].Quant, offers[i].Weights, offers[i].Variant = "", "", ""
+			offers[i].ParamsB = 0
+			offers[i].Taxonomy = Taxonomy{} // display-only too: see Taxonomy
 		}
 		c.Offers = offers
 	}
@@ -510,10 +558,20 @@ func AttestationReportData(pubHex, nonceHex string) []byte {
 // UsageReceipt is the per-request lineage record. It is hash-chained (PrevHash)
 // per node, signed by the node, then counter-signed by the broker.
 type UsageReceipt struct {
-	RequestID        string  `json:"request_id"`
-	NodeID           string  `json:"node_id"`
-	User             string  `json:"user"`
-	Model            string  `json:"model"`
+	RequestID string `json:"request_id"`
+	NodeID    string `json:"node_id"`
+	// Relay is the Tower id that carried a BRIDGED answer (features/routing/edge_bridge_parity
+	// .feature): NodeID is then the relay name the broker dispatched to. Absent on a direct
+	// receipt, so a node's signing bytes are unchanged.
+	Relay string `json:"relay,omitempty"`
+	User  string `json:"user"`
+	Model string `json:"model"`
+	// DispatchedModel is BROKER-set when the attempt was dispatched for a different model
+	// than the one the node signed (a mislabelling or multi-model station): billing, the
+	// tokenizer key, the lineage row and X-RogerAI-Model follow the dispatch, while Model
+	// keeps what the node signed so VerifyNode and the chain hash still hold. Zeroed in the
+	// node form like Curated; covered by the broker signature.
+	DispatchedModel  string  `json:"dispatched_model,omitempty"`
 	PromptTokens     int     `json:"prompt_tokens"`
 	CompletionTokens int     `json:"completion_tokens"`
 	PriceIn          float64 `json:"price_in"`
@@ -567,13 +625,44 @@ type UsageReceipt struct {
 	SigVersion int    `json:"sig_version,omitempty"`
 	NodeSig    string `json:"node_sig,omitempty"`
 	BrokerSig  string `json:"broker_sig,omitempty"`
+	// Local marks a receipt issued by the SERVING NODE for a turn that never left the
+	// owner's Edge (features/edge/local_inference.feature): same shape, zero cost, signed
+	// with the node key and never by the broker. It exists for the Edge view and for
+	// audit, never for settlement - the broker refuses it (no broker signature).
+	Local bool `json:"local,omitempty"`
+	// LAN marks a turn a LAN Tower served in LAN mode (features/lan/ui_visibility.feature): local and
+	// free like an Edge turn, but on a Tower that may not be the owner's, so its route is "lan".
+	// The client writes it on its own record; no broker or peer ever signs it.
+	LAN bool `json:"lan,omitempty"`
+	// Instance names the running roger that served, on a local receipt.
+	Instance string `json:"instance,omitempty"`
+	// RelayRequestID is the consumer-facing request id (X-RogerAI-Request-Id) this attempt
+	// belongs to. Broker-internal: never serialized, so it is in neither signed form, never
+	// reaches a station, and travels only to the store's consumer-side ledger row.
+	RelayRequestID string `json:"-"`
 }
 
 // Void reasons a broker stamps on a $0 receipt (UsageReceipt.VoidReason).
 const (
 	VoidUpstreamThrottled = "upstream-throttled" // the provider behind the station said 429: capacity, not misconduct
 	VoidUpstreamError     = "upstream-error"     // any other >= 400 from the station
-	VoidEmptyOutput       = "empty-output"       // a 2xx that carried no usable completion
+	// VoidConsumerRejected: the station's server refused the REQUEST itself (400, 401, 404,
+	// 413, 422 that is not a context-window overflow): a fact about what the consumer sent,
+	// never evidence about the operator (contract §14.1).
+	VoidConsumerRejected = "consumer-rejected"
+	// VoidLateAfterTimeout: a non-stream result that arrived after the consumer was answered
+	// 504, within the late-receipt grace (contract §14.10): recorded for lineage at $0, the
+	// consumer billed nothing, the operator unpaid, never a strike.
+	VoidLateAfterTimeout = "late-after-timeout"
+	VoidEmptyOutput      = "empty-output" // a 2xx that carried no usable completion
+	// VoidContextWindow: the upstream refused the prompt as larger than the model's window (a
+	// 400 in the context-overflow vocabulary). It is a fact about the request against that
+	// model, never a strike; with a model list it moves the request on to the next model.
+	VoidContextWindow = "context-window"
+	// VoidSettleFailed: the station served, but the ledger refused the settle. The consumer
+	// is refunded in full and still gets the body; the operator earns nothing and is not
+	// struck (the failure is the broker's store, not the station).
+	VoidSettleFailed = "settle-failed"
 )
 
 // BrokerSigVersion is the current broker-signature canonical form.
@@ -605,6 +694,7 @@ func (r UsageReceipt) nodeSigningBytes() []byte {
 	// keeps it, so the co-signed receipt still proves the designation.
 	c.Curated = false
 	c.CuratedAtCost = false
+	c.DispatchedModel = "" // broker-set, like Curated
 	// The void audit fields are broker-set on the $0 path after the node signed, so they
 	// are zeroed here like GrantID; brokerSigningBytes keeps them, so a co-signed void
 	// receipt proves WHY nothing was billed and tampering with the reason is detectable.
@@ -631,6 +721,15 @@ func (r UsageReceipt) brokerSigningBytes() []byte {
 func (r UsageReceipt) Hash() string {
 	h := sha256.Sum256(r.nodeSigningBytes())
 	return hex.EncodeToString(h[:])
+}
+
+// ServedModel is the model this receipt bills as: the dispatched model when the broker
+// recorded one, else the model the node signed.
+func (r UsageReceipt) ServedModel() string {
+	if r.DispatchedModel != "" {
+		return r.DispatchedModel
+	}
+	return r.Model
 }
 
 // Cost in credits = (in*price_in + out*price_out) / 1e6.

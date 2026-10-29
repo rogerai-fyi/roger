@@ -6,13 +6,16 @@ import (
 	"crypto/ed25519"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strconv"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/lanmode"
+	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/servedfile"
 )
 
 // idFromPriv is the one canonical rule mapping a signing key to its tower client id, so the id a
@@ -23,7 +26,7 @@ func idFromPriv(priv ed25519.PrivateKey) string {
 
 // NodeID is this machine's standalone-Tower station identity: the tower client id derived from the
 // node key (a DIFFERENT key from the consumer's user key). The operator attaches this node with
-// `roger-tower attach --key <NodeID>`. Calling it mints the node key if none exists yet, exactly as
+// `roger tower attach --key <NodeID>`. Calling it mints the node key if none exists yet, exactly as
 // serving would - so the id it returns is stable and is the one a share will authenticate with.
 func NodeID() string { return idFromPriv(NodeKey()) }
 
@@ -37,49 +40,115 @@ func NodeID() string { return idFromPriv(NodeKey()) }
 // The node signs every poll and completion with its node key AND a per-request nonce, so the
 // Tower's replay guard can refuse a captured poll resent on the LAN (which would otherwise be
 // handed a pending consumer prompt). The node must already be an ATTACHED station of the Tower
-// (roger-tower attach --key <the node's tower client id>); an unattached key is refused.
+// (roger tower attach --key <the node's tower client id>); an unattached key is refused.
 //
 // It loops until the context is cancelled. Poll and per-job errors are transient - the node
 // simply re-polls - because a standalone plant should keep serving across a Tower blip.
 func ServeLocalTower(ctx context.Context, cfg Config, priv ed25519.PrivateKey, out io.Writer) error {
 	pollClient := &http.Client{Timeout: 40 * time.Second} // longer than the plane's poll window
-	execClient := &http.Client{Timeout: 10 * time.Minute} // a real prompt is real work
-	// The node's own tower client id is derivable ONLY from its node key - so print it, with the
-	// exact command that consumes it. An operator cannot attach a station whose key hash they
-	// cannot see. (`roger account` shows it too, so the id is learnable before the plane is up.)
+	execClient := &http.Client{Timeout: 10 * time.Minute} // a real prompt is real work (upstream)
+	towerClient := execClient                             // completions and chunks posted to the Tower
+	// A Tower this station joined by invite is pinned: every poll, completion and chunk goes over
+	// TLS to exactly its key (features/join/tower_identity.feature). The upstream client is never
+	// pinned: the station's own model server is not the Tower.
+	if routed, pc, pinned := lanmode.Route(cfg.Broker, pollClient); pinned {
+		_, tc, _ := lanmode.Route(cfg.Broker, execClient)
+		cfg.Broker, pollClient, towerClient = routed, pc, tc
+	}
+	// The station's key is shown only to a Tower that has not attached it, after the invite (the
+	// simple way in, features/join/surfaces.feature), for a Tower older than invites.
 	nodeID := idFromPriv(priv)
-	fmt.Fprintf(out, "this node's id: %s\n", nodeID)
-	fmt.Fprintf(out, "  the Tower operator attaches it with: roger-tower attach --station <name> --key %s --models <models>\n", nodeID)
 	fmt.Fprintf(out, "serving the local network's stations at %s (polling for work)\n", cfg.Broker)
 	var lastPollErrLog time.Time
+	failures, toldUnattached := 0, false
 	for {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		job, got, err := pollLocalJob(ctx, pollClient, cfg.Broker, priv)
-		if err != nil && ctx.Err() == nil {
-			// A poll error that keeps recurring - an unattached key (401), a wrong Tower address -
-			// is worth surfacing, but not on every spin. Log the first, then at most once a minute,
-			// so a misconfigured node is visible instead of silently idle. A cancelled context is
-			// not an error worth a line: it is the operator stopping the node, so it is skipped.
+		job, got, err := pollLocalJob(ctx, pollClient, cfg.Broker, priv, cfg)
+		switch {
+		case err == nil:
+			failures, toldUnattached = 0, false
+		case ctx.Err() != nil:
+			// The operator stopping the node is not an error worth a line.
+		case errors.Is(err, errNotAttached):
+			// The Tower is reachable but has not attached this station: say so ONCE, with the
+			// exact command that fixes it, instead of a generic poll error every minute.
+			if !toldUnattached {
+				fmt.Fprintf(out, "the Tower at %s has not attached this station yet: ask its owner for a station invite (roger tower invite --station), then run here: roger join <invite>\n"+
+					"  (a Tower older than invites attaches this station's key: %s)\n", cfg.Broker, nodeID)
+				toldUnattached = true
+			}
+		default:
+			// A poll error that keeps recurring (a wrong Tower address) is worth surfacing, but
+			// not on every spin: the first, then at most once a minute.
 			if now := time.Now(); now.Sub(lastPollErrLog) > time.Minute {
 				fmt.Fprintf(out, "still trying to poll %s: %v\n", cfg.Broker, err)
 				lastPollErrLog = now
 			}
 		}
 		if err != nil || !got {
-			// No work (204), a transient error, or a cancelled context: pause briefly and re-poll
-			// rather than hammering. The plane's long-poll already absorbs most of the wait.
+			// No work (204): pause briefly and re-poll (the plane's long-poll absorbs most of the
+			// wait). A failing poll backs off, doubling up to a cap, so an unattached or
+			// unreachable Tower is not hammered.
+			wait := localPollBackoffBase
+			if err != nil {
+				failures++
+				wait = localPollBackoff(failures)
+			}
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
-			case <-time.After(500 * time.Millisecond):
+			case <-time.After(wait):
 			}
 			continue
 		}
-		answer := runLocalJob(execClient, cfg, job.Request)
-		completeLocalJob(execClient, cfg.Broker, priv, job.ID, answer)
+		jcfg := cfg.forJob([]byte(job.Request))
+		if job.Stream {
+			runLocalStream(ctx, execClient, towerClient, jcfg, priv, job)
+			continue
+		}
+		answer := runLocalJob(execClient, jcfg, job.Request)
+		completeLocalJob(towerClient, cfg.Broker, priv, job.ID, answer)
 	}
+}
+
+// forJob is cfg aimed at the local server that serves the job's model, when the station routes
+// that model elsewhere (StationUpstream); otherwise cfg unchanged.
+func (cfg Config) forJob(request []byte) Config {
+	if cfg.StationUpstream == nil {
+		return cfg
+	}
+	var head struct {
+		Model string `json:"model"`
+	}
+	if json.Unmarshal(request, &head) != nil || head.Model == "" {
+		return cfg
+	}
+	if url, key, ok := cfg.StationUpstream(head.Model); ok {
+		cfg.Upstream, cfg.UpstreamKey, cfg.Osaurus = url, key, false
+	}
+	return cfg
+}
+
+// errNotAttached is a poll the Tower refused: it has not attached this station's key.
+var errNotAttached = errors.New("this station is not attached to the Tower")
+
+// localPollBackoffBase is the pause between polls with no work, and the first retry after a
+// failed poll; localPollBackoffMax caps the doubling retry wait.
+var (
+	localPollBackoffBase = 500 * time.Millisecond
+	localPollBackoffMax  = 30 * time.Second
+)
+
+// localPollBackoff is the wait after the n-th consecutive failed poll: the base, doubled per
+// failure, capped.
+func localPollBackoff(n int) time.Duration {
+	d := localPollBackoffBase
+	for i := 1; i < n && d < localPollBackoffMax; i++ {
+		d *= 2
+	}
+	return min(d, localPollBackoffMax)
 }
 
 // localJob is one unit of work the Tower hands a polling station: the id to complete against and
@@ -88,16 +157,44 @@ type localJob struct {
 	ID      string          `json:"job_id"`
 	Model   string          `json:"model"`
 	Request json.RawMessage `json:"request"`
+	// Stream is the Tower handing this station a streamed job to deliver as chunks, which it
+	// does only because the poll announced chunk support (localtower_stream.go).
+	Stream bool `json:"stream"`
 }
 
 // pollLocalJob long-polls the Tower for a job. 200 with a job, 204 (no work), anything else is
 // treated as "no job this round".
-func pollLocalJob(ctx context.Context, c *http.Client, broker string, priv ed25519.PrivateKey) (localJob, bool, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, broker+"/local/poll", nil)
+func pollLocalJob(ctx context.Context, c *http.Client, broker string, priv ed25519.PrivateKey, cfg Config) (localJob, bool, error) {
+	// The poll announces chunk support, so the Tower hands a streamed job over as a stream, says
+	// what this station serves now, so the Tower routes exactly that (features/join), and names the
+	// file behind each model it knows (features/models/short_names_nearby.feature).
+	type namedFile struct {
+		Model string `json:"model"`
+		servedfile.File
+	}
+	announce := struct {
+		Streams bool        `json:"streams"`
+		Models  []string    `json:"models,omitempty"`
+		Files   []namedFile `json:"files,omitempty"`
+	}{Streams: true}
+	if cfg.StationModels != nil {
+		announce.Models = cfg.StationModels()
+	}
+	if cfg.StationFiles != nil {
+		files := cfg.StationFiles()
+		for _, m := range announce.Models {
+			if f, ok := files[m]; ok {
+				announce.Files = append(announce.Files, namedFile{Model: m, File: f})
+			}
+		}
+	}
+	body, _ := json.Marshal(announce)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, broker+"/local/poll", bytes.NewReader(body))
 	if err != nil {
 		return localJob{}, false, err
 	}
-	signLocal(req, nil, priv)
+	signLocal(req, body, priv)
+	req.Header.Set("Content-Type", "application/json")
 	resp, err := c.Do(req)
 	if err != nil {
 		return localJob{}, false, err
@@ -105,6 +202,9 @@ func pollLocalJob(ctx context.Context, c *http.Client, broker string, priv ed255
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusNoContent {
 		return localJob{}, false, nil
+	}
+	if resp.StatusCode == http.StatusUnauthorized {
+		return localJob{}, false, errNotAttached
 	}
 	if resp.StatusCode != http.StatusOK {
 		return localJob{}, false, fmt.Errorf("poll: status %d", resp.StatusCode)
@@ -178,6 +278,15 @@ func completeLocalJob(c *http.Client, broker string, priv ed25519.PrivateKey, jo
 // captured, and a nonce is harmless where it could not (the Tower still just accepts the first
 // use). body must be exactly what is sent (nil for the empty-bodied poll).
 func signLocal(req *http.Request, body []byte, priv ed25519.PrivateKey) {
+	// The Tower this station was pointed at is a known standalone Tower: the one nonce
+	// decision gives it a nonce over plain http, loopback included, and none over https.
+	if !lanmode.WantsNonce(req.URL, []string{req.URL.Host}) {
+		pubHex, ts, sigHex := protocol.SignRequest(priv, req.Method, req.URL.Path, body)
+		req.Header.Set(protocol.HeaderPubkey, pubHex)
+		req.Header.Set(protocol.HeaderTS, strconv.FormatInt(ts, 10))
+		req.Header.Set(protocol.HeaderSig, sigHex)
+		return
+	}
 	nonce := protocol.NewNonce()
 	pubHex, ts, sigHex := protocol.SignRequestNonce(priv, req.Method, req.URL.Path, body, nonce)
 	req.Header.Set(protocol.HeaderPubkey, pubHex)
@@ -208,4 +317,24 @@ func unstreamLocal(body []byte) []byte {
 func localError(msg string) []byte {
 	b, _ := json.Marshal(map[string]any{"error": map[string]any{"message": msg, "type": "local_station_error"}})
 	return b
+}
+
+// StartLAN is a share in LAN mode: it serves each LAN Tower (a consumer-plane base URL) as a
+// standalone station with ServeLocalTower and registers with nothing. The session is on air at
+// once (no broker acknowledges a LAN share) and Stop ends every Tower's loop.
+func StartLAN(cfg Config, towers []string, priv ed25519.PrivateKey, out io.Writer) *Session {
+	s := &Session{cfg: cfg, stop: make(chan struct{})}
+	s.link.Store(int32(LinkOnAir))
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() { <-s.stop; cancel() }()
+	for _, base := range towers {
+		c := cfg
+		c.Broker = base
+		s.loops.Add(1)
+		go func() {
+			defer s.loops.Done()
+			_ = ServeLocalTower(ctx, c, priv, out)
+		}()
+	}
+	return s
 }

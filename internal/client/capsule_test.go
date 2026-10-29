@@ -14,8 +14,8 @@ import (
 	"sync"
 	"testing"
 
-	"rogerai.fm/roger/v6/internal/capsule"
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/capsule"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // rendezvousStub is a minimal content-blind store: it stores exactly what the client sends

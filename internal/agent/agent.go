@@ -8,6 +8,7 @@ package agent
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/hex"
@@ -21,14 +22,17 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"rogerai.fm/roger/v7/internal/coreclient"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/client"
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/client"
+	"rogerai.fm/roger/v7/internal/keyfile"
+	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/servedfile"
 )
 
 // shareFeeRate is the platform take used only to ESTIMATE the session's live
@@ -59,6 +63,16 @@ type Config struct {
 
 	Broker, Upstream, UpstreamKey string
 	NodeID, Region, HW, Model     string
+	// StationModels says what this station serves right now, for a standalone Tower's poll (nil:
+	// the poll names nothing and the Tower keeps the list it attached).
+	StationModels func() []string
+	// StationFiles says which exact file each of those models is, where this station knows (the
+	// models roger serves itself), so a Tower's clients can serve the same file by its name
+	// (features/models/short_names_nearby.feature). nil: no files are reported.
+	StationFiles func() map[string]servedfile.File
+	// StationUpstream routes a standalone Tower job's model to the local server that serves it, for
+	// a station that offers models from more than one server (nil or not ok: Upstream).
+	StationUpstream func(model string) (url, key string, ok bool)
 	// Station is the owner's persisted broadcast CALLSIGN (e.g. `brave-otter-37`) — the SAME one
 	// NodeID's first segment is derived from (ShareNodeID). Carried on the registration as the
 	// AUTHORITATIVE station the broker namespaces this node's public voices by, since the id's
@@ -92,9 +106,12 @@ type Config struct {
 	// local runtime - see internal/detect - and passed through to the offer; the broker
 	// routes on none of them. Empty means the runtime and the file said nothing, which is
 	// common and must render as absent rather than as a guess.
-	Quant     string
-	Weights   string
-	Variant   string
+	Quant   string
+	Weights string
+	Variant string
+	// Taxonomy is what the operator declared (or detection inferred) the model is FOR. Like
+	// the variant fields it rides the offer unverified; the broker normalizes it.
+	Taxonomy  protocol.Taxonomy
 	Name      string // display name for the /voices picker (e.g. "1950s Operator")
 	Language  string
 	SampleURL string
@@ -155,8 +172,10 @@ type Session struct {
 	probeReqs     atomic.Int64 // UNBILLED broker probes served (kept out of servedReqs)
 	probeToks     atomic.Int64 // completion tokens spent on those probes
 	stop          chan struct{}
-	rereg         *reregistrar // shared self-healing re-register coordinator
-	link          atomic.Int32 // LinkState: is the BROKER actually acknowledging us?
+	loops         sync.WaitGroup // the standalone Tower loops a LAN share runs (StartLAN)
+	rereg         *reregistrar   // shared self-healing re-register coordinator
+	inflight      inflightJobs   // the jobs being served now, so a broker cancel can stop them
+	link          atomic.Int32   // LinkState: is the BROKER actually acknowledging us?
 
 	// Private band: the broker-minted band id + the secret frequency code (the code is
 	// returned ONCE at the first register and stashed here so the caller - CLI/TUI -
@@ -400,6 +419,10 @@ func (s *Session) Node() string             { return s.cfg.NodeID }
 func (s *Session) Upstream() string         { return s.cfg.Upstream }
 
 // Stop ends the session's poll loops (best-effort; the process can also just exit).
+// Wait returns once every standalone Tower loop StartLAN started has ended (at once for a
+// session that runs none). Call it after Stop.
+func (s *Session) Wait() { s.loops.Wait() }
+
 func (s *Session) Stop() {
 	select {
 	case <-s.stop:
@@ -464,7 +487,7 @@ func Start(cfg Config) (*Session, error) {
 	}
 
 	offer := protocol.ModelOffer{Model: cfg.Model, Modality: cfg.Modality, Capabilities: cfg.Capabilities,
-		Quant: cfg.Quant, Weights: cfg.Weights, Variant: cfg.Variant,
+		Quant: cfg.Quant, Weights: cfg.Weights, Variant: cfg.Variant, Taxonomy: cfg.Taxonomy,
 		PriceIn: cfg.PriceIn, PriceOut: cfg.PriceOut,
 		Ctx: cfg.Ctx, CtxEstimated: cfg.CtxEstimated, Schedule: cfg.Schedule,
 		UpstreamIn: cfg.UpstreamPriceIn, UpstreamOut: cfg.UpstreamPriceOut,
@@ -521,6 +544,7 @@ func Start(cfg Config) (*Session, error) {
 	for i := 0; i < cfg.Parallel; i++ {
 		go pollLoop(cfg, offer, priv, sess)
 	}
+	go cancelLoop(cfg, sess)
 	return sess, nil
 }
 
@@ -542,7 +566,8 @@ func pollLoop(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey, se
 		token, gen := sess.rereg.curToken()
 		req, _ := http.NewRequest(http.MethodGet, pollURL, nil)
 		req.Header.Set("Authorization", "Bearer "+token)
-		req.Header.Set(ackHeader, "1") // we confirm every job we receive (POST /agent/ack)
+		req.Header.Set(ackHeader, "1")    // we confirm every job we receive (POST /agent/ack)
+		req.Header.Set(cancelHeader, "1") // we stop a job when the broker cancels it (cancelLoop)
 		resp, err := poll.Do(req)
 		if err != nil {
 			// Transient network error: keep the existing short retry (the broker may
@@ -578,14 +603,16 @@ func pollLoop(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey, se
 				continue // re-delivered after a lost ack: acked again, never served twice
 			}
 		}
+		ctx, done := sess.inflight.start(job.ID)
 		if isStream(job.Body) {
-			rec := serveStream(cfg, offer, priv, token, job)
+			rec := serveStreamCtx(ctx, cfg, offer, priv, token, job)
 			recordIf(sess, job, rec)
 		} else {
-			res := serve(cfg, offer, priv, up, job)
+			res := serveCtx(ctx, cfg, offer, priv, up, job)
 			postResult(poll, cfg, token, res)
 			recordIf(sess, job, res.Receipt)
 		}
+		done()
 	}
 }
 
@@ -712,6 +739,12 @@ func isStream(body []byte) bool {
 // token usage from the final chunk, then posts a signed receipt to settle. The
 // node asks the upstream to include a usage chunk so we can meter the stream.
 func serveStream(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey, token string, job protocol.Job) protocol.UsageReceipt {
+	return serveStreamCtx(context.Background(), cfg, offer, priv, token, job)
+}
+
+// serveStreamCtx is serveStream bound to ctx: a broker cancel ends the upstream stream, and the
+// receipt reports the tokens the upstream had reported by then.
+func serveStreamCtx(ctx context.Context, cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey, token string, job protocol.Job) protocol.UsageReceipt {
 	client := &http.Client{Timeout: 10 * time.Minute} // streams can be long
 	// Osaurus hardening (Config.Osaurus, decided once at share time): pin the model to the offer
 	// and mark the request no-persist so tuner traffic can't force-load a different local model
@@ -720,7 +753,7 @@ func serveStream(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey,
 	if cfg.Osaurus {
 		body = pinModel(body, cfg.Model)
 	}
-	upReq, _ := http.NewRequest(http.MethodPost, cfg.Upstream, bytes.NewReader(withUsageOption(body)))
+	upReq, _ := http.NewRequestWithContext(ctx, http.MethodPost, cfg.Upstream, bytes.NewReader(withUsageOption(body)))
 	upReq.Header.Set("Content-Type", "application/json")
 	if cfg.UpstreamKey != "" {
 		upReq.Header.Set("Authorization", "Bearer "+cfg.UpstreamKey)
@@ -840,6 +873,12 @@ func parseUsage(line []byte) (prompt, completion int, ok bool) {
 }
 
 func serve(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey, up *http.Client, job protocol.Job) protocol.JobResult {
+	return serveCtx(context.Background(), cfg, offer, priv, up, job)
+}
+
+// serveCtx is serve bound to ctx: a broker cancel aborts the upstream request, and the job is
+// reported as 499 with nothing delivered (job_cancel.feature C2).
+func serveCtx(ctx context.Context, cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey, up *http.Client, job protocol.Job) protocol.JobResult {
 	// TRUST BOUNDARY: the broker supplies job.Path and we derive a LOCAL endpoint from it (below),
 	// which the loopback backend treats as authenticated. Only forward an ALLOWLISTED upstream
 	// path; refuse everything else BEFORE building a target or touching the backend, so a
@@ -875,7 +914,7 @@ func serve(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey, up *h
 	if osaurusChat {
 		body = pinModel(body, cfg.Model)
 	}
-	upReq, _ := http.NewRequest(http.MethodPost, target, bytes.NewReader(body))
+	upReq, _ := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(body))
 	upReq.Header.Set("Content-Type", "application/json")
 	if cfg.UpstreamKey != "" {
 		upReq.Header.Set("Authorization", "Bearer "+cfg.UpstreamKey)
@@ -885,10 +924,16 @@ func serve(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey, up *h
 	}
 	resp, err := up.Do(upReq)
 	if err != nil {
+		if ctx.Err() != nil {
+			return cancelledResult(job.ID)
+		}
 		return protocol.JobResult{ID: job.ID, Status: http.StatusBadGateway, Body: []byte(`{"error":"upstream unreachable"}`)}
 	}
 	defer resp.Body.Close()
 	respBody, _ := io.ReadAll(resp.Body)
+	if ctx.Err() != nil {
+		return cancelledResult(job.ID)
+	}
 	// Belt-and-suspenders: never relay the node's own upstream key, in case the
 	// upstream echoed the request Authorization header into its response body.
 	respBody = redactUpstreamKey(respBody, cfg.UpstreamKey)
@@ -1045,6 +1090,7 @@ func effectivePriceFor(rr registerResult, model string, reqIn, reqOut float64) (
 }
 
 func register(broker string, reg protocol.NodeRegistration) (registerResult, error) {
+	coreclient.Note("agent: market registration")
 	b, _ := json.Marshal(reg)
 	req, _ := http.NewRequest(http.MethodPost, broker+"/nodes/register", bytes.NewReader(b))
 	req.Header.Set("Content-Type", "application/json")
@@ -1096,19 +1142,12 @@ func brokerErrMsg(body []byte) string {
 	return string(body)
 }
 
-func loadOrCreateKey() ed25519.PrivateKey {
+func loadOrCreateKey() ed25519.PrivateKey { return keyfile.MustLoadOrCreate(NodeKeyPath()) }
+
+// NodeKeyPath is where this machine's node identity (node.key) lives.
+func NodeKeyPath() string {
 	dir, _ := os.UserConfigDir()
-	path := filepath.Join(dir, "rogerai", "node.key")
-	if data, err := os.ReadFile(path); err == nil {
-		if raw, err := hex.DecodeString(string(bytes.TrimSpace(data))); err == nil && len(raw) == ed25519.PrivateKeySize {
-			return ed25519.PrivateKey(raw)
-		}
-	}
-	_, priv, _ := ed25519.GenerateKey(nil)
-	_ = os.MkdirAll(filepath.Dir(path), 0700)
-	_ = os.WriteFile(path, []byte(hex.EncodeToString(priv)), 0600)
-	log.Printf("generated node key at %s", path)
-	return priv
+	return filepath.Join(dir, "rogerai", "node.key")
 }
 
 func randHex(n int) string {

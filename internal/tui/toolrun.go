@@ -4,7 +4,7 @@ import (
 	"strconv"
 	"strings"
 
-	"rogerai.fm/roger/v6/internal/glyphs"
+	"rogerai.fm/roger/v7/internal/glyphs"
 )
 
 // toolrun.go - TOOL CALLS AS DATA.

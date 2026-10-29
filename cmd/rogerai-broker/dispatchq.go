@@ -34,7 +34,7 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // dispatchMode is the rollout switch (ROGERAI_DISPATCH). Every mode's pollers serve BOTH the
@@ -85,6 +85,11 @@ var (
 	// dqAfterPop is a TEST HOOK run between a poll's pop and its handoff (nil in production);
 	// returning true simulates the process dying at that point.
 	dqAfterPop func(inst string) (crashed bool)
+	// dqBeforeDispatch is a TEST HOOK run as a queue dispatch starts (nil in production): the
+	// dispatch-failure scenarios use it to change REAL state at the one moment that matters
+	// (the station drops off air, the store fails) between the pick and the dispatch. The
+	// returned func, when non-nil, runs as the dispatch call returns.
+	dqBeforeDispatch func(nodeID string) (after func())
 )
 
 var (
@@ -216,6 +221,14 @@ func (q *dispatchQueue) noteErr(op string, err error) {
 	}
 }
 
+// noteReply records an error REPLY to a queue push: a refusal on one key is counted and
+// logged without marking the store down; any other error reply does (see keyRefusal).
+func (q *dispatchQueue) noteReply(op string, err error) {
+	if vs, ok := q.b.shared.(*valkeyStore); ok {
+		vs.noteReply(op, err)
+	}
+}
+
 // run is the ONE inbox reader: a blocking XREAD from the last id seen, then a trim of what
 // was consumed so the stream holds only unread messages.
 func (q *dispatchQueue) run() {
@@ -282,7 +295,10 @@ func (q *dispatchQueue) handle(m dqMsg) {
 	tk := q.tickets[m.job]
 	q.mu.Unlock()
 	if tk == nil {
-		return // the relay already finished (a late result is absorbed, as before)
+		if m.kind == "res" {
+			go q.b.lateResultRaw(m.node, m.data) // a result after its 504 is recorded at $0 (§14.10)
+		}
+		return // the relay already finished
 	}
 	switch m.kind {
 	case "bounce":
@@ -425,11 +441,22 @@ func (t *dispatchTicket) close() {
 
 // awaitResult waits for the result, a terminal failure, or the deadline.
 func (t *dispatchTicket) awaitResult(deadline time.Time) ([]byte, error) {
+	return t.awaitResultCtx(context.Background(), deadline)
+}
+
+// errConsumerGone ends a wait whose consumer disconnected (job_cancel.feature).
+var errConsumerGone = errors.New("the consumer disconnected")
+
+// awaitResultCtx is awaitResult that also ends when ctx (the consumer's request) is done, so a
+// multi-instance relay notices a disconnect exactly as the local path does.
+func (t *dispatchTicket) awaitResultCtx(ctx context.Context, deadline time.Time) ([]byte, error) {
 	select {
 	case raw := <-t.res:
 		return raw, nil
 	case <-t.done:
 		return nil, t.err
+	case <-ctx.Done():
+		return nil, errConsumerGone
 	case <-time.After(time.Until(deadline)):
 		return nil, context.DeadlineExceeded
 	}
@@ -454,6 +481,25 @@ func (t *dispatchTicket) forward(resCh chan protocol.JobResult) {
 	}()
 }
 
+// landedErr wraps a dispatch-store error raised after the job may already have left this
+// instance (a bus publish whose reply was lost: a refused publish and a delivered one with a
+// lost reply look the same). Such a dispatch is never retried in memory, or the station could
+// serve the job twice.
+type landedErr struct{ err error }
+
+func (e landedErr) Error() string { return e.err.Error() }
+func (e landedErr) Unwrap() error { return e.err }
+
+// mayHaveLanded reports whether a dispatch error came after the job may have left this instance.
+func mayHaveLanded(err error) bool {
+	var l landedErr
+	return errors.As(err, &l)
+}
+
+// dqPushReplyLostForTest, when set, makes a queue push that DID land report an error, the way a
+// reply lost to a timeout does. Nil in production.
+var dqPushReplyLostForTest func(node string) bool
+
 // ---- dispatch (origin) --------------------------------------------------------------------
 
 // dispatchRemote hands a job to one of the node's pollers on any instance and returns the
@@ -462,7 +508,7 @@ func (b *broker) dispatchRemote(ctx context.Context, nodeID string, job protocol
 	if b.dispatchMode == dispatchViaBus {
 		tk, err := b.legacyTicket(ctx, nodeID, job, stream)
 		if errors.Is(err, context.DeadlineExceeded) {
-			err = fmt.Errorf("dispatch store: %v", err) // a store timeout, not the station's
+			err = fmt.Errorf("dispatch store: %w", err) // a store timeout, not the station's
 		}
 		return tk, err
 	}
@@ -534,6 +580,11 @@ func (b *broker) nodeLive(nodeID string) bool {
 }
 
 func (q *dispatchQueue) dispatch(nodeID string, job protocol.Job) (*dispatchTicket, error) {
+	if h := dqBeforeDispatch; h != nil {
+		if after := h(nodeID); after != nil {
+			defer after()
+		}
+	}
 	if !q.b.nodeLive(nodeID) {
 		q.b.stats.dqOffAir.Add(1)
 		return nil, errOffAir
@@ -582,13 +633,30 @@ func (q *dispatchQueue) dispatch(nodeID string, job protocol.Job) (*dispatchTick
 	tk.setElem(elem)
 	lkey := dqListPrefix + nodeID
 	var n *redis.IntCmd
-	if _, err := q.rdb.TxPipelined(ctx, func(p redis.Pipeliner) error {
+	_, err = q.rdb.TxPipelined(ctx, func(p redis.Pipeliner) error {
 		n = p.RPush(ctx, lkey, elem)
 		p.Expire(ctx, lkey, dqKeyTTL)
 		return nil
-	}); err != nil {
-		q.noteErr("dq push", err)
+	})
+	if err == nil && dqPushReplyLostForTest != nil && dqPushReplyLostForTest(nodeID) {
+		err = context.DeadlineExceeded // the push landed; its reply did not
+	}
+	var refused redis.Error
+	if err != nil && errors.As(err, &refused) {
+		// The store answered "no" (an error reply): the push did not land, so nothing can
+		// deliver this job. Fail fast rather than wait out the queue for a job not queued.
+		q.noteReply("dq push", err)
 		return abort(err)
+	}
+	if err != nil {
+		// No answer: the push may have landed, so this job
+		// stays dispatched rather than being retried in memory: only the queue can deliver it,
+		// so it is served at most once. The watch withdraws it if nobody takes it, or reports
+		// the handoff lost when the store cannot be reached to withdraw it.
+		q.noteErr("dq push", err)
+		q.nudge(tk)
+		go q.watch(tk, wait)
+		return tk, nil
 	}
 	// Admission: a queue that could not drain within the queue wait would only expire.
 	if q.tooDeep(nodeID, n.Val(), wait) {

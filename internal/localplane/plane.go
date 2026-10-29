@@ -18,12 +18,15 @@ package localplane
 import (
 	"encoding/json"
 	"io"
+	"log"
 	"net/http"
 	"sort"
+	"sync"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/protocol"
-	"rogerai.fm/roger/v6/internal/tower"
+	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/servedfile"
+	"rogerai.fm/roger/v7/internal/tower"
 )
 
 // maxAuthBody bounds how much of a request body the plane reads to verify a signature. A
@@ -48,11 +51,29 @@ type Server struct {
 	q                 *queue
 	rl                *rateLimiter
 	stationRL         *rateLimiter
+	chunkRL           *rateLimiter
 	inflight          semaphore
 	perClient         *clientInflight
 	replay            *replayGuard
 	completionTimeout time.Duration
 	pollTimeout       time.Duration
+	// stream limits (stream.go)
+	chunkMax, streamTotal int
+	streamIdle, streamMax time.Duration
+	// logf is where the plane logs (log.Printf); plainSeen holds the callers already logged as
+	// still on plain http, so each is named once.
+	logf      func(format string, args ...any)
+	plainSeen sync.Map
+	label     string // the Tower's name in join answers
+	// request-and-approve (pair.go)
+	pairOnce sync.Once
+	pair     *pairing
+	pairRL   *rateLimiter
+	pairNow  func() time.Time
+	pairWait time.Duration
+	// A host that is not a Tower (NewPairing): the key its phrase covers and what an approval does.
+	pairKey   func() (string, error)
+	pairAdmit PairAdmit
 }
 
 // New builds a consumer plane over a standalone Tower's state.
@@ -62,12 +83,44 @@ func New(st *tower.State) *Server {
 		q:                 newQueue(),
 		rl:                newRateLimiter(time.Now, defaultPerClientRate, defaultPerClientBurst),
 		stationRL:         newRateLimiter(time.Now, defaultStationRate, defaultStationBurst),
+		chunkRL:           newRateLimiter(time.Now, defaultChunkRate, defaultChunkBurst),
+		chunkMax:          defaultChunkMax,
+		streamTotal:       defaultStreamTotal,
+		streamIdle:        defaultStreamIdle,
+		streamMax:         defaultStreamMax,
 		inflight:          newSemaphore(defaultMaxInFlight),
 		perClient:         newClientInflight(defaultMaxInFlightPerClient),
 		replay:            newReplayGuard(time.Now, replayWindow),
 		completionTimeout: defaultCompletionTimeout,
 		pollTimeout:       defaultPollTimeout,
+		logf:              log.Printf,
 	}
+}
+
+// notePlain logs, once per caller, an authenticated request that came over plain http rather than
+// TLS (features/join/tower_identity.feature): plain http works for one more release, and the
+// owner should know which machines still need upgrading. A TLS request logs nothing.
+func (s *Server) notePlain(r *http.Request, keyHash, name string) {
+	if r.TLS != nil || keyHash == "" {
+		return
+	}
+	if _, seen := s.plainSeen.LoadOrStore(keyHash, true); seen {
+		return
+	}
+	// The name lookup reads the admission store; it runs off the request path so a slow store
+	// never delays the request it is logging.
+	go func() {
+		if name == "" {
+			name = s.st.ClientName(keyHash)
+		}
+		if name == "" {
+			name = keyHash
+			if len(name) > 12 {
+				name = name[:12]
+			}
+		}
+		s.logf("%s used plain http; upgrade it", name)
+	}()
 }
 
 // verifiedIdentity verifies a request signature the nonce-aware way and returns the derived id
@@ -107,10 +160,23 @@ const (
 // for nothing.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
+	if s.st == nil {
+		// A pairing-only host (an Edge authority) serves the pairing and nothing a Tower serves.
+		mux.HandleFunc("/local/pair/start", s.pairStart)
+		mux.HandleFunc("/local/pair/reveal", s.pairReveal)
+		mux.HandleFunc("/local/pair/wait", s.pairWaitHandler)
+		return mux
+	}
 	mux.HandleFunc("/discover", s.discover)
+	mux.HandleFunc("/v1/models", s.models)
 	mux.HandleFunc("/v1/chat/completions", s.chatCompletions)
 	mux.HandleFunc("/local/poll", s.localPoll)
 	mux.HandleFunc("/local/complete", s.localComplete)
+	mux.HandleFunc("/local/chunk", s.localChunk)
+	mux.HandleFunc("/local/join", s.localJoin)
+	mux.HandleFunc("/local/pair/start", s.pairStart)
+	mux.HandleFunc("/local/pair/reveal", s.pairReveal)
+	mux.HandleFunc("/local/pair/wait", s.pairWaitHandler)
 	return mux
 }
 
@@ -159,6 +225,7 @@ func (s *Server) authClient(r *http.Request, body []byte) (clientKeyHash string,
 	if nonce != "" && s.replay.used(userID+":"+nonce) {
 		return "", authDenied
 	}
+	s.notePlain(r, userID, "")
 	return userID, authOK
 }
 
@@ -200,6 +267,10 @@ type localOffer struct {
 	// must never read as local hardware. Free either way - the label is honesty, not price.
 	Curated         bool   `json:"curated,omitempty"`
 	CuratedProvider string `json:"curated_provider,omitempty"`
+	// File is which exact file the model is, as the station reported it; FileBy says whose word that
+	// is ("station"), never the Tower's (features/models/short_names_nearby.feature).
+	File   *servedfile.File `json:"file,omitempty"`
+	FileBy string           `json:"file_by,omitempty"`
 }
 
 // discover answers GET /discover with THIS Tower's own attached stations and nothing else -
@@ -226,11 +297,15 @@ func (s *Server) discover(w http.ResponseWriter, r *http.Request) {
 	offers := make([]localOffer, 0)
 	for _, st := range stations {
 		for _, m := range st.Models {
-			offers = append(offers, localOffer{
+			o := localOffer{
 				NodeID: st.ID, Model: m, Modality: "chat",
 				PriceIn: 0, PriceOut: 0, Online: true, FreeNow: true, Local: true,
 				Curated: st.Curated, CuratedProvider: st.CuratedProvider,
-			})
+			}
+			if f, ok := st.Files[m]; ok {
+				o.File, o.FileBy = &f, "station"
+			}
+			offers = append(offers, o)
 		}
 	}
 	sort.Slice(offers, func(i, j int) bool {
@@ -257,4 +332,39 @@ func parseTS(s string) int64 {
 		v = v*10 + int64(c-'0')
 	}
 	return v
+}
+
+// models lists the models the attached stations serve, OpenAI-shaped, to an ADMITTED client
+// only (authenticated first, exactly like discover). It also lets a first-party client's
+// tune-time probe tell this plane from a broker that predates the routing body: an unsigned
+// probe gets the uniform 401, never the 404 an old broker answers, so the client keeps
+// sending the body object, which this plane honors (ROUTING-EXPRESSION-CONTRACT §5a, §9).
+func (s *Server) models(w http.ResponseWriter, r *http.Request) {
+	if _, st := s.authClient(r, readBody(r)); st != authOK {
+		writeAuthFailure(w, st)
+		return
+	}
+	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", http.MethodGet)
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	stations, err := s.st.Stations()
+	if err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "unavailable"})
+		return
+	}
+	seen := map[string]bool{}
+	data := make([]map[string]any, 0)
+	for _, st := range stations {
+		for _, m := range st.Models {
+			if seen[m] {
+				continue
+			}
+			seen[m] = true
+			data = append(data, map[string]any{"id": m, "object": "model", "owned_by": "local"})
+		}
+	}
+	sort.Slice(data, func(i, j int) bool { return data[i]["id"].(string) < data[j]["id"].(string) })
+	writeJSON(w, http.StatusOK, map[string]any{"object": "list", "data": data})
 }

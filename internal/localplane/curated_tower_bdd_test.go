@@ -19,14 +19,15 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/cucumber/godog"
 
-	"rogerai.fm/roger/v6/internal/protocol"
-	"rogerai.fm/roger/v6/internal/tower"
+	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/tower"
 )
 
 const towerUpstreamKey = "sk-operator-secret-upstream-key"
@@ -275,7 +276,7 @@ func TestCuratedTowerStandaloneFeature(t *testing.T) {
 			Paths: []string{"../../features/curated/curated_tower.feature"},
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("the @standalone curated tower scenarios failed")
 	}
 }

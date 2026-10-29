@@ -3,7 +3,7 @@ package main
 import "testing"
 
 // TestWizardNonInteractive covers the onboarding wizard's non-interactive branches
-// (go test has no TTY, so interactive() is false): maybeOnboard skips, runWizard returns
+// (go test has no TTY, so interactive() is false): no welcome card, runWizard returns
 // keep-as-is, cmdOnboard saves, and the guided-upstream / key prompts bail cleanly.
 func TestWizardNonInteractive(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
@@ -12,14 +12,14 @@ func TestWizardNonInteractive(t *testing.T) {
 		t.Skip("running attached to a TTY; the non-interactive branches aren't reachable")
 	}
 
-	// maybeOnboard: non-interactive -> config returned unchanged (launch never blocks).
+	// Non-interactive launch: no welcome card, config unchanged (launch never blocks).
 	cfg := config{Broker: "https://b", User: "u"}
-	if got := maybeOnboard(cfg); got.Broker != "https://b" {
-		t.Errorf("maybeOnboard(non-interactive) mutated cfg: %+v", got)
+	if got, due := welcomeOnLaunch(cfg, false); due || got.Broker != "https://b" {
+		t.Errorf("welcomeOnLaunch(non-interactive) = %+v due %v", got, due)
 	}
-	// Already-onboarded short-circuit.
-	if got := maybeOnboard(config{Onboarded: true, Broker: "x"}); got.Broker != "x" {
-		t.Errorf("maybeOnboard(onboarded) should return cfg unchanged")
+	// Already onboarded: never the card, even on a terminal.
+	if got, due := welcomeOnLaunch(config{Onboarded: true, Broker: "x"}, true); due || got.Broker != "x" || !got.WelcomeSeen {
+		t.Errorf("welcomeOnLaunch(onboarded) = %+v due %v", got, due)
 	}
 
 	// runWizard with no force + non-interactive -> keep-as-is (ran=false, no error).

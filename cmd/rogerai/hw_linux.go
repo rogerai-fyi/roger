@@ -4,11 +4,15 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/detect"
+	"rogerai.fm/roger/v7/internal/detect"
 )
 
 // detectHWClass returns the PRIVACY-BUCKETED hardware class a Linux node advertises:
@@ -72,6 +76,15 @@ func detectLocalHW() detect.LocalHW {
 	}
 	if !hw.RAMKnown {
 		hw.Note("system RAM: /proc/meminfo could not be read (a container with /proc masked does this)")
+	}
+	// A container's memory limit. /proc/meminfo is the HOST's memory; a container may be held to far
+	// less, and the limit is what a model can actually use (found with tools/edgesim).
+	if hw.RAMKnown {
+		if limit, ok := hwMemoryLimitMiB(); ok && limit < hw.RAMTotalMiB {
+			hw.Note(fmt.Sprintf("system RAM: this machine runs under a memory limit of %d MiB (its cgroup), "+
+				"less than the %d MiB the host has - the limit is what a model can use", limit, hw.RAMTotalMiB))
+			hw.RAMTotalMiB, hw.MemLimitMiB = limit, limit
+		}
 	}
 
 	// Free disk, on the filesystem holding the home directory, with the path reported so
@@ -140,4 +153,53 @@ func runHW(name string, args ...string) (string, bool) {
 		return "", false
 	}
 	return string(out), true
+}
+
+// hwMemoryLimitMiB is this process's cgroup memory limit, when there is one: the tightest memory.max
+// on the way from its own cgroup (/proc/self/cgroup) up to the mount's root, so a boot service's
+// MemoryMax= or a limited slice above it counts; then cgroup v1's. "max" and v1's near-2^63
+// "unlimited" are no limit.
+func hwMemoryLimitMiB() (int, bool) {
+	const mount = "/sys/fs/cgroup"
+	best := int64(0)
+	if b, err := hwReadFile("/proc/self/cgroup"); err == nil {
+		for _, ln := range strings.Split(string(b), "\n") {
+			if rel, ok := strings.CutPrefix(ln, "0::"); ok {
+				// Clean against "/" first, so the path can never climb above the mount.
+				for dir := filepath.Join(mount, filepath.Clean("/"+rel)); ; dir = filepath.Dir(dir) {
+					if n, ok := hwLimitAt(filepath.Join(dir, "memory.max")); ok && (best == 0 || n < best) {
+						best = n
+					}
+					if dir == mount {
+						break
+					}
+				}
+			}
+		}
+	}
+	if best == 0 {
+		for _, p := range []string{mount + "/memory.max", mount + "/memory/memory.limit_in_bytes"} {
+			if n, ok := hwLimitAt(p); ok {
+				best = n
+				break
+			}
+		}
+	}
+	if best == 0 {
+		return 0, false
+	}
+	return int(best >> 20), true
+}
+
+// hwLimitAt reads one cgroup memory limit file: a number of bytes, or no limit.
+func hwLimitAt(p string) (int64, bool) {
+	b, err := hwReadFile(p)
+	if err != nil {
+		return 0, false
+	}
+	n, err := strconv.ParseInt(strings.TrimSpace(string(b)), 10, 64)
+	if err != nil || n <= 0 || n >= 1<<60 {
+		return 0, false // "max", unreadable, or v1's "unlimited"
+	}
+	return n, true
 }

@@ -10,6 +10,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 // useTempConfig isolates os.UserConfigDir to a throwaway dir on EVERY platform and
@@ -35,7 +38,7 @@ func TestAcquireBlocksAnotherLiveProcess(t *testing.T) {
 	if other == os.Getpid() || !ProcessAlive(other) {
 		t.Skip("no distinct live parent PID to simulate another daemon")
 	}
-	held := Info{PID: other, Station: "other-daemon", Model: "qwen3", Started: 1}
+	held := Info{PID: other, Station: "other-daemon", Model: "qwen3", Started: time.Now().Unix()} // written after its holder started, as a real lock is
 	b, _ := json.Marshal(held)
 	if err := os.MkdirAll(filepath.Dir(LockPath("brave-otter-qwen3")), 0700); err != nil {
 		t.Fatal(err)
@@ -199,7 +202,7 @@ func TestAcquireStationlessHolderNamesThisMachine(t *testing.T) {
 	if other == os.Getpid() || !ProcessAlive(other) {
 		t.Skip("no distinct live parent PID to simulate another daemon")
 	}
-	held := Info{PID: other, Model: "m1", Started: 1} // no station recorded
+	held := Info{PID: other, Model: "m1", Started: time.Now().Unix()} // no station recorded
 	b, _ := json.Marshal(held)
 	if err := os.MkdirAll(filepath.Dir(LockPath("brave-otter-m1")), 0700); err != nil {
 		t.Fatal(err)
@@ -262,4 +265,55 @@ func TestProcessAlive(t *testing.T) {
 	if !ProcessAlive(1) {
 		t.Fatal("ProcessAlive said PID 1 (init) is dead - the EPERM reading is broken")
 	}
+}
+
+func TestSharesSkipsDamagedAndIncompleteRecords(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	require.NoError(t, os.MkdirAll(SharesDir(), 0o700))
+	for name, body := range map[string]string{
+		"share-1.json": "{not json",
+		"share-2.json": `{"pid":0,"band":"b","chat_url":"u"}`,
+		"share-3.json": `{"pid":3,"chat_url":"u"}`,
+		"share-4.json": `{"pid":4,"band":"b"}`,
+	} {
+		require.NoError(t, os.WriteFile(filepath.Join(SharesDir(), name), []byte(body), 0o600))
+	}
+	require.Empty(t, Shares())
+	// an unreadable entry (a directory with a record's name) is skipped too
+	require.NoError(t, os.Mkdir(filepath.Join(SharesDir(), "share-5.json"), 0o700))
+	require.Empty(t, Shares())
+}
+
+func TestWriteShareAndRelease(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	release, err := WriteShare(Share{PID: os.Getpid(), Band: "qwen3-8b", ChatURL: "http://127.0.0.1:1/v1/chat/completions"})
+	require.NoError(t, err)
+	require.Len(t, Shares(), 1)
+	release()
+	require.Empty(t, Shares())
+}
+
+func TestWriteShareFailsWhenTheDirectoryCannotBeMade(t *testing.T) {
+	base := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", base)
+	// the rogerai config directory is a FILE: nothing can be made under it
+	require.NoError(t, os.WriteFile(filepath.Join(base, "rogerai"), nil, 0o600))
+	release, err := WriteShare(Share{PID: os.Getpid(), Band: "b", ChatURL: "u"})
+	require.Error(t, err)
+	release() // harmless
+}
+
+func TestWriteShareFailsWhenTheRecordCannotBeWrittenOrPlaced(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	pid := os.Getpid()
+	require.NoError(t, os.MkdirAll(ShareFile(pid)+".tmp", 0o700)) // the temporary name is taken by a directory
+	_, err := WriteShare(Share{PID: pid, Band: "b", ChatURL: "u"})
+	require.Error(t, err)
+	require.NoError(t, os.Remove(ShareFile(pid)+".tmp"))
+
+	require.NoError(t, os.MkdirAll(filepath.Join(ShareFile(pid), "x"), 0o700)) // the record's name is a non-empty directory
+	_, err = WriteShare(Share{PID: pid, Band: "b", ChatURL: "u"})
+	require.Error(t, err)
+	_, statErr := os.Stat(ShareFile(pid) + ".tmp")
+	require.True(t, os.IsNotExist(statErr), "a failed placement leaves no temporary record")
 }

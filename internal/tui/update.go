@@ -18,12 +18,12 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
-	"rogerai.fm/roger/v6/internal/agent"
-	"rogerai.fm/roger/v6/internal/client"
-	"rogerai.fm/roger/v6/internal/detect"
-	"rogerai.fm/roger/v6/internal/harness"
-	"rogerai.fm/roger/v6/internal/node"
-	"rogerai.fm/roger/v6/internal/session"
+	"rogerai.fm/roger/v7/internal/agent"
+	"rogerai.fm/roger/v7/internal/client"
+	"rogerai.fm/roger/v7/internal/detect"
+	"rogerai.fm/roger/v7/internal/harness"
+	"rogerai.fm/roger/v7/internal/node"
+	"rogerai.fm/roger/v7/internal/session"
 )
 
 // Update wraps the message dispatch with a transcript-scroll refresh, so any handler
@@ -37,6 +37,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	m = m.syncComposerGeometry()
 	prevStatus := m.status
 	tm, cmd := m.update(msg)
+	// Some handlers have pointer receivers and return the *model. The post-update steps below
+	// (the scan scopes above all) must run for those too, or leaving a screen that way keeps
+	// its scan open after the owner has left (features/edge/scan_on_request.feature).
+	if pm, ok := tm.(*model); ok {
+		tm = *pm
+	}
 	if mm, ok := tm.(model); ok {
 		// Stamp the frame whenever the status line CHANGES, so the tick can auto-dismiss it as
 		// a transient toast (A.6.6) - this central stamp avoids touching the ~50 assignment
@@ -45,6 +51,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			mm.statusFrame = mm.frame
 		}
 		mm = mm.syncComposerGeometry()
+		// Re-anchor the selected-cell marquee whenever the cell under the cursor changes
+		// (a move, a re-sort, a resize, a screen change). One central call, so no key
+		// handler has to remember to reset the scroll.
+		mm.syncMarquee()
+		// One central call, after every update: a screen change opens or closes the
+		// on-request LAN scan (scan.go), so no key handler has to remember it.
+		mm.syncScans()
+		// [3] re-reads its status while it shows (edge_empty_simple.go).
+		if _, isKey := msg.(tea.KeyMsg); isKey {
+			if tick := mm.armEdgeStatusTick(); tick != nil {
+				cmd = tea.Batch(cmd, tick)
+			}
+		}
 		return mm.refreshScroll(), cmd
 	}
 	return tm, cmd
@@ -100,11 +119,22 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if k.String() == "ctrl+c" {
 		return m.requestQuit()
 	}
+	// The one-time welcome card owns every other key while it is open (welcome.go).
+	if m.welcome {
+		return m.onWelcomeKey(k)
+	}
 	// alt+m is the typing-SAFE global minimize: it toggles the dense compact "windowshade"
 	// (the 2000s-MP3-player feel) from ANY mode - including chat / AGENT / the command palette
 	// / numeric editors, where plain m is a literal character. Plain m still toggles compact on
 	// the nav screens via presetForKey; alt+m (and /compact) make it reachable "from anywhere".
+	if nm, cmd, ok := m.onOwnerJoinKey(k); ok {
+		return nm, cmd
+	}
 	if k.String() == "alt+m" {
+		if m.mode == modeLimits {
+			// Collapsing mid-edit discards the draft: nothing half-typed is ever saved.
+			m.editField, m.editBuf, m.editTyped = -1, "", false
+		}
 		return m.toggleCompact(), nil
 	}
 	switch m.mode {
@@ -301,15 +331,15 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 				return m, sendChatLocal(m.chatLocalChat, m.chatLocalKey, m.connected.Model, turn, msgs)
 			}
-			// The tuned row IS a quant, so the stations running a different one are named
-			// as exclusions - the broker groups by model alone and would otherwise route
-			// this turn to weights the operator did not choose. Same rule the proxy path
-			// applies in liveProxyOpts; the booth's own chat used to skip it.
-			//
-			// Derived from the CONNECTED band, not from m.q - the quote is whatever row
-			// was last priced, so an over-limit quote the operator esc'd on another row
-			// would otherwise exclude stations that serve this one perfectly well.
-			return m, sendChat(m.broker, m.user, m.connected.Model, turn, m.confidentialOnly, m.limits.resolve(m.connected.Model).MaxOut, m.tuneFreq, hist, m.chatExcludes())
+			// The [4] CONFIG rules and the tuned row ride the request body (quant_route.go),
+			// derived from the CONNECTED band, not from m.q - the quote is whatever row was
+			// last priced. A row outside the standing quant rule never leaves the booth.
+			if why := m.quantRuleRefusal(m.connected.Model, m.connected.Quant); why != "" {
+				m.status = stEmber.Render(why)
+				return m, nil
+			}
+			rt := m.routing(m.connected.Model, m.connected.Quant)
+			return m, sendChat(m.broker, m.user, m.connected.Model, turn, rt.MaxOut, rt, m.freqFor(m.connected.Model), hist)
 		}
 		var c tea.Cmd
 		m.chatIn, c = m.chatIn.Update(k)
@@ -322,6 +352,7 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// HELP is a pager now (audit P0: it was taller than most terminals and any
 		// key exited, so the top - the part a new user needs - was unreachable).
 		// Scroll keys page it; esc/q/enter/? go back; a preset key still jumps.
+		m.helpPaged(m.effWidth()) // the keys scroll the content the frame draws
 		switch k.String() {
 		case "up", "k":
 			m.helpVP.ScrollUp(1)
@@ -351,7 +382,44 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case modeConnectConfirm:
 		switch k.String() {
+		case "p":
+			// p cycles the profile to tune under (r is taken: it re-scans).
+			if len(m.profiles().Names()) > 0 {
+				m.confirmProfile = m.nextProfile(m.confirmProfile)
+				m.q.limit = m.confirmLimit(m.q.b.model)
+				// The new profile's cap is re-checked here, as connect() checks the band's.
+				m.q.overLimit = m.q.limit.MaxOut > 0 && m.q.b.minOut > m.q.limit.MaxOut
+			}
+			return m, nil
+		case "r":
+			if m.tuneFreq != "" { // a private band is not in the open-market scan r would read
+				m.status = stDim.Render("r re-scans the open market - esc, then re-tune the frequency to refresh it")
+				return m, nil
+			}
+			m.status = stDim.Render("re-scanning the band…")
+			m.scanErr, m.scanned = false, false
+			return m, fetchRescan(m.broker, m.confirmSeq) // its reply, not whichever scan lands first, is explicit
 		case "enter", "y", "Y":
+			if why := m.quantRuleRefusal(m.q.b.model, m.q.b.quant); why != "" {
+				m.status = stEmber.Render(why)
+				return m, nil // accepting is not offered for a row outside the rule
+			}
+			if why := profileQuantRefusal(m.profileBody(m.confirmProfile), m.q.b.quant); why != "" {
+				m.status = stEmber.Render(why)
+				return m, nil // nor for a row the chosen profile excludes
+			}
+			if m.q.stale {
+				m.status = stEmber.Render("this band was not in the last scan - r to re-scan, esc to go back")
+				return m, nil
+			}
+			if m.q.overLimit {
+				if m.confirmProfile != "" {
+					m.status = stEmber.Render("over profile " + m.confirmProfile + "'s cap - p for another profile, or esc")
+				} else {
+					m.status = stEmber.Render("the price is above your cap - r to re-scan, esc to go back")
+				}
+				return m, nil
+			}
 			return m.openChannel()
 		case "d", "D": // toggle the detail block (default screen stays minimal)
 			m.showDetail = !m.showDetail
@@ -376,14 +444,20 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.onOverLimitKey(k)
 	case modeLimits:
 		return m.onLimitsKey(k)
+	case modeEdge:
+		return m.onEdgeKey(k)
 	case modeShare:
 		return m.onShareKey(k)
 	case modeBandCard:
 		return m.onBandCardKey(k)
 	case modeShareEditor:
 		return m.onShareEditorKey(k)
+	case modeShareMeta:
+		return m.onShareMetaKey(k)
 	case modeShareSetup:
 		return m.onShareSetupKey(k)
+	case modeModels:
+		return m.onModelsKey(k)
 	case modeAgent:
 		return m.onAgentKey(k)
 	case modeLogin:
@@ -492,7 +566,7 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.clampBrowse()
 			return m, c
 		}
-		// The preset bank: 1 TUNE IN · 2 SHARE · 3 CONFIG · L LOGIN · ? HELP. Handled
+		// The preset bank: 1 TUNE IN · 2 SHARE · 3 EDGE · 4 CONFIG · L LOGIN · ? HELP. Handled
 		// first so the always-visible top bar's buttons jump straight to their mode.
 		if nm, cmd, ok := m.presetForKey(k.String()); ok {
 			return nm, cmd
@@ -504,6 +578,10 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if nm, cmd, ok := m.onPrivateTabKey(k); ok {
 				return nm, cmd
 			}
+		}
+		// LAN mode: + adds a candidate Tower, asked first (features/lan/discovery_and_dial.feature).
+		if nm, cmd, ok := m.lanCandidateKey(k.String()); ok {
+			return nm, cmd
 		}
 		switch k.String() {
 		case "b", "B":
@@ -553,11 +631,13 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// quick toggle: only bands with a FREE-now station.
 			m.fFree = !m.fFree
 			m.clampBrowse()
+			m.refreshLiveRouting() // F binds `:free`: the live proxy follows at once
 			return m, nil
 		case "C":
 			// quick toggle: only confidential / verified (lineage) bands.
 			m.fConf = !m.fConf
 			m.clampBrowse()
+			m.refreshLiveRouting()
 			return m, nil
 		case "O":
 			// quick toggle: only bands with a station on air.
@@ -570,10 +650,14 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// (founder ruling); while hidden, nothing may silently route to a proxy.
 			m.fNoCurated = !m.fNoCurated
 			m.clampBrowse()
+			m.refreshLiveRouting()
 			// The ambient footer is a tick-time snapshot; refresh it NOW or the count line
 			// still advertises the supply the operator just hid, until the next tick.
 			m.status = m.ambientStatus()
 			return m, nil
+		case "G":
+			// CYCLE the category filter, Q's twin: off -> each category on the dial -> off.
+			return m.cycleCategoryFilter(), nil
 		case "Q":
 			// CYCLE the quant filter: off -> each quant on the dial -> off. It joins the
 			// F/C/O family deliberately - one keypress, no input box - because splitting
@@ -753,6 +837,7 @@ func (m model) runSession(line string) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "confidential", "conf":
 		m.confidentialOnly = !m.confidentialOnly
+		m.refreshLiveRouting()
 		if m.confidentialOnly {
 			sysLine("confidential-only ON · routing only to TEE-attested nodes")
 		} else {
@@ -880,10 +965,15 @@ func (m model) run(cmd string) (tea.Model, tea.Cmd) {
 	case "limits", "limit":
 		m.enterLimits()
 		return m, nil
+	case "edge":
+		// [3] EDGE: the fleet topology - what is on my Edge, and how is it connected.
+		m.enterEdge()
+		return m, m.edgeResume()
 	case "config", "cfg":
 		m.status = fmt.Sprintf("broker %s · user %s  (roger config set broker <url>)", m.broker, m.user)
 	case "confidential", "conf":
 		m.confidentialOnly = !m.confidentialOnly
+		m.refreshLiveRouting()
 		if m.confidentialOnly {
 			m.status = stGold.Render("◆ confidential-only ON") + " - routing only to TEE-attested nodes"
 		} else {
@@ -969,7 +1059,7 @@ func (m model) doShare(args []string) (tea.Model, tea.Cmd) {
 			m.sharePending = args[0]
 		}
 		m.status = stDim.Render("refreshing local models…")
-		return m, detectSharesCmd(m.shareUp, m.shareKey)
+		return m, tea.Batch(detectSharesCmd(m.shareUp, m.shareKey), m.shareModelsCmd())
 	}
 	m.shareLoading = true
 	m.setupOnEmpty = true // the initial open: an empty scan drops into the guided wizard
@@ -980,7 +1070,7 @@ func (m model) doShare(args []string) (tea.Model, tea.Cmd) {
 		m.sharePending = args[0] // `/share <model>` shortcut: flip it on air after detect
 	}
 	m.status = stDim.Render("scanning the band for local models…")
-	return m, detectSharesCmd(m.shareUp, m.shareKey)
+	return m, tea.Batch(detectSharesCmd(m.shareUp, m.shareKey), m.shareModelsCmd())
 }
 
 // onSharesDetected folds an async detection result into the provider table: it
@@ -1236,12 +1326,29 @@ func (m *model) onShareKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.renaming {
 		return m.onStationRenameKey(k)
 	}
-	// Preset bank: 1 TUNE IN · 3 CONFIG · L LOGIN · ? HELP jump straight out of the
+	// Preset bank: 1 TUNE IN · 3 EDGE · 4 CONFIG · L LOGIN · ? HELP jump straight out of the
 	// table. (2 SHARE is the current screen, so it is a no-op pressed-state and falls
 	// through to the table keys below; `a`/`enter` toggle on-air as before.)
+	// A serve question asked from one of roger's own rows owns the next key (y, or anything is no).
+	if m.mdl.ask != nil {
+		return m.onModelsKey(k)
+	}
+	// The serving-settings chooser (share_settings.go) owns every key while it is open.
+	if m.mdl.set != nil {
+		return m.onSettingsKey(k)
+	}
 	if k.String() != "2" {
 		if nm, cmd, ok := m.presetForKey(k.String()); ok {
 			return nm, cmd
+		}
+	}
+	// Roger's own rows (share_models.go) take Enter; the detected-row keys do not apply to them.
+	if e, ok := m.shareExtraAt(m.shareCursor); ok {
+		switch k.String() {
+		case "enter", "a", " ", "space":
+			return m.onShareExtraEnter(e)
+		case "h", "b", "B", "p", "e", "y", "g":
+			return m, nil
 		}
 	}
 	switch k.String() {
@@ -1254,7 +1361,7 @@ func (m *model) onShareKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.shareCursor--
 		}
 	case "down", "j":
-		if m.shareCursor < len(m.shareRows)-1 {
+		if m.shareCursor < m.shareRowCount()-1 {
 			m.shareCursor++
 		}
 	case "enter", "a", " ", "space":
@@ -1287,6 +1394,9 @@ func (m *model) onShareKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.stationEdit = m.station
 		m.status = stDim.Render("rename station - type a callsign, ") + stKey.Render("enter") + stDim.Render(" save · ") + stKey.Render("esc") + stDim.Render(" cancel")
 		return m, nil
+	case "g":
+		// What the model is FOR: the category editor (not login-gated - describing is not earning).
+		return m.enterShareMeta()
 	case "b", "B":
 		// THE BAND CARD for this row: on air, visibility, band, price and spend caps
 		// together, instead of the four screens they were split across.
@@ -1389,6 +1499,12 @@ func (m *model) onShareSetupKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return nm, cmd
 		}
 	}
+	// g: nothing found to share, so serve one with roger itself (models.go). Never while pasting:
+	// those keystrokes are the URL.
+	if k.String() == "g" && !pasting {
+		nm, cmd := m.enterModels()
+		return nm, cmd
+	}
 	switch k.String() {
 	case "esc", "s":
 		m.mode = modeBrowse
@@ -1459,6 +1575,14 @@ func (m *model) onShareSetupKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		}
+		// Get a model: roger serves it itself - the search and the fit view, inside SHARE.
+		if setupOptions[m.setupCursor].key == "roger" {
+			if m.hooks.Models.View == nil {
+				m.setupErr = "this build cannot serve models itself - `roger model` in a terminal"
+				return m, nil
+			}
+			return m.onShareExtraEnter(shareExtra{kind: extraGet})
+		}
 		// A named tool: ASYNC re-detect (maybe it's already up). If nothing comes back we
 		// return to the wizard with this tool's start one-liner; a found result lands the
 		// table. Detection runs off the event loop so the pick never freezes the wizard.
@@ -1505,6 +1629,8 @@ func (m model) enterShareEditor() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if !m.loggedInState() {
+		// The login requirement and the payout terms come BEFORE any price is asked.
+		m.earnShown = true
 		m.status = stEmber.Render("log in to earn - run ") + stKey.Render("/login") + stDim.Render("  (free sharing works without an account)")
 		return m, nil
 	}
@@ -1630,10 +1756,11 @@ func (m model) doLogin() (tea.Model, tea.Cmd) {
 	m.loginDevice = LoginDevice{}
 	if m.loggedInState() {
 		m.status = stDim.Render("log out? y confirms · n / esc keeps you logged in")
-	} else {
-		m.status = stDim.Render("log in with GitHub - press enter · esc cancels")
+		return m, nil
 	}
-	return m, nil
+	m.status = stDim.Render("log in with GitHub - press enter · esc cancels")
+	// Whether new accounts still get a starter credit is the broker's to say (GET /promo).
+	return m, fetchPromo(m.broker)
 }
 
 // onLoginKey owns every key while the [L] login/logout panel is open, so the
@@ -1792,7 +1919,7 @@ func (m *model) onOverLimitKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		// persist the new per-model max, then re-run the connect check.
-		lim := m.limits.resolve(m.q.b.model)
+		lim := m.limits.own(m.q.b.model)
 		lim.MaxOut = nv
 		m.limits.set(m.q.b.model, lim)
 		m.bands = m.mergeStickyBand(groupBands(m.offers, m.limits))
@@ -1828,12 +1955,14 @@ func (m *model) enterLimits() {
 		}
 	}
 	sort.Strings(models)
-	m.limModels = models
-	if m.limCursor >= len(models) {
+	// The default row edits limits.default with the same fields (always last).
+	m.limModels = append(models, defaultLimitRow)
+	if m.limCursor >= len(m.limModels) {
 		m.limCursor = 0
 	}
 	m.editBuf = ""
 	m.editField = -1 // not editing yet
+	m.limField, m.editTyped = 0, false
 	m.mode = modeLimits
 }
 
@@ -1897,6 +2026,17 @@ func (m *model) commitBudgetEdit() (tea.Model, tea.Cmd) {
 // onLimitsKey drives the per-model limits view (3.4): up/down move, enter edits
 // (Tab between out-price and min-tps), d clears, esc done.
 func (m *model) onLimitsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	gen := m.limits.Gen()
+	out, cmd := m.limitsKey(k)
+	// An edit to the connected band's rule binds the live proxy's next turn at once; a key
+	// that changed no rule (navigation, opening a field) re-points nothing.
+	if mm, ok := out.(*model); ok && mm.limits.Gen() != gen {
+		mm.refreshLiveRouting()
+	}
+	return out, cmd
+}
+
+func (m *model) limitsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// THE BUDGET EDITOR takes the keys while it is open. Kept apart from the band-field
 	// editor below: it commits to the BROKER (an account setting), not to the local store.
 	if m.limEditBudget {
@@ -1917,11 +2057,68 @@ func (m *model) onLimitsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+	// `a` ADDS A ROW: the model name is typed into the edit buffer; enter adds and selects
+	// it (the rule is stored once a field is set), esc cancels.
+	if m.limAdding {
+		switch k.String() {
+		case "esc":
+			m.limAdding, m.editBuf = false, ""
+		case "enter":
+			name := strings.TrimSpace(m.editBuf)
+			m.limAdding, m.editBuf = false, ""
+			if name == "" {
+				return m, nil
+			}
+			if !containsFold(m.limModels, name) {
+				m.limModels = append(m.limModels[:len(m.limModels)-1:len(m.limModels)-1], name, defaultLimitRow)
+			}
+			for i, r := range m.limModels {
+				if r == name {
+					m.limCursor, m.limOnBudget = i, false
+				}
+			}
+		case "backspace":
+			if len(m.editBuf) > 0 {
+				m.editBuf = m.editBuf[:len(m.editBuf)-1]
+			}
+		default:
+			if k.Type == tea.KeyRunes {
+				m.editBuf += string(k.Runes)
+			}
+		}
+		return m, nil
+	}
 	editing := m.editField >= 0
+	// ctrl+p is perms everywhere: tool approvals live in the AGENT.
+	if k.String() == "ctrl+p" {
+		m.status = stDim.Render("tool approvals live in the AGENT - shift+tab opens it, then ctrl+p cycles /perms")
+		return m, nil
+	}
+	if !editing && !m.limOnBudget && m.limCursor < len(m.limModels) {
+		row := m.limModels[m.limCursor]
+		switch k.String() {
+		case "tab":
+			m.focusLimitField(m.limField + 1)
+			return m, nil
+		case "shift+tab":
+			m.focusLimitField(m.limField - 1)
+			return m, nil
+		case " ":
+			if limFieldDefs[m.limField].kind == fkChoice {
+				m.cycleRowField(row, m.limField)
+				return m, nil
+			}
+		case "t", "v":
+			if m.limField == lfRequire {
+				m.putRowLimit(row, toggleRequire(m.rowLimit(row), map[string]string{"t": "tools", "v": "vision"}[k.String()]))
+				return m, nil
+			}
+		}
+	}
 	if !editing {
 		// Preset bank jumps (only when NOT editing a numeric field, so a typed digit in
-		// the editor is never stolen). 3 CONFIG is the current screen -> no-op.
-		if k.String() != "3" {
+		// the editor is never stolen). 4 CONFIG is the current screen -> no-op.
+		if k.String() != "4" {
 			if nm, cmd, ok := m.presetForKey(k.String()); ok {
 				return nm, cmd
 			}
@@ -1937,11 +2134,17 @@ func (m *model) onLimitsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.limReturn, m.limReturnSet = 0, false
 			}
 			return m, nil
+		case "a":
+			m.limAdding, m.editBuf = true, ""
+			m.status = stDim.Render("type a model id · ⏎ add · esc cancel")
+			return m, nil
 		case "b", "B":
 			// THE BAND CARD: everything about the band under the cursor, in one place.
 			// Not from the budget row - the cursor is not on a band there, and acting on
 			// limCursor would open a card the operator is not looking at (audit round 5).
-			if !m.limOnBudget && m.limCursor < len(m.limModels) {
+			// Nor from the default row: it is the rule every band inherits, not a band, and a
+			// card for it would store a limits entry named "default".
+			if !m.limOnBudget && m.limCursor < len(m.limModels) && m.limModels[m.limCursor] != defaultLimitRow {
 				return m.openBandConfig(m.limModels[m.limCursor], modeLimits)
 			}
 		case "up", "k":
@@ -1956,15 +2159,32 @@ func (m *model) onLimitsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "down", "j":
 			if m.limOnBudget {
 				m.limOnBudget = false
-			} else if m.limCursor < len(m.limModels)-1 {
-				m.limCursor++
+			} else if m.limCursor < len(m.limModels)+len(m.profileRowNames())-1 {
+				m.limCursor++ // below the band rows: the profile rows
+				m.limProfileOpen = false
 			}
 		case "d":
 			// Same rule as b: from the budget row, d must not clear the limits of the
 			// un-highlighted band still under limCursor.
 			if !m.limOnBudget && m.limCursor < len(m.limModels) {
-				m.limits.clear(m.limModels[m.limCursor])
+				if row := m.limModels[m.limCursor]; row == defaultLimitRow {
+					m.putRowLimit(row, Limit{})
+				} else {
+					m.limits.clear(row)
+				}
 				m.enterLimits()
+			}
+		case "p":
+			// CYCLE THE PREF of the band under the cursor: unset (balanced) -> cheap ->
+			// fast -> reliable -> unset (features/tui/routing_profiles.feature). One keypress, no input box, like Q on the dial: a
+			// scoring knob with four values does not need a text field - this is the ONE
+			// editor for the knob (the table's pref column shows it).
+			if !m.limOnBudget && m.limCursor < len(m.limModels) {
+				mdl := m.limModels[m.limCursor]
+				lim := m.rowLimit(mdl)
+				lim.Pref = nextIn(prefRing, lim.Pref)
+				m.putRowLimit(mdl, lim)
+				m.status = stKey.Render(mdl) + stDim.Render(" · pref "+fieldShown(lim, lfPref))
 			}
 		case "enter":
 			if m.limOnBudget {
@@ -1982,31 +2202,55 @@ func (m *model) onLimitsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			if m.limCursor < len(m.limModels) {
-				lim := m.limits.resolve(m.limModels[m.limCursor])
 				m.editField = 0
-				m.editBuf = trimZero(lim.MaxOut)
+				m.focusLimitField(m.limField)
+			} else if m.onProfileRow() != "" {
+				m.limProfileOpen = !m.limProfileOpen // read-only: the resolved keys
 			}
 		}
 		return m, nil
 	}
 	// editing a field
+	row := ""
+	if m.limCursor < len(m.limModels) {
+		row = m.limModels[m.limCursor]
+	}
+	kind := limFieldDefs[m.editField].kind
 	switch k.String() {
 	case "esc":
 		m.editField = -1
+		m.editBuf = ""
 		return m, nil
-	case "tab":
-		m.commitLimitField()
-		m.editField = (m.editField + 1) % 2
-		lim := m.limits.resolve(m.limModels[m.limCursor])
-		if m.editField == 0 {
-			m.editBuf = trimZero(lim.MaxOut)
-		} else {
-			m.editBuf = trimZero(lim.MinTPS)
+	case "tab", "shift+tab":
+		if !m.commitLimitField() {
+			return m, nil
 		}
+		step := 1
+		if k.String() == "shift+tab" {
+			step = -1
+		}
+		m.focusLimitField(m.limField + step)
 		return m, nil
+	case " ":
+		if kind == fkChoice {
+			m.cycleRowField(row, m.editField)
+			return m, nil
+		}
 	case "enter":
-		m.commitLimitField()
+		if kind == fkChoice {
+			m.cycleRowField(row, m.editField)
+			return m, nil
+		}
+		// A freshly focused field: enter begins typing a new value (routing_profiles.feature).
+		if kind != fkToggle && !m.editTyped {
+			m.editTyped, m.editDraft, m.editBuf = true, false, ""
+			return m, nil
+		}
+		if !m.commitLimitField() { // begun with nothing typed keeps the stored value
+			return m, nil // the plate shows why; the draft is theirs to fix
+		}
 		m.editField = -1
+		m.editBuf = ""
 		// A card-initiated edit is DONE when the field is saved: the operator came to
 		// change one number, not to browse the table.
 		if m.limReturnSet {
@@ -2014,6 +2258,30 @@ func (m *model) onLimitsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.limReturn, m.limReturnSet = 0, false
 		}
 		return m, nil
+	}
+	if kind == fkToggle {
+		if s := k.String(); s == "t" || s == "v" {
+			m.putRowLimit(row, toggleRequire(m.rowLimit(row), map[string]string{"t": "tools", "v": "vision"}[s]))
+		}
+		return m, nil
+	}
+	if kind == fkChoice {
+		return m, nil
+	}
+	if kind == fkText {
+		switch k.String() {
+		case "backspace":
+			m.editBuf = backspaceSeed(m.editBuf, m.editTyped)
+			m.editTyped, m.editDraft = true, true
+		default:
+			if r := k.Runes; len(r) > 0 && k.Type == tea.KeyRunes {
+				m.editBuf = typeOverSeed(m.editBuf, m.editTyped) + string(r)
+				m.editTyped, m.editDraft = true, true
+			}
+		}
+		return m, nil
+	}
+	switch k.String() {
 	case "up", "down":
 		// NUDGE THE VALUE (founder 2026-08-21). Up and down did nothing while editing,
 		// so setting a price meant typing every digit - and up/down are the first thing
@@ -2023,16 +2291,17 @@ func (m *model) onLimitsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// actually denominated in, and a step that moves by a unit is the one nobody has
 		// to think about. DOWN FLOORS AT ZERO rather than going negative - a negative
 		// cap is not a smaller cap, it is a nonsense the commit would have to reject.
-		m.editBuf = nudgeLimit(m.editBuf, m.editField == 0, k.String() == "up")
+		m.editBuf = nudgeLimit(m.editBuf, m.editField != lfMinTPS, k.String() == "up")
+		m.editTyped, m.editDraft = true, true
 		return m, nil
 	case "backspace":
-		if len(m.editBuf) > 0 {
-			m.editBuf = m.editBuf[:len(m.editBuf)-1]
-		}
+		m.editBuf = backspaceSeed(m.editBuf, m.editTyped)
+		m.editTyped, m.editDraft = true, true
 		return m, nil
 	default:
 		if d := digitsDot(k.String()); d != "" {
-			m.editBuf += d
+			m.editBuf = typeOverSeed(m.editBuf, m.editTyped) + d
+			m.editTyped, m.editDraft = true, true
 		}
 		return m, nil
 	}
@@ -2040,8 +2309,8 @@ func (m *model) onLimitsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // presetForKey maps a top-level key press to its preset action, returning the new
 // model + cmd and true when the key was a preset jump (so onKey can short-circuit).
-// It is the keyboard half of the preset bank: 1 -> TUNE IN, 2 -> SHARE, 3 -> CONFIG
-// (limits), L -> LOGIN, ? -> HELP. It is only consulted from non-text-entry modes
+// It is the keyboard half of the preset bank: 1 -> TUNE IN, 2 -> SHARE, 3 -> EDGE,
+// 4 -> CONFIG (limits), L -> LOGIN, ? -> HELP. It is only consulted from non-text-entry modes
 // (browse / a SHARE sub-screen / limits / help) so it never steals a typed digit in
 // the command palette, the chat input, or a numeric price/limit editor.
 // toggleCompact flips the windowshade compact mode and persists the choice via the
@@ -2118,6 +2387,7 @@ func (m *model) runAutoTune() tea.Cmd {
 	case freeSt != nil:
 		o := *freeSt
 		m.clearFindingBeat()
+		m.tunedProfile = "" // an auto-tune bypasses the confirm: no profile binds
 		if _, err := m.bindChannel(o); err != nil {
 			// The local endpoint failed to bind: never claim a channel that is not there.
 			// Fall to the honest empty state (deduped) and drop any parked prompt silently.
@@ -2371,4 +2641,21 @@ func RunResumedWithController(
 var runProgram = func(m tea.Model, opts ...tea.ProgramOption) error {
 	_, err := tea.NewProgram(m, opts...).Run()
 	return err
+}
+
+// typeOverSeed is the buffer a keystroke appends to: an untouched seed (the stored value the
+// field opened on) is replaced, a draft is extended.
+func typeOverSeed(buf string, typed bool) string {
+	if !typed {
+		return ""
+	}
+	return buf
+}
+
+// backspaceSeed clears an untouched seed and trims a draft.
+func backspaceSeed(buf string, typed bool) string {
+	if !typed || buf == "" {
+		return ""
+	}
+	return buf[:len(buf)-1]
 }

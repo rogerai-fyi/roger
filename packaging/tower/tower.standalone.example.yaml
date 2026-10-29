@@ -1,11 +1,11 @@
-# roger-tower, STANDALONE: a relay that is entirely yours.
+# A Tower (`roger tower`), STANDALONE: a relay that is entirely yours.
 #
 # Nothing leaves this machine, no account is involved, and routing is free and locally
 # accounted. This is the mode to start in.
 #
-#   roger-tower init            --dir /var/lib/roger-tower --mode standalone
-#   roger-tower config validate --config /etc/roger-tower/tower.yaml
-#   roger-tower ready           --config /etc/roger-tower/tower.yaml
+#   roger tower init            --dir /var/lib/roger-tower --mode standalone
+#   roger tower config validate --config /etc/roger-tower/tower.yaml
+#   roger tower ready           --config /etc/roger-tower/tower.yaml
 #
 # `init` writes tower.json INTO --dir. That file is STATE (this Tower's id, its local
 # network id) and is not this file: passing it to --config fails, on purpose. --dir is

@@ -3,6 +3,8 @@ package client
 import (
 	"net/url"
 	"testing"
+
+	"rogerai.fm/roger/v7/internal/lanmode"
 )
 
 func TestTargetsLANTowerScoping(t *testing.T) {
@@ -24,8 +26,8 @@ func TestTargetsLANTowerScoping(t *testing.T) {
 		if err != nil {
 			t.Fatalf("parse %s: %v", tc.url, err)
 		}
-		if got := targetsLANTower(u); got != tc.want {
-			t.Errorf("targetsLANTower(%s) = %v, want %v", tc.url, got, tc.want)
+		if got := lanmode.WantsNonce(u, lanTowerHostList()); got != tc.want {
+			t.Errorf("WantsNonce(%s) = %v, want %v", tc.url, got, tc.want)
 		}
 	}
 }

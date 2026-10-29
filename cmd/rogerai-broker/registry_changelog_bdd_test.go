@@ -19,7 +19,8 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/cucumber/godog"
 	"github.com/redis/go-redis/v9"
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/bddrun"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 type clState struct {
@@ -684,7 +685,7 @@ func TestRegistryChangelogBDD(t *testing.T) {
 			Strict:   true,
 		},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("multinode/registry_changelog scenarios failed (see godog output above)")
 	}
 }

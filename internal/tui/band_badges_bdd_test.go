@@ -8,11 +8,12 @@ package tui
 import (
 	"context"
 	"fmt"
+	"rogerai.fm/roger/v7/internal/bddrun"
 	"strings"
 	"testing"
 
 	"github.com/cucumber/godog"
-	"rogerai.fm/roger/v6/internal/glyphs"
+	"rogerai.fm/roger/v7/internal/glyphs"
 )
 
 type badgeBDD struct {
@@ -188,7 +189,7 @@ func TestBandBadgesBDD(t *testing.T) {
 		},
 		Options: &godog.Options{Format: "pretty", Paths: []string{"../../features/tui/band_badges.feature"}, TestingT: t, Strict: true},
 	}
-	if suite.Run() != 0 {
+	if bddrun.Run(suite) != 0 {
 		t.Fatal("band-badge scenarios failed (see godog output above)")
 	}
 }

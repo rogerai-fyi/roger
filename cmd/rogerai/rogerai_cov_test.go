@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/client"
+	"rogerai.fm/roger/v7/internal/client"
 )
 
 // fakeBroker answers every signed broker call the CLI makes with one permissive JSON
@@ -89,8 +89,8 @@ func TestPureHelpers(t *testing.T) {
 	if minOr25(client.PayoutStatus{}) != 25 || minOr25(client.PayoutStatus{MinPayout: 50}) != 50 {
 		t.Error("minOr25 wrong")
 	}
-	if limitStr(Limit{}) != "no caps" || limitStr(Limit{MaxOut: 2, MinTPS: 5}) == "no caps" {
-		t.Error("limitStr wrong")
+	if limitSummary(Limit{}) != "no caps" || limitSummary(Limit{MaxOut: 2, MinTPS: 5}) == "no caps" {
+		t.Error("limitSummary wrong")
 	}
 	if trimAmt(25) != "25" || trimAmt(25.5) != "25.50" {
 		t.Errorf("trimAmt wrong: %q %q", trimAmt(25), trimAmt(25.5))
@@ -127,16 +127,6 @@ func TestStationConfig(t *testing.T) {
 	saveStation("") // empty rename is ignored
 	if got := loadOrCreateStation(); got != "amber-fox" {
 		t.Errorf("blank rename must not clear: %q", got)
-	}
-}
-
-// TestFreePort covers freePort (binds a free port in the scan range). The former
-// reachable() health-probe helper was removed (unused; prod preflights via the broker
-// client), so this no longer exercises it.
-func TestFreePort(t *testing.T) {
-	p, err := freePort(40000)
-	if err != nil || p < 40000 {
-		t.Fatalf("freePort = %d/%v", p, err)
 	}
 }
 
@@ -192,26 +182,5 @@ func TestDispatchRouting(t *testing.T) {
 	// Unknown command -> the sentinel error (main turns it into exit 1).
 	if err := dispatch(cfg, []string{"bogus-verb"}); !errors.Is(err, errUnknownCommand) {
 		t.Errorf("dispatch(unknown) = %v, want wrapped errUnknownCommand", err)
-	}
-}
-
-// TestHWDetection covers the Linux hardware probe (returns whatever the host has; the
-// point is to exercise the detection code paths, GPU-less or not). The raw-CPU detectHW()
-// helper was removed (superseded by the privacy-bucketed detectHWClass the node advertises).
-func TestHWDetection(t *testing.T) {
-	if detectHWClass() == "" {
-		t.Error("detectHWClass should return a class label")
-	}
-	// GPU counts are >= 0 (0 on a GPU-less CI box) - just exercise the probes.
-	if nvidiaGPUCount() < 0 || rocmGPUCount() < 0 {
-		t.Error("GPU counts must be non-negative")
-	}
-	// runHW is a small command-runner helper: a known command returns output, a missing
-	// one returns "" (never panics).
-	if out, ok := runHW("echo", "hi"); !ok || out == "" {
-		t.Errorf("runHW(echo) = %q/%v, want output", out, ok)
-	}
-	if _, ok := runHW("definitely-not-a-real-binary-xyz"); ok {
-		t.Error("runHW(missing) should report ok=false")
 	}
 }

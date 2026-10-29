@@ -9,7 +9,7 @@ package main
 // mutates only the section it owns before saving (saveStation, tuiLimits.Save,
 // SavePrice, SaveUpstream, SaveCompact, cmdShare's upstream save, drphil's broker
 // fix all do `c := loadConfig(); c.<owned> = ...; saveConfig(c)`). The wizard save
-// (maybeOnboard / cmdOnboard) was the one writer that instead persisted the WHOLE
+// (cmdOnboard) was the one writer that instead persisted the WHOLE
 // startup snapshot - stale by however long the operator sat in the interactive form -
 // so any section that landed on disk after this process loaded (share_voices,
 // share_prices, station, ...) was silently deleted.
@@ -19,7 +19,7 @@ package main
 //     onto a FRESH read of the file; every other section survives verbatim;
 //   - the wizard's own outcome still persists exactly as before (keep-path still
 //     saves; --free still records share.model/port + onboarded);
-//   - the non-interactive maybeOnboard path still never writes at all.
+//   - deciding the welcome card on a fresh config never writes at all.
 //
 // Real files in an isolated config dir (useTempConfig), real detection stub seam;
 // no mocks.
@@ -29,8 +29,8 @@ import (
 	"strings"
 	"testing"
 
-	"rogerai.fm/roger/v6/internal/detect"
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/detect"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // addSectionsBehindOurBack simulates the OTHER writer: after the process under test
@@ -132,9 +132,9 @@ func TestOnboardFreeSaveMergesWizardOutcomeOntoFreshConfig(t *testing.T) {
 	}
 }
 
-// The launch path guard: a non-interactive maybeOnboard must not write the file at
-// all (so "fixing" the clobber by saving more often would fail here).
-func TestMaybeOnboardNonInteractiveNeverWrites(t *testing.T) {
+// The launch path guard: deciding the welcome card for a config with nothing set up must not
+// write the file at all (so "fixing" the clobber by saving more often would fail here).
+func TestWelcomeOnLaunchNeverWritesAFreshConfig(t *testing.T) {
 	useTempConfig(t)
 	if err := saveConfig(config{Broker: "https://b.local", User: "op"}); err != nil {
 		t.Fatal(err)
@@ -143,12 +143,12 @@ func TestMaybeOnboardNonInteractiveNeverWrites(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = maybeOnboard(loadConfig())
+	_, _ = welcomeOnLaunch(loadConfig(), false)
 	after, err := os.ReadFile(configPath())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if string(before) != string(after) {
-		t.Errorf("maybeOnboard(non-interactive) wrote the config file:\nbefore: %s\nafter:  %s", before, after)
+		t.Errorf("welcomeOnLaunch wrote a fresh config file:\nbefore: %s\nafter:  %s", before, after)
 	}
 }

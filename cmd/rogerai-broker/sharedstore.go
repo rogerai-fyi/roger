@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"math/rand"
@@ -50,6 +51,23 @@ const keyPrefix = "rogerai:"
 // returns an error, and EVERY call site is required to fall back to the in-memory
 // path on a non-nil error. A connection failure NEVER propagates as a broker error.
 type sharedStore interface {
+	// Job cancels (jobcancel.go, features/multinode/job_cancel.feature): a node's cancel
+	// capability (until-ms value) and the per-node cancel delivery (pub/sub + short buffer).
+	cancelCapSet(node string, untilMs int64, ttl time.Duration) error
+	cancelCapGet(node string) (untilMs int64, err error)
+	cancelPush(node string, entry []byte, ttl time.Duration) error
+	cancelDrain(node string) ([][]byte, error)
+	cancelSubscribe(ctx context.Context, node string) (<-chan []byte, func(), error)
+
+	// Pair cooldowns (paircool.go, contract §14.2): pairCoolExtend raises one (node|model)
+	// field of a payer's cooldown hash to untilMs - atomically, never lowering it - and keeps
+	// the hash alive at least ttl; pairCooling reads a payer's whole hash; coolPayerNote
+	// records payer in node's 429 window (scores are unix-ms, entries older than window are
+	// dropped) and returns the distinct payers left. All shared across instances.
+	pairCoolExtend(payer, field string, untilMs int64, ttl time.Duration) (int64, error)
+	pairCooling(payer string) (map[string]int64, error)
+	coolPayerNote(node, payer string, nowMs int64, window time.Duration) (int, error)
+
 	// rateAllow is the shared token-bucket: it consumes one token for key under the
 	// given rpm/burst and reports whether the caller may proceed (mirrors
 	// rateLimiter.allowAt semantics). retryAfter is a seconds hint when denied. A
@@ -90,6 +108,11 @@ type sharedStore interface {
 	// keeps the last merged view). Keyed by node+"\x00"+model.
 	toolsVerified(ttl time.Duration) (map[string]bool, error)
 
+	// Total latency per node (totallatency.go): setTotalLatency writes a node's EWMA through,
+	// totalLatencies reads every node's figure for the sync loop's merge.
+	setTotalLatency(node string, ms float64) error
+	totalLatencies() (map[string]float64, error)
+
 	// cacheGet returns the cached bytes for key (found == true) or a miss
 	// (found == false). It is a READ-ONLY accelerator for the hot, expensive read
 	// paths (/discover + /market, /metrics/series + /console): NEVER a money/mutating
@@ -118,6 +141,10 @@ type sharedStore interface {
 	// non-nil err (incl. errNoSharedStore on memStore) means the shared path is unavailable
 	// and the caller uses its per-instance fallback map. ttl<=0 is treated as no-store.
 	putCapsule(lookup string, blob []byte, ttl time.Duration) error
+	// putGen / getGen hold one request's /generation record under its request id, readable
+	// from any instance. getGen's found=false with a nil error is a clean miss.
+	putGen(id string, rec []byte, ttl time.Duration) error
+	getGen(id string) (rec []byte, found bool, err error)
 
 	// takeCapsule ATOMICALLY returns AND deletes the blob under lookup (one-time,
 	// delete-on-read via GETDEL), so exactly one of N concurrent resolves across all
@@ -145,6 +172,38 @@ type sharedStore interface {
 	// authoritative without a reconcile path).
 	counterIncr(key string, delta float64) (val float64, err error)
 
+	// counterDel removes a counter (invalidation). A money fast-path that is rebuilt from
+	// Postgres on a miss is invalidated after each committed write instead of incremented, so
+	// a write racing a reconcile can never be counted twice.
+	counterDel(key string) error
+
+	// counterDelIfEqual deletes the counter only while it still holds exactly val (compare-
+	// and-delete). A reconcile uses it to withdraw a value that turned out stale without
+	// destroying a peer's later increment.
+	counterDelIfEqual(key string, val float64) (deleted bool, err error)
+	// counterSetIfGreater stores val (with ttl) only when the counter is absent or holds less
+	// than val, atomically; a monotonic month-to-date total can then never move backwards.
+	counterSetIfGreater(key string, val float64, ttl time.Duration) error
+
+	// edgeSlotReserve is the per-account open-attempt cap shared by every instance: one
+	// sorted set per account (member = slot id, score = its deadline in unix ms). In ONE
+	// atomic step it trims members whose deadline has passed, counts the rest, and adds
+	// member with deadline when fewer than limit are open. ok=false at the cap.
+	edgeSlotReserve(account, member string, deadline, now time.Time, limit int) (ok bool, err error)
+	// edgeSlotPromote turns a reservation into the attempt it became: it swaps member token
+	// for attemptID (score = the attempt's deadline) and records attemptID -> account so the
+	// instance that sees the attempt end, whichever it is, can free the slot.
+	edgeSlotPromote(account, token, attemptID string, deadline time.Time) error
+	// edgeSlotAdopt counts attemptID in the account's set whether or not its reservation token
+	// is still there (it may have lapsed while a promotion kept failing): it records the
+	// attempt's account, removes the token if present and adds the attempt with its deadline.
+	edgeSlotAdopt(account, token, attemptID string, deadline time.Time) error
+	// edgeSlotDrop frees a reservation that never became an attempt.
+	edgeSlotDrop(account, token string) error
+	// edgeSlotFree frees the slot an attempt holds. Idempotent: an unknown or already-freed
+	// attempt id frees nothing.
+	edgeSlotFree(attemptID string) error
+
 	// setIfAbsent sets key=val only if it does not already exist (SETNX), with a TTL, and
 	// reports whether THIS call set it (set==true) or it already existed (set==false). It
 	// backs idempotent fast-path flags (e.g. "seeded:<wallet>") whose REAL guard is a
@@ -152,6 +211,9 @@ type sharedStore interface {
 	// non-nil err means the backend was unreachable; the caller must fall back to doing
 	// the underlying (idempotent) work.
 	setIfAbsent(key, val string, ttl time.Duration) (set bool, err error)
+	// delIfEqual removes a setIfAbsent key only while it still holds val (compare-and-delete),
+	// so a holder whose lock lapsed never frees the lock another holder has since taken.
+	delIfEqual(key, val string) error
 
 	// healthy reports whether the backend currently looks reachable (best-effort).
 	healthy() bool
@@ -356,6 +418,15 @@ type sharedStore interface {
 	// this round.
 	cooling() (map[string]sharedCooling, error)
 
+	// recordCoolEvent appends one cooldown to the station's shared record of the last window
+	// (features/ops/cooling_alert_shared.feature) and returns that record. The cooling time
+	// the event ADDED is computed in the same atomic step against the shared cooldown expiry,
+	// so two instances cooling a station for one 429 window count it once.
+	recordCoolEvent(node, model string, now, until time.Time, window time.Duration) ([]coolEvent, error)
+	// coolEvents returns every station's shared cooldown record inside the window ending at
+	// now, with its band. A station with no event left in the window is returned empty.
+	coolEvents(now time.Time, window time.Duration) (map[string]coolRecord, error)
+
 	// Close releases any resources (connections). Safe to call on a nil-ish store.
 	Close() error
 }
@@ -364,6 +435,12 @@ type sharedStore interface {
 type sharedCooling struct {
 	until time.Time
 	model string
+}
+
+// coolRecord is one station's shared cooldown events and the band it cooled on.
+type coolRecord struct {
+	model  string
+	events []coolEvent
 }
 
 // streamFrame is one message off the per-job stream bus channel: a raw SSE chunk to
@@ -413,16 +490,32 @@ func (m *memStore) cacheDel(string) error { return errNoSharedStore }
 func (m *memStore) putCapsule(string, []byte, time.Duration) error { return errNoSharedStore }
 func (m *memStore) takeCapsule(string) ([]byte, bool, error)       { return nil, false, errNoSharedStore }
 
+// /generation records are inert on memStore too: the broker keeps them per instance.
+func (m *memStore) putGen(string, []byte, time.Duration) error { return errNoSharedStore }
+func (m *memStore) getGen(string) ([]byte, bool, error)        { return nil, false, errNoSharedStore }
+
 // The counter / setIfAbsent primitives on memStore are all "unavailable" no-ops, so
 // every money/seed fast-path falls back to its Postgres-authoritative computation.
 func (m *memStore) counterGet(string) (float64, bool, error) { return 0, false, errNoSharedStore }
 func (m *memStore) counterSet(string, float64, time.Duration) error {
 	return errNoSharedStore
 }
-func (m *memStore) counterIncr(string, float64) (float64, error) { return 0, errNoSharedStore }
+func (m *memStore) counterIncr(string, float64) (float64, error)             { return 0, errNoSharedStore }
+func (m *memStore) counterDel(string) error                                  { return errNoSharedStore }
+func (m *memStore) counterDelIfEqual(string, float64) (bool, error)          { return false, errNoSharedStore }
+func (m *memStore) counterSetIfGreater(string, float64, time.Duration) error { return errNoSharedStore }
+func (m *memStore) edgeSlotReserve(string, string, time.Time, time.Time, int) (bool, error) {
+	return false, errNoSharedStore
+}
+func (m *memStore) edgeSlotPromote(string, string, string, time.Time) error { return errNoSharedStore }
+func (m *memStore) edgeSlotAdopt(string, string, string, time.Time) error   { return errNoSharedStore }
+func (m *memStore) edgeSlotDrop(string, string) error                       { return errNoSharedStore }
+func (m *memStore) edgeSlotFree(string) error                               { return errNoSharedStore }
 func (m *memStore) setIfAbsent(string, string, time.Duration) (bool, error) {
 	return false, errNoSharedStore
 }
+
+func (m *memStore) delIfEqual(string, string) error { return errNoSharedStore }
 
 func (m *memStore) healthy() bool { return false }
 func (m *memStore) Close() error  { return nil }
@@ -482,6 +575,12 @@ func (m *memStore) markCooling(string, string, time.Time, time.Duration) error {
 	return errNoSharedStore
 }
 func (m *memStore) cooling() (map[string]sharedCooling, error) { return nil, errNoSharedStore }
+func (m *memStore) recordCoolEvent(string, string, time.Time, time.Time, time.Duration) ([]coolEvent, error) {
+	return nil, errNoSharedStore
+}
+func (m *memStore) coolEvents(time.Time, time.Duration) (map[string]coolRecord, error) {
+	return nil, errNoSharedStore
+}
 
 // errNoSharedStore signals "no shared backend; use the in-memory path". It is a
 // sentinel, not a failure - call sites treat ANY non-nil error the same way (fall
@@ -510,9 +609,12 @@ type valkeyStore struct {
 	// still running older code heartbeats only into the per-node keys, so both are read.
 	livenessHashOnly atomic.Bool
 
-	mu      sync.Mutex
-	up      bool // last observed reachability (for healthy())
-	lastLog time.Time
+	mu sync.Mutex
+	up bool // last observed reachability (for healthy())
+	// downSince is when the current run of failures began (zero while up): dispatch treats
+	// the store as down only once that run has lasted storeOutageDebounce (downFor).
+	downSince time.Time
+	lastLog   time.Time
 
 	// opErrors is a monotonic count of EVERY failed Valkey op (publish/subscribe/get/set/
 	// script/...), funneled through noteErr. It is an atomic so the (rare) error path adds
@@ -621,6 +723,12 @@ func valkeyTopologyFromEnv() (valkeyTopology, bool) {
 // build returns a client for the topology with the broker's tight timeouts. poolSize 0
 // keeps go-redis's default; readTimeout overrides the per-op read timeout (a blocking
 // reader needs longer than sharedOpTimeout).
+// valkeyDialerRetries overrides go-redis's dial retries when above zero. Production keeps the
+// library default (5 tries, 100ms apart); the test binary lowers it so the many outage
+// scenarios, each of which fails every shared call against a closed server, do not spend half
+// a second per call redialing. Which calls fail, and how the broker reacts, is unchanged.
+var valkeyDialerRetries int
+
 func (tp valkeyTopology) build(readTimeout time.Duration, poolSize int) (redis.UniversalClient, int, error) {
 	if len(tp.urls) == 0 {
 		return nil, 0, fmt.Errorf("no valkey url")
@@ -635,6 +743,9 @@ func (tp valkeyTopology) build(readTimeout time.Duration, poolSize int) (redis.U
 		opt.ReadTimeout = readTimeout
 		opt.WriteTimeout = sharedOpTimeout
 		opt.MaxRetries = 1
+		if valkeyDialerRetries > 0 {
+			opt.DialerRetries = valkeyDialerRetries
+		}
 		if poolSize > 0 {
 			opt.PoolSize = poolSize
 		}
@@ -656,7 +767,7 @@ func (tp valkeyTopology) build(readTimeout time.Duration, poolSize int) (redis.U
 		return redis.NewClusterClient(&redis.ClusterOptions{
 			Addrs: addrs, Username: o.Username, Password: o.Password, TLSConfig: o.TLSConfig,
 			DialTimeout: o.DialTimeout, ReadTimeout: o.ReadTimeout, WriteTimeout: o.WriteTimeout,
-			MaxRetries: o.MaxRetries, PoolSize: o.PoolSize,
+			MaxRetries: o.MaxRetries, PoolSize: o.PoolSize, DialerRetries: o.DialerRetries,
 		}), eff, nil
 	default:
 		byAddr := map[string]*redis.Options{}
@@ -703,8 +814,30 @@ func newValkeyStoreTopology(tp valkeyTopology) (*valkeyStore, error) {
 
 func (v *valkeyStore) setUp(up bool) {
 	v.mu.Lock()
-	v.up = up
+	v.markLocked(up)
 	v.mu.Unlock()
+}
+
+// markLocked records reachability and starts or ends the current run of failures. Caller holds mu.
+func (v *valkeyStore) markLocked(up bool) {
+	switch {
+	case up:
+		v.downSince = time.Time{}
+	case v.downSince.IsZero():
+		v.downSince = time.Now()
+	}
+	v.up = up
+}
+
+// downFor is how long the store has been failing without a single success in between (zero
+// while it answers).
+func (v *valkeyStore) downFor() time.Duration {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if v.up || v.downSince.IsZero() {
+		return 0
+	}
+	return time.Since(v.downSince)
 }
 
 func (v *valkeyStore) healthy() bool {
@@ -722,7 +855,7 @@ func (v *valkeyStore) noteErr(op string, err error) {
 	}
 	v.opErrors.Add(1)
 	v.mu.Lock()
-	v.up = false
+	v.markLocked(false)
 	logNow := time.Since(v.lastLog) > 30*time.Second
 	if logNow {
 		v.lastLog = time.Now()
@@ -731,6 +864,36 @@ func (v *valkeyStore) noteErr(op string, err error) {
 	if logNow {
 		log.Printf("shared-state: valkey %s failed, using in-memory fallback: %v", op, err)
 	}
+}
+
+// noteReply is noteErr for an error REPLY (redis.Error). A refusal of one command on one
+// key (redisKeyRefusal) means the store answered and can still serve, so it is counted and
+// logged without tripping the outage path. Every other error reply (out of memory,
+// persistence failing, auth, loading, a replica, client limits) can refuse every write,
+// so it goes to noteErr and marks the store down.
+func (v *valkeyStore) noteReply(op string, err error) {
+	if !redisKeyRefusal(err) {
+		v.noteErr(op, err)
+		return
+	}
+	v.opErrors.Add(1)
+	v.mu.Lock()
+	v.markLocked(true)
+	logNow := time.Since(v.lastLog) > 30*time.Second
+	if logNow {
+		v.lastLog = time.Now()
+	}
+	v.mu.Unlock()
+	if logNow {
+		log.Printf("shared-state: valkey %s refused: %v", op, err)
+	}
+}
+
+// redisKeyRefusal reports whether the server's error reply (unwrapped) refuses one command on
+// one key (the key holds the wrong type) rather than saying the server cannot serve.
+func redisKeyRefusal(err error) bool {
+	var reply redis.Error
+	return errors.As(err, &reply) && strings.HasPrefix(reply.Error(), "WRONGTYPE ")
 }
 
 func (v *valkeyStore) Close() error {
@@ -1278,6 +1441,102 @@ func (v *valkeyStore) markCooling(node, model string, until time.Time, ttl time.
 	return nil
 }
 
+// The station's events and its shared expiry share one hash tag, so the record script runs
+// on one cluster slot; the index (station -> band) is a separate key read on the check.
+func coolEvKey(node string) string    { return keyPrefix + "coolev:{" + node + "}" }
+func coolUntilKey(node string) string { return keyPrefix + "coolevuntil:{" + node + "}" }
+
+const coolEvIndexKey = keyPrefix + "coolevidx"
+
+// recordCoolEventScript: KEYS[1] the events (score = at ms, member "at|added|nonce"), KEYS[2]
+// the shared expiry; ARGV now ms, until ms, window ms, nonce. Returns the events in the window.
+var recordCoolEventScript = redis.NewScript(`
+local now, untl, window = tonumber(ARGV[1]), tonumber(ARGV[2]), tonumber(ARGV[3])
+local prev = tonumber(redis.call('GET', KEYS[2]) or '0')
+local added = untl - now
+if prev > now then
+  if untl < prev then untl = prev end
+  added = untl - prev
+end
+redis.call('SET', KEYS[2], untl, 'PX', window)
+redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', now - window)
+redis.call('ZADD', KEYS[1], now, now .. '|' .. added .. '|' .. ARGV[4])
+redis.call('PEXPIRE', KEYS[1], window)
+return redis.call('ZRANGEBYSCORE', KEYS[1], '(' .. (now - window), '+inf')
+`)
+
+func parseCoolEvents(members []string) []coolEvent {
+	out := make([]coolEvent, 0, len(members))
+	for _, m := range members {
+		parts := strings.SplitN(m, "|", 3)
+		if len(parts) < 2 {
+			continue
+		}
+		at, err1 := strconv.ParseInt(parts[0], 10, 64)
+		added, err2 := strconv.ParseInt(parts[1], 10, 64)
+		if err1 != nil || err2 != nil {
+			continue
+		}
+		out = append(out, coolEvent{at: time.UnixMilli(at), added: time.Duration(added) * time.Millisecond})
+	}
+	return out
+}
+
+func (v *valkeyStore) recordCoolEvent(node, model string, now, until time.Time, window time.Duration) ([]coolEvent, error) {
+	if v == nil || v.rdb == nil {
+		return nil, errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	members, err := recordCoolEventScript.Run(ctx, v.rdb, []string{coolEvKey(node), coolUntilKey(node)},
+		now.UnixMilli(), until.UnixMilli(), window.Milliseconds(), newInstanceID()).StringSlice()
+	if err == nil {
+		pipe := v.rdb.Pipeline()
+		pipe.HSet(ctx, coolEvIndexKey, node, model)
+		pipe.PExpire(ctx, coolEvIndexKey, 2*window)
+		_, err = pipe.Exec(ctx)
+	}
+	if err != nil {
+		v.noteErr("recordCoolEvent", err)
+		return nil, err
+	}
+	v.setUp(true)
+	return parseCoolEvents(members), nil
+}
+
+func (v *valkeyStore) coolEvents(now time.Time, window time.Duration) (map[string]coolRecord, error) {
+	if v == nil || v.rdb == nil {
+		return nil, errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	idx, err := v.rdb.HGetAll(ctx, coolEvIndexKey).Result()
+	if err != nil {
+		v.noteErr("coolEvents", err)
+		return nil, err
+	}
+	out := make(map[string]coolRecord, len(idx))
+	if len(idx) == 0 {
+		v.setUp(true)
+		return out, nil
+	}
+	cutoff := "(" + strconv.FormatInt(now.Add(-window).UnixMilli(), 10)
+	pipe := v.rdb.Pipeline()
+	cmds := make(map[string]*redis.StringSliceCmd, len(idx))
+	for node := range idx {
+		cmds[node] = pipe.ZRangeByScore(ctx, coolEvKey(node), &redis.ZRangeBy{Min: cutoff, Max: "+inf"})
+	}
+	if _, err := pipe.Exec(ctx); err != nil {
+		v.noteErr("coolEvents", err)
+		return nil, err
+	}
+	for node, model := range idx {
+		out[node] = coolRecord{model: model, events: parseCoolEvents(cmds[node].Val())}
+	}
+	v.setUp(true)
+	return out, nil
+}
+
 func (v *valkeyStore) cooling() (map[string]sharedCooling, error) {
 	if v == nil || v.rdb == nil {
 		return nil, errNoSharedStore
@@ -1649,6 +1908,45 @@ func (v *valkeyStore) cacheDel(key string) error {
 // key is rogerai:cap:<lookup>. The value is opaque ciphertext; the broker never reads it.
 const capsuleKeyPrefix = keyPrefix + "cap:"
 
+// genKeyPrefix namespaces the /generation records: rogerai:gen:<request id>.
+const genKeyPrefix = keyPrefix + "gen:"
+
+// putGen SETs a /generation record with its TTL (atomic set+expire).
+func (v *valkeyStore) putGen(id string, rec []byte, ttl time.Duration) error {
+	if v == nil || v.rdb == nil {
+		return errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	if err := v.rdb.Set(ctx, genKeyPrefix+id, rec, ttl).Err(); err != nil {
+		v.noteErr("putGen", err)
+		return err
+	}
+	v.setUp(true)
+	return nil
+}
+
+// getGen reads one /generation record: a miss is found=false with a nil error; a backend
+// error is returned (the lookup fails closed on it).
+func (v *valkeyStore) getGen(id string) ([]byte, bool, error) {
+	if v == nil || v.rdb == nil {
+		return nil, false, errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	val, err := v.rdb.Get(ctx, genKeyPrefix+id).Bytes()
+	if err == redis.Nil {
+		v.setUp(true)
+		return nil, false, nil
+	}
+	if err != nil {
+		v.noteErr("getGen", err)
+		return nil, false, err
+	}
+	v.setUp(true)
+	return val, true, nil
+}
+
 // putCapsule SETs the opaque blob under the lookup with a TTL (atomic set+expire), so an
 // expired blob can never outlive its window. ttl<=0 is a no-op. Content-blind: only the
 // lookup + ciphertext are written.
@@ -1744,6 +2042,260 @@ func (v *valkeyStore) counterIncr(key string, delta float64) (float64, error) {
 	}
 	v.setUp(true)
 	return val, nil
+}
+
+// counterSetIfGreaterScript: SET (with PX ARGV[2]) only when the key is absent or holds a
+// smaller number than ARGV[1]; returns 1 if it wrote.
+var counterSetIfGreaterScript = redis.NewScript(`
+local cur = redis.call('GET', KEYS[1])
+if (not cur) or tonumber(cur) < tonumber(ARGV[1]) then
+  redis.call('SET', KEYS[1], ARGV[1], 'PX', ARGV[2])
+  return 1
+end
+return 0
+`)
+
+func (v *valkeyStore) counterSetIfGreater(key string, val float64, ttl time.Duration) error {
+	if v == nil || v.rdb == nil {
+		return errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	if err := counterSetIfGreaterScript.Run(ctx, v.rdb, []string{counterKeyPrefix + key},
+		strconv.FormatFloat(val, 'f', -1, 64), ttl.Milliseconds()).Err(); err != nil {
+		v.noteErr("counterSetIfGreater", err)
+		return err
+	}
+	v.setUp(true)
+	return nil
+}
+
+// counterDelIfEqualScript: DEL only while the stored number equals ARGV[1]; returns 1 if deleted.
+var counterDelIfEqualScript = redis.NewScript(`
+local v = redis.call('GET', KEYS[1])
+if v and tonumber(v) == tonumber(ARGV[1]) then
+  redis.call('DEL', KEYS[1])
+  return 1
+end
+return 0
+`)
+
+func (v *valkeyStore) counterDel(key string) error {
+	if v == nil || v.rdb == nil {
+		return errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	if err := v.rdb.Del(ctx, counterKeyPrefix+key).Err(); err != nil {
+		v.noteErr("counterDel", err)
+		return err
+	}
+	v.setUp(true)
+	return nil
+}
+
+func (v *valkeyStore) counterDelIfEqual(key string, val float64) (bool, error) {
+	if v == nil || v.rdb == nil {
+		return false, errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	n, err := counterDelIfEqualScript.Run(ctx, v.rdb, []string{counterKeyPrefix + key}, strconv.FormatFloat(val, 'f', -1, 64)).Int()
+	if err != nil {
+		v.noteErr("counterDelIfEqual", err)
+		return false, err
+	}
+	v.setUp(true)
+	return n == 1, nil
+}
+
+// Every script below touches ONE key, so the set works unchanged on a cluster topology.
+const (
+	edgeSlotsPrefix = keyPrefix + "edgeslots:" // + account: sorted set of open slots
+	edgeAttPrefix   = keyPrefix + "edgeatt:"   // + attempt id: the account whose slot it holds
+	// edgeClosedPrefix + attempt id marks an attempt that has been freed, so a delayed count
+	// (edgeSlotAdopt after a failed promotion) that lands after the close removes itself.
+	edgeClosedPrefix = keyPrefix + "edgeclosed:"
+)
+
+// edgeClosedTTL bounds how long a closed attempt's tombstone lives: longer than any attempt's
+// execution window, so every delayed count for it lands while the tombstone still exists.
+const edgeClosedTTL = 30 * time.Minute
+
+// edgeSlotReserveScript: KEYS[1] the account's set; ARGV now ms, limit, member, deadline ms.
+// Returns 1 when the member was added, 0 at the cap.
+var edgeSlotReserveScript = redis.NewScript(`
+redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', ARGV[1])
+if redis.call('ZCARD', KEYS[1]) >= tonumber(ARGV[2]) then
+  return 0
+end
+redis.call('ZADD', KEYS[1], ARGV[4], ARGV[3])
+local ttl = tonumber(ARGV[4]) - tonumber(ARGV[1])
+if ttl > 0 and redis.call('PTTL', KEYS[1]) < ttl then
+  redis.call('PEXPIRE', KEYS[1], ttl)
+end
+return 1
+`)
+
+// edgeSlotSwapScript: KEYS[1] the account's set; ARGV token, attempt id, deadline ms, now ms.
+// A reservation that already lapsed (trimmed) is not resurrected: returns 0.
+var edgeSlotSwapScript = redis.NewScript(`
+if redis.call('ZREM', KEYS[1], ARGV[1]) == 0 then
+  return 0
+end
+redis.call('ZADD', KEYS[1], ARGV[3], ARGV[2])
+local ttl = tonumber(ARGV[3]) - tonumber(ARGV[4])
+if ttl > 0 and redis.call('PTTL', KEYS[1]) < ttl then
+  redis.call('PEXPIRE', KEYS[1], ttl)
+end
+return 1
+`)
+
+func (v *valkeyStore) edgeSlotReserve(account, member string, deadline, now time.Time, limit int) (bool, error) {
+	if v == nil || v.rdb == nil {
+		return false, errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	n, err := edgeSlotReserveScript.Run(ctx, v.rdb, []string{edgeSlotsPrefix + account},
+		now.UnixMilli(), limit, member, deadline.UnixMilli()).Int()
+	if err != nil {
+		v.noteErr("edgeSlotReserve", err)
+		return false, err
+	}
+	v.setUp(true)
+	return n == 1, nil
+}
+
+// edgeSlotPromote records the attempt's account FIRST, then swaps the member: a free that
+// races the swap finds the account and removes the attempt id (or nothing, harmlessly).
+func (v *valkeyStore) edgeSlotPromote(account, token, attemptID string, deadline time.Time) error {
+	if v == nil || v.rdb == nil {
+		return errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	now := time.Now()
+	ttl := max(deadline.Sub(now), time.Millisecond)
+	err := v.rdb.Set(ctx, edgeAttPrefix+attemptID, account, ttl).Err()
+	if err == nil {
+		err = edgeSlotSwapScript.Run(ctx, v.rdb, []string{edgeSlotsPrefix + account},
+			token, attemptID, deadline.UnixMilli(), now.UnixMilli()).Err()
+	}
+	if err != nil {
+		v.noteErr("edgeSlotPromote", err)
+		return err
+	}
+	v.setUp(true)
+	return nil
+}
+
+// edgeSlotAdoptScript: KEYS[1] the account's set; ARGV token, attempt id, deadline ms, now ms.
+var edgeSlotAdoptScript = redis.NewScript(`
+redis.call('ZREM', KEYS[1], ARGV[1])
+redis.call('ZADD', KEYS[1], ARGV[3], ARGV[2])
+local ttl = tonumber(ARGV[3]) - tonumber(ARGV[4])
+if ttl > 0 and redis.call('PTTL', KEYS[1]) < ttl then
+  redis.call('PEXPIRE', KEYS[1], ttl)
+end
+return 1
+`)
+
+func (v *valkeyStore) edgeSlotAdopt(account, token, attemptID string, deadline time.Time) error {
+	if v == nil || v.rdb == nil {
+		return errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	now := time.Now()
+	ttl := max(deadline.Sub(now), time.Millisecond)
+	err := v.rdb.Set(ctx, edgeAttPrefix+attemptID, account, ttl).Err()
+	if err == nil {
+		err = edgeSlotAdoptScript.Run(ctx, v.rdb, []string{edgeSlotsPrefix + account},
+			token, attemptID, deadline.UnixMilli(), now.UnixMilli()).Err()
+	}
+	// A count that lands after the attempt closed (on any instance) must not stick: the close
+	// writes its tombstone BEFORE it frees, so checking AFTER adding sees it whenever the free
+	// could have missed this add, and the add is taken back.
+	if err == nil {
+		var closed int64
+		if closed, err = v.rdb.Exists(ctx, edgeClosedPrefix+attemptID).Result(); err == nil && closed > 0 {
+			if err = v.rdb.ZRem(ctx, edgeSlotsPrefix+account, attemptID).Err(); err == nil {
+				err = v.rdb.Del(ctx, edgeAttPrefix+attemptID).Err()
+			}
+		}
+	}
+	if err != nil {
+		v.noteErr("edgeSlotAdopt", err)
+		return err
+	}
+	v.setUp(true)
+	return nil
+}
+
+func (v *valkeyStore) edgeSlotDrop(account, token string) error {
+	if v == nil || v.rdb == nil {
+		return errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	if err := v.rdb.ZRem(ctx, edgeSlotsPrefix+account, token).Err(); err != nil {
+		v.noteErr("edgeSlotDrop", err)
+		return err
+	}
+	v.setUp(true)
+	return nil
+}
+
+// edgeSlotFree takes the attempt's account with GETDEL, so of two concurrent frees exactly
+// one finds it and the other frees nothing.
+func (v *valkeyStore) edgeSlotFree(attemptID string) error {
+	if v == nil || v.rdb == nil {
+		return errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	// The tombstone first (see edgeSlotAdopt): a delayed count for this attempt that lands
+	// after this free sees it and removes itself.
+	if err := v.rdb.Set(ctx, edgeClosedPrefix+attemptID, "1", edgeClosedTTL).Err(); err != nil {
+		v.noteErr("edgeSlotFree", err)
+		return err
+	}
+	acct, err := v.rdb.GetDel(ctx, edgeAttPrefix+attemptID).Result()
+	if err == redis.Nil {
+		v.setUp(true)
+		return nil
+	}
+	if err == nil {
+		err = v.rdb.ZRem(ctx, edgeSlotsPrefix+acct, attemptID).Err()
+	}
+	if err != nil {
+		v.noteErr("edgeSlotFree", err)
+		return err
+	}
+	v.setUp(true)
+	return nil
+}
+
+var delIfEqualScript = redis.NewScript(`
+if redis.call("GET", KEYS[1]) == ARGV[1] then
+  return redis.call("DEL", KEYS[1])
+end
+return 0
+`)
+
+func (v *valkeyStore) delIfEqual(key, val string) error {
+	if v == nil || v.rdb == nil {
+		return errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	if err := delIfEqualScript.Run(ctx, v.rdb, []string{counterKeyPrefix + key}, val).Err(); err != nil {
+		v.noteErr("delIfEqual", err)
+		return err
+	}
+	v.setUp(true)
+	return nil
 }
 
 func (v *valkeyStore) setIfAbsent(key, val string, ttl time.Duration) (bool, error) {
@@ -2081,29 +2633,6 @@ func (v *valkeyStore) busNextRCSeq(sid string) (uint64, error) {
 	return uint64(n), nil
 }
 
-// openSharedStore builds the shared-state layer from ROGERAI_REDIS_URL. UNSET (the
-// default + the fallback) returns nil: the broker uses its in-memory maps with ZERO
-// behavior change. SET connects a valkeyStore; a connection failure at startup
-// DEGRADES GRACEFULLY - it logs a warning and returns nil so the broker boots on the
-// in-memory path and NEVER crashes. (The returned store is closed on a connect
-// failure so we leak no client.)
-func openSharedStore() sharedStore {
-	tp, ok := valkeyTopologyFromEnv()
-	if !ok {
-		return nil // flag OFF: in-memory, byte-for-byte today's behavior.
-	}
-	vs, err := newValkeyStoreTopology(tp)
-	if err != nil {
-		if vs != nil {
-			_ = vs.Close()
-		}
-		log.Printf("shared-state: ROGERAI_REDIS_URL set but connect failed, falling back to in-memory (broker continues): %v", err)
-		return nil
-	}
-	log.Printf("shared-state: valkey connected (keys namespaced under %q) - sharing anon/concierge rate limits + node liveness across instances", keyPrefix)
-	return vs
-}
-
 // cacheTTLJitter adds a small (+0..15%) random jitter to a cache TTL so many entries
 // written in the same burst do not all expire on the same tick (a thundering-herd /
 // stampede where every instance recomputes at once). The jitter only ever LENGTHENS
@@ -2172,31 +2701,7 @@ func (b *broker) localCachedJSON(key string, ttl time.Duration, compute func() a
 }
 
 func (b *broker) serveCachedJSON(w http.ResponseWriter, key string, ttl time.Duration, compute func() any) {
-	// No shared (Redis) backend: still amortize via the IN-PROCESS TTL cache so a single
-	// instance doesn't recompute the full market on every hit. Safe - same key scoping as the
-	// shared path. On a marshal error, fall back to the direct encoder so the request still serves.
-	if b.shared == nil {
-		if body := b.localCachedJSON(key, ttl, compute); body != nil {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write(body)
-			return
-		}
-		writeJSON(w, http.StatusOK, compute())
-		return
-	}
-	// Cache HIT: serve the stored JSON verbatim (already serialized, small payload).
-	if val, found, err := b.shared.cacheGet(key); err == nil && found {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write(val)
-		return
-	}
-	// MISS (or a cache error): compute under a per-KEY singleflight so a CONCURRENT
-	// miss/expiry on this one hot key collapses to ONE compute (+ one cache populate)
-	// instead of a thundering herd each re-running the full (b.mu-locked) recompute.
-	// Only one goroutine per key runs compute(); the rest share its serialized bytes.
-	body := b.computeCachedJSON(key, ttl, compute)
+	body := b.cachedJSON(key, ttl, compute)
 	if body == nil {
 		// Marshal failed for this view (should never happen); fall back to the standard
 		// encoder on a fresh compute so the request still serves a body.
@@ -2206,6 +2711,20 @@ func (b *broker) serveCachedJSON(w http.ResponseWriter, key string, ttl time.Dur
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(body)
+}
+
+// cachedJSON is the serialized view behind a public cached read: the shared cache's bytes on
+// a hit, else ONE compute under the per-key singleflight (a concurrent miss/expiry on a hot
+// key collapses to one recompute instead of a thundering herd). Without a shared backend the
+// in-process TTL cache amortizes the same way. nil only on a marshal error.
+func (b *broker) cachedJSON(key string, ttl time.Duration, compute func() any) []byte {
+	if b.shared == nil {
+		return b.localCachedJSON(key, ttl, compute)
+	}
+	if val, found, err := b.shared.cacheGet(key); err == nil && found {
+		return val
+	}
+	return b.computeCachedJSON(key, ttl, compute)
 }
 
 // computeCachedJSON runs compute() under the broker's per-key singleflight, returning

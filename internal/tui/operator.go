@@ -12,11 +12,11 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"rogerai.fm/roger/v6/internal/client"
-	"rogerai.fm/roger/v6/internal/glyphs"
-	"rogerai.fm/roger/v6/internal/operator"
-	"rogerai.fm/roger/v6/internal/pricetier"
-	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v7/internal/client"
+	"rogerai.fm/roger/v7/internal/glyphs"
+	"rogerai.fm/roger/v7/internal/operator"
+	"rogerai.fm/roger/v7/internal/pricetier"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // operator.go is the TUI glue for Guest Operators Phase 2 (THE DESK): the /operator
@@ -721,6 +721,7 @@ func (m model) startOperatorHandoff(d operator.Detection, fromPicker bool) (tea.
 			return m, nil
 		}
 		o := *freeSt
+		m.tunedProfile = "" // an auto-tune bypasses the confirm: no profile binds
 		if _, err := m.bindChannel(o); err != nil {
 			// The local endpoint failed to bind: refuse rather than open a plate over an
 			// unbound channel that would hand the guest a wall of 502s.
@@ -899,10 +900,7 @@ func (m model) onOperatorExec() (tea.Model, tea.Cmd) {
 	if wd == "" {
 		wd = operatorWorkdir() // defensive: a handoff always carries the plate's workdir
 	}
-	sess := operator.Session{
-		BaseURL: m.endpoint, SessionKey: opts.SessionKey, Model: opts.Model,
-		Workdir: wd, ScratchRoot: operatorScratchRoot,
-	}
+	sess := m.operatorSession(opts, wd, bandless)
 	// The context handoff happens BEFORE Materialize: a context-only guest is launched with
 	// an opening prompt that names the brief, so the brief has to exist by then.
 	//
@@ -993,6 +991,9 @@ func (m model) onOperatorExec() (tea.Model, tea.Cmd) {
 		}
 	}
 	c := operator.Command(launch, h.det.Path, sess.Workdir, env)
+	// The guest holds the mic from here until operatorDoneMsg: every turn its endpoint
+	// relays meanwhile is the guest's session, not `roger use`'s.
+	m.mic.take(h.det.Guest.Name)
 	return m, operatorExec(c, func(err error) tea.Msg { return operatorDoneMsg{err: err} })
 }
 
@@ -1000,6 +1001,7 @@ func (m model) onOperatorExec() (tea.Model, tea.Cmd) {
 // terminal reset, scratch cleanup, bridge unpark + status frame, balance refresh, and the
 // honest one-line summary read from the proxy accumulator (never the child's claims).
 func (m model) onOperatorDone(msg operatorDoneMsg) (tea.Model, tea.Cmd) {
+	m.mic.drop() // whatever else the return does, the mic is the desk's again
 	h := m.operatorHandoff
 	m.operatorHandoff = nil
 	if h == nil {
@@ -1494,4 +1496,19 @@ func djBrandArt() operator.BrandArt {
 		Width:  43,
 		Lockup: operator.BrandRow{Text: "ROGER·AI · DJ", Spans: []operator.BrandSpan{{From: 0, To: 8, Ink: brand}, {From: 11, To: 13, Ink: red}}},
 	}
+}
+
+// operatorSession is the guest's launch session: the live band, the confirmed workdir, and
+// the profile the band was tuned under, which the guest pins as "@profile/<name>" so the
+// local proxy resolves the owner's routing on every request (contract §9). A bandless guest
+// routes nothing, so it pins nothing.
+func (m model) operatorSession(opts client.ProxyOptions, wd string, bandless bool) operator.Session {
+	s := operator.Session{
+		BaseURL: m.endpoint, SessionKey: opts.SessionKey, Model: opts.Model,
+		Workdir: wd, ScratchRoot: operatorScratchRoot,
+	}
+	if !bandless && m.connected != nil && m.connected.Model == opts.Model {
+		s.Profile = m.tunedProfile
+	}
+	return s
 }

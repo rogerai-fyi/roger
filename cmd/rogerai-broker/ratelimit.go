@@ -76,10 +76,43 @@ func loadAnonRateLimiter() *rateLimiter {
 	}
 }
 
+// loadKeyMissRateLimiter is the per-address limit on relays bearing a key that does not
+// resolve (unknown, revoked, expired or disabled). Local to the instance, like the
+// per-identity limiter.
+func loadKeyMissRateLimiter() *rateLimiter {
+	return &rateLimiter{
+		buckets: map[string]*tokenBucket{},
+		rpm:     envFloat("ROGERAI_KEY_MISS_RATE_RPM", 30),
+		burst:   envFloat("ROGERAI_KEY_MISS_RATE_BURST", 15),
+	}
+}
+
 // allow consumes one token for key and reports whether it may proceed. When denied,
 // retryAfter is a seconds hint. RPM <= 0 disables limiting (always allow).
 func (rl *rateLimiter) allow(key string) (ok bool, retryAfter int) {
 	return rl.allowAt(key, 0, 0)
+}
+
+// refund returns one token drawn by allow to key's local bucket, capped at the burst. It is for a
+// budget that is reserved before work whose outcome decides whether it should have been charged
+// (the key-miss budget is drawn before the store read and given back when the key is live). It
+// touches only the local buckets, so it suits a limiter with no shared backend.
+func (rl *rateLimiter) refund(key string) {
+	if rl == nil || rl.rpm <= 0 {
+		return
+	}
+	burst := rl.burst
+	if burst <= 0 {
+		burst = rl.rpm
+	}
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	if b := rl.buckets[key]; b != nil {
+		b.tokens++
+		if b.tokens > burst {
+			b.tokens = burst
+		}
+	}
 }
 
 // allowAt is allow with a per-key rate override (rpm/burst). A zero rpm or burst
