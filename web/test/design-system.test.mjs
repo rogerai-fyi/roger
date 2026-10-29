@@ -461,8 +461,6 @@ test("no red glows: red rings and small lamps only, every lamp listed", () => {
 // scripts still copy on their own, with a different affordance; each is a known debt.
 const OWN_CLIPBOARD = {
   "site.js": "the shared copy tick",
-  "keys.js": "copies a one-time secret and relabels its button (keys page)",
-  "private.js": "copies a private station's share link (private console)",
   "playbox.js": "copies the deck's CLI line into the deck's own toast",
 };
 

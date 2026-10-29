@@ -1,6 +1,7 @@
 // A failed feed must read as "unavailable", never as a real number or a signed-out gate.
 // Run: node --test test/honest-feeds.test.mjs
-// Billing is an island (app/lib/billing/BillingApp.svelte): its rows are in test/unit/billing.test.js.
+// Billing and Base Station are islands (app/lib/billing/BillingApp.svelte, app/lib/private/PrivateApp.svelte):
+// their rows are in test/unit/billing.test.js and test/unit/private.test.js.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { page, settle } from "./_pagevm.mjs";
@@ -20,12 +21,4 @@ test("usage: a 401 (session really gone) still shows the gate", async () => {
   p.run("js/metrics.js");
   await settle();
   assert.equal(p.els.gate.hidden, false);
-});
-
-test("private bands: a 403 says no machine is linked, never 'sign in' to someone signed in", async () => {
-  const p = page("/private.html", { "/account": ACCT, "/rc/sessions": { status: 200, body: { sessions: [] } }, "/bands": { status: 403, body: {} } });
-  p.run("js/private.js");
-  await settle();
-  assert.match(p.texts(), /machine on air/);
-  assert.doesNotMatch(p.texts(), /sign in to see your private bands/);
 });
