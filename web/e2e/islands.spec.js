@@ -19,11 +19,15 @@ test("every island in app/islands has a page in this check", () => {
 for (const name of islands) {
   test(`${name}: hydrates in place with no error`, async ({ page }) => {
     await page.route(`${BROKER}/**`, () => {});   // pending forever: the page stays as prerendered + hydrated
-    const errors = [];
+    const errors = [], scripts = [];
+    page.on("request", (r) => { if (r.resourceType() === "script") scripts.push(new URL(r.url()).pathname); });
     page.on("pageerror", (e) => errors.push(String(e)));
     page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
     await page.goto(PAGES[name]);
     await expect(page.locator(`[data-island="${name}"]`)).toHaveAttribute("data-hydrated", "true");
     expect(errors).toEqual([]);
+    // the site runtime is one module request; its scripts are never fetched on their own
+    expect(scripts.filter((s) => s.startsWith("/js/runtime.js")).length).toBe(1);
+    expect(scripts.filter((s) => /^\/js\/(lets-talk|site|session|promo|tuner|scrub|anchor-hold|range-twin|cycle)\.js/.test(s))).toEqual([]);
   });
 }

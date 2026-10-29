@@ -12,7 +12,7 @@
     desc: 'Local inference for oil and gas, power generation, manufacturing, aerospace, mining, water, healthcare, defense sustainment, and wildfire mitigation: where the box sits in the plant network, the standards it speaks, and what it never touches.',
     og: { type: 'website', title: 'RogerAI - local inference where the network stops', desc: 'Where a local model sits in a plant network, the standards it speaks, and the protection paths it never touches.', url: 'https://rogerai.fm/research-industry.html', image: 'https://rogerai.fm/og-research.png' },
     css: [...CSS_SHARED, 'research.css'],
-    scripts: [{ runtime: true, promo: false }],
+    scripts: [{ runtime: true }],
   });
 </script>
 <svelte:head>{@html head}</svelte:head>

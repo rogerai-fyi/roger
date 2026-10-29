@@ -11,7 +11,7 @@
     robots: "noindex",
     canonical: 'https://rogerai.fm/r.html',
     css: [...CSS_ACCOUNT],
-    scripts: [{ runtime: true, promo: false }],
+    scripts: [{ runtime: true }],
   });
 </script>
 <svelte:head>{@html head}</svelte:head>

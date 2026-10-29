@@ -8,7 +8,7 @@ there has a written exception list, and every entry in it is a known debt.
 ## Component index
 
 Search this table before you build anything. `components.css` unless noted; "JS"
-is the module that wakes on the hook (every page loads it: the runtime list in `app/lib/head.js`).
+is the module that wakes on the hook (every page loads it: `app/runtime.js` bundles them into one module).
 
 | Component | Class / hook | JS | Used on |
 |---|---|---|---|
@@ -110,13 +110,13 @@ sheet edit never invalidates the shared layers.
 og, css, scripts })` in `app/lib/head.js`, and the chrome is the components in
 `app/lib/ui/`: `Nav`, `Footer`, `Rail`, `OnAir`, `Brand`, `InstallBox`, `Promo`,
 `LetsTalk`, `AccountNav`, `TubePing`, `WaveMark`, `WaveMesh`, `WaveFirewatch`,
-`AdapterDial`. The page runtime is the `RUNTIME` list in `head.js`, shipped where a page
-puts `{ runtime: true }` in its scripts.
+`AdapterDial`. The page runtime is `app/runtime.js` (the nine `src/js` scripts as ONE module,
+built to `js/runtime.js`), shipped where a page puts `{ runtime: true }` in its scripts.
 
 **JS**: `site.js` is the page runtime (theme, nav, reveal settle, the copy tick, OS
 detection). Each shared behaviour beyond it is a small module that initializes itself
 from a `data-` hook and does nothing on a page without one: `tuner.js`, `scrub.js`,
-`anchor-hold.js`, `range-twin.js`. The runtime entry in `head.js` ships all of them on every page, so **a page gets a
+`anchor-hold.js`, `range-twin.js`. `app/runtime.js` bundles all of them into the one module every page loads, so **a page gets a
 behaviour by markup alone**.
 
 ## Changing the theme
@@ -539,12 +539,12 @@ style and no colour literal in an article (guarded).
 
 1. `app/routes/<page>/+page.svelte`: a `siteHead({...})` call in `<svelte:head>`,
    `<Nav variant="marketing" />`, the content, `<Footer anchors="/" />`; the page's
-   scripts and `{ runtime: true }` ride the head call (`{ runtime: true, promo: false }`
-   leaves out the promo strip's script; pass `promo={false}` to `Nav` too, which leaves
-   out the strip itself, or it shows un-closable).
-   Every script is deferred, so they run in document order: a page script written before
-   the include runs before site.js, one written after it runs after. Page scripts that need site.js to have run
-   go after the include.
+   scripts and `{ runtime: true }` ride the head call. A page without the promo strip passes
+   `promo={false}` to `Nav`, which leaves the strip out; `promo.js` (inside the runtime) does
+   nothing on a page without one.
+   Every script is deferred (the runtime is a module), so they run in document order: a page
+   script written before the runtime entry runs before site.js, one written after it runs
+   after. Page scripts that need site.js to have run go after the entry.
 2. List its sheets in the page's `siteHead({ css: [...CSS_SHARED, "<page>.css"] })` call.
    or `[...CSS_ACCOUNT, ...]`. The build fails if you forget.
 3. Build it from components first. Page CSS only for what no other page will need, with
@@ -604,8 +604,8 @@ behind them are `scripts/a11y-sweep.py` (axe-core, every page, light and dark, 1
 ## Adding or changing a component
 
 Define it in `components.css` (one section, a header comment with its contract), its
-behaviour in a module that initializes from a `data-` hook and is added to
-the runtime list in `app/lib/head.js`, and its contract here. Page sheets may place a component in their own
+behaviour in a module that initializes from a `data-` hook and is imported by
+`app/runtime.js`, and its contract here. Page sheets may place a component in their own
 context (`.page-x .install__box { margin-top: ... }`) but never restyle it bare; the guard
 fails on a bare component selector outside `components.css`.
 

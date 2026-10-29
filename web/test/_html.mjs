@@ -139,3 +139,8 @@ export function element(html, open, tag) {
   }
   return null;
 }
+
+// The site runtime: the scripts app/runtime.js bundles (src/js/<name>.js, in order), and the one
+// tag a built page carries for the bundle (js/runtime.js, a module, cache-busted).
+export const runtimeScripts = () => [...readFileSync(path.join(APP, "runtime.js"), "utf8").matchAll(/import "\.\.\/src\/js\/([\w-]+)\.js"/g)].map((m) => m[1]);
+export const RUNTIME_TAG = /<script type="module" src="js\/runtime\.js\?v=[0-9a-f]+"><\/script>/;

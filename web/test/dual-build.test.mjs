@@ -6,7 +6,7 @@ import { readFileSync, readdirSync, existsSync, statSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { createHash } from "node:crypto";
-import { WEB, DIST, SRC, APP, read, allPages } from "./_html.mjs";
+import { WEB, DIST, SRC, APP, read, allPages, pageSourcePath } from "./_html.mjs";
 import { transform } from "../scripts/gen-fmt.mjs";
 import { THEME_INLINE } from "../app/lib/head.js";
 
@@ -56,6 +56,28 @@ test("every app-built page went through the finishing passes", () => {
     assert.doesNotMatch(html, /<script>(?!document\.documentElement|\(function\(\)\{function r|\s*\(function \(\) \{\s*try \{\s*var saved)/, `${page}: no inline script beyond the shell's two and the homepage theme script (no SvelteKit loader: islands only)`);
     assert.doesNotMatch(html.replace(/<div data-island="[\w-]+">[\s\S]*?<!--\/island-->/g, ""), /<!--(?:\[-?\d*|\]|!|)-->/, `${page}: no hydration comment outside an island`);
     assert.doesNotMatch(html, /_app\/immutable\/[^"]*\.js/, `${page}: no SvelteKit client chunk (a route that forgot csr = false hydrates twice, the island and the client)`);
+  }
+});
+
+test("the site runtime is one bundle: built, loaded once by every page that asks for it, its sources never shipped twice", () => {
+  const bundled = [...read(path.join(APP, "runtime.js")).matchAll(/import "\.\.\/src\/js\/([\w-]+\.js)"/g)].map((m) => m[1]);
+  assert.ok(bundled.length >= 9, "app/runtime.js imports the runtime scripts");
+  for (const f of bundled) {
+    assert.ok(existsSync(path.join(SRC, "js", f)), `src/js/${f} is a runtime source`);
+    assert.ok(!existsSync(path.join(DIST, "js", f)), `dist/js/${f} is not shipped on its own (it is inside js/runtime.js)`);
+  }
+  const built = path.join(DIST, "js", "runtime.js");
+  assert.ok(existsSync(built), "dist/js/runtime.js is built");
+  assert.ok(statSync(built).size > 10_000, "and carries the scripts");
+  assert.doesNotMatch(read(built), /^\s*import\s/m, "the bundle imports nothing: one request");
+  for (const page of owned) {
+    const html = read(path.join(DIST, page));
+    // a Markdown broadcast asks for it through its layout (lib/ui/BroadcastPost.svelte)
+    const srcPath = pageSourcePath(page);
+    const asks = read(srcPath) + (srcPath.endsWith(".md") ? read(path.join(APP, "lib", "ui", "BroadcastPost.svelte")) : "");
+    const wants = /\{\s*runtime:\s*true\s*\}/.test(asks);
+    assert.equal((html.match(/<script type="module" src="js\/runtime\.js\?v=[0-9a-f]{8}">/g) || []).length, wants ? 1 : 0, `${page}: ${wants ? "loads the runtime once" : "asks for no runtime and gets none"}`);
+    for (const f of bundled) assert.doesNotMatch(html, new RegExp(`src="js/${f.replace(".", "\\.")}`), `${page}: never loads js/${f} beside the bundle`);
   }
 });
 

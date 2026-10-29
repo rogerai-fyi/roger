@@ -11,7 +11,7 @@
     robots: "noindex",
     canonical: 'https://rogerai.fm/stations.html',
     css: [...CSS_ACCOUNT, 'stations.css'],
-    scripts: [{ runtime: true, promo: false }],
+    scripts: [{ runtime: true }],
   });
 </script>
 <svelte:head>{@html head}</svelte:head>

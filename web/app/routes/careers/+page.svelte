@@ -11,7 +11,7 @@
     desc: 'RogerAI Labs is hiring for edge model research, inference engineering, and industrial deployment. Small team, work published in the open, Orange County, California.',
     og: { type: 'website', title: 'Careers at RogerAI', desc: 'Edge model research, inference engineering, and industrial deployment. Small team, published in the open.', url: 'https://rogerai.fm/careers.html', image: 'https://rogerai.fm/og-company.png' },
     css: [...CSS_SHARED, 'research.css', 'careers.css', 'company.css'],
-    scripts: [{ runtime: true, promo: false }],
+    scripts: [{ runtime: true }],
   });
 </script>
 <svelte:head>{@html head}</svelte:head>

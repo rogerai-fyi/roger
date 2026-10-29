@@ -36,7 +36,10 @@ function mains(page) {
   return out;
 }
 import { squashText, decodeText, source } from "./_html.mjs";
-import { siteHead, RUNTIME } from "../app/lib/head.js";
+import { siteHead, RUNTIME_SRC } from "../app/lib/head.js";
+import { runtimeScripts } from "./_html.mjs";
+
+const RUNTIME = runtimeScripts();   // the scripts app/runtime.js bundles into js/runtime.js, in order
 // entities decoded on both sides (test/_html.mjs): the two renderers spell them differently
 const squash = (h) => squashText(h);
 
@@ -108,41 +111,30 @@ test("the rolled-out marketing pages drop the page-local dot texture and use sha
 const PRODUCT = ["login.html", "account.html", "billing.html", "keys.html", "console.html", "dashboard.html",
   "device.html", "stations.html", "payouts.html", "usage.html", "private.html", "r.html", "confidential.html"];
 
-test("(c) every product surface ships the shared runtime, every script deferred", () => {
+test("(c) every product surface ships the shared runtime as the one module, every script deferred", () => {
   for (const page of PRODUCT) {
     const html = dist(page);
-    const body = html;   // the app puts a page's scripts in the head, deferred, in the same order
-    const scripts = [...body.matchAll(/<script\b[^>]*\bsrc="([^"]+)"[^>]*>/g)].filter(([, src]) => !/theme-init\.js/.test(src));
+    const scripts = [...html.matchAll(/<script\b[^>]*\bsrc="([^"]+)"[^>]*>/g)].filter(([, src]) => !/theme-init\.js/.test(src));
     assert.ok(scripts.length, `${page} has scripts`);
     for (const [tag] of scripts) assert.match(tag, /\sdefer\b|type="module"/, `${page}: ${tag} is deferred like every other page's (a module script is deferred by the spec)`);
-    for (const js of ["site", "session", "tuner", "scrub", "anchor-hold", "range-twin", "cycle"]) {
-      assert.match(body, new RegExp(`<script src="/?js/${js}\\.js\\?v=`), `${page} ships js/${js}.js`);
-    }
+    assert.equal((html.match(/<script type="module" src="js\/runtime\.js\?v=[0-9a-f]+">/g) || []).length, 1, `${page} ships js/runtime.js once`);
+    for (const js of RUNTIME) assert.doesNotMatch(html, new RegExp(`src="/?js/${js}\\.js`), `${page} loads js/${js}.js only inside the runtime bundle`);
   }
 });
 
 test("(c) a page's own scripts keep their order relative to each other and to the runtime", () => {
-  // the account pages ran their page script BEFORE site.js (sync); with everything
-  // deferred the order is the document order, so the source order must be unchanged
-  const order = (page) => [...dist(page).matchAll(/<script\b[^>]*\bsrc="\/?js\/([\w-]+)\.js/g)].map((m) => m[1])
-    .filter((n) => !["easter-egg", "lets-talk", "promo", "tuner", "scrub", "anchor-hold", "range-twin", "cycle", "session"].includes(n));
-  assert.deepEqual(order("login.html"), ["theme-init", "site"]);   // an island page: its logic is js/islands/login.js, a module
-  assert.deepEqual(order("account.html"), ["theme-init", "site"]);   // an island page: js/islands/account.js
-  assert.deepEqual(order("billing.html"), ["theme-init", "site"]);   // an island page: js/islands/billing.js
-  assert.deepEqual(order("keys.html"), ["theme-init", "site"]);   // an island page: js/islands/keys.js
-  assert.deepEqual(order("private.html"), ["theme-init", "site"]);   // an island page: js/islands/private.js
-  assert.deepEqual(order("r.html"), ["theme-init", "site"]);   // an island page: its logic is js/islands/link.js, a module
-  assert.deepEqual(order("device.html"), ["theme-init", "site"]);   // an island page: its logic is js/islands/device.js, a module
-  assert.deepEqual(order("stations.html"), ["theme-init", "site"]);   // an island page: js/islands/stations.js
-  assert.deepEqual(order("payouts.html"), ["theme-init", "site"]);   // an island page: js/islands/payouts.js
-  assert.deepEqual(order("usage.html"), ["theme-init", "site"]);   // an island page: js/islands/usage.js
+  // the account pages ran their page script BEFORE site.js (sync); with everything deferred the
+  // order is the document order: the no-flash theme setter, the runtime, then a page's islands
+  const order = (page) => [...dist(page).matchAll(/<script\b[^>]*\bsrc="\/?js\/([\w-]+)\.js/g)].map((m) => m[1]).filter((n) => n !== "easter-egg");
+  for (const page of PRODUCT) assert.deepEqual(order(page), ["theme-init", "runtime"], page);   // an island page's logic is js/islands/<name>.js, a module after these
 });
 
-test("(c) the page runtime has one form: deferred", () => {
+test("(c) the page runtime has one form: one module, the nine scripts in their order", () => {
   // app/lib/head.js emits the runtime where a page puts its { runtime: true } entry
   const head = siteHead({ title: "x", scripts: [{ runtime: true }] });
+  assert.equal((head.match(new RegExp(`<script type="module" src="${RUNTIME_SRC}"><\\/script>`, "g")) || []).length, 1, "the runtime ships once, as a module");
   for (const m of head.matchAll(/<script src="js\/[^"]+"[^>]*>/g)) if (!/theme-init/.test(m[0])) assert.match(m[0], /\sdefer\b/, m[0]);
-  assert.equal(RUNTIME.length, (head.match(/<script src="js\/(?!theme-init|easter-egg)[^"]+" defer>/g) || []).length, "every runtime module ships, once");
+  assert.deepEqual(RUNTIME, ["lets-talk", "site", "session", "promo", "tuner", "scrub", "anchor-hold", "range-twin", "cycle"], "app/runtime.js bundles the nine, in the order they ran");
 });
 
 /* ---- (d) tokens ---------------------------------------------------------------------- */

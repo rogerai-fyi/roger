@@ -12,7 +12,7 @@
     robots: "noindex",
     canonical: 'https://rogerai.fm/private.html',
     css: [...CSS_ACCOUNT, 'console.css', 'private.css'],
-    scripts: [{ runtime: true, promo: false }],
+    scripts: [{ runtime: true }],
   });
 </script>
 <svelte:head>{@html head}</svelte:head>

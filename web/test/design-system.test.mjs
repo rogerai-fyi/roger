@@ -3,6 +3,7 @@
 // hard-coded colour or page-local copy of a shared behaviour slips in. Each rule has a
 // written exception list; an entry there is a known debt with its reason, never a
 // silent pass. Shrinking a list (or a budget) is always welcome; growing one needs a reason.
+import { runtimeScripts, RUNTIME_TAG } from "./_html.mjs";
 import { test, before } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
@@ -69,21 +70,19 @@ test("every page is assembled from the head, nav and footer partials", () => {
   }
 });
 
-test("every page runs the shared page runtime from the site-js partial, never a hand-copied tail", () => {
-  const shared = ["lets-talk", "site", "session", "promo", "tuner", "scrub", "anchor-hold", "range-twin", "cycle"];
+test("every page runs the shared page runtime as the one bundle, never a hand-copied tail", () => {
+  const shared = runtimeScripts();
   for (const page of PAGES) {
     const src = stripHtml(read(page));
     for (const js of shared) {
-      assert.doesNotMatch(src, new RegExp(`<script src="js/${js}\\.js"`), `${page} loads js/${js}.js by hand; use <!-- include: site-js.html -->`);
+      assert.doesNotMatch(src, new RegExp(`<script src="js/${js}\\.js"`), `${page} loads js/${js}.js by hand; use { runtime: true } in its siteHead`);
     }
     if (STUBS[page] || OWN_RUNTIME[page]) continue;
     if (!/^layout: broadcast$/m.test(read(page)))
       assert.match(read(page), /\{ runtime: true/, `${page} runs the shared runtime (scripts: [{ runtime: true }] in its siteHead)`);
     // ...so every component module ships with it, and a page gets a behaviour by markup alone
-    const built = dist(page);
-    for (const js of ["site", "tuner", "scrub", "anchor-hold", "range-twin", "cycle"]) {
-      assert.match(built, new RegExp(`<script src="js/${js}\\.js\\?v=`), `${page} ships js/${js}.js`);
-    }
+    assert.match(dist(page), RUNTIME_TAG, `${page} ships js/runtime.js`);
+    for (const js of ["site", "tuner", "scrub", "anchor-hold", "range-twin", "cycle"]) assert.ok(shared.includes(js), `the runtime bundle carries js/${js}.js`);
   }
 });
 

@@ -12,7 +12,7 @@
     desc: 'How RogerAI picks a station for your request, meters it, and co-signs a receipt neither side can forge. Capacity-aware routing, power-of-two-choices, and settlement bound to a verified receipt.',
     og: { type: 'website', title: 'The Tower - how RogerAI routes, meters and signs', desc: 'Capacity-aware routing with a health gate, and a receipt signed by the station and counter-signed by the broker, so a station cannot profit from misreporting price or tokens.', url: 'https://rogerai.fm/tower.html', image: 'https://rogerai.fm/og-research.png' },
     css: [...CSS_SHARED, 'research.css', 'tower.css'],
-    scripts: [{ runtime: true, promo: false }],
+    scripts: [{ runtime: true }],
   });
 </script>
 <svelte:head>{@html head}</svelte:head>

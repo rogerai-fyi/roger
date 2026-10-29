@@ -16,9 +16,10 @@ const SITE_ITEMS = [
   `<link rel="preload" href="assets/fonts/space-grotesk-latin.woff2" as="font" type="font/woff2" crossorigin />`,
   `<script src="js/easter-egg.js" defer><\/script>`,
 ];
-// The shared page runtime (legacy _partials/site-js.html), one form, deferred, where the
-// page puts its { runtime: true } entry; promo: false leaves out the promo strip's script.
-export const RUNTIME = ["lets-talk", "site", "session", "promo", "tuner", "scrub", "anchor-hold", "range-twin", "cycle"];
+// The shared page runtime (legacy _partials/site-js.html): one module, app/runtime.js built to
+// js/runtime.js, where the page puts its { runtime: true } entry. A module script is deferred
+// by the spec and runs in document order with the islands' modules after it.
+export const RUNTIME_SRC = "js/runtime.js";
 
 // The homepage's no-flash theme script, inline because it must run before first paint. Its
 // sha256 is allow-listed at the edge (web/scripts/cf-edge.mjs); test/dual-build.test.mjs pins
@@ -49,8 +50,8 @@ export const CSS_ACCOUNT = [...CSS_SHARED, "account-base.css"];
 // og: "home" (the marketing block) | { type, title, desc, url, image } (a page's own card)
 // theme: "external" (js/theme-init.js, default) | "inline" (the homepage) | "none"
 // extra: a page's own head markup (its JSON-LD, preloads), inserted after the stylesheets
-// scripts: the page's scripts in document order, [{ src, defer }], with one { runtime: true,
-//          promo?: false } entry where the shared runtime goes (a page without one has none)
+// scripts: the page's scripts in document order, [{ src, defer }], with one { runtime: true }
+//          entry where the shared runtime goes (a page without one has none)
 export function siteHead({ title, desc, robots, canonical, og, css = CSS_SHARED, theme = "external", extra = "", scripts = [] }) {
   const out = [`<title>${esc(title)}</title>`];
   if (desc) out.push(`<meta name="description" content="${esc(desc)}" />`);
@@ -87,7 +88,7 @@ export function siteHead({ title, desc, robots, canonical, og, css = CSS_SHARED,
   for (const f of css) out.push(`<link rel="stylesheet" href="styles/${f}" />`);
   if (extra) out.push(extra.trim());
   for (const sc of scripts) {
-    if (sc.runtime) for (const r of RUNTIME) { if (r !== "promo" || sc.promo !== false) out.push(`<script src="js/${r}.js" defer><\/script>`); }
+    if (sc.runtime) out.push(`<script type="module" src="${RUNTIME_SRC}"><\/script>`);
     else out.push(`<script src="${sc.src}"${sc.defer ? " defer" : ""}><\/script>`);
   }
   return out.join("\n  ");

@@ -4,6 +4,7 @@
 // prefilled mailto to labs@rogerai.fm. There is no form backend, so the assertions
 // here are mostly about honesty - a real mailto fallback, no action/POST anywhere,
 // and the billing-help accessibility contract (trap, Esc, restore).
+import { runtimeScripts, RUNTIME_TAG } from "./_html.mjs";
 import { test, before } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -37,8 +38,9 @@ test("lets-talk: the dialog is an accessible modal with the billing-help contrac
     assert.ok(dlg, `${page} carries the dialog markup`);
     assert.match(dlg, /role="dialog"/);
     assert.match(dlg, /aria-labelledby="letsTalkTitle"/);
-    assert.match(html, /js\/lets-talk\.js/, `${page} loads the behavior`);
+    assert.match(html, RUNTIME_TAG, `${page} loads the runtime bundle, which carries the behavior`);
   }
+  assert.ok(runtimeScripts().includes("lets-talk"), "the runtime bundle carries lets-talk.js");
   const js = src("js/lets-talk.js");
   for (const contract of [/keydown/, /Escape|Esc/, /focus/, /aria-expanded/]) {
     assert.match(js, contract, `lets-talk.js honors ${contract}`);

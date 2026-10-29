@@ -114,10 +114,12 @@ web/
                             one folder per signed-in page: its component tree + the pure modules
                             it renders from (charts.js, topup.js, spark.js, rc.js, series.js, ...)
     islands/<name>.js       one entry per island, bundled to dist/js/islands/<name>.js
+    runtime.js              the site runtime (src/js: site, session, promo, tuner, ...) as ONE
+                            module, dist/js/runtime.js; a page asks for it with { runtime: true }
     body-attrs.json         per-route <body> attributes (class="auth", data-onair)
-  src/                      the static tree every page uses: js/ (the site runtime and the
-                            content pages' classic scripts), styles/, assets/, data/ (build input), install.sh
-  build.mjs                 the orchestrator: islands -> app -> finishing passes -> sitemap, llms.txt
+  src/                      the static tree every page uses: js/ (the runtime's sources, bundled, and
+                            the content pages' classic scripts), styles/, assets/, data/ (build input), install.sh
+  build.mjs                 the orchestrator: bundles (islands + runtime) -> app -> finishing passes -> sitemap, llms.txt
   test/                     the guard suite (node:test) over dist/ and the sources; test/unit (vitest):
                             every island's behavior over a fake broker, one file per page
   e2e/                      browser flows (Playwright) over the built site

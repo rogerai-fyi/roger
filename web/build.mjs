@@ -5,6 +5,7 @@
 //   app/lib/                         the chrome (ui/), the head (head.js), the broker client
 //                                    (api.js), the data-file facts (content.js), the islands
 //   app/islands/<name>.js            an island's entry, bundled to dist/js/islands/<name>.js
+//   app/runtime.js                   the site runtime (src/js, nine scripts) as one module, dist/js/runtime.js
 //   src/                             the static tree every page uses: js/ (the page scripts),
 //                                    styles/, assets/, data/ (build input), install.sh, roger/
 //
@@ -71,20 +72,26 @@ function appStamp(pages) {
   };
   walk(APP);
   if (existsSync(join(SRC, "data"))) walk(join(SRC, "data"));
+  walk(join(SRC, "js"));   // the runtime bundle's sources
   for (const f of ["vite.config.mjs", "vite.islands.config.mjs", "package-lock.json"]) h.update(readFileSync(join(ROOT, f)));
   h.update(JSON.stringify(pages));
   return h.digest("hex");
 }
 
-// The islands first (a page references its island by a fixed name), then the pages.
+// The scripts app/runtime.js bundles (src/js/<name>.js): shipped as dist/js/runtime.js, not
+// as the files, so a page never loads them twice.
+const RUNTIME_SOURCES = [...readFileSync(join(APP, "runtime.js"), "utf8").matchAll(/import "\.\.\/src\/js\/([\w-]+\.js)"/g)].map((m) => join("js", m[1]));
+
+// The bundles first (a page references its island by a fixed name, the runtime by its one
+// name), then the pages.
 function buildApp(pages) {
   ensureToolchain();
   const stamp = appStamp(pages), stampFile = join(KIT_BUILD, ".stamp");
   const islandSources = readdirSync(join(APP, "islands")).filter((f) => f.endsWith(".js"));
-  const islandsBuilt = islandSources.every((f) => existsSync(join(ISLANDS_OUT, f)));
+  const islandsBuilt = [...islandSources, "runtime.js"].every((f) => existsSync(join(ISLANDS_OUT, f)));
   if (existsSync(stampFile) && readFileSync(stampFile, "utf8") === stamp && islandsBuilt && pages.every((p) => existsSync(join(KIT_BUILD, p)))) return;
   rmSync(ISLANDS_OUT, { recursive: true, force: true });
-  if (islandSources.length) vite(["build", "--config", "vite.islands.config.mjs", "--logLevel", "warn"]);
+  vite(["build", "--config", "vite.islands.config.mjs", "--logLevel", "warn"]);
   vite(["build", "--logLevel", "warn"], { WEB_KIT_ENTRIES: JSON.stringify(pages.map(routeOf)) });
   for (const page of pages)
     if (!existsSync(join(KIT_BUILD, page))) throw new Error(`the app did not produce ${page} (is there an app/routes${routeOf(page)}/+page.* ?)`);
@@ -99,6 +106,7 @@ function copyAssets(dir) {
     const rel = relative(SRC, abs);
     if (rel === join("data", "wave-status.json") || rel === join("data", "capabilities.json")) continue;   // build input, rendered into pages
     if (rel === join("data", "model-cards.json")) continue;   // build input, rendered into the model pages
+    if (RUNTIME_SOURCES.includes(rel)) continue;   // bundled into js/runtime.js
     if (!rel.includes("/") && ent.name.endsWith(".html")) throw new Error(`web/src/${rel}: a page is an app route (app/routes), not a file in src/`);
     const dest = join(DIST, rel);
     mkdirSync(dirname(dest), { recursive: true });
@@ -130,6 +138,7 @@ function assetHash(rel) {
   try {
     const data = rel.endsWith(".css") ? cssOut(rel)
       : rel.startsWith("js/islands/") ? readFileSync(join(ISLANDS_OUT, rel.slice("js/islands/".length)))
+      : rel === "js/runtime.js" ? readFileSync(join(ISLANDS_OUT, "runtime.js"))
       : readFileSync(join(SRC, rel));
     h = createHash("sha256").update(data).digest("hex").slice(0, 8);
   } catch { /* missing/external: leave it unversioned rather than break the build */ }
@@ -386,7 +395,9 @@ function build() {
   // the app's own output beside the pages: component stylesheets under _app/ (if any page
   // has them) and the island bundles under js/islands/
   if (existsSync(join(KIT_BUILD, "_app"))) copyTree(join(KIT_BUILD, "_app"), join(DIST, "_app"));
-  if (existsSync(ISLANDS_OUT)) copyTree(ISLANDS_OUT, join(DIST, "js", "islands"));
+  for (const f of existsSync(ISLANDS_OUT) ? readdirSync(ISLANDS_OUT) : []) {
+    copyOut(join(ISLANDS_OUT, f), f === "runtime.js" ? join(DIST, "js", f) : join(DIST, "js", "islands", f));
+  }
   const n = writeSitemap(indexable);
   const l = writeLlms(indexable, htmlByPage);
 

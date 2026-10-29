@@ -20,7 +20,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import vm from "node:vm";
 import { source, decodeMarkup, component } from "./_html.mjs";
-import { RUNTIME } from "../app/lib/head.js";
+import { runtimeScripts, RUNTIME_TAG } from "./_html.mjs";
 
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const src = source;   // a page's source, legacy or app route (test/_html.mjs)
@@ -74,8 +74,9 @@ test("the nav and the headline share one cycler: same module, same CSS component
   for (const f of readdirSync(path.join(WEB, "src/js")).filter((x) => x.endsWith(".js") && x !== "cycle.js")) {
     assert.ok(!src(`js/${f}`).includes("[data-cycle"), `js/${f} handles [data-cycle], which belongs to cycle.js`);
   }
-  assert.ok(RUNTIME.includes("cycle"), "it ships with the page runtime (app/lib/head.js)");
-  assert.match(dist("index.html"), /<script src="js\/cycle\.js\?v=[0-9a-f]+" defer><\/script>/);
+  assert.ok(runtimeScripts().includes("cycle"), "it ships with the page runtime (app/runtime.js)");
+  assert.match(dist("index.html"), RUNTIME_TAG);
+  assert.ok(runtimeScripts().includes("cycle"), "the runtime bundle carries cycle.js");
   const comp = src("styles/components.css");
   assert.match(comp, /\.cycle-word \{[^}]*display: inline-block/, "the component lives in components.css");
   assert.match(comp, /\.cycle-word\.is-out \{/);

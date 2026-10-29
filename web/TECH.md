@@ -11,9 +11,11 @@ The decision below stood for a year and the site it produced is the one this bui
 emits. What changed in October 2026 is how the pages are WRITTEN: 56 hand-written HTML
 files, each pulling chrome from include markers, became routes of one SvelteKit app, with
 the chrome as components, the head as one function, the broker client in one module and
-the data-file facts behind one resolver. The output is the same static tree (every route
-prerendered, nothing hydrates through SvelteKit, interactive parts are Svelte islands),
-on the same host, under the same edge CSP, inside the same weight budgets. The plan and
+the data-file facts behind one resolver. Every signed-in page is a Svelte island (its card a
+component tree under `app/lib/<page>/`, its behavior a vitest file), and the nine page
+scripts every page ran ship as one module (`app/runtime.js`, built to `js/runtime.js`). The
+output is the same static tree (every route prerendered, nothing hydrates through
+SvelteKit), on the same host, under the same edge CSP, inside the same weight budgets. The plan and
 the spike numbers are in the private docs (WEB-SVELTEKIT-MIGRATION-PLAN.md and the
 2026-10-28 spike report). The rest of this file is the original decision, kept because the
 runtime story (Canvas2D, no animation libraries, self-hosted fonts) is unchanged.
