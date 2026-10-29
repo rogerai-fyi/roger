@@ -103,16 +103,23 @@ web/
     routes/<post>/+page.md       a broadcast as Markdown, laid out by lib/ui/BroadcastPost.svelte
     lib/head.js             the per-page <head>: siteHead({ title, desc, og, css, scripts })
     lib/ui/*.svelte         the chrome, once: Nav, Footer, Rail, Brand, OnAir, InstallBox, ...
-    lib/api.js              the one broker client (credentialed fetch, the login-gate rule)
+    lib/api.js              the one broker client (credentialed fetch, getJSON, logout, the login-gate rule)
+    lib/format.js, lib/fmt.js   money, counts, dates, the rfmt tile action; fmt.js is generated from src/js/fmt.js
+    lib/rollup.js           the /metrics/series rollups (per model, totals) the dashboard and metrics share
     lib/content.js          wave, model-card and capability facts from src/data, one resolver
     lib/island.js, lib/ui/Island.svelte   islands: the interactive parts, hydrated by Svelte alone
-    lib/console/            the console card (the first island)
+    lib/account/            boot.js (the first read: only a 401 is "signed out") and the account
+                            islands: LoginApp, LinkApp (/r), DeviceApp, AccountApp, StationsApp, PayoutsApp
+    lib/console/, lib/dashboard/, lib/keys/, lib/billing/, lib/private/, lib/usage/
+                            one folder per signed-in page: its component tree + the pure modules
+                            it renders from (charts.js, topup.js, spark.js, rc.js, series.js, ...)
     islands/<name>.js       one entry per island, bundled to dist/js/islands/<name>.js
     body-attrs.json         per-route <body> attributes (class="auth", data-onair)
-  src/                      the static tree every page uses: js/ (the page scripts, still
-                            classic scripts), styles/, assets/, data/ (build input), install.sh
+  src/                      the static tree every page uses: js/ (the site runtime and the
+                            content pages' classic scripts), styles/, assets/, data/ (build input), install.sh
   build.mjs                 the orchestrator: islands -> app -> finishing passes -> sitemap, llms.txt
-  test/                     the guard suite (node:test) over dist/ and the sources; test/unit (vitest)
+  test/                     the guard suite (node:test) over dist/ and the sources; test/unit (vitest):
+                            every island's behavior over a fake broker, one file per page
   e2e/                      browser flows (Playwright) over the built site
 ```
 
@@ -122,6 +129,14 @@ chunk), so the edge CSP stays `script-src 'self'`; an island hydrates its own pr
 markup, strictly; the app shell's inline scripts are byte-identical to the legacy head's
 (their hashes are allow-listed at the edge); every built page is cache-busted, carries one
 canonical, and ships no hydration comment outside an island.
+
+Every signed-in page is an island (console, dashboard, stations, account, keys, billing,
+payouts, metrics, Base Station, sign-in, the device approval and the /r link handler): the
+route is a shell (head, nav, `<Island>`, footer), the card is a component tree under
+`app/lib/<page>/`, and the page's behavior is a vitest file under `test/unit/`. The Go
+scenarios that pin a page (features/auth/*.feature, `# test:` pointers) run those files
+through `cmd/rogerai-broker/web_spec_test.go`. `e2e/islands.spec.js` proves each island
+hydrates its prerendered markup in place in a real browser.
 
 ## Deploy
 
