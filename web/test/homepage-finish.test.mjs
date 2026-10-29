@@ -14,10 +14,11 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import vm from "node:vm";
+import { source, decodeText } from "./_html.mjs";
 
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const dist = (p) => readFileSync(path.join(WEB, "dist", p), "utf8");
-const src = (p) => readFileSync(path.join(WEB, "src", p), "utf8");
+const src = source;   // a page's source, legacy or app route (test/_html.mjs)
 const css = (f) => src(`styles/${f}`).replace(/\/\*[\s\S]*?\*\//g, "");
 const fixture = JSON.parse(readFileSync(path.join(WEB, "test/fixtures/homepage-page-text.json"), "utf8"));
 
@@ -48,8 +49,8 @@ function mediaList(sheet, re) {
 
 // ---- (a) the words ----
 test("(a) every word on the homepage is unchanged (whitespace aside)", () => {
-  const text = body().replace(/<!--[\s\S]*?-->/g, "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
-  assert.equal(text.replace(/\s+/g, ""), fixture.text.replace(/\s+/g, ""), "a presentation pass never edits copy");
+  const text = decodeText(body().replace(/<!--[\s\S]*?-->/g, "").replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim();
+  assert.equal(text.replace(/\s+/g, ""), decodeText(fixture.text).replace(/\s+/g, ""), "a presentation pass never edits copy");
 });
 
 test("(a) every link on the homepage is the same link, in the same order", () => {

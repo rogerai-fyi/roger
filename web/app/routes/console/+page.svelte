@@ -7,9 +7,9 @@
   import Footer from "#lib/ui/Footer.svelte";
   import Island from "#lib/ui/Island.svelte";
   import ConsoleApp from "#lib/console/ConsoleApp.svelte";
-  const head = siteHead({ title: "Console - RogerAI", robots: "noindex", canonical: "https://rogerai.fm/console.html", css: [...CSS_ACCOUNT, "console.css"] });
+  const head = siteHead({ title: "Console - RogerAI", robots: "noindex", canonical: "https://rogerai.fm/console.html", css: [...CSS_ACCOUNT, "console.css"], scripts: [{ runtime: true }] });
 </script>
 <svelte:head>{@html head}</svelte:head>
 <Nav variant="lean" />
-<Island name="console"><ConsoleApp /></Island>
+<Island name="console" component={ConsoleApp} />
 <Footer />

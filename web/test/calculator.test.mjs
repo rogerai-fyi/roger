@@ -21,11 +21,12 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { source, decodeMarkup } from "./_html.mjs";
 
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const REPO = path.join(WEB, "..");
 const read = (p) => readFileSync(path.join(WEB, "dist", p), "utf8");
-const src = (p) => readFileSync(path.join(WEB, "src", p), "utf8");
+const src = source;   // a page's source, legacy or app route (test/_html.mjs)
 const go = (...p) => readFileSync(path.join(REPO, ...p), "utf8");
 
 before(() => execFileSync("node", ["build.mjs"], { cwd: WEB }));
@@ -233,7 +234,7 @@ test("calculator: the printed example is what the printed inputs actually produc
 // duplicate only showed up in a screenshot. Section numbers are a promise that the page
 // reads in order, so they are checked.
 test("calculator: the pricing page's sections are numbered once each, in order", () => {
-  const nums = [...read("pricing.html").matchAll(/&sect;(\d+) \/ [A-Z]/g)].map((m) => Number(m[1]));
+  const nums = [...decodeMarkup(read("pricing.html")).matchAll(/§(\d+) \/ [A-Z]/g)].map((m) => Number(m[1]));
   assert.ok(nums.length >= 6, `the page is numbered (${nums.length} sections)`);
   // §0 is the merged why argument (2026-09-02): the value opens the page before any number.
   assert.deepEqual(nums, nums.map((_, i) => i), "sections run 0..n with no repeat and no gap");

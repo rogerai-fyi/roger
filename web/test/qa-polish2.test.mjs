@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { allPages, source } from "./_html.mjs";
 
 const WEB = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (f) => readFileSync(path.join(WEB, f), "utf8");
@@ -54,7 +55,7 @@ test("the diagram scroll box is one shared component: a floor width and the edge
 
 for (const d of DIAGRAMS) {
   test(`${d.page} ${d.svg}: in the diagram scroll box, at a floor that keeps labels >= ${LABEL_FLOOR}px`, () => {
-    const html = read(path.join("src", d.page));
+    const html = source(d.page);
     const re = new RegExp(`<div class="scroll-box scroll-box--diagram"[^>]*>\\s*<svg class="${d.svg}"`);
     assert.match(html, re, "the svg is the direct child of the diagram scroll box");
     const hook = d.svg.replace("__svg", "");
@@ -159,7 +160,7 @@ test("account states: one component in the account sheet, on the shared tinted g
 });
 for (const s of ACCOUNT_STATES) {
   test(`account states: ${s.page}${s.id ? " #" + s.id : " signed out"} uses the account state`, () => {
-    const html = read(path.join("src", s.page));
+    const html = source(s.page);
     const scope = s.within ? html.match(s.within)?.[0] || "" : html;
     const open = s.id
       ? new RegExp(`<(section|div) class="acct-state tint-panel" id="${s.id}" hidden>`)
@@ -181,11 +182,11 @@ test("account states: the card's link treatment leaves the lead row's buttons al
 // plate (.figure.figure--plate): the tinted ground, one radius, one inset, the FIG. caption
 // inside it under the media, left-set. A landscape lead (hero) image or loop is cropped to
 // one 16:9 shape; a portrait phone lead keeps its shape (.figure--phone).
-const ARTICLES = readdirSync(path.join(WEB, "src")).filter((f) => /^broadcasts-.+\.html$/.test(f));
+const ARTICLES = allPages().filter((f) => /^broadcasts-.+\.html$/.test(f));
 test("articles: every figure is the shared plate", () => {
   const bad = [];
   for (const f of ARTICLES) {
-    for (const [tag] of read(path.join("src", f)).matchAll(/<figure\b[^>]*>/g)) {
+    for (const [tag] of source(f).matchAll(/<figure\b[^>]*>/g)) {
       const cls = (tag.match(/class="([^"]*)"/)?.[1] || "").split(/\s+/);
       if (!cls.includes("figure") || !cls.includes("figure--plate")) bad.push(`${f}: ${tag}`);
     }
@@ -206,7 +207,7 @@ test("articles: a landscape lead is one 16:9 crop; the video's FIG. label sits u
 });
 
 test("share-GPU chart: every body line fits inside its node box with room, at the chart's own 12.5 size", () => {
-  const html = read("src/broadcasts-share-gpu-earn.html");
+  const html = source("broadcasts-share-gpu-earn.html");
   const fs = Number(html.match(/\.d-b\{[^}]*font-size:([\d.]+)px/)[1]);
   assert.equal(fs, 12.5, "the body size is not shrunk to fit (it fell under the phone floor)");
   // the mono face as rendered advances 0.615em a glyph (measured: 223 units at 12.5px for 29
@@ -221,7 +222,7 @@ test("share-GPU chart: every body line fits inside its node box with room, at th
 
 test("articles: a lead image's width and height say its real size (share-hero said 1280x560; it is 1280x720)", () => {
   for (const f of ARTICLES) {
-    const html = read(path.join("src", f));
+    const html = source(f);
     for (const [, src, w, h] of html.matchAll(/<img\s+(?:class="[^"]*"\s+)?src="(assets\/broadcasts\/[^"]+\.png)" width="(\d+)" height="(\d+)"/g)) {
       const png = readFileSync(path.join(WEB, "src", src));
       assert.deepEqual([png.readUInt32BE(16), png.readUInt32BE(20)], [Number(w), Number(h)], `${f}: ${src}`);
@@ -247,7 +248,7 @@ const CHARTS = {
 };
 test("article charts: every one is a .figure--chart in the diagram box", () => {
   for (const f of ARTICLES) {
-    const html = read(path.join("src", f));
+    const html = source(f);
     const figs = [...html.matchAll(/<figure\b[^>]*>[\s\S]*?<\/figure>/g)].map((m) => m[0]).filter((fig) => /<svg\b[\s\S]*?<text\b/.test(fig));
     assert.equal(figs.length, (CHARTS[f] || []).length, `${f}: the chart table lists every chart`);
     for (const fig of figs) {
@@ -268,8 +269,8 @@ test("article charts: the component's phone floor keeps every chart's smallest l
 });
 
 test("no page comment still describes a primary-then-outline action row", () => {
-  for (const f of readdirSync(path.join(WEB, "src")).filter((n) => n.endsWith(".html"))) {
-    for (const [c] of read(path.join("src", f)).matchAll(/<!--[\s\S]*?-->/g)) {
+  for (const f of allPages()) {
+    for (const [c] of source(f).matchAll(/<!--[\s\S]*?-->/g)) {
       assert.doesNotMatch(c, /(filled|solid) primary|outline buttons/i, `${f}: ${c.slice(0, 90)}`);
     }
   }

@@ -17,11 +17,12 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { source } from "./_html.mjs";
 
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PAGE = "research-hardware.html";
 const read = (p) => readFileSync(path.join(WEB, "dist", p), "utf8");
-const src = (p) => readFileSync(path.join(WEB, "src", p), "utf8");
+const src = source;   // a page's source, legacy or app route (test/_html.mjs)
 const compact = (s) => s.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
 
 before(() => execFileSync("node", ["build.mjs"], { cwd: WEB }));
@@ -40,7 +41,7 @@ test("hardware: it is reachable from the Research menu, not orphaned", () => {
 });
 
 test("hardware: it is registered for its own stylesheet", () => {
-  assert.match(src("../build.mjs"), new RegExp(`"${PAGE}"`), "the page has a CSS bundle");
+  assert.match(src(PAGE), new RegExp(`'${"research-hardware"}\\.css'`), "the page lists its sheet in its head call");
   assert.match(read(PAGE), /styles\/research-hardware\.css/, "and links it");
 });
 

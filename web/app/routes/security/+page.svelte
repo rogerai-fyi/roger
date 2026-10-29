@@ -1,0 +1,78 @@
+<script>
+  // Security - RogerAI
+  // Ported from web/src/security.html (2026-10-29); the copy is the legacy copy.
+  import { siteHead, CSS_SHARED, CSS_ACCOUNT } from "#lib/head.js";
+  import Footer from "#lib/ui/Footer.svelte";
+  import Nav from "#lib/ui/Nav.svelte";
+  const head = siteHead({
+    title: 'Security - RogerAI',
+    robots: "noindex",
+    canonical: 'https://rogerai.fm/security.html',
+    css: [...CSS_SHARED, 'company.css'],
+    scripts: [{ runtime: true }],
+  });
+</script>
+<svelte:head>{@html head}</svelte:head>
+  <Nav variant='marketing' home='/' />
+  <!-- Marketing chrome and a calm reading column (2026-09-24 lift). Presentation
+       only: every sentence and link in <main> is the pre-lift text, pinned word for
+       word by test/company-lift.test.mjs. Any wording change is a legal change. -->
+  <main id="top" class="co-page legal">
+    <div class="wrap">
+    <header class="legal__head">
+    <h1>Security</h1>
+    <p class="sub">How the platform is built to fail safe, and how to report a problem.</p>
+    </header>
+
+    <nav class="page-index tint-panel legal__index" aria-label="Sections">
+      <ol>
+        <li><a class="page-index__link" href="#our-posture">Our posture</a></li>
+        <li><a class="page-index__link" href="#report-vulnerability">Report a vulnerability</a></li>
+        <li><a class="page-index__link" href="#report-abuse-station">Report abuse or a station</a></li>
+      </ol>
+    </nav>
+
+    <div class="legal__body">
+
+    <section class="legal__sec">
+      <h2 id="our-posture">Our posture</h2>
+      <p>Nodes reach the broker over an <b>outbound-only</b> tunnel - an operator's machine
+        opens the connection out, so there are <b>no inbound ports</b> to expose on a home
+        network. Work is pulled, never pushed in.</p>
+      <p>Every settled request carries an <b>Ed25519-signed lineage receipt</b>, so which node
+        served which request can be verified and cannot be forged.</p>
+      <p>The browser talks to the broker over <b>credentialed CORS</b> against an allow-listed
+        origin; the session lives in a signed, http-only cookie and no access tokens ever
+        touch page JavaScript.</p>
+      <p><b>Stripe</b> holds all PCI card data and all KYC identity documents. We never store
+        card numbers, bank details, or identity documents on our side.</p>
+    </section>
+
+    <section class="legal__sec">
+      <h2 id="report-vulnerability">Report a vulnerability</h2>
+      <p>Please report security issues <b>privately</b> - do not open a public issue or PR.</p>
+      <p>Preferred: GitHub private vulnerability reporting on the repo
+        (<a href="https://github.com/rogerai-fyi/roger/security">Security &rarr; Report a
+        vulnerability</a>). Or email <a href="mailto:security@rogerai.fm">security@rogerai.fm</a>.</p>
+      <p>We aim to acknowledge within 72 hours. Please include reproduction steps and impact;
+        we will coordinate a fix and a disclosure timeline with you. Full policy:
+        <a href="https://github.com/rogerai-fyi/roger/blob/main/SECURITY.md">SECURITY.md</a>.
+        Machine-readable contact: <a href="/.well-known/security.txt">/.well-known/security.txt</a>
+        (RFC 9116).</p>
+    </section>
+
+    <section class="legal__sec">
+      <h2 id="report-abuse-station">Report abuse or a station</h2>
+      <p>For abuse, prohibited content, or a misbehaving station - not a software
+        vulnerability - use the <b>report</b> control on each station in the
+        <a href="/models.html">Models</a> directory, or email
+        <a href="mailto:abuse@rogerai.fm">abuse@rogerai.fm</a>. The Acceptable Use Policy is
+        in the <a href="/tos.html">Terms</a>. We act on reports, and a station's record
+        follows it.</p>
+    </section>
+
+    <p class="fine"><a href="/privacy.html">Privacy</a> - <a href="/tos.html">Terms</a> - <a href="mailto:abuse@rogerai.fm">Report abuse</a> - <a href="/account.html">Account</a></p>
+    </div>
+    </div>
+  </main>
+  <Footer anchors='/' />

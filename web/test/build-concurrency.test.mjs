@@ -52,7 +52,7 @@ test("build: output that no longer has a source is pruned", () => {
 
 test("build: pruning does not reach outside dist", () => {
   // A prune with a bad root is how a build deletes a source tree. Assert the obvious.
-  const canary = path.join(WEB, "src", "index.html");
+  const canary = path.join(WEB, "src", "js", "site.js");
   assert.ok(existsSync(canary), "the source survived the build");
   build();
   assert.ok(existsSync(canary), "and survives another one");

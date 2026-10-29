@@ -6,7 +6,9 @@ import vm from "node:vm";
 import path from "node:path";
 
 const SRC = path.join(path.dirname(fileURLToPath(import.meta.url)), "../src");
-export const src = (p) => readFileSync(path.join(SRC, p), "utf8");
+// a page's source wherever it lives (legacy file or app route); scripts and sheets from web/src
+import { pageSource } from "./_html.mjs";
+export const src = (p) => (/^[\w-]+\.html$/.test(p) ? pageSource(p) : readFileSync(path.join(SRC, p), "utf8"));
 // fmt.js is a classic script (window.RogerFmt in a page, module.exports under CommonJS);
 // the package is an ES module package, so it is evaluated here with a CommonJS shim.
 const fmtModule = { exports: {} };

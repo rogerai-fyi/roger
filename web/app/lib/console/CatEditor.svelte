@@ -1,6 +1,7 @@
 <script>
   // The category editor (features/categories/web_card_editor.feature): a front-end on
   // POST /provider/meta. The broker validates, so a refusal shows the server's reason.
+  import { untrack } from "svelte";
   import { BROKER, postJSON } from "#lib/api.js";
   let { m, onsaved } = $props();
 
@@ -16,13 +17,13 @@
     } catch { return []; }
   }
 
-  let category = $state(m.category || "");
-  let subcategory = $state(m.subcategory || "");
-  let tags = $state((m.tags || []).join(", "));
-  let tuning = $state(m.tuning || "");
-  let policy = $state(m.content_policy || "");
-  let license = $state(m.license || "");
-  let baseModel = $state(m.base_model || "");
+  let category = $state(untrack(() => m.category || ""));
+  let subcategory = $state(untrack(() => m.subcategory || ""));
+  let tags = $state(untrack(() => (m.tags || []).join(", ")));
+  let tuning = $state(untrack(() => m.tuning || ""));
+  let policy = $state(untrack(() => m.content_policy || ""));
+  let license = $state(untrack(() => m.license || ""));
+  let baseModel = $state(untrack(() => m.base_model || ""));
   let busy = $state(false);
   let ready = $state(false);
   let msg = $state({ cls: "", text: "" });

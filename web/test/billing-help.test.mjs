@@ -11,9 +11,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { WEB, source } from "./_html.mjs";
 
 const SRC = path.join(path.dirname(fileURLToPath(import.meta.url)), "../src");
-const read = (p) => readFileSync(path.join(SRC, p), "utf8");
+const read = source;  // a page's source, legacy or app route (test/_html.mjs)
 
 const account = read("account.html");
 const billing = read("billing.html");
@@ -40,7 +41,8 @@ test("billing: a '?' affordance near Wallet opens the modal, keyboard-reachable"
   // a secondary, more discoverable text trigger too.
   assert.match(billing, /class="bx-help-link"[^>]*data-help-open/, "fine-print trigger");
   // the script is wired (deferred, like every page script since the 2026-09 rollout).
-  assert.match(billing, /<script src="js\/billing-help\.js"(?: defer)?>/, "billing-help.js loaded");
+  // the page script is listed in the route's head call and ships deferred in the built page
+  assert.match(readFileSync(path.join(WEB, "dist", "billing.html"), "utf8"), /<script src="js\/billing-help\.js\?v=[0-9a-f]+" defer>/, "billing-help.js loaded");
 });
 
 test("billing: the modal is an accessible dialog", () => {

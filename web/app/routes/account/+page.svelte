@@ -1,0 +1,125 @@
+<script>
+  // Account - RogerAI
+  // Ported from web/src/account.html (2026-10-29); the copy is the legacy copy.
+  import { siteHead, CSS_SHARED, CSS_ACCOUNT } from "#lib/head.js";
+  import AccountNav from "#lib/ui/AccountNav.svelte";
+  import Footer from "#lib/ui/Footer.svelte";
+  import Nav from "#lib/ui/Nav.svelte";
+  const head = siteHead({
+    title: 'Account - RogerAI',
+    robots: "noindex",
+    canonical: 'https://rogerai.fm/account.html',
+    css: [...CSS_ACCOUNT, 'account.css'],
+    scripts: [{ src: 'js/fmt.js', defer: true }, { src: 'js/account.js', defer: true }, { runtime: true }],
+  });
+</script>
+<svelte:head>{@html head}</svelte:head>
+  <Nav variant='lean' home='/' />
+  <div class="authwrap tint-panel">
+  <main class="card" id="card" hidden>
+    <p class="fine" id="pageError" role="alert" hidden>Could not load this page. Try again shortly.</p>
+    <h1>Account</h1>
+    <p class="sub">Signed in as <b id="who">-</b></p>
+
+    <!-- ============================================================
+         WALLET: the available balance, front and center - the one number
+         a person opens this page to check. Set big in mono ink (money is
+         weight, not hue; the red is only the §-rule glint). Links to
+         Billing to top up or read the full ledger. #balance is filled by
+         account.js exactly as before - only its placement changed.
+         ============================================================ -->
+    <section class="ac-wallet">
+      <p class="ac-wallet__eyebrow">Wallet balance</p>
+      <p class="ac-wallet__amt" id="balance">-</p>
+      <p class="ac-wallet__sub">Available to spend across every model and grant key.
+        <a href="/billing.html">Add money or read the ledger</a>.</p>
+    </section>
+
+    <section class="panel">
+      <h2>Profile</h2>
+      <dl class="stats">
+        <div><dt>Handle</dt><dd id="handle">-</dd></div>
+      </dl>
+      <dl class="ac-meta">
+        <div><dt>Sign-in</dt><dd id="signin">-</dd></div>
+        <div><dt>Machines</dt><dd id="machines">-</dd></div>
+        <div><dt>Payout status</dt><dd id="connect">-</dd></div>
+        <div><dt>Member since</dt><dd id="since">-</dd></div>
+      </dl>
+
+      <p class="fine" id="identityHelp">Your machines, earnings and API keys belong to the sign-in that ran
+        <code>roger login</code>. If you signed in another way and see none of them here, sign in with that one
+        instead: <a href="/login.html">switch sign-in</a>.</p>
+
+      <div class="ac-field">
+        <label class="ac-field__k" for="email">Contact email <span class="ac-field__opt">optional</span></label>
+        <input id="email" class="ac-field__in" type="email" placeholder="you@example.com" autocomplete="email" />
+        <span class="ac-field__hint">Used only for payout and account notices. Never shared.</span>
+        <div class="ac-field__act">
+          <button id="saveEmail" class="ghost">Save email</button>
+          <span class="fine" id="saveMsg"></span>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" id="linkPanel" hidden>
+      <h2>Sign in with email too</h2>
+      <p>Add an email address to this account. Afterwards, signing in with an emailed code reaches these same
+        machines, earnings and keys. Nothing is merged: balances stay where they are.</p>
+      <p class="fine" id="linkCurrent"></p>
+      <p class="fine" id="linkNeedsLogin" hidden>This sign-in has no machines linked yet. Run <code>roger login</code>
+        on a machine with this account first, then come back.</p>
+      <div id="linkForm">
+        <div class="ac-field" id="linkStep1">
+          <label class="ac-field__k" for="linkEmail">Email address</label>
+          <input id="linkEmail" class="ac-field__in" type="email" placeholder="you@example.com" autocomplete="email" />
+          <div class="ac-field__act"><button id="linkSend" class="ghost" type="button">Send code</button></div>
+        </div>
+        <div class="ac-field" id="linkStep2" hidden>
+          <label class="ac-field__k" for="linkCode">Code from the email</label>
+          <input id="linkCode" class="ac-field__in" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" />
+          <div class="ac-field__act"><button id="linkVerify" class="ghost" type="button">Add address</button></div>
+        </div>
+        <p class="fine" id="linkMsg" role="status"></p>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>API keys</h2>
+      <p>Grant keys (<code>rog-grant_...</code>) are the home for programmatic access -
+        labeled bearer keys your bots, scripts and headless boxes use, with their own caps.</p>
+      <p class="ac-keys">
+        <a href="/keys.html" class="primary ac-keys__btn">Manage API keys</a>
+      </p>
+    </section>
+
+    <section class="panel">
+      <h2>Your stations</h2>
+      <p>Every machine you have put on air, with its status, what it has served and earned,
+        and any evidence recorded against your account.</p>
+      <p class="ac-keys">
+        <a href="/stations.html" class="primary ac-keys__btn">View your stations</a>
+      </p>
+    </section>
+
+    <section class="panel">
+      <h2>Your data</h2>
+      <p>Download a portable copy of your profile, ledger and receipts as JSON, any time.</p>
+      <button id="export" class="ghost">Export my data</button>
+    </section>
+
+    <section class="panel">
+      <h2>Delete account</h2>
+      <p>This clears every identifier we hold for you - your email, your GitHub link, your
+        Apple link, and your name - and revokes your sessions.
+        Financial records are retained, de-identified, for the legal retention window.
+        Deletion is blocked while you hold a balance, unpaid earnings, or open disputes.</p>
+      <button id="del" class="ghost danger">Delete my account</button>
+      <span class="fine" id="delMsg"></span>
+    </section>
+
+    <AccountNav current='account' />
+    <button id="logout" class="ghost">Sign out</button>
+  </main>
+  </div>
+  <Footer anchors='/' />

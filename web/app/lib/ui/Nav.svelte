@@ -105,6 +105,14 @@
         </a>
 {/if}
         <a class="nav__link nav__util" href="/login.html" data-session-login>Log in</a>
+{#if variant === "marketing"}
+        <!-- RESERVED: App Store badge SLOT (cut, not live). Position is locked here -
+             after Log in, before the theme toggle - so the utility cluster won't
+             reflow when the CTA goes live. We do NOT fabricate an App Store link or
+             badge yet: no listing exists. When the RogerAI iOS app ships, add the
+             real "Download on the App Store" badge anchor here (classes
+             nav__link nav__util nav__appstore, pointing at the App Store listing). -->
+{/if}
         <button class="theme-toggle" id="themeToggle" type="button"
                 aria-label="Switch to dark theme" aria-pressed="false">
           <svg class="theme-toggle__moon" viewBox="0 0 24 24" fill="none" stroke="currentColor"

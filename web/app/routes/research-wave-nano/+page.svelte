@@ -1,0 +1,295 @@
+<script>
+  // Wave Nano - one model that reads telemetry, a fleet, a fire site, and talks
+  // Ported from web/src/research-wave-nano.html (2026-10-29); the copy is the legacy copy.
+  import { siteHead, CSS_SHARED, CSS_ACCOUNT } from "#lib/head.js";
+  import { content } from "#lib/content.js";
+  import Footer from "#lib/ui/Footer.svelte";
+  import InstallBox from "#lib/ui/InstallBox.svelte";
+  import Nav from "#lib/ui/Nav.svelte";
+  import OnAir from "#lib/ui/OnAir.svelte";
+  import Rail from "#lib/ui/Rail.svelte";
+  import WaveFirewatch from "#lib/ui/WaveFirewatch.svelte";
+  import WaveMesh from "#lib/ui/WaveMesh.svelte";
+  const facts = content('research-wave-nano.html');
+  const head = siteHead({
+    title: 'Wave Nano - one model that reads telemetry, a fleet, a fire site, and talks',
+    desc: 'Wave Nano is a 1.45B-parameter model from RogerAI Labs that reads industrial telemetry, reads a fleet of child nodes, rolls up a fire site, and chats, with a vision module for camera frames. What it is for, what it scores, where it stops.',
+    og: { type: 'website', title: 'Wave Nano: telemetry, a fleet, a fire site, and conversation', desc: 'A 1.45B-parameter Wave model with a calibrated escalation gate and a vision module. Measured, with its limits.', url: 'https://rogerai.fm/research-wave-nano.html', image: 'https://rogerai.fm/og-research.png' },
+    css: [...CSS_SHARED, 'research.css', 'wave-model.css'],
+    scripts: [{ runtime: true }],
+  });
+</script>
+<svelte:head>{@html head}</svelte:head>
+<!-- WAVE NANO, the model page (Nano-Instruct; the vision module Nano-VL is §7 of this page,
+     founder ruling 2026-10-20). Every number renders from src/data/model-cards.json through a
+     card token, each with its R-number and date in the Measured footnote. Served
+     status renders from wave-status.json: while Nano has no on-air band this page says it is
+     not on the band yet and offers no `roger use` command for it (test/model-pages.test.mjs).
+     The mesh explainer and the wildfire watch are the shared partials.
+     Registered in build.mjs CSS_BUNDLES with research.css + wave-model.css. 
+     (the page's doc comment, from the legacy file; its CSS bundle is the css: list above) -->
+  <Rail head='RogerAI &middot; Wave Nano' rev='Rev. 2026.10 &middot; LABS' />
+
+  <Nav variant='marketing' home='/' current='research' />
+
+  <main id="top">
+
+    <section class="research-hero">
+      <div class="wrap research-hero__layout">
+        <div>
+          <a class="wf-back mono" href="/research-models.html">&larr; Models and status</a>
+          <span class="hero__eyebrow">
+            <OnAir />
+            <span class="hero__callsign">WAVE NANO &middot; {@html facts.card('nano.size')} &middot; {@html facts.waveStage('nano')}</span>
+          </span>
+          <h1>Wave Nano.</h1>
+          <p class="research-hero__lead">
+            One {@html facts.card('nano.params')} model that reads telemetry, reads a fleet, reads a fire
+            site, and talks. It does everything Wave Pico does, holds a conversation in plain
+            words, and carries a vision module that reads a camera frame.
+          </p>
+          <div class="research-actions research-actions--lead">
+            <a class="research-button" href="#measured">What it scores</a>
+            <a class="research-button" href="#vision">The vision module</a>
+            <a class="research-button" href="/research-wave-pico.html">Wave Pico</a>
+          </div>
+        </div>
+
+        <aside class="tint-panel wm-plate" aria-label="Wave Nano at a glance">
+          <span class="tint-panel__tag">At a glance</span>
+          <dl>
+            <div><dt>Status</dt><dd><i class="model-lamp" data-air="{facts.t.waveAir('nano')}" aria-hidden="true"></i>{@html facts.waveStage('nano')}</dd></div>
+            <div><dt>Band</dt><dd>not on the band yet</dd></div>
+            <div><dt>Size</dt><dd>{@html facts.card('nano.size')} parameters, from scratch</dd></div>
+            <div><dt>Vision</dt><dd>{@html facts.card('nano.vlName')}, {@html facts.card('nano.vlSize')} in all</dd></div>
+            <div><dt>Gate</dt><dd>answers {@html facts.card('nano.gate-accept')} of real work at {@html facts.card('nano.gate-precision')} precision</dd></div>
+            <div><dt>By</dt><dd>{@html facts.card('nano.author')}</dd></div>
+          </dl>
+        </aside>
+      </div>
+    </section>
+
+    <nav class="toc-tuner" data-tuner aria-label="Sections">
+      <div class="wrap toc-tuner__band">
+      <div class="toc-tuner__readout" aria-hidden="true"></div>
+      <ol class="toc-tuner__scale">
+        <li><a class="toc-tuner__st" href="#purpose"><b>§1</b><span class="toc-tuner__name">PURPOSE</span></a></li>
+        <li><a class="toc-tuner__st" href="#conversation"><b>§2</b><span class="toc-tuner__name">TALK</span></a></li>
+        <li><a class="toc-tuner__st" href="#run"><b>§3</b><span class="toc-tuner__name">RUN</span></a></li>
+        <li><a class="toc-tuner__st" href="#measured"><b>§4</b><span class="toc-tuner__name">MEASURED</span></a></li>
+        <li><a class="toc-tuner__st" href="#limits"><b>§5</b><span class="toc-tuner__name">LIMITS</span></a></li>
+        <li><a class="toc-tuner__st" href="#adapter"><b>§6</b><span class="toc-tuner__name">ADAPTER</span></a></li>
+        <li><a class="toc-tuner__st" href="#vision"><b>§7</b><span class="toc-tuner__name">VISION</span></a></li>
+        <li><a class="toc-tuner__st" href="#mesh"><b>§8</b><span class="toc-tuner__name">MESH</span></a></li>
+        <li><a class="toc-tuner__st" href="#wildfire"><b>§9</b><span class="toc-tuner__name">WILDFIRE</span></a></li>
+      </ol>
+      <span class="toc-tuner__needle" aria-hidden="true"></span>
+      </div>
+    </nav>
+
+    <section class="section" id="purpose">
+      <div class="wrap">
+        <div class="section__head section__head--left">
+          <span class="sectionno">&sect;1 / PURPOSE</span>
+          <h2>The gateway that can also explain itself.</h2>
+          <p>Wave Nano is the second tier of the Wave family: big enough to roll up a fleet
+             and talk about it, small enough for an edge box.</p>
+        </div>
+        <div class="wm-split">
+          <div>
+            <span class="research-kicker">WHAT IT IS FOR</span>
+            <ul class="wm-list">{@html facts.cardList('nano.purpose')}</ul>
+          </div>
+          <div>
+            <span class="research-kicker">WHAT YOU CAN USE IT FOR</span>
+            <ul class="wm-list wm-list--uses">{@html facts.cardList('nano.uses')}</ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section band band--inset" id="conversation">
+      <div class="wrap">
+        <div class="section__head section__head--left">
+          <span class="sectionno">&sect;2 / TALK</span>
+          <h2>It also talks.</h2>
+          <p>Nano answers in a plain chat format: a <code>### User:</code> turn, then a
+             <code>### Assistant:</code> turn. Ask it a general question, for a SQL query,
+             for a short piece of technical writing, or what a reading means. A server stops
+             it at the next <code>### User:</code> marker.</p>
+        </div>
+        <div class="code-block"><pre>### User:
+What are you, and who made you?
+
+### Assistant:
+I am Wave Nano, a 1.45-billion-parameter language model built from scratch by
+RogerAI Labs, an American research and infrastructure company headquartered in
+Orange County, California.</pre></div>
+        <p class="wm-aside">Its own answer to that question, from the release checks. It
+           introduces itself as Wave Nano, built by RogerAI Labs.</p>
+      </div>
+    </section>
+
+    <section class="section" id="run">
+      <div class="wrap">
+        <div class="section__head section__head--left">
+          <span class="sectionno">&sect;3 / RUN</span>
+          <h2>Not on the band yet.</h2>
+          <p>Wave Nano is not on the band yet, and its weights are not published. When it
+             goes on air it is one command like every band; until then the CLI shows what is
+             on air today, Wave Pico included.</p>
+        </div>
+        <div class="wm-run">
+          <div class="install">
+            <span class="fig mono">1 &middot; Install the CLI</span>
+            <InstallBox id='nanoInstall'>curl <span class="tok">-fsSL</span> https://rogerai.fm/install.sh <span class="tok">| sh</span></InstallBox>
+          </div>
+          <div class="install">
+            <span class="fig mono">2 &middot; See what is on air</span>
+            <InstallBox id='nanoSearch' oslock='any' label='Copy roger search command to clipboard'>roger search wave</InstallBox>
+            <p class="install__meta"><span class="research-kicker">Wave Nano</span> <i class="model-lamp" data-air="{facts.t.waveAir('nano')}" aria-hidden="true"></i> {@html facts.waveStage('nano')}</p>
+          </div>
+        </div>
+
+        <figure class="figure figure--plate wm-runs-fig" aria-labelledby="wm-runs-cap">
+          <ul class="wm-runs">{@html facts.cardList('nano.runsOn')}</ul>
+          <p class="wm-runs__size"><span class="research-kicker">GGUF on disk</span>
+            <span class="wm-span" style="--lo:{facts.t.cardLo('nano.gguf')};--hi:{facts.t.cardHi('nano.gguf')};--max:4" aria-hidden="true"><i></i></span>
+            <b>{@html facts.card('nano.gguf')}</b> <span class="wm-ref">{@html facts.cardRef('nano.gguf')}</span></p>
+          <figcaption class="fig mono" id="wm-runs-cap">FIG. 1 - Where the release build runs. A filled lamp runs today; a ring is owed. f16, Q6_K and Q5_K_M reproduce the reference {@html facts.card('nano.gguf-agree')} on the stock llama.cpp server ({@html facts.cardRef('nano.gguf-agree')}).</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section class="section" id="measured">
+      <div class="wrap">
+        <div class="section__head section__head--left">
+          <span class="sectionno">&sect;4 / MEASURED</span>
+          <h2>What it scores, and when it holds back.</h2>
+          <p>Scores are on sealed slices of our industrial benchmark, read on the build this
+             page describes. Every number names the entry in our results log that holds it.</p>
+        </div>
+
+        <figure class="figure figure--plate wm-gate" aria-labelledby="wm-gate-cap" style="--v:{facts.t.cardNum('nano.gate-accept')}">
+          <div class="wm-gate__scale" aria-hidden="true">
+            <span class="wm-gate__esc"></span><span class="wm-gate__line"></span><span class="wm-gate__ok"></span>
+          </div>
+          <div class="wm-gate__legend">
+            <p class="wm-gate__side wm-gate__side--esc"><b>Escalate</b> Under the gate. It writes a
+               record for the parent node or a person, not an answer. For a read it cannot
+               make, this is the right outcome.</p>
+            <p class="wm-gate__side wm-gate__side--ok"><b>Assert</b> Over the gate. It answers,
+               with its margin and its evidence.</p>
+          </div>
+          <dl class="wm-gate__read">
+            <div><dt>Real work it answers</dt><dd>{@html facts.card('nano.gate-accept')}</dd></div>
+            <div><dt>Precision when it answers</dt><dd>{@html facts.card('nano.gate-precision')}</dd></div>
+            <div><dt>Fault leaks on out-of-scope input</dt><dd>{@html facts.card('nano.leak')}</dd></div>
+          </dl>
+          <figcaption class="fig mono" id="wm-gate-cap">FIG. 2 - The escalation gate, calibrated per release: a bar of real work, ordered by the model&rsquo;s own confidence. {@html facts.cardRef('nano.gate-accept')}.</figcaption>
+        </figure>
+
+        <figure class="figure figure--plate wm-panel" aria-labelledby="wm-panel-cap">
+          <ol class="wm-readouts">
+            <li class="wm-readout" style="--v:{facts.t.cardNum('nano.t01')}"><span class="wm-readout__label">Fault identification</span><b>{@html facts.card('nano.t01')}</b><span class="wm-readout__unit">macro-F1</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{@html facts.cardRef('nano.t01')}</span></li>
+            <li class="wm-readout" style="--v:{facts.t.cardNum('nano.t02')}"><span class="wm-readout__label">Process state</span><b>{@html facts.card('nano.t02')}</b><span class="wm-readout__unit">macro-F1</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{@html facts.cardRef('nano.t02')}</span></li>
+            <li class="wm-readout" style="--v:{facts.t.cardNum('nano.general')}"><span class="wm-readout__label">General knowledge</span><b>{@html facts.card('nano.general')}</b><span class="wm-readout__unit">macro</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{@html facts.cardRef('nano.general')}</span></li>
+            <li class="wm-readout" style="--v:{facts.t.cardNum('nano.mesh')}"><span class="wm-readout__label">Fleet reading, IEB-Mesh</span><b>{@html facts.card('nano.mesh')}</b><span class="wm-readout__unit">macro</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{@html facts.cardRef('nano.mesh')}</span></li>
+            <li class="wm-readout" style="--v:{facts.t.cardNum('nano.t11')}"><span class="wm-readout__label">Classifier reading, T11a / T11b</span><b>{@html facts.card('nano.t11')}</b><span class="wm-readout__unit">T11a under its floor</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{@html facts.cardRef('nano.t11')}</span></li>
+            <li class="wm-readout" data-better="lower" style="--v:{facts.t.cardNum('nano.dup')}"><span class="wm-readout__label">Duplicated-line frames answered wrong</span><b>{@html facts.card('nano.dup')}</b><span class="wm-readout__unit">lower is better</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{@html facts.cardRef('nano.dup')}</span></li>
+            <li class="wm-readout" style="--v:{facts.t.cardNum('nano.t17')}"><span class="wm-readout__label">Fire-site rollup (T17): state / action / deciding input / inconsistency, previous build</span><b>{@html facts.card('nano.t17')}</b><span class="wm-readout__unit">simulator-internal</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{@html facts.cardRef('nano.t17')}</span></li>
+          </ol>
+          <figcaption class="fig mono" id="wm-panel-cap">FIG. 3 - The readouts, each on a scale of 0 to 100. Each bar is the score; the red tick marks it.</figcaption>
+        </figure>
+
+        <p class="wm-compare"><b>Against Qwen3.5-2B fine-tuned identically:</b>
+           {@html facts.card('nano.cmp-headline')} on fault identification <span class="wm-ref">{@html facts.cardRef('nano.cmp-headline')}</span>,
+           and far better refusal and damage tolerance. The comparator leaks a confident
+           fault on {@html facts.card('nano.cmp-leak')} of out-of-scope input against Nano&rsquo;s
+           {@html facts.card('nano.leak')}, and answers {@html facts.card('nano.cmp-dup')} of duplicated-line frames
+           wrong against Nano&rsquo;s {@html facts.card('nano.dup')}. The comparator was read against the
+           earlier Nano build, under the same protocol.</p>
+
+        <aside class="wm-footnote" aria-labelledby="wm-notes-head">
+          <span class="research-kicker" id="wm-notes-head">Measured</span>
+          <ol class="wm-notes">{@html facts.cardNotes('nano')}</ol>
+        </aside>
+      </div>
+    </section>
+
+    <section class="section band band--inset" id="limits">
+      <div class="wrap">
+        <div class="section__head section__head--left">
+          <span class="sectionno">&sect;5 / LIMITS</span>
+          <h2>Where it stops.</h2>
+          <p>Said plainly. One of them, sizing arithmetic, scores {@html facts.card('nano.new-skills')}
+             on this build <span class="wm-ref">{@html facts.cardRef('nano.new-skills')}</span>.</p>
+        </div>
+        <ul class="wm-limits">{@html facts.cardList('nano.limits')}</ul>
+      </div>
+    </section>
+
+    <section class="section" id="adapter">
+      <div class="wrap">
+        <div class="section__head section__head--left">
+          <span class="sectionno">&sect;6 / ADAPTER</span>
+          <h2>The fire adapter, routed per request.</h2>
+          <p>The same routed design as on Wave Pico, trained for this base. Through the stock
+             llama.cpp server the adapter reproduces the reference read, and with it switched
+             off the base reads fire at {@html facts.card('nano.fire-off')}: the adapter is the fire
+             reading, and the base is untouched (simulator-internal).</p>
+        </div>
+        <ol class="wm-readouts wm-readouts--fire">
+          <li class="wm-readout" style="--v:{facts.t.cardNum('nano.fire-gated')}"><span class="wm-readout__label">Threat call / escalation, gated configurations</span><b>{@html facts.card('nano.fire-gated')}</b><span class="wm-readout__unit">simulator-internal</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{@html facts.cardRef('nano.fire-gated')}</span></li>
+          <li class="wm-readout" style="--v:{facts.t.cardNum('nano.fire-gate')}"><span class="wm-readout__label">Gate lines passing</span><b>{@html facts.card('nano.fire-gate')}</b><span class="wm-readout__unit">simulator-internal</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{@html facts.cardRef('nano.fire-gate')}</span></li>
+        </ol>
+      </div>
+    </section>
+
+    <section class="section band band--inset" id="vision">
+      <div class="wrap">
+        <div class="section__head section__head--left">
+          <span class="sectionno">&sect;7 / VISION</span>
+          <h2>Nano-VL: one camera frame, read for smoke.</h2>
+          <p>{@html facts.card('nano.vlName')} is Wave Nano with a small vision encoder and a connector,
+             {@html facts.card('nano.vlSize')} parameters in all. It reads single frames: one picture in,
+             smoke or no smoke out, and it keeps Nano&rsquo;s telemetry reading.</p>
+        </div>
+        <ol class="wm-readouts">
+          <li class="wm-readout wm-readout--range" style="--lo:{facts.t.cardLo('nano.vl-auc')};--hi:{facts.t.cardHi('nano.vl-auc')};--max:1"><span class="wm-readout__label">Smoke reading, AUC, three seeds</span><b>{@html facts.card('nano.vl-auc')}</b><span class="wm-readout__unit">scale 0 to 1</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{@html facts.cardRef('nano.vl-auc')}</span></li>
+          <li class="wm-readout wm-readout--range" data-better="lower" style="--lo:{facts.t.cardLo('nano.vl-fa')};--hi:{facts.t.cardHi('nano.vl-fa')};--max:100"><span class="wm-readout__label">False alarms on empty frames, at the field recall bar</span><b>{@html facts.card('nano.vl-fa')}</b><span class="wm-readout__unit">lower is better</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{@html facts.cardRef('nano.vl-fa')}</span></li>
+          <li class="wm-readout" style="--v:{facts.t.cardNum('nano.vl-text')}"><span class="wm-readout__label">Telemetry reading kept, sealed fault identification</span><b>{@html facts.card('nano.vl-text')}</b><span class="wm-readout__unit">macro-recall</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{@html facts.cardRef('nano.vl-text')}</span></li>
+        </ol>
+        <div class="device-contract">
+          <p><b>How it was read.</b> On {@html facts.card('nano.vl-frames')} it never trained on, in
+             float32, the numerics a server computes in. Served through our llama.cpp
+             branch, its reads match the reference at a correlation of
+             {@html facts.card('nano.vl-served')} <span class="wm-ref">{@html facts.cardRef('nano.vl-served')}</span>.</p>
+          <p><b>A module, not a watch.</b> Nano-VL reads single frames. The full watch design
+             adds persistence across frames and a per-camera baseline on top, and those are
+             not part of these numbers.</p>
+          <p><b>What it needs.</b> Our llama.cpp branch, until three fixes are upstream.</p>
+        </div>
+      </div>
+    </section>
+
+    <WaveMesh no='8' fig='4' parent='Wave Nano' />
+
+    <WaveFirewatch no='9' fig='5' />
+
+    <section class="section research-closing">
+      <div class="wrap">
+        <h2>Where Wave Nano sits.</h2>
+        <p>The gateway tier of a family that runs from a board beside one machine to a
+           datacenter. Wave Pico is the size below it.</p>
+        <div class="research-actions research-actions--lead">
+          <a class="research-button" href="/research-wave-pico.html">Wave Pico</a>
+          <a class="research-button" href="/research-wave-family.html">The Wave family</a>
+          <a class="research-button" href="/research-models.html">Models and status</a>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <Footer anchors='/' />

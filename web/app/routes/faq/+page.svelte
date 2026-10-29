@@ -1,29 +1,229 @@
 <script>
-  // FAQ (ported from web/src/faq.html). A plain read, not an accordion: an answer engine and the
-  // browser's own find both need the text in the document. The visible questions and the
-  // FAQPage JSON-LD are locked to each other by test/pricing-faq-llms.test.mjs.
-  import { siteHead, CSS_SHARED } from "#lib/head.js";
-  import Nav from "#lib/ui/Nav.svelte";
+  // FAQ - RogerAI
+  // Ported from web/src/faq.html (2026-10-29); the copy is the legacy copy.
+  import { siteHead, CSS_SHARED, CSS_ACCOUNT } from "#lib/head.js";
   import Footer from "#lib/ui/Footer.svelte";
-  import Rail from "#lib/ui/Rail.svelte";
+  import Nav from "#lib/ui/Nav.svelte";
   import OnAir from "#lib/ui/OnAir.svelte";
+  import Rail from "#lib/ui/Rail.svelte";
   const head = siteHead({
-    title: "FAQ - RogerAI",
-    desc: "Straight answers about RogerAI: what it costs, whether you need an account, whether a GPU operator can read your prompts, what happens when a station drops mid-answer, how much an operator keeps, and when they get paid.",
-    og: { type: "website", title: "RogerAI FAQ - the questions people actually ask", desc: "No account to browse, per-token pricing set by operators, 90% to the operator, no inbound ports, and an honest answer about what a station can and cannot see.", url: "https://rogerai.fm/faq.html", image: "https://rogerai.fm/og-home.png" },
-    css: [...CSS_SHARED, "research.css", "faq.css", "company.css"],
+    title: 'FAQ - RogerAI',
+    desc: 'Straight answers about RogerAI: what it costs, whether you need an account, whether a GPU operator can read your prompts, what happens when a station drops mid-answer, how much an operator keeps, and when they get paid.',
+    og: { type: 'website', title: 'RogerAI FAQ - the questions people actually ask', desc: 'No account to browse, per-token pricing set by operators, 90% to the operator, no inbound ports, and an honest answer about what a station can and cannot see.', url: 'https://rogerai.fm/faq.html', image: 'https://rogerai.fm/og-home.png' },
+    css: [...CSS_SHARED, 'research.css', 'faq.css', 'company.css'],
+    extra: `<script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      {
+        "@type": "Question",
+        "name": "Do I need an account to use RogerAI?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Not to browse, and not to use a free station. You can install the CLI, read the live directory of models, and open an endpoint against a station broadcasting at zero without signing in at all. You log in when you want a funded wallet to spend on paid stations, or when you want to earn as an operator."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "What do I install, and on what?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "One binary called roger, on macOS, Linux or Windows. It is the same program for both sides of the network: the client that tunes in to somebody else's model and the server that puts yours on the air. There is nothing to run as a daemon and nothing to configure before the first run."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Will it work with the tools I already use?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Yes, if they speak the OpenAI API, which nearly everything does. Tuning in hands you a local OpenAI-compatible endpoint and key on 127.0.0.1, so you change a base URL and a key in whatever you already run and nothing else. Editors, agents, SDKs and orchestration frameworks all work without a plugin."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Which models can I use?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Whatever people have on the air at the moment you look, which is why the directory is live rather than a published list. Each model is a band and each machine serving it is a station on that band. The dial is the only honest answer to this question."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "What happens if the station I am using goes off air?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "You get re-tuned to another station on the same band that still fits the limits you set, and your endpoint address does not change. Home machines get shut, rebooted and unplugged, so failover is the normal case here rather than an incident. You are never billed for an answer that did not arrive."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "What does it cost to use a model?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Whatever the operator set, per token, priced separately for input and output in dollars per million. Many stations charge nothing. We do not set, subsidize or floor the number, so there is no price list to publish - the current rate for any band is on the live dial."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Is there a subscription or a minimum?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "No. No plan, no seat, no monthly minimum, no annual commitment and nothing to cancel. You top up a wallet in whatever amount you want and it is debited per token as you spend it; if you stop sending requests you stop spending."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Can a station charge me more than I agreed to?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "No. Your maximum price rides every single request rather than being checked once when you connect, so a station cannot raise its rate under you mid-session. If you set no limit at all the client still caps you at ten dollars per million output tokens, and accepting anything above twenty means typing the price back rather than pressing a key."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "What if the answer comes back empty or unusable?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "It costs you nothing. A request that returns nothing usable is voided: the pre-authorized hold is released, you pay zero, the operator earns zero and takes a strike against their station. The rule is enforced at the broker, so it holds for any client, not only ours."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Can a station over-report how many tokens it served?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Not profitably. The broker counts the tokens independently rather than trusting the station's claim, and settles on the smaller of the two figures. Both sides then sign a lineage receipt recording which node served which request, so the ledger can be audited afterwards by either of you."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "How do I add money, and who holds my card?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Top-ups run through Stripe Checkout from the CLI or the billing page. Stripe is the payments provider and the regulated business that moves the funds, and it holds every card number and bank detail. We store a wallet balance and a ledger of top-ups and spend, and never see a card."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "How much do I keep of what I earn?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Ninety percent of every token you serve, at a price you set yourself. The ten percent platform fee covers routing, metering, settlement, chargeback and fraud exposure, and the payout rails. When the work crosses a relay instead, the split is ninety to the serving node, five to the Tower operator, five to the platform."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "When do I actually get paid?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Earnings accrue immediately; the principal (90%) is held 30 days and a 10% reserve slice stays back until day 90 to cover the late-chargeback tail. After that you request a payout and payable balances are released on a monthly batch, with a minimum of $25. Stripe Connect onboarding has to be complete first, and Stripe rather than RogerAI holds your identity documents."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Do I have to open a port or set up a static IP?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "No, and this is the point of the design. Your machine opens an outbound connection to the tower and pulls work down it; nothing is ever pushed in at you. There is no inbound port to forward, no dynamic DNS to keep current, and nothing new exposed on your home network."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "What can the person using my GPU reach on my machine?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "The model endpoint, and nothing else. RogerAI bridges the port your inference server is already listening on. It does not offer a shell, a filesystem, your other services or the rest of your network, and a request that tries to reach anything but the model is refused before it leaves the tower."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Can I serve for free, or only for money?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Free is the default and a lot of the band runs that way. A station with a rate of zero is a normal station: it is listed, routed to and scored exactly like a paid one, and it is not throttled into uselessness to push you toward charging. You can also mix the two, with free hours and paid hours on a schedule."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Why did my earnings stop?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Usually a hold rather than a ban, and usually a bug rather than bad faith: the broker caught your node's own signed numbers contradicting each other, which a misconfigured station does on every request. Run roger drphil and it will tell you which. A hold lifts by itself after seven days, and the evidence behind every strike is yours to read."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Can the operator read my prompts?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "On an ordinary station, treat the answer as yes. The operator's machine runs the model, which means the text is in that machine's memory while it is being answered, exactly as it is with any hosted endpoint anywhere. If that is not acceptable for your work, the confidential tier routes only to nodes that pass hardware attestation, where the memory holding your request is encrypted against the host itself."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Can I resell my provider contract as a station?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Yes. Put the contract on the air as a curated station - one flag, roger share --curated, plus the list price you already pay. Consumers pay that list plus a 10% routing fee; you get your bill back in full and keep half the fee, so the math can never go against you. The band wears the curated mark and every receipt shows the split. Verification costs you one canary at sign-up and a small weekly recheck, usually under a cent a month."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Does a model provider know who I am?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "No. Whoever serves your request sees a station making calls - not your account, your card, or your IP, because stations dial out and nothing ever connects back to you. One thing we won't pretend: the words themselves still reach the machine that answers them. When even that is too much, use a confidential station or run your own Tower."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Do you keep my prompts?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "No. For a settled request we persist token counts, cost and hashes in the signed receipt, not your text, and we never train on it. There is one transient exception and one legal one: prompts we relay are screened in transit against a moderation model before dispatch, and apparent child sexual abuse material is preserved and reported because United States law requires it."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "What is the confidential tier?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "A subset of the network that only accepts nodes proving, through real hardware attestation, that they are running inside a trusted execution environment. On that path the machine's owner cannot read the request out of memory while it is being served. It needs data-center silicon, so it is a smaller band than the open one rather than a setting you switch on."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "What if a station misbehaves?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Report it from the control on that station in the model directory, or by mail to abuse. Strikes accumulate against a station's record and follow it, and a ban needs several of them corroborated by more than one kind of signal rather than one angry report. A station that cannot answer is already earning nothing, because unusable answers are voided."
+        }
+      }
+    ]
+  }
+  <\/script>`,
+    scripts: [{ runtime: true }],
   });
-  const faqLd = "\n  {\n    \"@context\": \"https://schema.org\",\n    \"@type\": \"FAQPage\",\n    \"mainEntity\": [\n      {\n        \"@type\": \"Question\",\n        \"name\": \"Do I need an account to use RogerAI?\",\n        \"acceptedAnswer\": {\n          \"@type\": \"Answer\",\n          \"text\": \"Not to browse, and not to use a free station. You can install the CLI, read the live directory of models, and open an endpoint against a station broadcasting at zero without signing in at all. You log in when you want a funded wallet to spend on paid stations, or when you want to earn as an operator.\"\n        }\n      },\n      {\n        \"@type\": \"Question\",\n        \"name\": \"What do I install, and on what?\",\n        \"acceptedAnswer\": {\n          \"@type\": \"Answer\",\n          \"text\": \"One binary called roger, on macOS, Linux or Windows. It is the same program for both sides of the network: the client that tunes in to somebody else's model and the server that puts yours on the air. There is nothing to run as a daemon and nothing to configure before the first run.\"\n        }\n      },\n      {\n        \"@type\": \"Question\",\n        \"name\": \"Will it work with the tools I already use?\",\n        \"acceptedAnswer\": {\n          \"@type\": \"Answer\",\n          \"text\": \"Yes, if they speak the OpenAI API, which nearly everything does. Tuning in hands you a local OpenAI-compatible endpoint and key on 127.0.0.1, so you change a base URL and a key in whatever you already run and nothing else. Editors, agents, SDKs and orchestration frameworks all work without a plugin.\"\n        }\n      },\n      {\n        \"@type\": \"Question\",\n        \"name\": \"Which models can I use?\",\n        \"acceptedAnswer\": {\n          \"@type\": \"Answer\",\n          \"text\": \"Whatever people have on the air at the moment you look, which is why the directory is live rather than a published list. Each model is a band and each machine serving it is a station on that band. The dial is the only honest answer to this question.\"\n        }\n      },\n      {\n        \"@type\": \"Question\",\n        \"name\": \"What happens if the station I am using goes off air?\",\n        \"acceptedAnswer\": {\n          \"@type\": \"Answer\",\n          \"text\": \"You get re-tuned to another station on the same band that still fits the limits you set, and your endpoint address does not change. Home machines get shut, rebooted and unplugged, so failover is the normal case here rather than an incident. You are never billed for an answer that did not arrive.\"\n        }\n      },\n      {\n        \"@type\": \"Question\",\n        \"name\": \"What does it cost to use a model?\",\n        \"acceptedAnswer\": {\n          \"@type\": \"Answer\",\n          \"text\": \"Whatever the operator set, per token, priced separately for input and output in dollars per million. Many stations charge nothing. We do not set, subsidize or floor the number, so there is no price list to publish - the current rate for any band is on the live dial.\"\n        }\n      },\n      {\n        \"@type\": \"Question\",\n        \"name\": \"Is there a subscription or a minimum?\",\n        \"acceptedAnswer\": {\n          \"@type\": \"Answer\",\n          \"text\": \"No. No plan, no seat, no monthly minimum, no annual commitment and nothing to cancel. You top up a wallet in whatever amount you want and it is debited per token as you spend it; if you stop sending requests you stop spending.\"\n        }\n      },\n      {\n        \"@type\": \"Question\",\n        \"name\": \"Can a station charge me more than I agreed to?\",\n        \"acceptedAnswer\": {\n          \"@type\": \"Answer\",\n          \"text\": \"No. Your maximum price rides every single request rather than being checked once when you connect, so a station cannot raise its rate under you mid-session. If you set no limit at all the client still caps you at ten dollars per million output tokens, and accepting anything above twenty means typing the price back rather than pressing a key.\"\n        }\n      },\n      {\n        \"@type\": \"Question\",\n        \"name\": \"What if the answer comes back empty or unusable?\",\n        \"acceptedAnswer\": {\n          \"@type\": \"Answer\",\n          \"text\": \"It costs you nothing. A request that returns nothing usable is voided: the pre-authorized hold is released, you pay zero, the operator earns zero and takes a strike against their station. The rule is enforced at the broker, so it holds for any client, not only ours.\"\n        }\n      },\n      {\n        \"@type\": \"Question\",\n        \"name\": \"Can a station over-report how many tokens it served?\",\n        \"acceptedAnswer\": {\n          \"@type\": \"Answer\",\n          \"text\": \"Not profitably. The broker counts the tokens independently rather than trusting the station's claim, and settles on the smaller of the two figures. Both sides then sign a lineage receipt recording which node served which request, so the ledger can be audited afterwards by either of you.\"\n        }\n      },\n      {\n        \"@type\": \"Question\",\n        \"name\": \"How do I add money, and who holds my card?\",\n        \"acceptedAnswer\": {\n          \"@type\": \"Answer\",\n          \"text\": \"Top-ups run through Stripe Checkout from the CLI or the billing page. Stripe is the payments provider and the regulated business that moves the funds, and it holds every card number and bank detail. We store a wallet balance and a ledger of top-ups and spend, and never see a card.\"\n        }\n      },\n      {\n        \"@type\": \"Question\",\n        \"name\": \"How much do I keep of what I earn?\",\n        \"acceptedAnswer\": {\n          \"@type\": \"Answer\",\n          \"text\": \"Ninety percent of every token you serve, at a price you set yourself. The ten percent platform fee covers routing, metering, settlement, chargeback and fraud exposure, and the payout rails. When the work crosses a relay instead, the split is ninety to the serving node, five to the Tower operator, five to the platform.\"\n        }\n      },\n      {\n        \"@type\": \"Question\",\n        \"name\": \"When do I actually get paid?\",\n        \"acceptedAnswer\": {\n          \"@type\": \"Answer\",\n          \"text\": \"Earnings accrue immediately; the principal (90%) is held 30 days and a 10% reserve slice stays back until day 90 to cover the late-chargeback tail. After that you request a payout and payable balances are released on a monthly batch, with a minimum of $25. Stripe Connect onboarding has to be complete first, and Stripe rather than RogerAI holds your identity documents.\"\n        }\n      },\n      {\n        \"@type\": \"Question\",\n        \"name\": \"Do I have to open a port or set up a static IP?\",\n        \"acceptedAnswer\": {\n          \"@type\": \"Answer\",\n          \"text\": \"No, and this is the point of the design. Your machine opens an outbound connection to the tower and pulls work down it; nothing is ever pushed in at you. There is no inbound port to forward, no dynamic DNS to keep current, and nothing new exposed on your home network.\"\n        }\n      },\n      {\n        \"@type\": \"Question\",\n        \"name\": \"What can the person using my GPU reach on my machine?\",\n        \"acceptedAnswer\": {\n          \"@type\": \"Answer\",\n          \"text\": \"The model endpoint, and nothing else. RogerAI bridges the port your inference server is already listening on. It does not offer a shell, a filesystem, your other services or the rest of your network, and a request that tries to reach anything but the model is refused before it leaves the tower.\"\n        }\n      },\n      {\n        \"@type\": \"Question\",\n        \"name\": \"Can I serve for free, or only for money?\",\n        \"acceptedAnswer\": {\n          \"@type\": \"Answer\",\n          \"text\": \"Free is the default and a lot of the band runs that way. A station with a rate of zero is a normal station: it is listed, routed to and scored exactly like a paid one, and it is not throttled into uselessness to push you toward charging. You can also mix the two, with free hours and paid hours on a schedule.\"\n        }\n      },\n      {\n        \"@type\": \"Question\",\n        \"name\": \"Why did my earnings stop?\",\n        \"acceptedAnswer\": {\n          \"@type\": \"Answer\",\n          \"text\": \"Usually a hold rather than a ban, and usually a bug rather than bad faith: the broker caught your node's own signed numbers contradicting each other, which a misconfigured station does on every request. Run roger drphil and it will tell you which. A hold lifts by itself after seven days, and the evidence behind every strike is yours to read.\"\n        }\n      },\n      {\n        \"@type\": \"Question\",\n        \"name\": \"Can the operator read my prompts?\",\n        \"acceptedAnswer\": {\n          \"@type\": \"Answer\",\n          \"text\": \"On an ordinary station, treat the answer as yes. The operator's machine runs the model, which means the text is in that machine's memory while it is being answered, exactly as it is with any hosted endpoint anywhere. If that is not acceptable for your work, the confidential tier routes only to nodes that pass hardware attestation, where the memory holding your request is encrypted against the host itself.\"\n        }\n      },\n      {\n        \"@type\": \"Question\",\n        \"name\": \"Can I resell my provider contract as a station?\",\n        \"acceptedAnswer\": {\n          \"@type\": \"Answer\",\n          \"text\": \"Yes. Put the contract on the air as a curated station - one flag, roger share --curated, plus the list price you already pay. Consumers pay that list plus a 10% routing fee; you get your bill back in full and keep half the fee, so the math can never go against you. The band wears the curated mark and every receipt shows the split. Verification costs you one canary at sign-up and a small weekly recheck, usually under a cent a month.\"\n        }\n      },\n      {\n        \"@type\": \"Question\",\n        \"name\": \"Does a model provider know who I am?\",\n        \"acceptedAnswer\": {\n          \"@type\": \"Answer\",\n          \"text\": \"No. Whoever serves your request sees a station making calls - not your account, your card, or your IP, because stations dial out and nothing ever connects back to you. One thing we won't pretend: the words themselves still reach the machine that answers them. When even that is too much, use a confidential station or run your own Tower.\"\n        }\n      },\n      {\n        \"@type\": \"Question\",\n        \"name\": \"Do you keep my prompts?\",\n        \"acceptedAnswer\": {\n          \"@type\": \"Answer\",\n          \"text\": \"No. For a settled request we persist token counts, cost and hashes in the signed receipt, not your text, and we never train on it. There is one transient exception and one legal one: prompts we relay are screened in transit against a moderation model before dispatch, and apparent child sexual abuse material is preserved and reported because United States law requires it.\"\n        }\n      },\n      {\n        \"@type\": \"Question\",\n        \"name\": \"What is the confidential tier?\",\n        \"acceptedAnswer\": {\n          \"@type\": \"Answer\",\n          \"text\": \"A subset of the network that only accepts nodes proving, through real hardware attestation, that they are running inside a trusted execution environment. On that path the machine's owner cannot read the request out of memory while it is being served. It needs data-center silicon, so it is a smaller band than the open one rather than a setting you switch on.\"\n        }\n      },\n      {\n        \"@type\": \"Question\",\n        \"name\": \"What if a station misbehaves?\",\n        \"acceptedAnswer\": {\n          \"@type\": \"Answer\",\n          \"text\": \"Report it from the control on that station in the model directory, or by mail to abuse. Strikes accumulate against a station's record and follow it, and a ban needs several of them corroborated by more than one kind of signal rather than one angry report. A station that cannot answer is already earning nothing, because unusable answers are voided.\"\n        }\n      }\n    ]\n  }\n  ";
 </script>
-<svelte:head>
-  {@html head}
-  {@html '<script type="application/ld+json">' + faqLd + '<\/script>'}
-</svelte:head>
-<Rail head="RogerAI &middot; FAQ" rev="Rev. 2026.08 &middot; ON AIR" />
+<svelte:head>{@html head}</svelte:head>
+<!-- FAQ: the questions people actually write in with.
+     Everything here is already answered somewhere - the manual, the privacy policy, the
+     terms - which is exactly the problem this page solves: nobody reads a manual to find
+     out whether a stranger can see their files. Each answer is short, plain, and carries a
+     line into the place that says it in full.
+     The page is a plain read, not an accordion: an answer engine quoting us and a reader
+     using the browser's own find both need the text in the document.
+     The visible questions and the FAQPage JSON-LD are locked to each other by
+     test/pricing-faq-llms.test.mjs - edit one and the other fails until it matches. Keep
+     the question strings plain ASCII (no entities) so the two can be compared literally.
+     Registered in build.mjs CSS_BUNDLES. 
+     (the page's doc comment, from the legacy file; its CSS bundle is the css: list above) -->
+  <Rail head='RogerAI &middot; FAQ' rev='Rev. 2026.08 &middot; ON AIR' />
 
-<Nav variant="marketing" current="faq" />
+  <Nav variant='marketing' home='/' current='faq' />
 
-<main id="top" class="co-page" data-lift>
+  <main id="top" class="co-page" data-lift>
     <!-- Presentation-only lift 2026-09-24: every question, answer and link is the
          pre-lift copy (test/company-lift.test.mjs); the contents list became the
          tuner plus an index of every question, built from the questions themselves. -->
@@ -443,4 +643,4 @@
 
   </main>
 
-<Footer />
+  <Footer anchors='/' />

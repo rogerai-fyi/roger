@@ -8,13 +8,14 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { source, allPages } from "./_html.mjs";
 
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = path.join(WEB, "src");
-const read = (p) => readFileSync(path.join(SRC, p), "utf8");
+const read = source;  // a page's source, legacy or app route (test/_html.mjs)
 const strip = (s) => s.replace(/<!--(?!\s*include)[\s\S]*?-->/g, "");
 const STUBS = new Set(["bands.html", "playground.html", "why.html"]);
-const PAGES = readdirSync(SRC).filter((f) => f.endsWith(".html") && !STUBS.has(f)).sort();
+const PAGES = allPages().filter((f) => !STUBS.has(f));
 const classesOf = (tag) => (tag.match(/\bclass="([^"]*)"/)?.[1] || "").split(/\s+/).filter(Boolean);
 
 /* ---- action rows ------------------------------------------------------------------ */
@@ -135,6 +136,7 @@ test("the tuner sits right after the hero, on every page long enough to need one
     const after = html.slice(hero.index, tuner);
     const heroEnd = after.search(/<\/(section|header)>/);
     const gap = after.slice(heroEnd)
+      .replace(/\{@html `<style>[\s\S]*?<\/style>`\}/g, "")   // a page-scoped style block, held raw in an app route
       .replace(/<style>[\s\S]*?<\/style>/g, "")
       .replace(/<figure\b[^>]*class="figure[^"]*"[\s\S]*?<\/figure>/g, "")
       .replace(/<\/(section|header|div)>|<!--[\s\S]*?-->|\s+/g, "");

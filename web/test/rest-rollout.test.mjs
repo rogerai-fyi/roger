@@ -18,7 +18,7 @@ import path from "node:path";
 
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const dist = (p) => readFileSync(path.join(WEB, "dist", p), "utf8");
-const src = (p) => readFileSync(path.join(WEB, "src", p), "utf8");
+const src = source;   // a page's source, legacy or app route (test/_html.mjs)
 const stripCss = (s) => s.replace(/\/\*[\s\S]*?\*\//g, "");
 const fixture = JSON.parse(readFileSync(path.join(WEB, "test/fixtures/rest-pages-text.json"), "utf8"));
 
@@ -31,11 +31,11 @@ const NEW_TUNER = new Set(["app.html"]);
 function mains(page) {
   let html = dist(page).replace(/<!--[\s\S]*?-->/g, "");
   const m = [...html.matchAll(/<main\b[\s\S]*?<\/main>/g)].map((x) => x[0]).join("\n") || html;
-  let out = m.replace(/<script\b[\s\S]*?<\/script>/g, "");
+  let out = m.replace(/<script\b[\s\S]*?<\/script>/g, "").replace(/<style\b[\s\S]*?<\/style>/g, "");   // a stub's shell: not copy
   if (NEW_TUNER.has(page)) out = out.replace(/<nav\b[^>]*data-tuner[\s\S]*?<\/nav>/g, "");
   return out;
 }
-import { squashText, decodeText } from "./_html.mjs";
+import { squashText, decodeText, source } from "./_html.mjs";
 // entities decoded on both sides (test/_html.mjs): the two renderers spell them differently
 const squash = (h) => squashText(h);
 
@@ -110,10 +110,10 @@ const PRODUCT = ["login.html", "account.html", "billing.html", "keys.html", "con
 test("(c) every product surface ships the shared runtime, every script deferred", () => {
   for (const page of PRODUCT) {
     const html = dist(page);
-    const body = html.slice(html.indexOf("<body"));
-    const scripts = [...body.matchAll(/<script\b[^>]*\bsrc="([^"]+)"[^>]*>/g)];
+    const body = html;   // the app puts a page's scripts in the head, deferred, in the same order
+    const scripts = [...body.matchAll(/<script\b[^>]*\bsrc="([^"]+)"[^>]*>/g)].filter(([, src]) => !/theme-init\.js/.test(src));
     assert.ok(scripts.length, `${page} has scripts`);
-    for (const [tag] of scripts) assert.match(tag, /\sdefer\b/, `${page}: ${tag} is deferred like every other page's`);
+    for (const [tag] of scripts) assert.match(tag, /\sdefer\b|type="module"/, `${page}: ${tag} is deferred like every other page's (a module script is deferred by the spec)`);
     for (const js of ["site", "session", "tuner", "scrub", "anchor-hold", "range-twin", "cycle"]) {
       assert.match(body, new RegExp(`<script src="/?js/${js}\\.js\\?v=`), `${page} ships js/${js}.js`);
     }

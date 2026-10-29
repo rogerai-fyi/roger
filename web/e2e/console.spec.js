@@ -41,6 +41,8 @@ test("console: the island hydrates the prerendered card and renders the operator
   // loader, so the page carries no CSP meta of its own (the edge policy is the one policy)
   expect(scripts.filter((s) => s.includes("/_app/"))).toEqual([]);
   expect(scripts.some((s) => s.startsWith("/js/islands/console.js"))).toBe(true);
+  // the prerendered card was hydrated in place, not thrown away and mounted again
+  await expect(page.locator('[data-island="console"]')).toHaveAttribute("data-hydrated", "true");
   expect(await page.locator('meta[http-equiv="content-security-policy"]').count()).toBe(0);
   const inline = await page.locator("script:not([src]):not([type])").evaluateAll((els) => els.map((e) => e.textContent));
   expect(inline.length).toBe(2);

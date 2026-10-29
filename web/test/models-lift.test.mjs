@@ -16,9 +16,10 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { source, squashText } from "./_html.mjs";
 
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
-const src = (p) => readFileSync(path.join(WEB, "src", p), "utf8");
+const src = source;   // a page's source, legacy or app route (test/_html.mjs)
 const dist = (p) => readFileSync(path.join(WEB, "dist", p), "utf8");
 const fixture = JSON.parse(readFileSync(path.join(WEB, "test/fixtures/models-menu-text.json"), "utf8"));
 const stripCss = (s) => s.replace(/\/\*[\s\S]*?\*\//g, "");
@@ -28,7 +29,10 @@ before(() => execFileSync("node", ["build.mjs"], { cwd: WEB }));
 const mainOf = (html) => {
   const s = html.replace(/<!--[\s\S]*?-->/g, "");
   const m = s.match(/<main\b[\s\S]*<\/main>/)?.[0] || "";
-  return m.replace(/<nav class="toc-tuner"[\s\S]*?<\/nav>/g, "").replace(/<(script|style)\b[\s\S]*?<\/\1>/g, "");
+  // the install pill's command was an include arg (a comment) when the fixture was taken; it
+  // is the pill component's children now, and stays outside the words compared here
+  return m.replace(/<nav class="toc-tuner"[\s\S]*?<\/nav>/g, "").replace(/<(script|style)\b[\s\S]*?<\/\1>/g, "")
+    .replace(/<InstallBox\b[^>]*>[\s\S]*?<\/InstallBox>/g, "");
 };
 const sectionOf = (html, id) => html.match(new RegExp(`<section[^>]*id="${id}"[\\s\\S]*?</section>`))?.[0] || "";
 
@@ -36,8 +40,8 @@ const sectionOf = (html, id) => html.match(new RegExp(`<section[^>]*id="${id}"[\
 
 for (const page of Object.keys(fixture)) {
   test(`(a) ${page}: the visible words are the pre-lift copy, in the same order`, () => {
-    const now = mainOf(src(page)).replace(/<[^>]+>/g, " ").replace(/\s+/g, "");
-    assert.equal(now, fixture[page].text, `${page}: the lift may move words between elements, never edit them`);
+    const now = squashText(mainOf(src(page)));
+    assert.equal(now, squashText(fixture[page].text), `${page}: the lift may move words between elements, never edit them`);
   });
   test(`(a) ${page}: the links are the same links, in the same order`, () => {
     const hrefs = [...mainOf(src(page)).matchAll(/href="([^"]*)"/g)].map((m) => m[1]);

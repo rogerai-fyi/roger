@@ -22,11 +22,12 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { allPages } from "./_html.mjs";
 
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = path.join(WEB, "src");
 const DIST = path.join(WEB, "dist");
-const PAGES = readdirSync(SRC).filter((f) => f.endsWith(".html")).sort();
+const PAGES = allPages();
 const page = (n) => readFileSync(path.join(DIST, n), "utf8");
 const css = (n) => readFileSync(path.join(SRC, "styles", n), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
 const js = (n) => readFileSync(path.join(SRC, "js", n), "utf8");

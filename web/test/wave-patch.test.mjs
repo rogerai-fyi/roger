@@ -13,9 +13,10 @@ import assert from "node:assert/strict";
 import { readFileSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { source } from "./_html.mjs";
 
 const SRC = path.join(path.dirname(fileURLToPath(import.meta.url)), "../src");
-const read = (p) => readFileSync(path.join(SRC, p), "utf8");
+const read = source;  // a page's source, legacy or app route (test/_html.mjs)
 const flat = (s) => s.replace(/\s+/g, " ");
 
 const html = read("playbox.html");

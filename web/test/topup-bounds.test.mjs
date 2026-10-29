@@ -10,11 +10,12 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { source, allPages, hasPageSource } from "./_html.mjs";
 
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const REPO = path.join(WEB, "..");
 const read = (p) => readFileSync(path.join(WEB, "dist", p), "utf8");
-const src = (p) => readFileSync(path.join(WEB, "src", p), "utf8");
+const src = source;   // a page's source, legacy or app route (test/_html.mjs)
 
 before(() => execFileSync("node", ["build.mjs"], { cwd: WEB }));
 
@@ -283,8 +284,9 @@ test("topup bounds: every user-facing minimum is the current minimum", () => {
   // _partials included: a minimum stated in a partial appears on every built page and
   // would be checked on none.
   const pages = [
-    ...readdirSync(path.join(WEB, "src")).filter((f) => f.endsWith(".html")),
+    ...allPages(),
     ...readdirSync(path.join(WEB, "src", "_partials")).filter((f) => f.endsWith(".html")).map((f) => `_partials/${f}`),
+    ...readdirSync(path.join(WEB, "app", "lib", "ui")).filter((f) => f.endsWith(".svelte")).map((f) => `../app/lib/ui/${f}`),
   ];
   const seen = {};
   for (const page of pages) {

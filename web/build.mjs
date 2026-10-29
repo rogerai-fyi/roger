@@ -87,10 +87,11 @@ function appStamp(pages) {
 function buildApp(pages) {
   ensureToolchain();
   const stamp = appStamp(pages), stampFile = join(KIT_BUILD, ".stamp");
-  if (existsSync(stampFile) && readFileSync(stampFile, "utf8") === stamp && pages.every((p) => existsSync(join(KIT_BUILD, p)))) return;
+  const islandSources = readdirSync(join(APP, "islands")).filter((f) => f.endsWith(".js"));
+  const islandsBuilt = islandSources.every((f) => existsSync(join(ISLANDS_OUT, f)));
+  if (existsSync(stampFile) && readFileSync(stampFile, "utf8") === stamp && islandsBuilt && pages.every((p) => existsSync(join(KIT_BUILD, p)))) return;
   rmSync(ISLANDS_OUT, { recursive: true, force: true });
-  if (readdirSync(join(APP, "islands")).some((f) => f.endsWith(".js")))
-    vite(["build", "--config", "vite.islands.config.mjs", "--logLevel", "warn"]);
+  if (islandSources.length) vite(["build", "--config", "vite.islands.config.mjs", "--logLevel", "warn"]);
   vite(["build", "--logLevel", "warn"], { WEB_KIT_ENTRIES: JSON.stringify(pages.map(routeOf)) });
   for (const page of pages)
     if (!existsSync(join(KIT_BUILD, page))) throw new Error(`the app did not produce ${page} (is there an app/routes${routeOf(page)}/+page.* ?)`);
@@ -113,64 +114,10 @@ const CSS_MARKETING = CSS_SHARED;                                   // shared le
 const CSS_ACCOUNT = [...CSS_SHARED, "account-base.css"];            // shared lead, account
 const CSS_BUNDLES = {
   // marketing pages
-  "index.html":     [...CSS_MARKETING, "home.css"],
-  "manual.html":    [...CSS_MARKETING, "manual.css"],
-  "models.html":    [...CSS_MARKETING, "models.css"],
-  "playbox.html": [...CSS_MARKETING, "playbox.css", "wave-patch.css", "wave-factory.css"], // console + measured mesh + the separate factory game
   "playground.html": CSS_MARKETING, // legacy address: a redirect stub to the Playbox
-  "tower.html":     [...CSS_MARKETING, "research.css", "tower.css"], // the broker, publicly
-  "research.html":  [...CSS_MARKETING, "research.css"],
-  "research-industry.html": [...CSS_MARKETING, "research.css"], // plant placement + standards, split out of the hub
-  "research-hardware.html": [...CSS_MARKETING, "research.css", "research-hardware.css"], // the board -> tier map, the only page carrying third-party photography
-  "careers.html":   [...CSS_MARKETING, "research.css", "careers.css", "company.css"], // hiring surface; notebook shell + the Company section sheet
-  "company.html":   [...CSS_MARKETING, "research.css", "company.css"], // About; company.css = the Company section sheet
-  "pricing.html":   [...CSS_MARKETING, "research.css", "pricing.css"], // reuses the notebook shell; pricing.css is only the plates
-  "faq.html":       [...CSS_MARKETING, "research.css", "faq.css", "company.css"], // ditto; faq.css is only the question list
-  "why.html":       [...CSS_MARKETING, "research.css"],                // the routing-fee argument; page-scoped styles inline
-  "integrations.html": [...CSS_MARKETING, "research.css", "integrations.css"], // ditto; the tables and guest plates
-  "research-models.html": [...CSS_MARKETING, "research.css"], // the model catalogue, split out of the hub
-  "research-wave-pico.html": [...CSS_MARKETING, "research.css", "wave-model.css"], // a Wave model page: facts from data/model-cards.json
-  "research-wave-nano.html": [...CSS_MARKETING, "research.css", "wave-model.css"], // ditto; Nano-VL is a section of it
-  "research-wave-family.html": [...CSS_MARKETING, "research.css", "wave-family.css"], // the Wave ladder field guide, split out so research.html keeps its byte budget
-  "voices.html":    [...CSS_MARKETING, "voices.css"],
-  "broadcasts.html":                 [...CSS_MARKETING, "broadcasts.css"], // the transmission-log blog index
-  "broadcasts-independence-v5.html": [...CSS_MARKETING, "broadcasts.css"], // broadcast 001 + the reusable post template
-  "broadcasts-run-local-llm.html":   [...CSS_MARKETING, "broadcasts.css"], // broadcast 002 · SEO field guide
-  "broadcasts-vram-for-llm.html":    [...CSS_MARKETING, "broadcasts.css"], // broadcast 003 · SEO field guide (VRAM)
-  "broadcasts-share-gpu-earn.html":  [...CSS_MARKETING, "broadcasts.css"], // broadcast 004 · SEO field guide (share/earn)
-  "broadcasts-one-gpu-many-users.html": [...CSS_MARKETING, "broadcasts.css"], // broadcast 005 · SEO field guide (concurrency)
-  "broadcasts-free-chatgpt-alternative.html": [...CSS_MARKETING, "broadcasts.css"], // broadcast 006 · SEO field guide (free ChatGPT alt)
-  "broadcasts-connect-bots-openai-api.html": [...CSS_MARKETING, "broadcasts.css"], // broadcast 007 · SEO field guide (connect bots / OpenAI API)
-  "broadcasts-deepseek-mtp-gguf.html": [...CSS_MARKETING, "broadcasts.css"], // broadcast 008 · field guide (DeepSeek MTP GGUF build story)
-  "broadcasts-how-rogerai-routes-models.html": [...CSS_MARKETING, "broadcasts.css", "broadcast-routing.css"], // broadcast 009 · capacity-aware smart routing
-  "broadcasts-run-a-tower.html": [...CSS_MARKETING, "broadcasts.css"], // broadcast 010 · field guide (run a Tower / relay operator)
-  "broadcasts-what-a-million-tokens-costs.html": [...CSS_MARKETING, "broadcasts.css", "broadcast-economics.css"], // broadcast 011 · unit economics (break-even per 1M tokens)
-  "broadcasts-llm-on-iphone.html": [...CSS_MARKETING, "broadcasts.css"], // broadcast 012 · SEO field guide (LLM on iPhone / v1.2 transmitter)
-  "broadcasts-agent-governance-identity.html": [...CSS_MARKETING, "broadcasts.css", "broadcast-agent-governance.css"], // broadcast 013 · dispatch (agent misalignment incident + Governance Identity)
-  "broadcasts-sharing-your-gpu-is-safe.html": [...CSS_MARKETING, "broadcasts.css", "broadcast-gpu-isolation.css"], // broadcast 014 · field guide (model vs. harness isolation)
-  "broadcasts-jev-vs-wave.html": [...CSS_MARKETING, "broadcasts.css"], // broadcast 015 · field guide (Jev vs the Wave family: decision models, the map, the ladder)
-  "broadcasts-how-llms-work.html": [...CSS_MARKETING, "broadcasts.css", "broadcast-how-llms-work.css"], // broadcast 016 · field guide (how an LLM works and learns, in pictures)
-  "bands.html":     [...CSS_MARKETING],                  // redirect shell: shared chrome only
-  "app.html":       [...CSS_MARKETING, "app.css"],       // the App Store launch page (shipped 2026-07-09)
-  "404.html":       [...CSS_MARKETING, "notfound.css"],
   // account (chrome) pages
-  "account.html":   [...CSS_ACCOUNT, "account.css"],
-  "billing.html":   [...CSS_ACCOUNT, "billing.css"],
-  "payouts.html":   [...CSS_ACCOUNT, "payouts.css"],
-  "usage.html":     [...CSS_ACCOUNT, "metrics.css"],
-  "dashboard.html": [...CSS_ACCOUNT, "dashboard.css"],
-  "stations.html":  [...CSS_ACCOUNT, "stations.css"],
-  "device.html":    [...CSS_ACCOUNT, "device.css"],    // CLI sign-in approval  // operator station roll-up: status, usage, chain evidence
   "console.html":   [...CSS_ACCOUNT, "console.css"],
-  "private.html":   [...CSS_ACCOUNT, "console.css", "private.css"], // reuses the cn-table; rc-* is its own
-  "r.html":         [...CSS_ACCOUNT],                    // link handler: shared chrome only
   // admin.html (founder super-admin ops portal) moved to the PRIVATE rogerai-fyi/roger-admin repo.
-  "login.html":     [...CSS_ACCOUNT],                    // shared account plates only
-  "keys.html":      [...CSS_ACCOUNT, "metrics.css", "keys.css"], // reuses the mx-table ledger
-  "privacy.html":   [...CSS_MARKETING, "company.css"],   // legal reading column (Company section sheet)
-  "security.html":  [...CSS_MARKETING, "company.css"],   // ditto
-  "confidential.html": [...CSS_MARKETING, "confidential.css"], // gated TEE-tier info: section head + tinted panels
-  "tos.html":       [...CSS_MARKETING, "company.css"],   // ditto
 };
 
 const CSS_MARKER_RE = /^([ \t]*)<!--\s*css-bundle\s*-->[ \t]*$/m;
@@ -306,6 +253,17 @@ function cacheBust(html) {
     const m = entry.trim().match(/^((?:js|styles|assets)\/[^\s?]+)(\s+\S+)?$/);
     return m ? `${m[1]}?v=${assetHash(m[1])}${m[2] || ""}` : entry.trim();
   }).join(", ") + '"');
+}
+
+// Svelte's hydration comments (<!---->, <!--[-->, <!--]-->, <!--[!-->, <!--[3-->) carry
+// nothing on a static page: no client walks them. An island hydrates, so it keeps its own
+// (from its <div data-island> to its <!--/island--> sentinel, lib/ui/Island.svelte);
+// everywhere else they are dropped, and the page reads like the hand-written one it replaces.
+// (SvelteKit's own head anchor, <!--1bexm30-->, a random id, goes the same way.)
+const MARKER_RE = /<!--(?:\[-?\d*|\]|!||[0-9a-z]{5,10})-->/g;
+function stripMarkers(html) {
+  const parts = html.split(/(<div data-island="[\w-]+">[\s\S]*?<!--\/island-->)/);
+  return parts.map((part, i) => (i % 2 ? part : part.replace(MARKER_RE, ""))).join("");
 }
 
 // The Svelte compiler writes a valueless attribute as attr="" (hidden="", data-reveal="");
@@ -502,10 +460,12 @@ function build() {
   mkdirSync(DIST, { recursive: true });
 
   // pages: top-level *.html in src/ (legacy) + the app's owned routes. One owner per page.
-  const legacyPages = readdirSync(SRC).filter((f) => f.endsWith(".html"));
-  for (const page of APP_PAGES)
+  let legacyPages = readdirSync(SRC).filter((f) => f.endsWith(".html"));
+  for (const page of OWNED)
     if (legacyPages.includes(page))
       throw new Error(`${page} is owned by the app (app/owned.json) but web/src/${page} still exists: one owner per page`);
+  // a previewed page (WEB_PREVIEW) is built from the app in place of its legacy twin
+  legacyPages = legacyPages.filter((p) => !PREVIEW.includes(p));
   if (APP_PAGES.length) buildApp(APP_PAGES);
   const pages = [...legacyPages, ...APP_PAGES];
   const indexable = [];
@@ -516,6 +476,7 @@ function build() {
   for (const page of APP_PAGES) {
     let out = readFileSync(join(KIT_BUILD, page), "utf8");
     if (/\{\{(wave|card|cap):/.test(out)) throw new Error(`${page}: the app reads wave/card/capability facts through app/lib/content, never {{tokens}}`);
+    out = stripMarkers(out);            // no hydration comments outside an island
     out = bareFlags(out);               // hidden="" -> hidden: the legacy spelling of a flag
     out = ensureCanonical(out, page);   // exactly one self-referential canonical per page
     out = glueDashes(out);             // a heading's " - " never starts a line

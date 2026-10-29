@@ -4,7 +4,7 @@
   import Brand from "./Brand.svelte";
   import Orange3d from "./Orange3d.svelte";
   import LetsTalk from "./LetsTalk.svelte";
-  let { anchors = "/" } = $props();
+  let { anchors = "" } = $props();
 </script>
 <footer class="footer">
   <div class="wrap footer__inner">

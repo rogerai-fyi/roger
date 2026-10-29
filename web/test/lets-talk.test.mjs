@@ -10,11 +10,12 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { source } from "./_html.mjs";
 
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const DIST = path.join(WEB, "dist");
 const read = (p) => readFileSync(path.join(DIST, p), "utf8");
-const src = (p) => readFileSync(path.join(WEB, "src", p), "utf8");
+const src = source;   // a page's source, legacy or app route (test/_html.mjs)
 
 before(() => execFileSync("node", ["build.mjs"], { cwd: WEB }));
 
@@ -25,7 +26,7 @@ test("lets-talk: the trigger is a real mailto link on both pages (no-JS honest)"
     const html = read(page);
     assert.match(html, /<a[^>]*data-lets-talk[^>]*href="mailto:labs@rogerai\.fm[^"]*"/,
       `${page} offers the trigger as a plain mailto fallback`);
-    assert.match(html, /Let&rsquo;s talk|Let's talk/i, `${page} labels it`);
+    assert.match(html, /Let&rsquo;s talk|Let’s talk|Let's talk/i, `${page} labels it`);
   }
 });
 

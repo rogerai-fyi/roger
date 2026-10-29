@@ -22,9 +22,9 @@ import path from "node:path";
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = path.join(WEB, "src");
 const dist = (p) => readFileSync(path.join(WEB, "dist", p), "utf8");
-const src = (p) => readFileSync(path.join(SRC, p), "utf8");
+const src = source;   // a page's source, legacy or app route (test/_html.mjs)
 const css = (p) => src(`styles/${p}`).replace(/\/\*[\s\S]*?\*\//g, "");
-export const PAGES = readdirSync(SRC).filter((f) => /^(broadcasts|research)[\w-]*\.html$/.test(f)).sort();
+export const PAGES = allPages().filter((f) => /^(broadcasts|research)[\w-]*\.html$/.test(f));
 const ARTICLES = PAGES.filter((f) => f.startsWith("broadcasts-"));
 const fixture = JSON.parse(readFileSync(path.join(WEB, "test/fixtures/research-words.json"), "utf8"));
 
@@ -32,7 +32,7 @@ before(() => execFileSync("node", ["build.mjs"], { cwd: WEB }));
 
 // The reader's words (test/_html.mjs): <main> without comments, scripts, styles, the contents
 // tuner and the install pill's decorative "$" prompt, entities decoded before hashing.
-import { mainOf, wordsOf } from "./_html.mjs";
+import { mainOf, wordsOf, source, allPages } from "./_html.mjs";
 export { mainOf, wordsOf };
 
 test("(a) every research-section page keeps its words and links (whitespace aside)", () => {
@@ -134,7 +134,7 @@ test("(c) every article sign-off is an inset panel; a closing install command is
     const html = src(page);
     assert.doesNotMatch(html, /man-note--live/, `${page}: the pink sign-off box is gone`);
     panels += (html.match(/<aside class="tint-panel bc-signoff"/g) || []).length;
-    pills += (html.match(/include: install-box\.html id=signoffInstall/g) || []).length;
+    pills += (html.match(/<InstallBox id='signoffInstall'/g) || []).length;
   }
   assert.ok(panels >= 14, `${panels} articles sign off in an inset panel`);
   assert.ok(pills >= 9, `the install command is the shared pill in ${pills} sign-offs`);

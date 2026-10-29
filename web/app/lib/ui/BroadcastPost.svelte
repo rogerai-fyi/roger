@@ -8,10 +8,10 @@
   import OnAir from "#lib/ui/OnAir.svelte";
   import InstallBox from "#lib/ui/InstallBox.svelte";
   let { title, desc, number, kind = "FIELD GUIDE", date, dateLabel, slug, ogimage, dek, hero, heroAlt, heroCaption, faq = [], faqNo = 0, ogdesc, css = [], children } = $props();
-  const url = `https://rogerai.fm/${slug}.html`;
-  const head = siteHead({ title, desc, og: { type: "article", title, desc: ogdesc || desc, url, image: ogimage }, css: [...CSS_SHARED, "broadcasts.css", ...css] });
-  const faqLd = JSON.stringify({ "@context": "https://schema.org", "@type": "FAQPage",
-    mainEntity: faq.map((q) => ({ "@type": "Question", name: q.q, acceptedAnswer: { "@type": "Answer", text: q.a } })) });
+  const url = $derived(`https://rogerai.fm/${slug}.html`);
+  const head = $derived(siteHead({ title, desc, og: { type: "article", title, desc: ogdesc || desc, url, image: ogimage }, css: [...CSS_SHARED, "broadcasts.css", ...css], scripts: [{ runtime: true }] }));
+  const faqLd = $derived(JSON.stringify({ "@context": "https://schema.org", "@type": "FAQPage",
+    mainEntity: faq.map((q) => ({ "@type": "Question", name: q.q, acceptedAnswer: { "@type": "Answer", text: q.a } })) }));
 </script>
 <svelte:head>{@html head}{#if faq.length}{@html '<script type="application/ld+json">' + faqLd + '<\/script>'}{/if}</svelte:head>
 <Rail head="RogerAI · Field Guide" rev="Rev. {dateLabel.rev} · ((•))" orange />
@@ -52,11 +52,11 @@
         <span class="tint-panel__tag">roger that</span>
         <p>Start your own station or just tune in - install the set:</p>
         <div class="install">
-          <InstallBox id="signoffInstall" cmd='curl <span class="tok">-fsSL</span> <span class="tok">https://rogerai.fm/install.sh</span> <span class="tok">| sh</span>' />
+          <InstallBox id="signoffInstall">curl <span class="tok">-fsSL</span> <span class="tok">https://rogerai.fm/install.sh</span> <span class="tok">| sh</span></InstallBox>
         </div>
       </aside>
     </div>
   </article>
 </main>
 
-<Footer />
+<Footer anchors="/" />

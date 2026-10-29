@@ -24,11 +24,12 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { MASTERS, WEBP_DIR, WIDE, NARROW, SHARP, pngSize } from "../scripts/derive-webp.mjs";
 import { noComments, attr, local, bytes, candidates, images, firstLoad, BUDGET_FILE } from "../scripts/page-weight.mjs";
+import { allPages } from "./_html.mjs";
 
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = path.join(WEB, "src");
 const DIST = path.join(WEB, "dist");
-const PAGES = readdirSync(SRC).filter((f) => f.endsWith(".html")).sort();
+const PAGES = allPages();
 const page = (name) => readFileSync(path.join(DIST, name), "utf8");
 // legacy-address stubs (bands, playground): a meta refresh whose only job is to leave at
 // once, so a synchronous redirect script is right and they paint no text worth a font

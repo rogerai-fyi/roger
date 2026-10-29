@@ -47,7 +47,8 @@ test("every app-built page went through the finishing passes", () => {
     assert.doesNotMatch(html, /\s(hidden|data-[\w-]+)=""/, `${page}: flags are spelled bare, like the legacy pages`);
     for (const m of html.matchAll(/(?:src|href)="((?:js|styles|assets)\/[^"]+)"/g))
       assert.match(m[1], /\?v=[0-9a-f]{8}$/, `${page}: ${m[1]} is cache-busted`);
-    assert.doesNotMatch(html, /<script>(?!document\.documentElement|\(function\(\)\{function r)/, `${page}: no inline script beyond the shell's two (no SvelteKit loader: islands only)`);
+    assert.doesNotMatch(html, /<script>(?!document\.documentElement|\(function\(\)\{function r|\s*\(function \(\) \{\s*try \{\s*var saved)/, `${page}: no inline script beyond the shell's two and the homepage theme script (no SvelteKit loader: islands only)`);
+    assert.doesNotMatch(html.replace(/<div data-island="[\w-]+">[\s\S]*?<!--\/island-->/g, ""), /<!--(?:\[-?\d*|\]|!|)-->/, `${page}: no hydration comment outside an island`);
     assert.doesNotMatch(html, /_app\/immutable\/[^"]*\.js/, `${page}: no SvelteKit client chunk (a route that forgot csr = false hydrates twice, the island and the client)`);
   }
 });
@@ -69,6 +70,15 @@ test("every island a page names is built and referenced, and every built island 
     assert.ok(used.has(name) || !owned.length, `app/islands/${f} is mounted by some owned page`);
   }
   if (owned.length) for (const f of built) assert.ok(sources.includes(f) || used.has(f.replace(/\.js$/, "")), `dist/js/islands/${f} comes from an island or a chunk of one`);
+});
+
+test("every app route is an owned page (no orphan route)", () => {
+  const routes = [];
+  const walk = (dir, rel) => { for (const e of readdirSync(dir, { withFileTypes: true })) {
+    if (e.isDirectory()) walk(path.join(dir, e.name), rel ? `${rel}/${e.name}` : e.name);
+    else if (/^\+page\.(svelte|md)$/.test(e.name)) routes.push(rel ? `${rel}.html` : "index.html"); } };
+  walk(path.join(APP, "routes"), "");
+  assert.deepEqual(routes.sort(), owned, "every +page.* under app/routes is in app/owned.json, and nothing else is");
 });
 
 test("the legacy half still needs nothing installed: build.mjs imports only node: modules and web/scripts", () => {

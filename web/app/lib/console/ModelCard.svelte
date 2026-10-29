@@ -1,15 +1,16 @@
 <script>
   // One model card: base price + time-of-use schedule + save/clear, and the category line.
+  import { untrack } from "svelte";
   import { postJSON } from "#lib/api.js";
   import { priceStr, fnum, daysStr, parseDays } from "./format.js";
   import WindowRow from "./WindowRow.svelte";
   import CatEditor from "./CatEditor.svelte";
   let { m, ceil, onreload } = $props();
 
-  let priceIn = $state(priceStr(m.price_in));
-  let priceOut = $state(priceStr(m.price_out));
-  let free = $state(!!m.free);
-  let windows = $state((m.schedule || []).map(toRow));
+  let priceIn = $state(untrack(() => priceStr(m.price_in)));
+  let priceOut = $state(untrack(() => priceStr(m.price_out)));
+  let free = $state(untrack(() => !!m.free));
+  let windows = $state(untrack(() => (m.schedule || []).map(toRow)));
   let busy = $state(false);
   let msg = $state({ cls: "", text: "" });
   let catOpen = $state(false);

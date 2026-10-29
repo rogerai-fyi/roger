@@ -12,11 +12,12 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { source } from "./_html.mjs";
 
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const DIST = path.join(WEB, "dist");
 const read = (p) => readFileSync(path.join(DIST, p), "utf8");
-const src = (p) => readFileSync(path.join(WEB, "src", p), "utf8");
+const src = source;   // a page's source, legacy or app route (test/_html.mjs)
 const compact = (s) => s.replace(/\s+/g, " ");
 
 before(() => execFileSync("node", ["build.mjs"], { cwd: WEB }));

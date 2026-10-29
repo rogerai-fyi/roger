@@ -18,6 +18,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { source, decodeText } from "./_html.mjs";
 
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const DIST = path.join(WEB, "dist");
@@ -52,7 +53,7 @@ function mediaBlocks(css, re) {
 test("(a) the hero words are unchanged from the pre-lift copy (whitespace aside)", () => {
   const now = visibleText(heroSection());
   assert.ok(now.length > 500, "the hero section was found");
-  assert.equal(squash(now), squash(fixture.text), "hero text changed: the lift may move words between lines, never edit them");
+  assert.equal(squash(decodeText(now)), squash(decodeText(fixture.text)), "hero text changed: the lift may move words between lines, never edit them");
 });
 
 test("(a) the hero links are the same links, in the same order", () => {
@@ -65,7 +66,7 @@ test("(a) the headline keeps a word boundary where each <br> used to be", () => 
   // name and copied text would read "world'sdecentralized".
   const h1 = heroSection().match(/<h1 class="hero__title"[\s\S]*?<\/h1>/)?.[0] || "";
   assert.doesNotMatch(h1, /<br\s*\/?>/, "lines are spans, not <br>");
-  assert.match(h1.replace(/<[^>]+>/g, ""), /world&rsquo;s\s+decentralized/);
+  assert.match(decodeText(h1.replace(/<[^>]+>/g, "")), /world’s\s+decentralized/);
   assert.match(h1.replace(/<[^>]+>/g, ""), /Models\.\s+In under 30 seconds\./);
 });
 
@@ -157,7 +158,7 @@ test("home.css carries no rules for classes the homepage never uses", () => {
   const strip = (s) => s.replace(/\/\*[\s\S]*?\*\//g, "");
   const css = strip(readFileSync(path.join(WEB, "src/styles/home.css"), "utf8"));
   const dir = (d) => readdirSync(path.join(WEB, d)).map((f) => readFileSync(path.join(WEB, d, f), "utf8")).join("\n");
-  const used = readFileSync(path.join(WEB, "src/index.html"), "utf8") + dir("src/_partials") + dir("src/js");
+  const used = source("index.html") + dir("src/_partials") + dir("src/js") + dir("app/lib/ui");
   // classes built by string concatenation in JS ("pingdeck__line--" + who)
   const dynamic = [/^pingdeck__line--/];
   const classes = [...new Set([...css.matchAll(/\.([a-zA-Z][\w-]*)/g)].map((m) => m[1]))];

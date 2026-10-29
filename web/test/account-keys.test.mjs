@@ -9,6 +9,7 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { source } from "./_html.mjs";
 
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const src = readFileSync(path.join(WEB, "src/js/account-keys.js"), "utf8");
@@ -97,7 +98,7 @@ test("account keys: the reveal shows the secret once, a copy control and the nev
 test("account keys: the section uses only the keys page's existing classes, no inline style", () => {
   const css = readdirSync(path.join(WEB, "src/styles")).filter((f) => f.endsWith(".css"))
     .map((f) => readFileSync(path.join(WEB, "src/styles", f), "utf8")).join("\n");
-  const page = readFileSync(path.join(WEB, "src/keys.html"), "utf8");
+  const page = source("keys.html");
   const section = page.match(/<section class="panel" id="acctKeys">[\s\S]*?<\/section>/)?.[0] || "";
   assert.ok(section, "keys.html has the Account keys section");
   assert.match(section, /<h2>Account keys<\/h2>/);

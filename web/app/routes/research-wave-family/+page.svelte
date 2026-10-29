@@ -1,0 +1,771 @@
+<script>
+  // The Wave Spectrum - one family, pico to exa
+  // Ported from web/src/research-wave-family.html (2026-10-29); the copy is the legacy copy.
+  import { siteHead, CSS_SHARED, CSS_ACCOUNT } from "#lib/head.js";
+  import { content } from "#lib/content.js";
+  import Footer from "#lib/ui/Footer.svelte";
+  import Nav from "#lib/ui/Nav.svelte";
+  import OnAir from "#lib/ui/OnAir.svelte";
+  import Rail from "#lib/ui/Rail.svelte";
+  import WaveMark from "#lib/ui/WaveMark.svelte";
+  const facts = content('research-wave-family.html');
+  const head = siteHead({
+    title: 'The Wave Spectrum - one family, pico to exa',
+    desc: 'The Wave family on one SI scale - Pico to Exa, a board beside the machine to an exascale-class flagship - what each tier is for, how each is built, and the measurement that decides which tier can take which industrial job.',
+    og: { type: 'article', title: 'The Wave Spectrum', desc: 'One family of industrial models on a single SI scale - what each tier is for, what it takes to run it, and which job each size is allowed to take.', url: 'https://rogerai.fm/research-wave-family.html', image: 'https://rogerai.fm/og-research.png' },
+    css: [...CSS_SHARED, 'research.css', 'wave-family.css'],
+    scripts: [{ runtime: true }, { src: 'js/wave-mark.js', defer: true }, { src: 'js/wave-mark-spectrum.js', defer: true }, { src: 'js/wave-jobs.js', defer: true }],
+  });
+</script>
+<svelte:head>{@html head}</svelte:head>
+<!-- The Wave family field guide. Linked from research.html's hero action cluster.
+     It lives on its own page on purpose: research.html carries a deliberate
+     conciseness budget (main < 19500 bytes, enforced by research-page.test.mjs),
+     and the family - the rail, the slot table, forty-seven jobs and the variation
+     gates - does not fit inside it without cutting founder-approved content.
+     Registered in build.mjs CSS_BUNDLES with research.css + wave-family.css. 
+     (the page's doc comment, from the legacy file; its CSS bundle is the css: list above) -->
+  <Rail head='RogerAI &middot; Field Guide' rev='Rev. 2026.07 &middot; LABS' />
+
+  <Nav variant='marketing' home='/' current='research' />
+
+  <main id="top">
+
+    <section class="research-hero">
+      <div class="wrap research-hero__layout">
+        <div>
+          <a class="wf-back mono" href="/research.html">&larr; RogerAI Labs</a>
+          <span class="hero__eyebrow">
+            <OnAir />
+            <span class="hero__callsign">WAVE FAMILY &middot; FIELD GUIDE</span>
+          </span>
+          <!-- FOUNDER 2026-08-17: "remove this from the title: 'one family, pico to
+               exa.'" The H1 is the name and nothing else now. The <title> and meta
+               description keep the long form - they are doing SEO work and no one reads
+               them as a headline - but og:title follows the H1, because that IS the
+               headline on a shared card. -->
+          <h1>The Wave Spectrum.</h1>
+          <p class="research-hero__lead">
+            One family of industrial models on a single SI scale - from a board beside
+            the machine to an exascale-class flagship. They are built from scratch to
+            read machines and to talk to the people who run them, and the same family
+            fits a hobbyist&rsquo;s single-board computer and a plant datacenter. Each
+            tier has a different job, and a measurement decides which job it is allowed
+            to take.
+          </p>
+        </div>
+
+        <!-- The wave mark, lifted verbatim from the homepage social card: two S-curves
+             on one centreline, the red tighter than the grey, with the live beacon exactly
+             where they cross. It belongs on this page more than anywhere - the family is
+             named for the wave, and the crossing node is the point the whole page is about.
+             Geometry is the card's, unchanged, so the two read as one mark. Deliberately
+             not the vector Ping mascot, which stays on the homepage and the research hub. -->
+        <!-- ALIVE (js/wave-mark.js): the resting frame is this exact mark. Behind
+             the wide wave sit fainter harmonics at 2x, 3x, 4x - the ladder as a
+             spectrum of wavelengths - and every harmonic of one fundamental has a
+             node at the centre, so all of them cross under the beacon, always. The
+             waves are standing waves that breathe (never flat); a slow shimmer
+             rides the live one; a ripple leaves the beacon every few seconds. Under
+             prefers-reduced-motion nothing moves and this is the mark to the pixel. -->
+        <WaveMark caption='Right-sized intelligence, on air.' />
+      </div>
+    </section>
+
+    <!-- §1 SCALE -->
+    <!-- contents: the shared toc-tuner; its names repeat the section labels below -->
+    <nav class="toc-tuner" data-tuner aria-label="Sections">
+      <div class="wrap toc-tuner__band">
+      <div class="toc-tuner__readout" aria-hidden="true"></div>
+      <ol class="toc-tuner__scale">
+        <li><a class="toc-tuner__st" href="#scale"><b>§1</b><span class="toc-tuner__name">SCALE</span></a></li>
+        <li><a class="toc-tuner__st" href="#slots"><b>§2</b><span class="toc-tuner__name">SLOTS</span></a></li>
+        <li><a class="toc-tuner__st" href="#jobs"><b>§3</b><span class="toc-tuner__name">JOBS</span></a></li>
+        <li><a class="toc-tuner__st" href="#variations"><b>§4</b><span class="toc-tuner__name">VARIATIONS</span></a></li>
+        <li><a class="toc-tuner__st" href="#infinite"><b>§5</b><span class="toc-tuner__name">WAVE INFINITE</span></a></li>
+      </ol>
+      <span class="toc-tuner__needle" aria-hidden="true"></span>
+      </div>
+    </nav>
+
+    <section class="section" id="scale">
+      <div class="wrap">
+        <div class="section__head section__head--left">
+          <!-- FOUNDER 2026-08-17: the old head ("The gaps are real" + a paragraph about
+               a logarithmic axis carrying information) described the CHART. The point is
+               the family: each tier is cut for the job it does and the hardware that job
+               happens on.
+               FOUNDER 2026-08-17 (round 2): the closing sentence - "the rail puts every
+               tier at the size its artifact really is, so the distance between two of
+               them is a real distance" - was the chart congratulating itself. Cut. The
+               paragraph is about the family, so it ends on the family. -->
+          <span class="sectionno">&sect;1 / SCALE</span>
+          <h2>Sized for where it has to live.</h2>
+          <p>A tier is not a rank. Each one is cut for the job it does and the hardware
+             that job happens on: Wave Pico fits a single-board computer bolted next to
+             one machine, Wave Exa fills a datacenter.</p>
+        </div>
+
+        <figure class="wf-rail" aria-labelledby="wf-rail-title">
+          <div class="wf-rail__head">
+            <span id="wf-rail-title">ARTIFACT SIZE ON DISK</span>
+            <span>quantized weights, log scale</span>
+            <!-- FOUNDER 2026-08-17 (round 2): the filled/hollow legend was the first
+                 paragraph of the caption. It is furniture, not prose, so it moved into
+                 the figure's own head where a legend belongs - beside the axis it
+                 describes, read before the marks rather than after them. -->
+            <span class="wf-rail__key">
+              <span class="wf-rail__keyitem"><i class="is-live"></i>trained artifact</span>
+              <span class="wf-rail__keyitem"><i></i>program stage</span>
+            </span>
+          </div>
+          <!-- Four decades, 100 MB to 1 TB, so every tier sits ON the axis with
+               room to breathe (founder 2026-08-17: the top three markers crowded on
+               the old 1 MB-1 TB span - the two empty decades below Pico were paying
+               for nothing). Still a true log axis. Node positions are computed, not
+               eyeballed: at% = 25 x (log10(size_MB) - 2), size = params x ~0.6 bytes
+               (Q4-class quantized weights, the shipping form - the measured 98M build
+               is 65 MB at Q4_K_M). Tier midpoints from the locked ladder:
+               Pico 275M -> 165 MB (5.4%), Nano 1.15B -> 690 MB (21%),
+               Micro 7.5B -> 4.5 GB (41%), Giga 31B -> 18.6 GB (57%),
+               Tera 100B -> 60 GB (69.5%), Peta 175B -> 105 GB (75.5%),
+               Exa 284B -> 170 GB (80.8%). On four decades the closest neighbours
+               (Peta/Exa) sit 46px apart on the 860px track.
+               CORRECTED 2026-08-30: that 46px is the spacing of the DOTS, and the
+               conclusion drawn from it - "one row, no stagger" - did not hold, because
+               a .wf-node LABEL is 58px wide. 58 > 46, so the labels overlapped even
+               though the markers cleared: Peta/Exa by 12.4px and Tera/Peta by 6.4px,
+               measured at both desktop and mobile (the track is its 860px min-width at
+               both, so this was never a mobile-only fault). .wf-node--up existed to
+               drop the middle of three exactly here and had been left applied to
+               nothing, so the rule was dead and the collision live. Peta wears it
+               again. rail-label-collision.test.mjs now measures the arithmetic so a
+               future re-spacing cannot quietly re-break it.
+               FOUNDER 2026-08-17 (round 2): the last tick was "1 TB". It is now the
+               infinity symbol - 100 GB is the last decade any tier needs, and the end of
+               the rail is where the numbers stop rather than another size to read against.
+               That is the ONE position on this axis that is explicitly not a number, so
+               it is where Wave Infinite goes. -->
+          <div class="wf-rail__scroll">
+            <div class="wf-rail__track">
+              <span class="wf-tick" style="--at:0%"><i></i><b>100 MB</b></span>
+              <span class="wf-tick" style="--at:25%"><i></i><b>1 GB</b></span>
+              <span class="wf-tick" style="--at:50%"><i></i><b>10 GB</b></span>
+              <span class="wf-tick" style="--at:75%"><i></i><b>100 GB</b></span>
+              <span class="wf-tick wf-tick--end" style="--at:100%"><i></i><b>&infin;</b></span>
+
+              <span class="wf-node is-live" style="--at:5.4%"><i></i><b>Pico</b></span>
+              <span class="wf-node" style="--at:21%"><i></i><b>Nano</b></span>
+              <span class="wf-node" style="--at:41%"><i></i><b>Micro</b></span>
+              <span class="wf-node" style="--at:57%"><i></i><b>Giga</b></span>
+              <span class="wf-node" style="--at:69.5%"><i></i><b>Tera</b></span>
+              <span class="wf-node wf-node--up" style="--at:75.5%"><i></i><b>Peta</b></span>
+              <span class="wf-node" style="--at:80.8%"><i></i><b>Exa</b></span>
+
+              <!-- WAVE INFINITE, on the rail on the founder's own instruction
+                   (2026-08-17): "replace the 1 TB with an infinite sign and add it with
+                   it's own dot ... and remove the text where it says it's not there."
+                   That reverses the 2026-08-14 removal, and wave-infinite.test.mjs is
+                   amended to match with the reason recorded there.
+                   What keeps it honest is now structural rather than a disclaimer:
+                   it is NOT one of the seven sized markers (its own class, outside that
+                   set, so the ladder assertion still reads exactly Pico..Exa in order),
+                   it sits at the infinity tick - the one point on this axis that is not
+                   a finite size - and its marker is HOLLOW, which under this figure's
+                   own legend means a program stage rather than a trained artifact.
+                   Pico is still the only filled marker on the rail.
+                   It comes after all seven nodes so nothing can walk between a node and
+                   its own label. -->
+              <span class="wf-beyond" style="--at:100%">
+                <i></i><b>Wave Infinite</b>
+              </span>
+            </div>
+          </div>
+          <!-- FOUNDER 2026-08-17 (round 2): the caption was four paragraphs of
+               provenance - legend, Pico's waypoint, why the top three crowd, Infinite.
+               A reader at a SIZE rail wants to know what a size means in practice, so
+               that is now the caption's job and the provenance moved into the figure's
+               own furniture: the legend is in the head, and these two notes sit under
+               the track. The "top three really are that close" line is gone - it was a
+               third sentence about the chart, and the 60 GB-and-up band below says the
+               same thing usefully. Every other fact is still here, one click of the eye
+               from the marker it belongs to.
+               The Infinite note stays INSIDE this figure on purpose: the lock in
+               wave-infinite.test.mjs reads the whole figure for "not a size", and the
+               fact belongs beside the axis it is excluded from. -->
+          <div class="wf-rail__notes">
+            <p class="wf-rail__note"><b>Why the dots sit where they do.</b> A tier&rsquo;s
+              size is set by the machine that has to run it &ndash; a Raspberry Pi at one
+              end, a regional cloud at the other &ndash; not by a benchmark score. Each tier
+              is a band rather than one fixed count, so a later version can move within its
+              stretch of the rail and still fit the hardware it was drawn for.</p>
+            <!-- FOUNDER 2026-08-17: "remove the text where it says it's not there."
+                 The disclaimer is gone. Then: "make it sound better and more informative
+                 about what it will be" - the note was defining Wave Infinite by its own
+                 marker, which tells a reader nothing. It now says what the programme is
+                 for, in §5's own words, in the DESIGN register: "is designed to", never
+                 the present tense, because the loop has not been run. "No fixed size"
+                 explains why it sits at the ∞ end; it is not the disclaimer that came
+                 off.
+                 FOUNDER 2026-08-19: the closing "Hollow, like every program stage ..."
+                 came off too. It was glossing the marker for a reader who can see the
+                 legend six inches above it, and the honest status it carried is
+                 structural rather than prose - the marker IS hollow (CSS), the legend
+                 says what hollow means, and wave-infinite.test.mjs asserts both. -->
+            <p class="wf-rail__note"><b>Wave Infinite sits at the &infin; end</b> because it
+              has no fixed size. It is designed to start from a trained base &ndash; Nano,
+              Micro or Giga &ndash; and grow new weights on your own work: real parameters,
+              not prompts and not retrieval, with every round of growth having to clear a
+              certificate that the base behaviour survived it
+              (<a href="#infinite">&sect;5</a>).</p>
+          </div>
+
+          <figcaption id="wf-rail-cap" class="wf-rail__means">
+            <p class="wf-rail__meanslead">What each size means once you have to run it:</p>
+            <ol>
+              <li><b>Under 1 GB</b> <span>Pico, Nano</span>
+                <small>A Raspberry Pi-class board or a gateway box, no GPU, bolted beside
+                  the machine. Targets about 50 ms.</small></li>
+              <li><b>About 5 GB</b> <span>Micro</span>
+                <small>One consumer GPU, or a server already standing in the plant room.
+                  The size a workshop or a single site can own outright.</small></li>
+              <li><b>About 20 GB</b> <span>Giga</span>
+                <small>A large accelerator in the plant&rsquo;s own datacenter. Still one
+                  box, still on your side of the fence.</small></li>
+              <li><b>50 GB and up</b> <span>Tera, Peta, Exa</span>
+                <small>More than one accelerator, with the model split across them: an
+                  enterprise or regional cloud, run on the company&rsquo;s own estate.</small></li>
+            </ol>
+          </figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <!-- §2 SLOTS -->
+    <section class="section research-tone band band--inset" id="slots">
+      <div class="wrap">
+        <div class="section__head section__head--left">
+          <span class="sectionno">&sect;2 / SLOTS</span>
+          <h2>What each size is for.</h2>
+          <p>The build recipe travels with each tier, and so does the job. Read the table across rather than down: the class is chosen by the machine in the <b>Runs on</b> column, and the job is what that much model can actually hold.</p>
+        </div>
+
+        <div class="tier-scroll">
+          <table class="data-table tier-matrix">
+            <thead>
+              <tr>
+                <th scope="col">Slot</th><th scope="col">Class</th><th scope="col">Job</th>
+                <th scope="col">Runs on</th><th scope="col">Recipe</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">Wave Pico</th><td class="tier-cell">250&ndash;300M</td>
+                <td>The edge child: reads one machine&rsquo;s telemetry and asserts, with margins</td>
+                <td>Raspberry Pi &middot; no GPU &middot; ~50 ms target</td><td class="tier-cell">{@html facts.wave('pico.wave-family.recipe')}</td>
+              </tr>
+              <tr>
+                <th scope="row">Wave Nano</th><td class="tier-cell">0.8&ndash;1.5B</td>
+                <td>The fleet gateway: rolls up many children, resolves conflicts, routes by discovery</td>
+                <td>Gateway, concentrator</td><td class="tier-cell">{@html facts.wave('nano.wave-family.recipe')}</td>
+              </tr>
+              <tr>
+                <th scope="row">Wave Micro</th><td class="tier-cell">7&ndash;8B</td>
+                <td>The site brain: multi-fleet reasoning across a facility, general-capable and industrial</td>
+                <td>On-site server</td><td class="tier-cell">{@html facts.wave('micro.wave-family.recipe')}</td>
+              </tr>
+              <tr>
+                <th scope="row">Wave Giga</th><td class="tier-cell">27&ndash;35B</td>
+                <td>The plant: full-plant reasoning, competitive on general benchmarks as well as machines</td>
+                <td>Plant datacenter</td><td class="tier-cell">Base + specialize</td>
+              </tr>
+              <tr>
+                <th scope="row">Wave Tera</th><td class="tier-cell">80&ndash;120B</td>
+                <td>Cross-site enterprise: correlates faults and trends across many plants at once</td>
+                <td>Enterprise cloud</td><td class="tier-cell">Base + specialize</td>
+              </tr>
+              <tr>
+                <th scope="row">Wave Peta</th><td class="tier-cell">150&ndash;200B</td>
+                <td>Regional scale: a leaner giant, distilled and pruned down from the frontier</td>
+                <td>Regional cloud</td><td class="tier-cell">Expert-pruned</td>
+              </tr>
+              <tr>
+                <th scope="row">Wave Exa</th><td class="tier-cell">&gt;280B</td>
+                <td>The flagship: exascale-class frontier capability, and the teacher the whole family learns from</td>
+                <td>Frontier datacenter</td><td class="tier-cell">Frontier base</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- MODEL PAGES (2026-10-20): the two tiers with a page of their own, linked from
+             their table rows above and here, so a reader at the ladder can open either.
+             Giga joins when the lab supplies its facts. -->
+        <div class="spectrum-more">
+          <a href="/research-wave-pico.html">Wave Pico, the model page</a>
+          <span>What it is for, how to run it, what it scores and where it stops.</span>
+          <a href="/research-wave-nano.html">Wave Nano, the model page</a>
+          <span>The gateway tier that also talks, with its vision module.</span>
+        </div>
+
+        <!-- Founder 2026-08-18, "very subtly": say WHY every tier is a band and
+             not a number - each release gets room to move inside its own band
+             without changing what the tier is for. Deliberately no version
+             numbers: naming a release here would turn a design note into a
+             roadmap promise, which is a different kind of claim. -->
+        <p class="wf-bandnote">Every tier is a <b>band</b>, not a fixed count. A
+           tier is defined by the work it has to carry and the hardware it has to
+           carry it on; where a given release lands inside that band is a build
+           decision, and successive versions of the family may sit at different
+           points in the same band without changing what the tier is for.</p>
+
+        <!-- Six cards, 3x2 (the grid is scoped in wave-family.css). Three are the
+             original contract; three answer the questions readers actually arrive with -
+             what the input side looks like, what the small board really is, and whether it
+             has to be local. The microcontroller card is a HARD rail
+             (ROGER-EDGE-MCU-FEASIBILITY-2026-08-14): no Wave tier runs on an MCU, and the
+             page has to say so where the "runs on" column is. -->
+        <div class="device-contract">
+          <p><b>Specialists first.</b> Wave Pico and Wave Nano are task-native total
+             specialists. By design they score at chance on general benchmarks (MMLU 26.4
+             against a 25 chance line, Pico v4 audit). Reasoning and explanation grow from
+             Wave Micro upward, where every tier must stay competitive on general
+             benchmarks as well as industrial ones.</p>
+          <p><b>Built to read machines.</b> The input side is machine-native: a window of
+             raw telemetry, a log line, a serial dump - the thing a machine emits, not a
+             sentence about it. That is what training from scratch buys. The vocabulary is
+             the plant&rsquo;s rather than the web&rsquo;s, and a tier can read the output
+             of the tier beneath it.</p>
+          <p><b>How the recipes split.</b> There are two ways to get a model. You can
+             start from someone else&rsquo;s finished model and teach it your work &ndash;
+             fast, and it arrives already shaped by the web it was trained on. Or you can
+             start from nothing, an empty network that has never seen a word, and raise it
+             on your own data. That second way is <b>scratch</b>, and it is the harder,
+             slower one: what limits it is the variety of data you can feed it, not the
+             GPUs you can point at it. We have run that path with no sign of it starving
+             through 1.5 billion parameters.</p>
+          <p><b>Where each tier lands.</b> Pico, Nano and Micro are scratch tiers, so the
+             plant&rsquo;s vocabulary is the only one they ever learn. Micro&rsquo;s from-scratch 7B run is training:
+             at 7&ndash;8B it sits well above anything we have measured, and nothing about
+             it is measured yet. Giga and Tera take the other road &ndash; a strong open base, then
+             industrial training on top, plus the mesh &ndash; because at that size a model
+             is expected to hold its own on general questions too. Peta and Exa are carved
+             down from the flagship rather than trained up from anything. Sizes are targets
+             and bands, not final specifications.</p>
+          <p><b>The microcontroller is the sensor, not the model.</b> An ESP32 or an Arduino reads the vibration, the temperature or the current and hands it up. It cannot also be the model: that board has a few megabytes of flash, and Wave Pico&rsquo;s 293M release is <b>270&ndash;562 MB</b> as GGUF files. Nothing closes that gap, so no Wave tier runs on one. What does live down on the node is <a href="/research-industry.html#devices">Roger Edge</a>, a classifier of a few hundred kilobytes; the smallest thing that runs a Wave tier is the Pi-class board above it, with no GPU.</p>
+          <p><b>Run it where you like.</b> Every tier is a model you host - on the board
+             beside the machine, on a server in the plant, or on your own GPU at home. A
+             model you run locally can also go on air as a band with
+             <code>roger share</code>, which is how anything on RogerAI is reached
+             remotely. Local or remote is a deployment choice, not a different product.</p>
+                  <p class="wf-contract__wide"><b>One family on one wire.</b> Wave Mesh is the
+             protocol the tiers speak to each other, and every tier ships with it built in
+             &ndash; not an add-on, not a separate service to stand up. The shape is fan-in:
+             a Pico reads one machine&rsquo;s channels, a Nano rolls up many Picos, a Micro
+             reasons across many fleets. When a small model is not sure of a read, it sends
+             that read up rather than guessing, and the tier above can take it directly
+             because both were trained on the same machine vocabulary &ndash; no translation
+             layer, no re-encoding. That is the whole trade: small models everywhere, a
+             bigger one only on the reads that need it. How much climbs is a dial you set,
+             not a fixed property of the chain, and moving it trades accuracy against how
+             much hardware you have to keep upstream.</p>
+</div>
+      </div>
+    </section>
+
+    <!-- §3 JOBS -->
+    <section class="section" id="jobs">
+      <div class="wrap">
+        <div class="section__head section__head--left">
+          <span class="sectionno">&sect;3 / JOBS</span>
+          <h2>Which slot for which job.</h2>
+          <p>The smallest slot that can carry the work. The shape repeats everywhere: small
+             slots turn messy reality into structure, larger slots reason over that
+             structure. These are the jobs the family is built for.</p>
+        </div>
+
+        <!-- THE JOB FINDER. Progressive enhancement, in that order:
+             (1) With no JavaScript this is one grouped table, whole and readable, and the
+                 toolbar below never appears (it ships `hidden`; js/wave-jobs.js is the only
+                 thing that reveals it). Nothing is hidden behind a script.
+             (2) With JavaScript it becomes a filter: by setting, by slot, with a live count
+                 and a bounded scroll panel, so the section stays one screen tall however
+                 many jobs it grows.
+             (3) Under 760px every row becomes a card - the old 640px-wide table forced a
+                 sideways scroll on a phone for all 27 rows.
+
+             TWO ROW FORMS, on purpose. The 27 PLANT jobs keep the bare, attribute-free
+             row form: research-page.test.mjs counts them out of this
+             table and asserts they match, one for one, the job arcs drawn on the research
+             hub's scope figure. Rows BEYOND the plant set carry `data-scope="beyond-plant"`,
+             which keeps that count at the 27 the scope draws while letting this section
+             cover the hobbyist bench and the top of the ladder. wave-family.test.mjs reads
+             BOTH forms, so every row is still checked for a real slot, no duplicate, and no
+             clinical work. -->
+        <div class="wj" data-wj>
+          <!-- FOUNDER 2026-08-17 (round 2): the toolbar was four rows tall - two wrapped
+               rows of setting chips, a row of eight slot chips, and a count line on its
+               own. Same function, less real estate: the bar is now one wrapping flex
+               line, the chips are tighter, and the eight slot chips became a native
+               select. The select is keyboard reachable by default, carries every slot's
+               NAME (colour was never the only signal and is not needed here at all), and
+               keeps its live counts in the option labels the same way the chips do. The
+               count sits at the end of the line rather than on a line of its own. -->
+          <div class="wj__bar" data-wj-bar hidden>
+            <div class="wj__set" role="group" aria-label="Filter jobs by setting">
+              <span class="wj__legend">Setting</span>
+              <button class="wj__chip" type="button" data-wj-setting="all" aria-pressed="true">Everywhere</button>
+              <button class="wj__chip" type="button" data-wj-setting="plant" aria-pressed="false">Plant and process</button>
+              <button class="wj__chip" type="button" data-wj-setting="clinical" aria-pressed="false">Hospital and lab equipment</button>
+              <button class="wj__chip" type="button" data-wj-setting="defence" aria-pressed="false">Defence sustainment</button>
+              <button class="wj__chip" type="button" data-wj-setting="workshop" aria-pressed="false">Workshop, home and small shop</button>
+              <button class="wj__chip" type="button" data-wj-setting="fleet" aria-pressed="false">Across sites and fleets</button>
+            </div>
+            <div class="wj__pick">
+              <label class="wj__legend" for="wj-slot">Slot</label>
+              <select class="wj__select" id="wj-slot" data-wj-slot>
+                <option value="all" selected>Any slot</option>
+                <option value="Pico">Pico</option>
+                <option value="Nano">Nano</option>
+                <option value="Micro">Micro</option>
+                <option value="Giga">Giga</option>
+                <option value="Tera">Tera</option>
+                <option value="Peta">Peta</option>
+                <option value="Exa">Exa</option>
+              </select>
+            </div>
+            <p class="wj__count" data-wj-count role="status" aria-live="polite"></p>
+          </div>
+
+          <div class="wj__scroll" data-wj-scroll>
+            <table class="data-table tier-matrix">
+              <thead>
+                <tr>
+                  <th scope="col">Job</th><th scope="col">Smallest slot</th>
+                  <th scope="col">In and out</th><th scope="col">Why it stays in-house</th>
+                </tr>
+              </thead>
+              <tbody data-setting="plant" data-label="Plant and process">
+                <tr class="wj__group"><th colspan="4" scope="colgroup"><b>Plant and process</b> <span>oil and gas, power, water, manufacturing</span></th></tr>
+                <tr><th scope="row">Gas leak screening</th><td class="tier-cell">Pico + Nano</td><td data-label="In and out">Sensor and acoustic stream to anomaly event</td><td data-label="Why it stays in-house">Continuous, no bandwidth, hazardous area</td></tr>
+                <tr><th scope="row">Leak survey to repair order</th><td class="tier-cell">Micro</td><td data-label="In and out">Findings to repair work order</td><td data-label="Why it stays in-house">Emissions reporting from a disconnected site</td></tr>
+                <tr><th scope="row">Rotating-equipment health</th><td class="tier-cell">Nano to Giga</td><td data-label="In and out">Vibration and thermal features to alert and cause</td><td data-label="Why it stays in-house">Latency, connectivity, data volume</td></tr>
+                <tr><th scope="row">Alarm triage and flood reduction</th><td class="tier-cell">Micro to Giga</td><td data-label="In and out">Alarm stream to ranked, deduplicated summary</td><td data-label="Why it stays in-house">The control network cannot send data out</td></tr>
+                <tr><th scope="row">Work-order and log automation</th><td class="tier-cell">Micro</td><td data-label="In and out">Free-text notes to structured record</td><td data-label="Why it stays in-house">The task measured to survive heavy compression</td></tr>
+                <tr><th scope="row">Procedure and drawing questions</th><td class="tier-cell">Micro + Giga</td><td data-label="In and out">Question and local corpus to grounded answer</td><td data-label="Why it stays in-house">Documents never leave the plant</td></tr>
+                <tr><th scope="row">Incident, permit, and handover notes</th><td class="tier-cell">Giga</td><td data-label="In and out">Notes to structured report and summary</td><td data-label="Why it stays in-house">Privacy, audit trail, disconnected network</td></tr>
+                <tr><th scope="row">Inspection and root cause</th><td class="tier-cell">Micro to Giga</td><td data-label="In and out">Image and line data to defect call with reason</td><td data-label="Why it stays in-house">Line-rate latency</td></tr>
+                <tr><th scope="row">Gloves-on voice control</th><td class="tier-cell">Pico to Nano</td><td data-label="In and out">Spoken command in plant noise to a confirmed action request</td><td data-label="Why it stays in-house">Hands and eyes are busy, and the area may be hazardous</td></tr>
+                <tr><th scope="row">Radio and intercom transcription</th><td class="tier-cell">Nano to Micro</td><td data-label="In and out">Channel audio to a searchable shift log</td><td data-label="Why it stays in-house">Continuous audio, no bandwidth to ship it</td></tr>
+                <tr><th scope="row">Gauge and panel reading</th><td class="tier-cell">Micro</td><td data-label="In and out">Photograph of a dial or screen to a numeric reading</td><td data-label="Why it stays in-house">Legacy assets with no digital output</td></tr>
+                <tr><th scope="row">Cause codes from technician notes</th><td class="tier-cell">Nano to Micro</td><td data-label="In and out">Free-text repair note to a standard failure code</td><td data-label="Why it stays in-house">Notes stay on site; codes feed the local historian</td></tr>
+                <tr><th scope="row">Spare-part and BOM lookup</th><td class="tier-cell">Nano + Micro</td><td data-label="In and out">Part described in words to a catalog number</td><td data-label="Why it stays in-house">The catalog is local and the site is disconnected</td></tr>
+                <tr><th scope="row">Procedure step-out detection</th><td class="tier-cell">Micro</td><td data-label="In and out">Executed steps against the written procedure to a deviation flag</td><td data-label="Why it stays in-house">Controlled procedures never leave the plant</td></tr>
+                <tr><th scope="row">Sensor drift and calibration triage</th><td class="tier-cell">Nano to Giga</td><td data-label="In and out">Instrument trend to suspected drift and its likely cause</td><td data-label="Why it stays in-house">Continuous data, thin link, fast turnaround</td></tr>
+                <tr><th scope="row">Shift handover summary</th><td class="tier-cell">Micro to Giga</td><td data-label="In and out">A shift of logs and alarms to what the next crew must know</td><td data-label="Why it stays in-house">Personnel and incident detail stays on site</td></tr>
+                <tr><th scope="row">Emissions and regulatory reporting</th><td class="tier-cell">Giga</td><td data-label="In and out">Field findings to a submission-ready record</td><td data-label="Why it stays in-house">Audit trail, and the site is disconnected</td></tr>
+                <tr><th scope="row">Weld and assembly inspection</th><td class="tier-cell">Micro to Giga</td><td data-label="In and out">Line image to accept or reject, with the defect named</td><td data-label="Why it stays in-house">Line-rate latency; images never leave the cell</td></tr>
+              </tbody>
+              <tbody data-setting="clinical" data-label="Hospital and lab equipment">
+                <tr class="wj__group"><th colspan="4" scope="colgroup"><b>Hospital and lab equipment</b> <span>the equipment and facilities layer, never the patient</span></th></tr>
+                <tr><th scope="row">Imaging fleet health</th><td class="tier-cell">Micro to Giga</td><td data-label="In and out">Scanner service log to fault and likely cause</td><td data-label="Why it stays in-house">Vendor-segmented network, nothing leaves the hospital</td></tr>
+                <tr><th scope="row">Biomedical work orders</th><td class="tier-cell">Nano to Micro</td><td data-label="In and out">Technician note to structured equipment failure record</td><td data-label="Why it stays in-house">Records stay on site, beside the patient network</td></tr>
+                <tr><th scope="row">Alarm configuration review</th><td class="tier-cell">Micro</td><td data-label="In and out">Alarm journal to misconfigured limits and duplicate annunciations</td><td data-label="Why it stays in-house">Journals never leave the clinical network</td></tr>
+                <tr><th scope="row">Device reportability routing</th><td class="tier-cell">Micro to Giga</td><td data-label="In and out">Device event to reporting trigger, citation, and deadline</td><td data-label="Why it stays in-house">Regulated record, retained on premises</td></tr>
+                <tr><th scope="row">Cold-chain excursions</th><td class="tier-cell">Pico to Nano</td><td data-label="In and out">Refrigeration telemetry to an excursion event</td><td data-label="Why it stays in-house">Continuous, no bandwidth, unattended overnight</td></tr>
+                <tr><th scope="row">Sterile processing records</th><td class="tier-cell">Nano to Micro</td><td data-label="In and out">Sterilizer cycle record to a compliance exception</td><td data-label="Why it stays in-house">High volume, and the record stays with the department</td></tr>
+              </tbody>
+              <tbody data-setting="defence" data-label="Defence sustainment">
+                <tr class="wj__group"><th colspan="4" scope="colgroup"><b>Defence sustainment</b> <span>keeping the fleet serviceable, no effects</span></th></tr>
+                <tr><th scope="row">Platform fault triage</th><td class="tier-cell">Micro to Giga</td><td data-label="In and out">Maintenance log to a coded fault and its likely cause</td><td data-label="Why it stays in-house">Denied and intermittent links, no reachback</td></tr>
+                <tr><th scope="row">Readiness paperwork</th><td class="tier-cell">Nano to Micro</td><td data-label="In and out">Free-text status to a structured readiness record</td><td data-label="Why it stays in-house">Air-gapped network</td></tr>
+                <tr><th scope="row">Supply catalog lookup</th><td class="tier-cell">Nano</td><td data-label="In and out">Part described in words to catalog candidates</td><td data-label="Why it stays in-house">Disconnected depot, local catalog</td></tr>
+              </tbody>
+              <tbody data-setting="workshop" data-label="Workshop, home and small shop">
+                <tr class="wj__group"><th colspan="4" scope="colgroup"><b>Workshop, home and small shop</b> <span>one Pi-class board on a bench, and up</span></th></tr>
+                <tr data-scope="beyond-plant"><th scope="row">Bench-machine watch</th><td class="tier-cell">Pico</td><td data-label="In and out">Vibration and motor current from a lathe, mill or printer to a stop-now event</td><td data-label="Why it stays in-house">One board on the bench, and no uplink worth paying for</td></tr>
+                <tr data-scope="beyond-plant"><th scope="row">Print-farm failure detection</th><td class="tier-cell">Pico to Nano</td><td data-label="In and out">Camera frames and motion trace to a failed-print call</td><td data-label="Why it stays in-house">The frames never leave the workshop</td></tr>
+                <tr data-scope="beyond-plant"><th scope="row">Kiln and heat-treat cycle log</th><td class="tier-cell">Pico</td><td data-label="In and out">Thermocouple trend to a clean, held or overshot cycle</td><td data-label="Why it stays in-house">It runs unattended overnight, on its own board</td></tr>
+                <tr data-scope="beyond-plant"><th scope="row">Off-grid power health</th><td class="tier-cell">Pico to Nano</td><td data-label="In and out">Battery, charger and inverter telemetry to a state-of-health call</td><td data-label="Why it stays in-house">A boat, a van or a cabin, with no link to spare</td></tr>
+                <tr data-scope="beyond-plant"><th scope="row">Tool crib and parts-bin lookup</th><td class="tier-cell">Nano</td><td data-label="In and out">A part described in words to the bin it lives in</td><td data-label="Why it stays in-house">The shop&rsquo;s own catalogue, kept offline</td></tr>
+                <tr data-scope="beyond-plant"><th scope="row">Job cards from bench notes</th><td class="tier-cell">Nano to Micro</td><td data-label="In and out">A scribbled note to a job card the shop can search</td><td data-label="Why it stays in-house">Customer names stay on the shop&rsquo;s own machine</td></tr>
+                <tr data-scope="beyond-plant"><th scope="row">Home sensor mesh roll-up</th><td class="tier-cell">Nano</td><td data-label="In and out">A dozen small sensor nodes to one plain state per zone</td><td data-label="Why it stays in-house">Nothing leaves the house</td></tr>
+                <tr data-scope="beyond-plant"><th scope="row">Setup check before a cut</th><td class="tier-cell">Micro</td><td data-label="In and out">A job file and the machine&rsquo;s limits to a go or no-go, with the reason</td><td data-label="Why it stays in-house">One desktop GPU in the corner, not a subscription</td></tr>
+              </tbody>
+              <!-- FOUNDER 2026-08-17: the first pass at this group was four rows, then
+                   twelve, and the founder's verdict on the twelve was that they "basically
+                   just say the hardest xyz use exa" - a property of the case, not a job
+                   anyone buys. These are DELIVERABLES instead: things somebody asks for by
+                   name and then puts in front of another person. Exactly one
+                   escalated-hard-case row survives, which was the specific complaint.
+                   Every row here carries data-scope="beyond-plant" - the 27 plant jobs
+                   above are pinned to the research hub's scope figure, and this group must
+                   never enter that count. -->
+              <tbody data-setting="fleet" data-label="Across sites and fleets">
+                <tr class="wj__group"><th colspan="4" scope="colgroup"><b>Across sites and fleets</b> <span>where the top of the ladder earns its size</span></th></tr>
+                <tr data-scope="beyond-plant"><th scope="row">Reliability report for leadership</th><td class="tier-cell">Tera</td><td data-label="In and out">A quarter of plant records to a written report, with every figure it cites</td><td data-label="Why it stays in-house">The numbers have to tie back to the estate&rsquo;s own record</td></tr>
+                <tr data-scope="beyond-plant"><th scope="row">Standard operating procedure drafting</th><td class="tier-cell">Tera</td><td data-label="In and out">Incident history and the vendor manual to a draft SOP an engineer edits</td><td data-label="Why it stays in-house">Procedures encode how this company runs, not how the industry does</td></tr>
+                <tr data-scope="beyond-plant"><th scope="row">Vendor and contractor performance review</th><td class="tier-cell">Tera</td><td data-label="In and out">Work orders, callbacks and downtime by supplier to a review pack</td><td data-label="Why it stays in-house">Supplier terms and performance are commercially confidential</td></tr>
+                <tr data-scope="beyond-plant"><th scope="row">Turnaround and outage scope package</th><td class="tier-cell">Tera to Peta</td><td data-label="In and out">Deferred work, inspection findings and history to a scoped, sequenced work list</td><td data-label="Why it stays in-house">The plan says what is broken and when the plant will be down</td></tr>
+                <tr data-scope="beyond-plant"><th scope="row">Capital request justification</th><td class="tier-cell">Tera</td><td data-label="In and out">Failure and downtime history to a business case, with the cost of doing nothing</td><td data-label="Why it stays in-house">It is built out of the company&rsquo;s own loss record</td></tr>
+                <tr data-scope="beyond-plant"><th scope="row">Incident investigation across sites</th><td class="tier-cell">Tera</td><td data-label="In and out">One failure and every similar event in the estate to a root-cause report</td><td data-label="Why it stays in-house">The evidence is operating data from every site it touches</td></tr>
+                <tr data-scope="beyond-plant"><th scope="row">Regulatory filings across an estate</th><td class="tier-cell">Tera</td><td data-label="In and out">Monitoring records to a drafted filing with its evidence attached</td><td data-label="Why it stays in-house">The filing goes in under the operator&rsquo;s own name</td></tr>
+                <tr data-scope="beyond-plant"><th scope="row">Operator training material</th><td class="tier-cell">Tera</td><td data-label="In and out">The estate&rsquo;s procedures and its real incidents to lesson material</td><td data-label="Why it stays in-house">It teaches this plant rather than a generic one</td></tr>
+                <tr data-scope="beyond-plant"><th scope="row">Regional reliability benchmarking</th><td class="tier-cell">Peta</td><td data-label="In and out">Many sites&rsquo; records to a like-for-like comparison and the outliers</td><td data-label="Why it stays in-house">Ranking your own sites is an internal conversation</td></tr>
+                <tr data-scope="beyond-plant"><th scope="row">Multi-year capital planning</th><td class="tier-cell">Peta</td><td data-label="In and out">Condition, age and failure history across a region to a funding sequence</td><td data-label="Why it stays in-house">The sequence is the region&rsquo;s strategy</td></tr>
+                <tr data-scope="beyond-plant"><th scope="row">Standardisation proposals</th><td class="tier-cell">Peta</td><td data-label="In and out">How each site does the same task to one harmonised procedure, and what each site must change</td><td data-label="Why it stays in-house">It puts every site&rsquo;s real practice side by side</td></tr>
+                <tr data-scope="beyond-plant"><th scope="row">Spares and inventory policy</th><td class="tier-cell">Peta</td><td data-label="In and out">Failure rates and lead times across a region to stocking levels per site</td><td data-label="Why it stays in-house">Stock levels show where an operator is exposed</td></tr>
+                <tr data-scope="beyond-plant"><th scope="row">Scenario and risk modelling</th><td class="tier-cell">Peta to Exa</td><td data-label="In and out">A proposed change against a decade of process history to what it does by year ten</td><td data-label="Why it stays in-house">The estate&rsquo;s own model of itself, built on its own record</td></tr>
+                <tr data-scope="beyond-plant"><th scope="row">Engineering standards from the whole record</th><td class="tier-cell">Exa</td><td data-label="In and out">Every procedure, incident and spec in the estate to one standard, and the conflicts it found</td><td data-label="Why it stays in-house">It reads the whole corpus at once, and the corpus is the company</td></tr>
+                <tr data-scope="beyond-plant"><th scope="row">The case nothing below could close</th><td class="tier-cell">Exa</td><td data-label="In and out">A failure the smaller slots left open, with everything each of them saw attached</td><td data-label="Why it stays in-house">The escalation carries the raw evidence with it</td></tr>
+                <tr data-scope="beyond-plant"><th scope="row">Teaching the smaller tiers</th><td class="tier-cell">Exa</td><td data-label="In and out">The flagship&rsquo;s working on hard cases to training signal for the slots below</td><td data-label="Why it stays in-house">The teaching material is the company&rsquo;s own operating history</td></tr>
+                <tr data-scope="beyond-plant"><th scope="row">A new site with no history</th><td class="tier-cell">Exa</td><td data-label="In and out">A plant with no record of its own to a working model, drawn from the fleet&rsquo;s</td><td data-label="Why it stays in-house">The fleet record is the asset, and it never leaves to make one</td></tr>
+              </tbody>
+              <tbody class="wj__nobody" data-wj-empty hidden>
+                <tr><td colspan="4">Nothing carries both of those. Widen one of the filters.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <p class="wj__play"><b>Want to watch one run?</b> The
+          <a href="/playbox.html#factory">factory game</a> in the Playbox puts three machines
+          and a cookie line in front of you: keep them inside their bands and the line keeps
+          moving. Same idea as this table, at speed.</p>
+      </div>
+    </section>
+
+    <!-- §4 VARIATIONS -->
+    <section class="section research-tone band band--inset" id="variations">
+      <div class="wrap">
+        <!-- FOUNDER 2026-08-17: the head was "Six variations, and the gate each one has
+             to pass", over "a tier is a size, a variation is what that size was tuned to
+             do" - internal vocabulary explaining internal vocabulary. It became "Four
+             kinds of input, one family" plus a three-sentence scene and a four-cell
+             strip, and the founder's verdict was "again, too convoluted ... don't gate
+             yourself to four ... make it simpler to the point multi modal". So: the word
+             MULTI-MODAL is said outright, no count is fixed anywhere (a fifth input must
+             not make the heading wrong), the strip is gone because the table already
+             carries what it was explaining, and the lead is two sentences. The gate
+             survives as a clause rather than a definition - it is what keeps the section
+             honest.
+             FOUNDER 2026-08-17, again: "remove: 'None of this is available today...'".
+             Gone, and not relocated - the founder wanted the sentence off, not moved. The
+             not-yet-shipped truth now rests on two things inside the table's own frame:
+             the GATE column, which is a list of measurements each capability still has to
+             pass and therefore says by itself that none has, and the lead's clause
+             "nothing ships until it passes its gate". The third column was "Lives at",
+             which can be read as "exists at", so it is "Planned for" now - intent, in the
+             header, with no caveat sentence added back. -->
+        <div class="section__head section__head--left">
+          <span class="sectionno">&sect;4 / VARIATIONS</span>
+          <h2>Multi-modal, because machines are.</h2>
+          <p>A raw sensor signal, a technician&rsquo;s note, a photo of a gauge, a voice
+             over the radio with a compressor running behind it - the family is built to
+             read what a plant actually produces. Each tier is tuned per input, and
+             nothing ships until it passes its gate.</p>
+        </div>
+
+        <div class="tier-scroll">
+          <table class="data-table tier-matrix">
+            <thead>
+              <tr><th scope="col">Variation</th><th scope="col">What it does</th><th scope="col">Planned for</th><th scope="col">Gate</th></tr>
+            </thead>
+            <tbody>
+              <tr><th scope="row">Tool</th><td>Typed function calls, JSON contracts, schema adherence</td><td class="tier-cell">Nano and up</td><td>Exact-JSON pass rate, no regression when quantized</td></tr>
+              <tr><th scope="row">Text</th><td>Instruction following, summarizing, explanation</td><td class="tier-cell">Micro and up</td><td>Held-out language budget; explanation claimed at Giga</td></tr>
+              <tr><th scope="row">Embed</th><td>Retrieval over manuals, procedures, drawings, work history</td><td class="tier-cell">Nano, Micro</td><td>Retrieval benchmark on industrial text</td></tr>
+              <tr><th scope="row">Guard</th><td>Refusal, escalation, and saying it does not know</td><td class="tier-cell">Every slot</td><td>Abstention rate on questions it cannot answer</td></tr>
+              <tr><th scope="row">Vision</th><td>Gauge and screen reading, weld and assembly inspection</td><td class="tier-cell">Micro to Giga</td><td>Named public benchmark, published spread</td></tr>
+              <tr><th scope="row">Audio</th><td>Gloves-on voice control, radio and intercom transcription</td><td class="tier-cell">Pico to Giga</td><td>Word error rate measured in real plant noise</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="research-prose">
+          <!-- FOUNDER 2026-08-17: this used to open "Section 2 says small slots will be
+               wrong when pushed past extraction". Section 2 was the pruning experiment and
+               it came off the page, so the sentence stands on its own now. The claim is
+               unchanged and it is still the honest one: a specialist pushed past what it
+               was built for is wrong, and Guard is the answer to that. -->
+          <p><b>Guard is the one buyers ask about first.</b> A slot built to do one thing
+             will be wrong if you push it past that thing. Guard is what turns being wrong
+             from dangerous into safe, which is why it belongs at every slot rather
+             than arriving late.</p>
+          <!-- Adapters (features/web/sensor_positioning.feature, PROPOSED 2026-10-15): the
+               status words are cap tokens from src/data/capabilities.json. No size and no
+               score until a card is publishable. -->
+          <p class="adapter-note"><b>One base model, a small add-on per job.</b> Each tier is
+             built as one base model that answers the way it always has. A job of its own
+             comes as an adapter: a small add-on switched on only for that job, and the base
+             stays as it was for everything else. The first, fire early warning on Wave Pico,
+             is <span data-cap="fire-warning" data-cap-stage="{facts.t.cap('fire-warning.stage')}"><span class="cap-stage cap-stage--inline">{@html facts.cap('fire-warning.label')}</span></span>.
+             Spotting a reading drifting out of its normal band is built into the base, not
+             an adapter; that skill, telemetry drift, is <span data-cap="telemetry-drift" data-cap-stage="{facts.t.cap('telemetry-drift.stage')}"><span class="cap-stage cap-stage--inline">{@html facts.cap('telemetry-drift.label')}</span></span>.</p>
+        </div>
+
+        <div class="research-actions research-actions--lead">
+          <a class="research-button" href="/research.html#models">See model status</a>
+          <a class="research-button" href="/broadcasts.html">Read the evidence</a>
+        </div>
+      </div>
+    </section>
+
+    <!-- §5 WAVE INFINITE. Canonical definition: WAVE-INFINITE-PROGRAM-2026-07-31.md,
+         which is explicit that this is a prototype MODEL PROGRAMME and that "the
+         certified runtime is one layer of it" - an earlier version of this section led
+         with "a runtime, not a size" and was wrong.
+         The hard public constraint, quoted from that doc's standing constraints: never
+         claim "self-training" in public material until CURE's gates pass. Layer 3 is
+         therefore described as preregistered and in development, never as a capability
+         the model has today. Contract: features/web/wave_infinite.feature -->
+    <section class="section" id="infinite">
+      <div class="wrap">
+        <div class="section__head section__head--left">
+          <span class="sectionno">&sect;5 / WAVE INFINITE</span>
+          <h2 class="wf-inf__title">The model that <span class="wf-inf__shimmer">grows</span>.</h2>
+          <span class="wf-inf__badge">Prototype &middot; measured foundations, growth loop in development</span>
+          <p>Every slot above is a fixed size. <b>Wave Infinite</b> is a prototype model
+             program. Start from a <b>Nano</b>, <b>Micro</b>, or <b>Giga</b> base, and the
+             model grows new weights: real parameters, trained on your work, not prompts
+             and not retrieval. All of it happens inside a proof that the base behavior is
+             preserved.</p>
+        </div>
+
+        <!-- The loop, drawn. Visuals are not claims (web brief), so the figure gets the
+             showcase treatment; the badge above and the states below carry the truth. -->
+        <figure class="wf-orbit" role="img"
+          aria-label="The Wave Infinite loop: a Nano, Micro, or Giga base model enters a continuous cycle of observe, measure, grow, and certify. New capacity sprouts where measured utility says it helps, and every change keeps an exact path back to the original model.">
+          <div class="scroll-box scroll-box--diagram">
+          <svg class="wf-orbit__svg" viewBox="0 0 900 340" aria-hidden="true" focusable="false">
+            <text class="wf-orbit__feedlabel" x="46" y="84">NANO</text>
+            <text class="wf-orbit__feedlabel" x="46" y="174">MICRO</text>
+            <text class="wf-orbit__feedlabel" x="46" y="264">GIGA</text>
+            <circle class="wf-orbit__node" cx="130" cy="80" r="4"/>
+            <circle class="wf-orbit__node" cx="130" cy="170" r="4"/>
+            <circle class="wf-orbit__node" cx="130" cy="260" r="4"/>
+            <path class="wf-orbit__feed" d="M130 80 C 210 80, 240 140, 296 162"/>
+            <path class="wf-orbit__feed" d="M130 170 C 200 170, 240 170, 296 170"/>
+            <path class="wf-orbit__feed" d="M130 260 C 210 260, 240 200, 296 178"/>
+            <path class="wf-orbit__path" pathLength="100"
+              d="M300 170 C 300 78, 432 78, 500 170 C 568 262, 700 262, 700 170 C 700 78, 568 78, 500 170 C 432 262, 300 262, 300 170 Z"/>
+            <path class="wf-orbit__comet" pathLength="100"
+              d="M300 170 C 300 78, 432 78, 500 170 C 568 262, 700 262, 700 170 C 700 78, 568 78, 500 170 C 432 262, 300 262, 300 170 Z"/>
+            <path class="wf-orbit__comet wf-orbit__comet--echo" pathLength="100"
+              d="M300 170 C 300 78, 432 78, 500 170 C 568 262, 700 262, 700 170 C 700 78, 568 78, 500 170 C 432 262, 300 262, 300 170 Z"/>
+            <circle class="wf-orbit__core" cx="500" cy="170" r="7"/>
+            <circle class="wf-orbit__sprout wf-orbit__sprout--1" cx="760" cy="140" r="5"/>
+            <circle class="wf-orbit__sprout wf-orbit__sprout--2" cx="782" cy="176" r="4"/>
+            <circle class="wf-orbit__sprout wf-orbit__sprout--3" cx="758" cy="208" r="3"/>
+            <text class="wf-orbit__label" x="344" y="64">01 OBSERVE</text>
+            <text class="wf-orbit__label" x="606" y="64">02 MEASURE</text>
+            <text class="wf-orbit__label" x="622" y="292">03 GROW</text>
+            <text class="wf-orbit__label" x="330" y="292">04 CERTIFY</text>
+          </svg>
+          </div>
+          <figcaption>One loop: observe &middot; measure &middot; grow &middot; certify.
+            Any base enters it; an exact path back always remains.</figcaption>
+        </figure>
+
+        <!-- The hook is the measurement, not the architecture. This is the finding that
+             makes the safety machinery non-optional rather than decorative. -->
+        <figure class="wf-inf">
+          <blockquote class="wf-inf__claim">
+            Why every change carries a certificate: specialization damage can be
+            <b>statistically invisible</b> on the very benchmark you would check it with,
+            and far worse once the workload shifts.
+            <span class="wf-inf__punch">You cannot monitor your way to safe specialization.</span>
+          </blockquote>
+
+          <ol class="wf-inf__loop">
+            <li data-layer="reflection" data-state="built">
+              <span class="wf-inf__step">01</span><b>Reflection</b>
+              <span class="wf-inf__state">Built and self-verifying</span>
+              <small>The model&rsquo;s own execution - which experts fire, which could
+                fire, what the router compared - is captured as first-class data. The
+                instrument that captures it checks itself against the model on every
+                token.</small>
+            </li>
+            <li data-layer="certified" data-state="measured">
+              <span class="wf-inf__step">02</span><b>Certified adaptation</b>
+              <span class="wf-inf__state">Primitives measured</span>
+              <small>Prove which parts a workload can never reach - the question a
+                compiler asks about dead code - then keep what your work uses in fast
+                memory. A guard watches for input leaving the certified region and falls
+                back to the full, unmodified model.</small>
+            </li>
+            <li data-layer="growth" data-state="unrun">
+              <span class="wf-inf__step">03</span><b>Self-directed growth</b>
+              <span class="wf-inf__state">In development &middot; preregistered, unrun</span>
+              <small>The prototype would grow new capacity only where the model itself
+                measures that it helps, running both the original and the expanded path
+                and learning from the difference. The expansion starts bit-identical to
+                the original and keeps an exact fallback.</small>
+            </li>
+          </ol>
+
+          <figcaption>Three layers, three states of proof. Each change starts provably
+            behavior-preserving and keeps an exact path back.</figcaption>
+        </figure>
+
+        <div class="wf-inf__use">
+          <span class="research-kicker">TRAINING IT IS USING IT</span>
+          <ol>
+            <li><b>Start.</b> Pick a base: Nano, Micro, or Giga. Infinite is the loop,
+              not another tier.</li>
+            <li><b>Work.</b> The model observes its own execution and grows new weights
+              only where measured utility says they help.</li>
+            <li><b>Certify.</b> Changes go live through the same certified path, with an
+              exact rollback always resident. If the work shifts beyond what is certified,
+              it reverts to the original path by itself.</li>
+          </ol>
+        </div>
+
+        <div class="wf-inf__proof">
+          <div class="wf-inf__proven">
+            <span class="research-kicker">WHAT WE HAVE PROVEN</span>
+            <dl>
+              <div><dt>The certificate is sound</dt>
+                <dd>Removing every expert it marked unreachable left the model&rsquo;s
+                  routing <b>bit-identical</b> - not close, unchanged.</dd></div>
+              <div><dt>Specialization is safe on stable work</dt>
+                <dd>Within a single domain the guard <b>almost never fires</b>, so the
+                  specialization holds for a stable workload.</dd></div>
+              <div><dt>The guard is necessary</dt>
+                <dd>The moment the workload changes domain, the same certificates would
+                  miss a <b>large share</b> of decisions. The fallback is what makes
+                  aggression safe.</dd></div>
+              <div><dt>Standard pruning over-removes</dt>
+                <dd>Frequency analysis nominated <b>an order of magnitude more</b> for
+                  removal than could be proven safe, across three model architectures.</dd></div>
+            </dl>
+            <p class="wf-inf__provenance">Measured on interim hardware; figures publish
+              after final-hardware re-verification.</p>
+          </div>
+          <div class="wf-inf__unproven">
+            <span class="research-kicker">IN MEASUREMENT</span>
+            <p>End-to-end speed of certified specialization, and the growth layer&rsquo;s
+               quality gains. The prototype program publishes both with error bars.</p>
+          </div>
+        </div>
+
+        <p class="wf-inf__requires"><b>What it requires.</b> The certificate is
+          reachability certification of <b>mixture-of-experts</b> routing. It applies only
+          to a model that has experts and a per-expert selection bias to read. That is a
+          base-model choice rather than something the family has today. It does not reach
+          the microcontroller-class edge at all: a classifier of a few hundred kilobytes
+          is not a language model.</p>
+
+      </div>
+    </section>
+
+  </main>
+
+  <Footer anchors='/' />
+
+  <!-- The spectrum mark is the default; js/wave-mark.js is the previous
+       "classic" mark, kept and reachable with ?mark=classic for comparison.
+       Both animate the SAME resting markup above, so with JS off - or under
+       prefers-reduced-motion - the page shows the original static mark. -->
+  <!-- §4's job finder. The section is whole without it: the script only reveals the
+       toolbar and bounds the panel. -->

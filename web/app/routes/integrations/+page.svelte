@@ -1,0 +1,254 @@
+<script>
+  // Integrations - RogerAI
+  // Ported from web/src/integrations.html (2026-10-29); the copy is the legacy copy.
+  import { siteHead, CSS_SHARED, CSS_ACCOUNT } from "#lib/head.js";
+  import Footer from "#lib/ui/Footer.svelte";
+  import Nav from "#lib/ui/Nav.svelte";
+  import OnAir from "#lib/ui/OnAir.svelte";
+  import Rail from "#lib/ui/Rail.svelte";
+  const head = siteHead({
+    title: 'Integrations - RogerAI',
+    desc: 'RogerAI speaks the OpenAI API on both sides. It auto-detects a dozen local inference servers to put on the air - Ollama, LM Studio, vLLM, llama.cpp, Jan, LiteLLM and more - and wires agent CLIs like opencode, aider and pi straight onto a band.',
+    og: { type: 'website', title: 'RogerAI integrations - what it already works with', desc: 'A dozen local servers detected by default port, four agent CLIs wired onto the band and three more detected, and a two-line change for anything else that speaks the OpenAI API.', url: 'https://rogerai.fm/integrations.html', image: 'https://rogerai.fm/og-home.png' },
+    css: [...CSS_SHARED, 'research.css', 'integrations.css'],
+    scripts: [{ runtime: true }],
+  });
+</script>
+<svelte:head>{@html head}</svelte:head>
+<!-- INTEGRATIONS: the compatibility story, which was one row of the homepage spec sheet.
+     Both halves of this page are LOCKED to the Go that implements them - the serve side to
+     internal/detect's probe table, the desk to internal/operator's registry - by
+     test/integrations.test.mjs. A compatibility page that drifts is worse than none: it
+     sends a person to configure something that stopped working that way.
+     Nothing here is a partner claim. A server appears because `roger share` probes for it;
+     a guest appears because the CLI wires it, at a version that was proven end-to-end
+     before the entry was added.
+     Registered in build.mjs CSS_BUNDLES. 
+     (the page's doc comment, from the legacy file; its CSS bundle is the css: list above) -->
+  <Rail head='RogerAI &middot; Integrations' rev='Rev. 2026.08 &middot; ON AIR' />
+
+  <Nav variant='marketing' home='/' current='integrations' />
+
+  <main id="top" data-lift>
+    <section class="research-hero">
+      <div class="wrap">
+        <span class="hero__eyebrow">
+          <OnAir />
+          <span class="hero__callsign">ROGERAI</span>
+          <span class="hero__sep" aria-hidden="true">&middot;</span>
+          integrations
+        </span>
+        <h1>It speaks OpenAI on both sides, so most of this is already done.</h1>
+        <p class="research-hero__lead">
+          There is no plugin to install and no partner to be. The serving side finds the
+          inference server you already run by looking at the ports those servers use. The
+          using side hands your tools a local OpenAI-compatible endpoint, which is the
+          only thing most of them need. Everything named on this page is named because
+          the code goes looking for it, not because anyone agreed to appear here.
+        </p>
+        <div class="research-actions research-actions--lead">
+          <a class="research-button" href="#desk">Agent CLIs at the desk <span aria-hidden="true">&darr;</span></a>
+          <a class="research-button" href="/broadcasts-connect-bots-openai-api.html">The field guide</a>
+          <a class="research-button" href="/manual.html#s3">The manual</a>
+        </div>
+      </div>
+    </section>
+
+    <!-- The page's contents as the homepage's tuning scale (components.css .toc-tuner).
+         Each station reads its section's own label. Never pinned. -->
+    <nav class="toc-tuner" data-tuner aria-label="Sections">
+      <div class="wrap toc-tuner__band">
+      <div class="toc-tuner__readout" aria-hidden="true"></div>
+      <ol class="toc-tuner__scale">
+        <li><a class="toc-tuner__st" href="#oneline"><b>&sect;0</b><span class="toc-tuner__name">THE WHOLE MIGRATION</span></a></li>
+        <li><a class="toc-tuner__st" href="#serve"><b>&sect;1</b><span class="toc-tuner__name">THE SERVE SIDE</span></a></li>
+        <li><a class="toc-tuner__st" href="#desk"><b>&sect;2</b><span class="toc-tuner__name">THE DESK</span></a></li>
+        <li><a class="toc-tuner__st" href="#anything"><b>&sect;3</b><span class="toc-tuner__name">EVERYTHING ELSE</span></a></li>
+        <li><a class="toc-tuner__st" href="#ask"><b>&sect;4</b><span class="toc-tuner__name">SOMETHING MISSING</span></a></li>
+      </ol>
+      <span class="toc-tuner__needle" aria-hidden="true"></span>
+      </div>
+    </nav>
+
+    <!-- INK PANEL: the page's moment, the one line that changes (components.css .tone-zone). -->
+    <div class="tone-zone" data-tone="ink">
+    <section class="section" id="oneline">
+      <div class="wrap">
+        <div class="section__head section__head--left" data-reveal>
+          <span class="sectionno">&sect;0 / THE WHOLE MIGRATION</span>
+          <h2>Change one line. Gain four things.</h2>
+        </div>
+        <pre class="mono intg-diff"><code><span class="intg-diff__del">- base_url = "https://api.openai.com/v1"</span>
+<span class="intg-diff__add">+ base_url = "http://127.0.0.1:4141/v1"</span>   <span class="intg-diff__note"># roger use &lt;model&gt;</span></code></pre>
+        <p>That is the whole migration. Your SDK, your tools, your agents - unchanged.
+          What changes is what the line buys you: a <b>dial of models</b> behind one key
+          instead of one vendor, an upstream that sees <b>a station instead of you</b>, a
+          <b>price cap and a signed receipt</b> on every call, and <b>failover</b> you
+          never had to build. <a href="/pricing.html#why">The whole trade &rarr;</a></p>
+      </div>
+    </section>
+
+    </div><!-- /tone-zone -->
+
+    <section class="section" id="serve">
+      <div class="wrap">
+        <div class="section__head section__head--left" data-reveal>
+          <span class="sectionno">&sect;1 / THE SERVE SIDE</span>
+          <h2>The servers <code>roger share</code> finds without being told.</h2>
+          <p>Run one of these and go on air without configuring anything: the CLI probes
+             each server's own default port, confirms it answers, and offers what it
+             found. Anything else works too - point at it with
+             <code>roger share --upstream &lt;url&gt;</code>.</p>
+        </div>
+
+        <div class="scroll-box">
+          <table class="data-table intg">
+            <thead>
+              <tr><th>Local server</th><th>Found on</th><th>Note</th></tr>
+            </thead>
+            <tbody>
+              <tr data-backend="ollama"><td>Ollama</td><td class="mono">127.0.0.1:11434</td><td>Also read from <code>OLLAMA_HOST</code></td></tr>
+              <tr data-backend="lm-studio"><td>LM Studio</td><td class="mono">127.0.0.1:1234</td><td>A key-protected server is probed with its key</td></tr>
+              <tr data-backend="jan"><td>Jan</td><td class="mono">127.0.0.1:1337</td><td>Shares this port with Osaurus</td></tr>
+              <tr data-backend="osaurus"><td>Osaurus</td><td class="mono">127.0.0.1:1337</td><td>Identified by its banner, since it squats Jan's port</td></tr>
+              <tr data-backend="vllm"><td>vLLM, and TGI</td><td class="mono">127.0.0.1:8000</td><td>One probe, two servers</td></tr>
+              <tr data-backend="llama.cpp"><td>llama.cpp, LocalAI, llamafile</td><td class="mono">127.0.0.1:8080</td><td>The shared default for all three</td></tr>
+              <tr data-backend="litellm"><td>LiteLLM</td><td class="mono">127.0.0.1:4000</td><td>A master key is picked up if set</td></tr>
+              <tr data-backend="mlx-lm"><td>MLX-LM</td><td class="mono">127.0.0.1:8082</td><td>Apple silicon</td></tr>
+              <tr data-backend="unsloth"><td>Unsloth</td><td class="mono">127.0.0.1:8888</td><td>Its own key, never the shared pool</td></tr>
+              <tr data-backend="gpt4all"><td>GPT4All</td><td class="mono">127.0.0.1:4891</td><td></td></tr>
+              <tr data-backend="text-generation-webui"><td>text-generation-webui, TabbyAPI</td><td class="mono">127.0.0.1:5000</td><td>One probe, two servers</td></tr>
+              <tr data-backend="koboldcpp"><td>KoboldCpp</td><td class="mono">127.0.0.1:5001</td><td></td></tr>
+              <tr data-backend="cpu-bots"><td>cpu-bots</td><td class="mono">127.0.0.1:8060</td><td></td></tr>
+              <tr data-backend="kokoro"><td>Kokoro (voice)</td><td class="mono">127.0.0.1:8095</td><td>Text to speech; found by what it serves, with no model list</td></tr>
+              <tr data-backend="roggentoo"><td>roggentoo (voice)</td><td class="mono">127.0.0.1:8790</td><td>Text to speech</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="intg__note">Every row is an entry in the CLI's own probe table, and a
+           test fails if this list and that table stop matching. The ports are where the
+           servers put themselves, not where we ask them to be.</p>
+      </div>
+    </section>
+
+    <section class="section band" id="desk">
+      <div class="wrap">
+        <div class="section__head section__head--left" data-reveal>
+          <span class="sectionno">&sect;2 / THE DESK</span>
+          <h2>Agent CLIs you can hand the mic to.</h2>
+          <p>These are wired for you: pick one at the desk and it launches against the band
+             you are tuned to, with a throwaway config that never touches your own. Each
+             was proven end-to-end at the version shown before it was added, and the CLI
+             says so when it finds a version it has not seen.</p>
+        </div>
+
+        <div class="guests">
+          <article data-guest="opencode">
+            <h3>opencode</h3>
+            <p class="guests__wire">Throwaway config; the model pinned on the command line, so a project&rsquo;s own config cannot re-route it.</p>
+            <p class="guests__meta"><span class="mono">proven at 1.17.11</span></p>
+            <button class="copy-code copy-code--block" type="button" data-copy-target aria-label="Copy curl -fsSL https://opencode.ai/install | bash"><code class="guests__install">curl -fsSL https://opencode.ai/install | bash</code></button>
+          </article>
+          <article data-guest="hermes">
+            <h3>hermes</h3>
+            <p class="guests__wire">Throwaway home directory: config, sessions and checkpoints land inside the session and vanish with it.</p>
+            <p class="guests__meta"><span class="mono">proven at 0.16.0</span></p>
+            <button class="copy-code copy-code--block" type="button" data-copy-target aria-label="Copy pip install hermes-agent"><code class="guests__install">pip install hermes-agent</code></button>
+          </article>
+          <article data-guest="aider">
+            <h3>aider</h3>
+            <p class="guests__wire">Environment and flags only. No files written.</p>
+            <p class="guests__meta"><span class="mono">proven at 0.86.2</span></p>
+            <button class="copy-code copy-code--block" type="button" data-copy-target aria-label="Copy uv tool install aider-chat"><code class="guests__install">uv tool install aider-chat</code></button>
+          </article>
+          <article data-guest="pi">
+            <h3>pi</h3>
+            <p class="guests__wire">Throwaway config, like opencode.</p>
+            <p class="guests__meta"><span class="mono">proven at 0.84.2</span></p>
+            <button class="copy-code copy-code--block" type="button" data-copy-target aria-label="Copy npm install -g @earendil-works/pi-coding-agent"><code class="guests__install">npm install -g @earendil-works/pi-coding-agent</code></button>
+          </article>
+          <article data-guest="dsh">
+            <h3>dsh <span class="guests__tag">needs setup</span></h3>
+            <p class="guests__wire">Boots a profile rather than a model, so no config we generate can hand it a band. Point it at your station and the desk says how.</p>
+            <p class="guests__meta"><span class="mono">seen at 0.1.0-rc.7</span></p>
+            <button class="copy-code copy-code--block" type="button" data-copy-target aria-label="Copy npm install -g @deepseek-ai/dsh"><code class="guests__install">npm install -g @deepseek-ai/dsh</code></button>
+          </article>
+          <article data-guest="claude">
+            <h3>claude <span class="guests__tag">context only</span></h3>
+            <p class="guests__wire">Runs on its own account and billing. Only the context is handed across - no endpoint, no key, no model - so nothing here is metered.</p>
+            <p class="guests__meta"><span class="mono">seen at 2.1.220</span></p>
+            <button class="copy-code copy-code--block" type="button" data-copy-target aria-label="Copy npm install -g @anthropic-ai/claude-code"><code class="guests__install">npm install -g @anthropic-ai/claude-code</code></button>
+          </article>
+          <article data-guest="codex">
+            <h3>codex <span class="guests__tag">context only</span></h3>
+            <p class="guests__wire">Your own account and billing; only the context is handed across.</p>
+            <p class="guests__meta"><span class="mono">seen at 0.1.0</span></p>
+            <button class="copy-code copy-code--block" type="button" data-copy-target aria-label="Copy npm install -g @openai/codex"><code class="guests__install">npm install -g @openai/codex</code></button>
+          </article>
+        </div>
+        <p class="intg__note">This list is the CLI's registry, checked by a test. A guest
+           added there and not here, or here and not there, fails the build.</p>
+      </div>
+    </section>
+
+    <section class="section" id="anything">
+      <div class="wrap">
+        <div class="section__head section__head--left" data-reveal>
+          <span class="sectionno">&sect;3 / EVERYTHING ELSE</span>
+          <h2>Two fields, and whatever you already wrote works.</h2>
+          <p>Editors, agents, SDKs, orchestration frameworks, a Discord bot, a cron job.
+             If it can be told a base URL and a key, it is already integrated. There are
+             two ways to give it those, and they reach different things.</p>
+        </div>
+
+        <div class="ways">
+          <article class="tint-panel">
+            <h3>The local endpoint</h3>
+            <p>Run <code>roger use &lt;model&gt;</code> where the tool lives. It prints an
+               endpoint on <span class="mono">127.0.0.1</span> and a session key, signs
+               every request as you, and can reach <b>any band on the market</b> - free
+               stations, paid ones, your own.</p>
+            <div class="code-block ways__code"><pre><code>OPENAI_BASE_URL=http://127.0.0.1:4141/v1
+OPENAI_API_KEY=&lt;the key it printed&gt;</code></pre></div>
+            <p class="ways__fine">4141 unless it is taken - the CLI prints the port it
+               actually picked.</p>
+          </article>
+          <article class="tint-panel">
+            <h3>A grant key</h3>
+            <p>Mint a key and point a remote or headless tool straight at the broker, with
+               no CLI on that machine. A grant is confined to <b>your own nodes</b> - it
+               can never reach another owner's hardware - so this is the shape for "my
+               cloud bot uses the GPU on my desk".</p>
+            <div class="code-block ways__code"><pre><code>OPENAI_API_BASE=https://broker.rogerai.fm/v1
+OPENAI_API_KEY=&lt;grant key&gt;</code></pre></div>
+          </article>
+        </div>
+        <p class="intg__note">Both spellings of the base-URL variable are read, because
+           both are in the wild. Streaming works; tool calling and vision work on the
+           stations that pass those capability checks, which the
+           <a href="/models.html">dial</a> shows per model.</p>
+      </div>
+    </section>
+
+    <section class="section research-closing" id="ask">
+      <div class="wrap">
+        <div class="section__head">
+          <span class="sectionno">&sect;4 / SOMETHING MISSING</span>
+          <h2>If it speaks the API and we do not find it, that is a bug.</h2>
+          <p>A local server on a port the CLI does not probe, or an agent worth wiring at
+             the desk, is worth telling us about. Both lists are short on purpose and grow
+             by being asked.</p>
+        </div>
+        <div class="research-actions research-actions--lead">
+          <a class="research-button" data-lets-talk aria-expanded="false"
+             href="mailto:labs@rogerai.fm?subject=Integration%20request">Let&rsquo;s talk</a>
+          <a class="research-button" href="https://github.com/rogerai-fyi/roger">Source</a>
+          <a class="research-button" href="/research-hardware.html">Hardware</a>
+          <a class="research-button" href="/faq.html">FAQ</a>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <Footer anchors='/' />

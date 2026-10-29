@@ -9,14 +9,15 @@ import { readFileSync, readdirSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { source, allPages } from "./_html.mjs";
 
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = path.join(WEB, "src");
-const read = (p) => readFileSync(path.join(SRC, p), "utf8");
+const read = source;  // a page's source, legacy or app route (test/_html.mjs)
 const dist = (p) => readFileSync(path.join(WEB, "dist", p), "utf8");
 const stripCss = (s) => s.replace(/\/\*[\s\S]*?\*\//g, "");
 const stripHtml = (s) => s.replace(/<!--[\s\S]*?-->/g, "");
-const PAGES = readdirSync(SRC).filter((f) => f.endsWith(".html")).sort();
+const PAGES = allPages();
 const SHEETS = readdirSync(path.join(SRC, "styles")).filter((f) => f.endsWith(".css")).sort();
 before(() => execFileSync("node", ["build.mjs"], { cwd: WEB }));
 
@@ -60,8 +61,10 @@ test("every page is assembled from the head, nav and footer partials", () => {
   for (const page of PAGES) {
     if (STUBS[page]) continue;
     const src = read(page);
-    for (const partial of ["head.html", "nav.html", "footer.html"]) {
-      assert.match(src, new RegExp(`<!--\\s*include:\\s*${partial.replace(".", "\\.")}`), `${page} includes ${partial}`);
+    if (/^layout: broadcast$/m.test(src)) continue;   // a Markdown post: its layout (BroadcastPost) carries the chrome
+    // the app route: siteHead() for the head, the Nav and Footer components for the chrome
+    for (const [what, re] of [["the head (siteHead)", /\bsiteHead\(/], ["the nav (<Nav>)", /<Nav\b/], ["the footer (<Footer>)", /<Footer\b/]]) {
+      assert.match(src, re, `${page} is assembled from ${what}`);
     }
   }
 });
@@ -74,7 +77,8 @@ test("every page runs the shared page runtime from the site-js partial, never a 
       assert.doesNotMatch(src, new RegExp(`<script src="js/${js}\\.js"`), `${page} loads js/${js}.js by hand; use <!-- include: site-js.html -->`);
     }
     if (STUBS[page] || OWN_RUNTIME[page]) continue;
-    assert.match(read(page), /<!--\s*include:\s*site-js\.html/, `${page} includes site-js.html`);
+    if (!/^layout: broadcast$/m.test(read(page)))
+      assert.match(read(page), /\{ runtime: true/, `${page} runs the shared runtime (scripts: [{ runtime: true }] in its siteHead)`);
     // ...so every component module ships with it, and a page gets a behaviour by markup alone
     const built = dist(page);
     for (const js of ["site", "tuner", "scrub", "anchor-hold", "range-twin", "cycle"]) {

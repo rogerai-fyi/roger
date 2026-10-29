@@ -182,6 +182,7 @@ verify-gate:
 .PHONY: web-gate
 web-gate:
 	@cd web && (test -x node_modules/.bin/vitest || npm ci --no-audit --no-fund) && npm test
+	@cd web && if [ -d "$$HOME/.cache/ms-playwright" ]; then npm run test:e2e; else echo "[web-gate] browser flows skipped: no Playwright browser (npx playwright install chromium)"; fi
 	@go test ./test/smoke/
 	@echo "[web-gate] OK - web suite + built-link crawl"
 

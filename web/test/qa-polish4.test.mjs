@@ -96,10 +96,10 @@ test("models: the search placeholder steps down a size on a phone instead of bei
 test("install pill: the pipe and what it feeds stay together on a phone", () => {
   // at 390 the pill wrapped "... install.sh |" and left "sh" alone on the last line; the
   // pipe segment is one unbreakable token now, so a narrow pill breaks before the pipe
-  const PAGES = readdirSync(path.join(WEB, "src")).filter((f) => f.endsWith(".html"));
+  const PAGES = allPages();
   let n = 0;
   for (const p of PAGES) {
-    for (const m of readFileSync(path.join(WEB, "src", p), "utf8").matchAll(/include: install-box\.html[^>]*cmd='([^']*)'/g)) {
+    for (const m of source(p).matchAll(/<InstallBox\b[^>]*>([\s\S]*?)<\/InstallBox>/g)) {   // the pill's command is its children markup
       if (!m[1].includes("|")) continue;
       // app.html's own spec (app-page.test.mjs) pins its command as one plain run of text
       if (p === "app.html") continue;
@@ -136,6 +136,7 @@ test("chrome buttons: hover and press match the page's buttons", () => {
 // No section crosses the in-view band on a jump, so no observer reports; the needle now
 // re-reads where the sections are once the scroll settles.
 import vm from "node:vm";
+import { allPages, source } from "./_html.mjs";
 test("tuner: when a scroll settles, the needle rests on the section in view", () => {
   const TUNER = readFileSync(path.join(WEB, "src/js/tuner.js"), "utf8");
   const on = (el) => { el.listeners = {}; el.addEventListener = (t, f) => { (el.listeners[t] ||= []).push(f); }; return el; };

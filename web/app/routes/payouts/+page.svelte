@@ -1,0 +1,182 @@
+<script>
+  // Payouts - RogerAI
+  // Ported from web/src/payouts.html (2026-10-29); the copy is the legacy copy.
+  import { siteHead, CSS_SHARED, CSS_ACCOUNT } from "#lib/head.js";
+  import AccountNav from "#lib/ui/AccountNav.svelte";
+  import Footer from "#lib/ui/Footer.svelte";
+  import Nav from "#lib/ui/Nav.svelte";
+  const head = siteHead({
+    title: 'Payouts - RogerAI',
+    robots: "noindex",
+    canonical: 'https://rogerai.fm/payouts.html',
+    css: [...CSS_ACCOUNT, 'payouts.css'],
+    scripts: [{ src: 'js/fmt.js', defer: true }, { src: 'js/payouts.js', defer: true }, { runtime: true }],
+  });
+</script>
+<svelte:head>{@html head}</svelte:head>
+  <Nav variant='lean' home='/' />
+  <div class="authwrap tint-panel">
+  <main class="card" id="card" hidden>
+    <p class="fine" id="pageError" role="alert" hidden>Could not load this page. Try again shortly.</p>
+    <h1>Payouts</h1>
+    <p class="sub">Exactly what you earned, when it clears, and where it came from.</p>
+
+    <section class="acct-state tint-panel" id="poNoOperator" hidden>
+      <h2>Payouts are for people who serve models</h2>
+      <p>You earn when your machines serve other people's requests, and this page shows what you earned, when it clears and where it came from. Nothing is registered to the account you are signed in with.</p>
+      <p><b>Already sharing?</b> Sign in with the account you used for <code>roger login</code> (GitHub or Apple). <b>Not yet?</b></p>
+      <pre class="cmd">roger login
+roger share</pre>
+      <p class="fine"><a href="/login.html">Switch sign-in</a> &middot; <a href="/account.html">Account</a></p>
+    </section>
+
+    <div id="poBody" hidden>
+    <!-- ============ THE SPLIT: held -> payable -> paid ============ -->
+    <section class="panel">
+      <h2>Earnings</h2>
+
+      <div class="po-meter" id="splitMeter" role="img" aria-label="Earnings split">
+        <div class="po-meter__track">
+          <div class="po-meter__seg po-meter__seg--held" id="segHeld"></div>
+          <div class="po-meter__seg po-meter__seg--payable" id="segPayable"></div>
+          <div class="po-meter__seg po-meter__seg--paid" id="segPaid"></div>
+        </div>
+      </div>
+
+      <dl class="po-legend">
+        <div class="po-legend__row">
+          <dt><span class="po-dot po-dot--held"></span>Held</dt>
+          <dd id="held">-</dd>
+          <span class="po-legend__note" id="heldNote">inside the hold window</span>
+        </div>
+        <div class="po-legend__row">
+          <dt><span class="po-dot po-dot--payable"></span>Payable</dt>
+          <dd id="payable">-</dd>
+          <span class="po-legend__note" id="payableNote">cleared, ready to withdraw</span>
+        </div>
+        <div class="po-legend__row">
+          <dt><span class="po-dot po-dot--paid"></span>Paid</dt>
+          <dd id="paid">-</dd>
+          <span class="po-legend__note">lifetime, transferred out</span>
+        </div>
+      </dl>
+
+      <p class="fine" id="reservedNote" hidden></p>
+      <p class="fine">Earnings round to whole cents and need a <b id="minNote">$25.00</b>
+        minimum payable before cashout.</p>
+    </section>
+
+    <!-- ============ THE HOLD TIMELINE ============ -->
+    <section class="panel">
+      <h2>Hold timeline</h2>
+      <p class="fine">Each earning's principal is held for <b id="holdNote">30 days</b> then becomes payable; a 10% reserve slice stays back until day 90 to cover the dispute tail.</p>
+
+      <ol class="po-timeline" id="timeline" hidden>
+        <li class="po-timeline__step is-done">
+          <span class="po-timeline__mark" aria-hidden="true"></span>
+          <span class="po-timeline__body">
+            <b>Earned</b>
+            <span class="po-timeline__sub">a request you served, split 90/10</span>
+          </span>
+        </li>
+        <li class="po-timeline__step" id="tlHeld">
+          <span class="po-timeline__mark" aria-hidden="true"></span>
+          <span class="po-timeline__body">
+            <b>Held</b>
+            <span class="po-timeline__sub" id="tlHeldSub">in the hold window</span>
+          </span>
+          <span class="po-timeline__when" id="tlHeldWhen"></span>
+        </li>
+        <li class="po-timeline__step" id="tlPayable">
+          <span class="po-timeline__mark" aria-hidden="true"></span>
+          <span class="po-timeline__body">
+            <b>Payable</b>
+            <span class="po-timeline__sub" id="tlPayableSub">hold cleared, withdrawable</span>
+          </span>
+          <span class="po-timeline__when" id="tlPayableWhen"></span>
+        </li>
+        <li class="po-timeline__step" id="tlPaid">
+          <span class="po-timeline__mark" aria-hidden="true"></span>
+          <span class="po-timeline__body">
+            <b>Paid</b>
+            <span class="po-timeline__sub">transferred to your bank via Stripe</span>
+          </span>
+        </li>
+      </ol>
+      <p class="fine" id="timelineEmpty" hidden>No earnings yet - the timeline fills in as you serve.</p>
+
+      <!-- the release ladder: each upcoming clear date with the amount + lot count -->
+      <div class="po-ladder" id="ladderWrap" hidden>
+        <p class="po-ladder__title">Upcoming releases</p>
+        <ul class="po-ladder__list" id="ladder"></ul>
+      </div>
+    </section>
+
+    <!-- ============ WHERE IT CAME FROM: per-model / per-node ============ -->
+    <section class="panel">
+      <h2>By model and node</h2>
+      <p class="fine" id="breakdownWindow">Earnings over the last 30 days, by what you served.</p>
+      <ul class="recent po-break" id="breakdown"></ul>
+      <p class="fine" id="breakdownEmpty" hidden>No served traffic in this window yet.</p>
+    </section>
+
+    <!-- ============ TOWERS & RELAY: shown only to operators who run Towers ============ -->
+    <section class="panel" id="towerPanel" hidden>
+      <h2>Towers &amp; relay</h2>
+      <p class="fine">Your Towers and the sealed work they carry. Every settled request splits
+        90% to the serving node, <b>5% to you</b>, 5% to the platform. Relay earnings are
+        held, released and <b>cashed out exactly like serving earnings</b> - the totals below
+        are already part of your balance above, split out here so you can see which stream
+        earned what. <a href="/manual.html#sTower">Run a Tower &rarr;</a></p>
+
+      <dl class="po-legend">
+        <div class="po-legend__row">
+          <dt><span class="po-dot po-dot--paid"></span>From serving</dt>
+          <dd id="servingEarn">-</dd>
+          <span class="po-legend__note">your Stations ran the model</span>
+        </div>
+        <div class="po-legend__row">
+          <dt><span class="po-dot po-dot--payable"></span>From relaying</dt>
+          <dd id="relayEarn">-</dd>
+          <span class="po-legend__note">your Towers carried the traffic</span>
+        </div>
+      </dl>
+
+      <p class="fine po-towers__title" id="towersTitle" hidden>Your Towers</p>
+      <ul class="recent po-towers" id="towers"></ul>
+      <p class="fine" id="towersEmpty" hidden>No Towers on the network right now.
+        <a href="/manual.html#sTower">Run a Tower</a> on a Linux machine to relay traffic to Stations.</p>
+    </section>
+
+    <!-- ============ GET PAID ============ -->
+    <section class="panel">
+      <h2>Get paid</h2>
+      <p class="fine">You must finish Stripe Connect onboarding (KYC) before any withdrawal.
+        Payouts are manual and batched <span id="scheduleNote">monthly</span>.</p>
+      <p>Payout status: <b id="connect">-</b></p>
+      <button id="onboard" class="ghost">Set up payouts (Stripe)</button>
+      <button id="request" class="primary" hidden>Request payout</button>
+      <p class="fine" id="payMsg"></p>
+    </section>
+
+    <!-- ============ LINEAGE: the receipts behind the money ============ -->
+    <section class="panel">
+      <h2>Payout history</h2>
+      <ul class="recent" id="payouts"></ul>
+      <p class="fine" id="payoutsEmpty" hidden>No payouts yet.</p>
+    </section>
+
+    <section class="panel">
+      <h2>Ledger</h2>
+      <p class="fine">The accounting entries behind every payout, clawback and adjustment - your receipts.</p>
+      <ul class="recent po-ledger" id="ledger"></ul>
+      <p class="fine" id="ledgerEmpty" hidden>No entries yet.</p>
+    </section>
+
+    </div>
+
+    <AccountNav current='payouts' />
+    <button id="logout" class="ghost">Sign out</button>
+  </main>
+  </div>
+  <Footer anchors='/' />

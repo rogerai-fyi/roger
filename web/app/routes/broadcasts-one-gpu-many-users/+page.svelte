@@ -1,0 +1,191 @@
+<script>
+  // How many people can one GPU serve? (local LLM concurrency)
+  // Ported from web/src/broadcasts-one-gpu-many-users.html (2026-10-29); the copy is the legacy copy.
+  import { siteHead, CSS_SHARED, CSS_ACCOUNT } from "#lib/head.js";
+  import Footer from "#lib/ui/Footer.svelte";
+  import InstallBox from "#lib/ui/InstallBox.svelte";
+  import Nav from "#lib/ui/Nav.svelte";
+  import OnAir from "#lib/ui/OnAir.svelte";
+  import Rail from "#lib/ui/Rail.svelte";
+  const head = siteHead({
+    title: 'How many people can one GPU serve? (local LLM concurrency)',
+    desc: 'The single-stream tokens-per-second number everyone quotes is the wrong test. Here is what actually happens when a local GPU serves more than one person at once, why aggregate throughput nearly doubles while each user slows down, and why a single-user rig wastes most of its capacity.',
+    og: { type: 'article', title: 'How many people can one GPU serve?', desc: 'Real benchmark data on local LLM concurrency: aggregate throughput nearly doubles under batching while per-user speed halves - and why serving one person wastes most of a GPU.', url: 'https://rogerai.fm/broadcasts-one-gpu-many-users.html', image: 'https://rogerai.fm/og.png' },
+    css: [...CSS_SHARED, 'broadcasts.css'],
+    scripts: [{ runtime: true }],
+  });
+</script>
+<svelte:head>{@html head}</svelte:head>
+<!-- Field-guide broadcast. SEO/AEO format: Quick Answer + question-H2s + FAQ schema + internal
+     links to /models, /bands, the install command. Registered in build.mjs CSS_BUNDLES and listed
+     at the top of broadcasts.html as BROADCAST 005. Data: real ai-benchy concurrency sweep. 
+     (the page's doc comment, from the legacy file; its CSS bundle is the css: list above) -->
+  <Rail head='RogerAI &middot; Field Guide' rev='Rev. 2026.07 &middot; ((&bull;))' orange />
+
+  <Nav variant='marketing' home='/' />
+
+  <main id="top">
+
+  <article class="bc-post">
+    <div class="wrap bc-post__wrap">
+
+      <a class="bc-post__back mono" href="/broadcasts.html">&larr; all broadcasts</a>
+
+      <header class="bc-post__head" data-reveal>
+        <span class="hero__eyebrow">
+          <OnAir />
+          <span class="hero__callsign">BROADCAST 005 &middot; FIELD GUIDE</span>
+          <span class="hero__sep" aria-hidden="true">&middot;</span>
+          <time datetime="2026-07-07">JULY 2026</time>
+        </span>
+        <h1 class="bc-post__title">How many people can one GPU serve?</h1>
+        <p class="bc-post__dek">
+          Everyone benchmarks a local model with one prompt and one stream. It is the wrong test
+          for anything real. Here is what actually happens under concurrency, with real numbers.
+        </p>
+      </header>
+
+      <!-- contents: the shared toc-tuner; its names repeat the section labels below -->
+      <nav class="toc-tuner" data-tuner aria-label="Sections">
+        <div class="wrap toc-tuner__band">
+        <div class="toc-tuner__readout" aria-hidden="true"></div>
+        <ol class="toc-tuner__scale">
+          <li><a class="toc-tuner__st" href="#s1"><b>§1</b><span class="toc-tuner__name">WHY IS THE SINGLE-STREAM BENCHMARK MISLEADING?</span></a></li>
+          <li><a class="toc-tuner__st" href="#s2"><b>§2</b><span class="toc-tuner__name">WHAT HAPPENS WHEN YOU SERVE MORE THAN ONE PERSON?</span></a></li>
+          <li><a class="toc-tuner__st" href="#s3"><b>§3</b><span class="toc-tuner__name">WHY DOES TOTAL THROUGHPUT GO UP WHILE EACH USER SLOWS DOWN?</span></a></li>
+          <li><a class="toc-tuner__st" href="#s4"><b>§4</b><span class="toc-tuner__name">IS A SINGLE-USER HOME RIG WASTEFUL, THEN?</span></a></li>
+          <li><a class="toc-tuner__st" href="#s5"><b>§5</b><span class="toc-tuner__name">WHEN DOES THE BATCHING TRADE MAKE SENSE?</span></a></li>
+          <li><a class="toc-tuner__st" href="#s6"><b>§6</b><span class="toc-tuner__name">HOW DO YOU GET MORE REQUESTS THAN ONE PERSON CAN GENERATE?</span></a></li>
+          <li><a class="toc-tuner__st" href="#s7"><b>§7</b><span class="toc-tuner__name">FAQ</span></a></li>
+        </ol>
+        <span class="toc-tuner__needle" aria-hidden="true"></span>
+        </div>
+      </nav>
+
+      <blockquote class="bc-answer" data-reveal>
+        Quick answer: on our bench, one GPU running gpt-oss-120b went from ~160 tokens/sec at a
+        single user to ~310 at eight users. That is nearly double the total work from the same
+        hardware. Each user's speed dropped from ~171 to ~79. More users means more total tokens,
+        but a slower turn for everyone. Batching does not make a GPU faster; it makes it fuller.
+      </blockquote>
+
+      <div class="bc-post__body">
+
+      <p class="bc-post__lead" data-reveal>
+        If you have ever looked up "how fast is model X locally," you got a single-stream number:
+        one prompt, one reply, tokens per second. That number is real, but it describes a situation
+        almost no real deployment is in. The moment your GPU answers more than one request at a
+        time, the picture changes completely - and almost nobody measures that. So we did.
+      </p>
+
+      <section class="bc-sec" id="s1" data-reveal>
+        <span class="bc-sec__no">&sect;1</span>
+        <h2>Why is the single-stream benchmark misleading?</h2>
+        <p>
+          A single stream leaves most of a modern GPU idle between tokens. The card is waiting on
+          memory far more than it is computing, so one user never keeps it busy. The single-stream
+          tokens-per-second figure is the <em>best case for one person</em>, not the ceiling of the
+          hardware. Quote it and you will badly underestimate what the box can actually produce.
+        </p>
+      </section>
+
+      <section class="bc-sec" id="s2" data-reveal>
+        <span class="bc-sec__no">&sect;2</span>
+        <h2>What happens when you serve more than one person?</h2>
+        <p>
+          We ran <code>gpt-oss-120b</code> on a 4x RTX PRO 4500 rig and swept the number of
+          concurrent users from 1 to 8. Two things move at once, in opposite directions:
+        </p>
+        <ul>
+          <li><b>Aggregate throughput climbs.</b> ~160 tokens/sec at one user, ~310 at eight. Nearly
+            double the total work out of the exact same hardware.</li>
+          <li><b>Per-user speed drops.</b> That single user had ~171 tokens/sec all to themselves.
+            By eight concurrent users, each one is down to ~79. Less than half.</li>
+        </ul>
+        <p>That is the whole trade in two lines: more total tokens, a slower turn for everyone.</p>
+      </section>
+
+      <section class="bc-sec" id="s3" data-reveal>
+        <span class="bc-sec__no">&sect;3</span>
+        <h2>Why does total throughput go up while each user slows down?</h2>
+        <p>
+          It is called continuous batching - what runtimes like vLLM do under the hood. Instead of
+          finishing one request before starting the next, the GPU interleaves many requests, filling
+          the idle gaps between one user's tokens with another user's work. The expensive silicon
+          stops waiting around, so the <em>aggregate</em> line rises. But that shared capacity is now
+          split across everyone, so any single user waits a little longer for their turn.
+        </p>
+      </section>
+
+      <section class="bc-sec" id="s4" data-reveal>
+        <span class="bc-sec__no">&sect;4</span>
+        <h2>Is a single-user home rig wasteful, then?</h2>
+        <p>
+          On pure throughput, yes. If you run a local model only for yourself, you are using a
+          fraction of what the GPU can produce. That ~160 tok/s at one user is not the ceiling - the
+          ceiling was ~310, and you leave most of it on the floor because you are the only one
+          asking. A single-user rig is, by definition, the least efficient way to run inference
+          hardware: you bought a machine that can serve eight people and you are serving one.
+        </p>
+      </section>
+
+      <section class="bc-sec" id="s5" data-reveal>
+        <span class="bc-sec__no">&sect;5</span>
+        <h2>When does the batching trade make sense?</h2>
+        <p>
+          It depends on whether you are latency-bound or throughput-bound. For a queue or a
+          background job that tolerates a 10-45 second turn - overnight processing, a chatbot for a
+          group, batch extraction - batching is a clear win: you clear far more work per hour. For a
+          real-time voice assistant that needs the fastest possible single reply, concurrency hurts,
+          and you want the single-stream speed instead. Know which one you are.
+        </p>
+      </section>
+
+      <section class="bc-sec" id="s6" data-reveal>
+        <span class="bc-sec__no">&sect;6</span>
+        <h2>How do you get more requests than one person can generate?</h2>
+        <p>
+          This is the quiet argument for pooling. A GPU serving one household wastes most of its
+          throughput; the same GPU fed a steady stream of requests from many people runs near its
+          real capacity, and every one of those extra tokens costs almost nothing because the
+          hardware and power were already committed. That is the bet RogerAI is built on: put your
+          idle capacity on the air, or tune in to someone else's when yours is not enough - over the
+          same OpenAI-compatible API, with <code>roger use &lt;model&gt;</code>. See what people are
+          actually running in the <a href="/models.html">model directory</a> and which
+          <a href="/bands.html">bands</a> are live.
+        </p>
+      </section>
+
+      <section class="bc-sec" id="s7" data-reveal>
+        <span class="bc-sec__no">&sect;7 &middot; FAQ</span>
+        <h2>Frequently asked questions</h2>
+        <dl class="bc-faq">
+          <dt><b>How many concurrent users can one GPU handle?</b></dt>
+          <dd>It depends on the model and VRAM, but aggregate throughput keeps rising until compute or memory bandwidth saturates. On our bench a single 4x RTX PRO 4500 rig running gpt-oss-120b nearly doubled its total tokens/sec going from 1 to 8 concurrent users, while per-user speed more than halved.</dd>
+          <dt><b>Does serving more users make a GPU faster?</b></dt>
+          <dd>No. Batching does not speed the GPU up - it keeps it fuller. Total throughput rises because idle gaps between one request's tokens get filled with another request's work. Each individual user actually gets a slower turn.</dd>
+          <dt><b>Why is my local model slow with only one user?</b></dt>
+          <dd>A single stream leaves the GPU idle between tokens, so you only see a fraction of its real throughput. That is expected: one user cannot keep a capable GPU busy. The capacity is there, waiting for more concurrent requests than one person generates.</dd>
+          <dt><b>Should I benchmark local serving with one stream?</b></dt>
+          <dd>Only if you truly serve one user at a time. For anything with a queue or multiple users, measure aggregate throughput under concurrency - that is what determines how much work the box can actually do.</dd>
+          <dt><b>What is continuous batching?</b></dt>
+          <dd>A serving technique (used by vLLM and others) that interleaves many requests so the GPU's compute stays saturated, instead of finishing one request before starting the next. It is why aggregate throughput scales with concurrency.</dd>
+          <dt><b>How do I serve a model to more people than my GPU can handle?</b></dt>
+          <dd>Route the overflow to a bigger or additional GPU without leaving your workflow. <code>roger use &lt;model&gt;</code> proxies to a community node over the same OpenAI-compatible API, so your app is unchanged.</dd>
+        </dl>
+      </section>
+
+      <aside class="tint-panel bc-signoff">
+        <span class="tint-panel__tag">roger that</span>
+        <p>Skip the setup or share your local model - install the set and tune in:</p>
+        <div class="install">
+          <InstallBox id='signoffInstall'>curl <span class="tok">-fsSL</span> <span class="tok">https://rogerai.fm/install.sh</span> <span class="tok">| sh</span></InstallBox>
+        </div>
+      </aside>
+    </div>
+    </div>
+  </article>
+  </main>
+  <Footer anchors='/' />
+  <!-- FAQPage structured data: mirrors the visible FAQ above (SERP real-estate + AI citations). -->
+  {@html `<script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"How many concurrent users can one GPU handle?","acceptedAnswer":{"@type":"Answer","text":"It depends on the model and VRAM, but aggregate throughput keeps rising until compute or memory bandwidth saturates. On our bench a single 4x RTX PRO 4500 rig running gpt-oss-120b nearly doubled its total tokens/sec going from 1 to 8 concurrent users, while per-user speed more than halved."}},{"@type":"Question","name":"Does serving more users make a GPU faster?","acceptedAnswer":{"@type":"Answer","text":"No. Batching does not speed the GPU up - it keeps it fuller. Total throughput rises because idle gaps between one request's tokens get filled with another request's work. Each individual user actually gets a slower turn."}},{"@type":"Question","name":"Why is my local model slow with only one user?","acceptedAnswer":{"@type":"Answer","text":"A single stream leaves the GPU idle between tokens, so you only see a fraction of its real throughput. That is expected: one user cannot keep a capable GPU busy. The capacity is there, waiting for more concurrent requests than one person generates."}},{"@type":"Question","name":"Should I benchmark local serving with one stream?","acceptedAnswer":{"@type":"Answer","text":"Only if you truly serve one user at a time. For anything with a queue or multiple users, measure aggregate throughput under concurrency - that is what determines how much work the box can actually do."}},{"@type":"Question","name":"What is continuous batching?","acceptedAnswer":{"@type":"Answer","text":"A serving technique (used by vLLM and others) that interleaves many requests so the GPU's compute stays saturated, instead of finishing one request before starting the next. It is why aggregate throughput scales with concurrency."}},{"@type":"Question","name":"How do I serve a model to more people than my GPU can handle?","acceptedAnswer":{"@type":"Answer","text":"Route the overflow to a bigger or additional GPU without leaving your workflow. roger use <model> proxies to a community node over the same OpenAI-compatible API, so your app is unchanged."}}]}</script>`}

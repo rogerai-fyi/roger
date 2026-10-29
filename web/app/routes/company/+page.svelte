@@ -1,0 +1,227 @@
+<script>
+  // RogerAI Company - American AI research and infrastructure
+  // Ported from web/src/company.html (2026-10-29); the copy is the legacy copy.
+  import { siteHead, CSS_SHARED, CSS_ACCOUNT } from "#lib/head.js";
+  import Footer from "#lib/ui/Footer.svelte";
+  import Nav from "#lib/ui/Nav.svelte";
+  import OnAir from "#lib/ui/OnAir.svelte";
+  import Rail from "#lib/ui/Rail.svelte";
+  const head = siteHead({
+    title: 'RogerAI Company - American AI research and infrastructure',
+    desc: 'RogerAI is an AI company in Orange County, California, building local models and inference infrastructure for practical deployment.',
+    og: { type: 'website', title: 'RogerAI - built in Orange County, useful anywhere', desc: 'A founder-led AI company building models and inference infrastructure for practical local AI.', url: 'https://rogerai.fm/company.html', image: 'https://rogerai.fm/og-company.png' },
+    css: [...CSS_SHARED, 'research.css', 'company.css'],
+    scripts: [{ runtime: true }],
+  });
+</script>
+<svelte:head>{@html head}</svelte:head>
+  <Rail head='RogerAI · Company' rev='Rev. 2026.07 · ORANGE COUNTY, CA' />
+
+  <Nav variant='marketing' home='/' current='company' />
+
+  <main id="top" class="co-page" data-lift>
+    <!-- The hero is the site's paper page hero (DESIGN-SYSTEM.md, one role, one pattern).
+         Presentation-only lift 2026-09-24: every word and link below is the pre-lift
+         copy, pinned by test/company-lift.test.mjs. -->
+    <section class="research-hero">
+      <div class="wrap">
+        <span class="hero__eyebrow">
+          <OnAir />
+          <span class="hero__callsign">ROGERAI</span>
+          <span class="hero__sep" aria-hidden="true">·</span>
+          company
+        </span>
+        <h1>An American AI research and infrastructure company.</h1>
+        <p class="research-hero__lead">
+          RogerAI builds local-first inference infrastructure and open models for the
+          hardware people and plants already own. We are based in Orange County,
+          California. Our roadmap answers to the machines it runs on rather than to a
+          growth curve.
+        </p>
+        <!-- Every action is the same solid button (no primary: one highlighted button read as "the current view"). -->
+        <div class="research-actions research-actions--lead">
+          <a class="research-button" href="#work">What we build</a>
+          <a class="research-button" href="/careers.html">Join us</a>
+          <a class="research-button" href="/broadcasts.html">Broadcasts</a>
+          <a class="research-button" href="/faq.html">FAQ</a>
+          <a class="research-button" data-lets-talk aria-expanded="false"
+             href="mailto:labs@rogerai.fm?subject=Hello%20from%20the%20website">Let&rsquo;s talk</a>
+        </div>
+      </div>
+    </section>
+
+    <aside class="research-distinction">
+      <div class="wrap research-distinction__grid tint-panel">
+        <div><span class="research-kicker">THE PRODUCT</span><b><a href="/models.html">The RogerAI network</a></b> routes work to models running on real hardware - the frontier, decentralized.</div>
+        <div><span class="research-kicker">THE LAB</span><b><a href="/research.html">RogerAI Labs</a></b> builds the open edge models and publishes the weights.</div>
+        <p>Each half makes the other worth more: a model you own is more useful when there is somewhere to run it and earn from it, and the network is more useful the better small models get. Running a RogerAI model locally never requires the network, and the network is not restricted to RogerAI models.</p>
+      </div>
+    </aside>
+
+    <!-- the page's table of contents: the shared tuner, the § labels the sections carry -->
+    <nav class="toc-tuner" data-tuner aria-label="Sections">
+      <div class="wrap toc-tuner__band">
+      <div class="toc-tuner__readout" aria-hidden="true"></div>
+      <ol class="toc-tuner__scale">
+        <li><a class="toc-tuner__st" href="#work"><b>§1</b><span class="toc-tuner__name">WHAT WE BUILD</span></a></li>
+        <li><a class="toc-tuner__st" href="#focus"><b>§2</b><span class="toc-tuner__name">FOCUS</span></a></li>
+        <li><a class="toc-tuner__st" href="#origin"><b>§3</b><span class="toc-tuner__name">ORIGIN &amp; OPENNESS</span></a></li>
+        <li><a class="toc-tuner__st" href="#contact"><b>§4</b><span class="toc-tuner__name">CONTACT</span></a></li>
+      </ol>
+      <span class="toc-tuner__needle" aria-hidden="true"></span>
+      </div>
+    </nav>
+
+    <section class="section" id="work">
+      <div class="wrap">
+        <div class="section__head section__head--left" data-reveal>
+          <span class="sectionno">§1 / WHAT WE BUILD</span>
+          <h2>Two lines of work, one engineering discipline.</h2>
+          <p>One line is a network that sends real work to machines other people own. The
+             other is a family of small models built for the hardware those machines
+             actually have.</p>
+        </div>
+        <div class="co-cards" data-reveal data-reveal-delay="60">
+          <article class="tint-panel co-card">
+            <header><span class="research-kicker">PRODUCT</span><span class="status">SHIPPING</span></header>
+            <h3>The RogerAI network</h3>
+            <p>An OpenAI-compatible endpoint over models running across community and
+               private hardware. It handles discovery, capacity-aware routing, failover,
+               metering, and signed receipts, while the operator keeps physical control of
+               the machine and opens no inbound ports.</p>
+            <p>Available as a CLI, an OpenAI-compatible API, and an iOS app.</p>
+            <dl>
+              <div><dt>Evaluate</dt><dd><a href="/models.html">Live models</a> · <a href="/manual.html">Manual</a></dd></div>
+              <div><dt>Source</dt><dd><a href="https://github.com/rogerai-fyi/roger">github.com/rogerai-fyi/roger</a></dd></div>
+            </dl>
+          </article>
+          <article class="tint-panel co-card">
+            <header><span class="research-kicker">RESEARCH</span><span class="status">ACTIVE</span></header>
+            <h3>RogerAI Labs</h3>
+            <p>Open model and inference research for edge, embedded, and industrial use:
+               quantization, pruning, runtime work, and the <b>Wave</b> family of
+               device-first small models. Results ship with the hardware they ran on, the
+               harness that ran them, and the raw outputs, so anyone can rerun them.</p>
+            <dl>
+              <div><dt>Programs</dt><dd><a href="/research.html">Research notebook</a></dd></div>
+              <div><dt>Evidence</dt><dd><a href="/broadcasts.html">Open Air Waves</a></dd></div>
+              <div><dt>Weights</dt><dd><a href="https://huggingface.co/rogerai-fyi">huggingface.co/rogerai-fyi</a></dd></div>
+            </dl>
+          </article>
+          <article class="tint-panel co-card">
+            <header><span class="research-kicker">POSITION</span></header>
+            <h3>Frontier capability, local footprint</h3>
+            <p>Two directions, one goal: make frontier-capability models reachable on
+               hardware you control, and make small models good enough that the frontier is
+               not always the answer. Optimization work brings large open models down to
+               workstation class; the Wave program builds up from the single machine at the edge.</p>
+            <p>Our models ship in open formats on standard runtimes, so nothing we publish
+               depends on RogerAI continuing to exist.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="focus">
+      <div class="wrap">
+        <div class="section__head section__head--left" data-reveal>
+          <span class="sectionno">§2 / FOCUS</span>
+          <h2>The smallest model that can do the job.</h2>
+          <p>We build for embedded and edge systems where operational-technology networks
+             are segmented or air-gapped and data cannot leave.</p>
+        </div>
+        <!-- The family paragraph, set as the shared Wave Spectrum scale: the same
+             sentences in the same order, one tier per station. -->
+        <div class="co-family" data-reveal data-reveal-delay="60">
+          <p class="co-family__lead"><b>A right-sized family.</b> The Wave Spectrum runs pico to exa on one SI
+             scale. Every tier is named for where it sits.</p>
+          <ol class="spectrum" data-scrub aria-label="The Wave Spectrum, pico to exa">
+            <li><i class="wave-bar" aria-hidden="true"></i><span><b>Wave Pico</b> reads a single
+             machine&rsquo;s telemetry on hardware beside it.</span></li>
+            <li><i class="wave-bar" aria-hidden="true"></i><span><b>Wave Nano</b> concentrates a fleet
+             at the gateway.</span></li>
+            <li><i class="wave-bar" aria-hidden="true"></i><span><b>Wave Micro</b> reasons across a facility,</span></li>
+            <li><i class="wave-bar" aria-hidden="true"></i><span><b>Wave Giga</b> across a
+             plant,</span></li>
+            <li><i class="wave-bar" aria-hidden="true"></i><span>and <b>Wave Tera</b> across many plants at once.</span></li>
+            <li><i class="wave-bar" aria-hidden="true"></i><span><b>Wave Peta</b> carries regional
+             scale, carved down from Wave Exa.</span></li>
+            <li><i class="wave-bar" aria-hidden="true"></i><span><b>Exa</b> is the frontier flagship, and the
+             teacher the rest of the family learns from.</span></li>
+          </ol>
+          <p class="co-family__foot">Every tier ships with Wave Mesh
+             baked in, and understands the output of every tier beneath it.</p>
+        </div>
+        <div class="co-pair" data-reveal data-reveal-delay="80">
+          <p class="tint-panel"><b>Industrial deployment.</b> Our focus spans oil and gas, power generation,
+             manufacturing, aerospace, mining, water, healthcare, defense sustainment, and
+             wildfire mitigation: advisory workloads beside existing control systems, never
+             replacing deterministic protection or safety paths. In healthcare that means the
+             equipment and facilities layer - never diagnosis, treatment, or a patient&rsquo;s
+             care; in wildfire, an early warning beside the sprinklers, never the alarm or the
+             suppression system.</p>
+          <p class="tint-panel"><b>Evidence before claims.</b> Measurements name the hardware, evaluation
+             harness, settings, and raw results. Our models use open formats and standard
+             runtimes. Local inference sends no telemetry. Negative results remain visible.</p>
+        </div>
+        <p class="co-see">See the <a href="/research.html#industry">research notebook</a> for programs,
+             industry use cases, constraints, and device evidence.</p>
+      </div>
+    </section>
+
+    <section class="section" id="origin">
+      <div class="wrap">
+        <div class="section__head section__head--left" data-reveal>
+          <span class="sectionno">§3 / ORIGIN &amp; OPENNESS</span>
+          <h2>Built here. Useful anywhere.</h2>
+          <p>RogerAI is built in Orange County, California. “American-made” describes the
+             company, product engineering, and RogerAI-authored research, built on upstream
+             open models and a global research community.</p>
+        </div>
+        <div class="co-trio" data-reveal data-reveal-delay="60">
+          <p class="tint-panel"><b>Open where the component is open.</b> Our open-source model and runtime work,
+             recipes, converters, evaluations, and qualifying weights are published with
+             their actual licenses and lineage.</p>
+          <p class="tint-panel"><b>Source-visible is not the same claim.</b> The RogerAI network and broker are
+             licensed under PolyForm Perimeter 1.0.0, and the node-agent protocol and
+             usage-receipt SDK are Apache 2.0 so anyone can implement them. We publish the
+             source, but do not call the platform open source. Each model carries its
+             own license rather than borrowing a broader marketing label.</p>
+          <p class="tint-panel"><b>Model license.</b> A released Wave model will carry its own license, and
+             may be used locally without the network.
+             Optional broker publication, routing, payments, failover, and receipts are
+             network services governed by separate network terms. Those terms do not modify
+             the model license.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="contact">
+      <div class="wrap co-split">
+        <div class="section__head section__head--left" data-reveal>
+          <span class="sectionno">§4 / CONTACT</span>
+          <h2>Talk to the people building it.</h2>
+          <p>RogerAI is operated by <b>RogerAI,&nbsp;Inc., a Delaware corporation</b>,
+             from Orange County, California. The <a href="/tos.html">Terms</a> carry the
+             contracting details.</p>
+        </div>
+        <div class="tint-panel co-rows" data-reveal data-reveal-delay="60">
+          <p><b>Pilots, engagements, and press.</b> Model optimization, edge deployment,
+             benchmarking and model selection, and scoped on-premises pilots, plus press
+             and partnership inquiries. <a href="mailto:labs@rogerai.fm">labs@rogerai.fm</a></p>
+          <p><b>Security disclosure.</b> Report privately; please do not open a public issue.
+             <a href="mailto:security@rogerai.fm">security@rogerai.fm</a> · <a href="/security.html">Policy</a></p>
+          <p><b>Billing and accounts.</b> <a href="mailto:billing@rogerai.fm">billing@rogerai.fm</a> ·
+             <b>Privacy.</b> <a href="mailto:privacy@rogerai.fm">privacy@rogerai.fm</a> ·
+             <b>Legal.</b> <a href="mailto:legal@rogerai.fm">legal@rogerai.fm</a></p>
+          <p><b>The work itself.</b> The source is public and the notebook is open. Reading
+             either tells you more than a sales call would.
+             <a href="https://github.com/rogerai-fyi/roger">Source</a> ·
+             <a href="/broadcasts.html">Open Air Waves</a></p>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <Footer anchors='/' />

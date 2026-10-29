@@ -11,6 +11,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { allPages, source, decodeMarkup } from "./_html.mjs";
 
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const DIST = path.join(WEB, "dist");
@@ -183,7 +184,7 @@ test("the models directory offers the voices directory in its own body", () => {
 
    Kimi-K3 still appears on research-models.html, which is a different page with its own
    lock in research-page.test.mjs. Nothing here touches it. */
-const family = () => read("research-wave-family.html");
+const family = () => decodeMarkup(read("research-wave-family.html"));
 
 test("the retired pruning experiment stays off the family page", () => {
   const page = family();
@@ -196,7 +197,7 @@ test("the retired pruning experiment stays off the family page", () => {
     assert.doesNotMatch(copy, relic, `the retired experiment must not come back (${relic})`);
   }
   // The section numbering has to close over the gap, or the page cites a §2 it lost.
-  const nos = [...page.matchAll(/class="sectionno">&sect;(\d+) \/ ([A-Z ]+)</g)].map((n) => n[1]);
+  const nos = [...page.matchAll(/class="sectionno">§(\d+) \/ ([A-Z ]+)</g)].map((n) => n[1]);
   assert.deepEqual(nos, ["1", "2", "3", "4", "5"], "the sections are numbered without a hole");
   assert.doesNotMatch(copy, /Section 2 says/i, "and nothing still points at the section that left");
 });
@@ -499,16 +500,12 @@ test("the wave mark is whole without motion", () => {
 // does not load, so its back link shipped unstyled. Assert the definition is somewhere
 // every page using it actually loads.
 test("the back-to-Labs link is styled on every page that has one", () => {
-  const srcDir = path.join(WEB, "src");
-  const pages = readdirSync(srcDir)
-    .filter((f) => f.endsWith(".html") && readFileSync(path.join(srcDir, f), "utf8").includes("wf-back"));
+  const pages = allPages().filter((f) => source(f).includes("wf-back"));
   assert.ok(pages.length >= 2, `the link is shared, found it on ${pages.length} pages`);
-  const research = readFileSync(path.join(srcDir, "styles", "research.css"), "utf8");
+  const research = readFileSync(path.join(WEB, "src", "styles", "research.css"), "utf8");
   assert.match(research, /\.wf-back \{/, "defined in the sheet every research page loads");
   for (const p of pages) {
-    const line = readFileSync(path.join(WEB, "build.mjs"), "utf8")
-      .split("\n").find((l) => l.includes(`"${p}":`)) || "";
-    assert.match(line, /research\.css/, `${p} loads the sheet that defines it (bundle: ${line.trim()})`);
+    assert.match(read(p) ? readFileSync(path.join(WEB, "dist", p), "utf8") : "", /<link rel="stylesheet" href="styles\/research\.css/, `${p} loads the sheet that defines it`);
   }
   // It is navigation above the callsign, not part of it.
   assert.match(research, /\.wf-back \{[^}]*display: block/, "it sits on its own line");
