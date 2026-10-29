@@ -161,7 +161,7 @@
       grants = rows;
       gview = rows.length ? "ready" : "empty";
     } catch { gview = "fault"; }
-    gBusy = false;
+    finally { gBusy = false; }
   }
   // Inline cap edit: a small prompt-driven PATCH (daily + monthly tokens).
   async function editCaps(g) {

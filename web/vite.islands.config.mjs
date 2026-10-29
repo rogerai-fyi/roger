@@ -39,7 +39,8 @@ const plainScripts = {
     return readFileSync(id.slice(id.indexOf(":", 6) + 1), "utf8");
   },
   transform(code, id) {
-    if ((/\/src\/js\/[\w-]+\.js$/.test(id) || id.startsWith("\0page:")) && !/^\s*(?:import|export)\b/m.test(code)) return { code: code + "\nexport {};\n", map: null };
+    const isModule = /^\s*(?:import\s*[\w{*"']|export\s+(?:\{|default|const|let|var|function|class))/m.test(code);   // a statement, not a comment that starts with the word
+    if ((/\/src\/js\/[\w-]+\.js$/.test(id) || id.startsWith("\0page:")) && !isModule) return { code: code + "\nexport {};\n", map: null };
   },
 };
 

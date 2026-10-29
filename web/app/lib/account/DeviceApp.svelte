@@ -44,12 +44,13 @@
     askError = "";
     if (!c) { askError = "Enter the code your terminal printed."; return; }
     let r;
+    // a failed lookup shows the ask with its error, whatever showed before (a code from the URL starts blank)
     try { r = await api("/auth/device/pending?user_code=" + encodeURIComponent(c)); }
-    catch { askError = "Could not reach RogerAI. Try again in a moment."; return; }
+    catch { askError = "Could not reach RogerAI. Try again in a moment."; view = "ask"; return; }
     if (r.status === 401) { showSignedOut(); return; }
-    if (!r.ok) { askError = "That code is not valid. Check it against your terminal, or start a new sign-in."; return; }
+    if (!r.ok) { askError = "That code is not valid. Check it against your terminal, or start a new sign-in."; view = "ask"; return; }
     let info;
-    try { info = await r.json(); } catch { askError = "Could not reach RogerAI. Try again in a moment."; return; }
+    try { info = await r.json(); } catch { askError = "Could not reach RogerAI. Try again in a moment."; view = "ask"; return; }
     current = c;
     shownCode = info.user_code;
     requested = ago(info.requested_at);

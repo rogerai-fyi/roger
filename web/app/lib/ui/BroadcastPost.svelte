@@ -13,8 +13,9 @@
   import OnAir from "#lib/ui/OnAir.svelte";
   import Faq from "#lib/ui/Faq.svelte";
   import Signoff from "#lib/ui/Signoff.svelte";
-  // title is the <title> and the card; heading is the h1 when a post words it apart
-  // ogtitle is the card's title when a post words it apart from the <title>
+  // title is the <title> and the card, text; heading (the h1 when a post words it apart) and
+  // dek are the post's own markup, as its route or frontmatter wrote them; ogtitle is the
+  // card's title when a post words it apart from the <title>
   let { title, heading, ogtitle, desc, number, kind = "FIELD GUIDE", date, dateLabel, railHead = "RogerAI · Field Guide", slug, ogimage, dek, meta,
     hero, heroAlt, heroCaption, faq = [], faqNo = 0, faqTitle, faqLabel, renderFaq = true, signoff = true, ogdesc, css = [], scripts = [], children } = $props();
   const url = $derived(`https://rogerai.fm/${slug}.html`);
@@ -38,7 +39,7 @@
           <span class="hero__sep" aria-hidden="true">&middot;</span>
           <time datetime={date}>{dateLabel.text}</time>
         </span>
-        <h1 class="bc-post__title">{@html heading || title}</h1>
+        <h1 class="bc-post__title">{#if heading}{@html heading}{:else}{title}{/if}</h1>
         <p class="bc-post__dek">{@html dek}</p>
         {#if meta}{@render meta()}{/if}
       </header>

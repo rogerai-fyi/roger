@@ -24,6 +24,8 @@ describe("the initial state and a broken answer", () => {
     fakeLocation({ pathname: "/device.html", search: "?code=ABCD-1234" });
     render(DeviceApp);
     await waitFor(() => expect(text("dvAskError")).toBe("Could not reach RogerAI. Try again in a moment."));
+    expect(el("dvAsk").hidden).toBe(false);   // the error is on screen, not in a hidden section
+    expect(el("dvAskError").hidden).toBe(false);
     expect(el("dvConfirm").hidden).toBe(true);
   });
   it("a malformed ?code= is no code (no exception, the ask shows)", async () => {

@@ -32,6 +32,13 @@ describe("the account-key list's honesty", () => {
     await waitFor(() => expect(el("akErr").textContent).not.toBe(""));
     expect(el("akEmpty").hidden).toBe(true);   // failed: not "no keys yet" beside the error
   });
+  it("a sign-in with no machines: the no-operator state, and the loading line is gone", async () => {
+    broker({ "/account": [200, { github_login: "octocat", github_id: 7 }], "/account/keys": [200, { keys: [] }], "/grants": [403, {}] });
+    fakeLocation({ pathname: "/keys.html" });
+    render(KeysApp);
+    await waitFor(() => expect(el("gate").hidden).toBe(true));
+    await waitFor(() => expect(el("keysLoading").hidden).toBe(true));
+  });
   it("the spend limit is the typed text, parsed strictly: .5, 1e3 and -0 are refused like abc", async () => {
     const calls = broker({ "/account": [200, { github_login: "octocat", github_id: 7 }], "/account/keys": [200, { keys: [] }], "/grants": [200, { grants: [] }] });
     fakeLocation({ pathname: "/keys.html" });
