@@ -133,7 +133,7 @@ test("(c) a page's own scripts keep their order relative to each other and to th
   assert.deepEqual(order("private.html"), ["theme-init", "site", "private"]);
   assert.deepEqual(order("r.html"), ["theme-init", "site"]);   // an island page: its logic is js/islands/link.js, a module
   assert.deepEqual(order("device.html"), ["theme-init", "site"]);   // an island page: its logic is js/islands/device.js, a module
-  assert.deepEqual(order("stations.html"), ["theme-init", "fmt", "auth", "stations", "site"]);
+  assert.deepEqual(order("stations.html"), ["theme-init", "site"]);   // an island page: js/islands/stations.js
 });
 
 test("(c) the page runtime has one form: deferred", () => {

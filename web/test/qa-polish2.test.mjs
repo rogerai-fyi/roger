@@ -163,7 +163,7 @@ for (const s of ACCOUNT_STATES) {
     const html = source(s.page);
     const scope = s.within ? html.match(s.within)?.[0] || "" : html;
     const open = s.id
-      ? new RegExp(`<(section|div) class="acct-state tint-panel" id="${s.id}" hidden>`)
+      ? new RegExp(`<(section|div) class="acct-state tint-panel" id="${s.id}" hidden(?:=\\{[^}]*\\})?>`)   // bare, or an island's expression
       : /<section class="acct-state tint-panel">/;
     assert.match(scope, open);
     if (s.action) {

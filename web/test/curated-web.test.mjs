@@ -61,13 +61,14 @@ test("the history read is credentialed - no other account can see it", () => {
 // --- Scenario: the operator's earnings page shows pass-through, not profit ------
 
 test("a curated operator's station keeps reimbursement and income apart", () => {
-  const js = read("js/stations.js");
+  // the stations page is an island (app/lib/account/StationsApp.svelte)
+  const js = readFileSync(path.join(WEB, "app", "lib", "account", "StationsApp.svelte"), "utf8");
   assert.match(js, /CURATED/, "the curated badge exists");
   assert.match(js, /list reimbursed/, "the reimbursement is named as reimbursement");
   assert.match(js, /half of the routing fee/, "and the fee share is named as the income half");
   assert.match(js, /never income/, "the comment keeps the line: the reimbursement is never income");
   // The human branch still says Earned - the distinction is the point.
-  assert.match(js, /'Earned ' \+/, "human earnings keep their own label");
+  assert.match(js, /\{:else\}Earned /, "human earnings keep their own label");
 });
 
 // --- Scenario: a curated-only band is on air on the website, counted apart ------
