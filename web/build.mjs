@@ -1,14 +1,26 @@
 #!/usr/bin/env node
-// RogerAI site build: resolve partial includes and copy assets.
+// RogerAI site build: ONE static tree (web/dist/) from two sources, during the migration.
 //
-// One source of chrome. Pages live in web/src/*.html and pull shared chrome from
-// web/src/_partials/{head,brand,nav,footer}.html via `<!-- include: X -->` markers.
-// Output is web/dist/, a plain static tree (the same files the host serves).
+//   app/   the SvelteKit app: routes (one per page), lib (chrome, the broker client, the
+//          design system), islands (the interactive parts, mounted by Svelte alone). A page
+//          listed in app/owned.json is built here. Prerendered: no server, no client router.
+//   src/   the legacy pages: web/src/*.html pulling shared chrome from web/src/_partials
+//          via `<!-- include: X -->` markers, plus the assets every page uses.
 //
-// Dependency-light on purpose: Node ESM + node:fs only, no npm install. Run with
-//   node web/build.mjs        (or `make site`)
+// One owner per page: a page in app/owned.json must not exist as web/src/<page>.html, and
+// the build fails if it does. As pages move, owned.json grows and src/ shrinks; when src/ is
+// empty the legacy half of this file goes.
 //
-// Include syntax (resolved recursively, depth-guarded):
+// Both halves get the same finishing passes: wave status tokens, a self-referential
+// canonical, dash glue in headings, content-hash cache busting, and the derived sitemap.xml
+// and llms.txt. Output is written atomically and stale files are pruned at the end.
+//
+// Run with   node web/build.mjs   (or `make site`). The legacy half needs nothing installed;
+// the app half needs the toolchain in web/node_modules (installed on first use with npm ci).
+//   WEB_PREVIEW=console.html,faq.html   builds those app routes too, for a local look
+//                                        before a page is handed over in owned.json.
+//
+// Include syntax of the legacy half (resolved recursively, depth-guarded):
 //   <!-- include: nav.html -->
 //   <!-- include: nav.html variant=marketing -->     // pass args to the partial
 // Inside a partial, args substitute as {{name}} and gate blocks (which may nest):
@@ -18,15 +30,12 @@
 //
 // Wave status labels in a page render from src/data/wave-status.json:
 //   {{wave:<tier>.<label>}}      (scripts/wave-status.mjs; an unknown token fails the build)
-// A Wave model page's facts render from src/data/model-cards.json:
-//   {{card:<model>.<item>}}      (scripts/model-cards.mjs; every number carries its R-number)
-// Adapter, skill and device status renders from src/data/capabilities.json:
-//   {{cap:<id>.<field>}}         (scripts/wave-status.mjs; an unknown token fails the build)
 
 import { readFileSync, writeFileSync, readdirSync, mkdirSync, rmSync, statSync, copyFileSync, renameSync, existsSync } from "node:fs";
 import { join, dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { loadWaveStatus, resolveWaveTokens, loadCapabilities, resolveCapTokens } from "./scripts/wave-status.mjs";
 import { loadModelCards, resolveCardTokens } from "./scripts/model-cards.mjs";
 import { glueDashes } from "./scripts/glue-dashes.mjs";   // a heading's " - " never starts a line
@@ -35,6 +44,58 @@ const ROOT = dirname(fileURLToPath(import.meta.url));   // web/
 const SRC = join(ROOT, "src");
 const PARTIALS = join(SRC, "_partials");
 const DIST = join(ROOT, "dist");
+
+// ---- the app half ---------------------------------------------------------------------------
+const APP = join(ROOT, "app");
+const KIT_BUILD = join(APP, ".build");        // adapter-static output (vite.config.js)
+const ISLANDS_OUT = join(APP, ".islands");    // island bundles (vite.islands.config.js)
+const OWNED = JSON.parse(readFileSync(join(APP, "owned.json"), "utf8"));
+const PREVIEW = (process.env.WEB_PREVIEW || "").split(",").map((s) => s.trim()).filter(Boolean);
+const APP_PAGES = [...new Set([...OWNED, ...PREVIEW])].sort();
+const routeOf = (page) => (page === "index.html" ? "/" : "/" + page.replace(/\.html$/, ""));
+
+function ensureToolchain() {
+  if (existsSync(join(ROOT, "node_modules", "vite", "bin", "vite.js"))) return;
+  console.log("[build] installing the web toolchain (npm ci)");
+  execFileSync("npm", ["ci", "--no-audit", "--no-fund"], { cwd: ROOT, stdio: "inherit" });
+}
+const vite = (args, env = {}) =>
+  execFileSync(process.execPath, [join(ROOT, "node_modules", "vite", "bin", "vite.js"), ...args],
+    { cwd: ROOT, stdio: "inherit", env: { ...process.env, ...env } });
+
+// The app build is slow (SvelteKit resolves every module on every run) and the guard suite
+// rebuilds the site in sixty before() hooks, so the app half rebuilds only when an input
+// changed: a content hash of app/ (sources, never outputs), src/data (the facts pages read),
+// the vite configs, the lockfile and the page list, kept beside the output in .stamp.
+function appStamp(pages) {
+  const h = createHash("sha256");
+  const walk = (dir) => {
+    for (const ent of readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      const abs = join(dir, ent.name);
+      if (ent.isDirectory()) { if (!/^\.(build|islands|svelte-kit)$/.test(ent.name)) walk(abs); }
+      else { h.update(relative(ROOT, abs)); h.update(readFileSync(abs)); }
+    }
+  };
+  walk(APP);
+  if (existsSync(join(SRC, "data"))) walk(join(SRC, "data"));
+  for (const f of ["vite.config.mjs", "vite.islands.config.mjs", "package-lock.json"]) h.update(readFileSync(join(ROOT, f)));
+  h.update(JSON.stringify(pages));
+  return h.digest("hex");
+}
+
+// The islands first (a page references its island by a fixed name), then the pages.
+function buildApp(pages) {
+  ensureToolchain();
+  const stamp = appStamp(pages), stampFile = join(KIT_BUILD, ".stamp");
+  if (existsSync(stampFile) && readFileSync(stampFile, "utf8") === stamp && pages.every((p) => existsSync(join(KIT_BUILD, p)))) return;
+  rmSync(ISLANDS_OUT, { recursive: true, force: true });
+  if (readdirSync(join(APP, "islands")).some((f) => f.endsWith(".js")))
+    vite(["build", "--config", "vite.islands.config.mjs", "--logLevel", "warn"]);
+  vite(["build", "--logLevel", "warn"], { WEB_KIT_ENTRIES: JSON.stringify(pages.map(routeOf)) });
+  for (const page of pages)
+    if (!existsSync(join(KIT_BUILD, page))) throw new Error(`the app did not produce ${page} (is there an app/routes${routeOf(page)}/+page.* ?)`);
+  writeFileSync(stampFile, stamp);
+}
 
 const INCLUDE_RE = /<!--\s*include:\s*([^\s]+)\s*(.*?)\s*-->/g;
 const MAX_DEPTH = 12;
@@ -190,6 +251,15 @@ function copyAssets(dir) {
   }
 }
 
+// copy a built tree into dist, tracked like every other output (so pruneStale keeps it)
+function copyTree(from, to) {
+  for (const ent of readdirSync(from, { withFileTypes: true })) {
+    const abs = join(from, ent.name);
+    if (ent.isDirectory()) copyTree(abs, join(to, ent.name));
+    else copyOut(abs, join(to, ent.name));
+  }
+}
+
 // cacheBust appends a short CONTENT hash (?v=<hash>) to every local js/, styles/ + assets/ media
 // URL so a changed asset gets a NEW url the CDN (Cloudflare) cannot serve stale - the fix for the
 // "edited terminal.js but the edge kept the old one" class of bug (and the same for swapping in a
@@ -202,7 +272,9 @@ function assetHash(rel) {
   if (assetHashCache.has(rel)) return assetHashCache.get(rel);
   let h = "0";
   try {
-    const data = rel.endsWith(".css") ? cssOut(rel) : readFileSync(join(SRC, rel));
+    const data = rel.endsWith(".css") ? cssOut(rel)
+      : rel.startsWith("js/islands/") ? readFileSync(join(ISLANDS_OUT, rel.slice("js/islands/".length)))
+      : readFileSync(join(SRC, rel));
     h = createHash("sha256").update(data).digest("hex").slice(0, 8);
   } catch { /* missing/external: leave it unversioned rather than break the build */ }
   assetHashCache.set(rel, h);
@@ -236,6 +308,12 @@ function cacheBust(html) {
   }).join(", ") + '"');
 }
 
+// The Svelte compiler writes a valueless attribute as attr="" (hidden="", data-reveal="");
+// the legacy pages, and every regex in the guard suite, spell it bare. Same meaning in HTML.
+// Only the boolean attributes and data-* flags are touched; a real empty value (alt="") stays.
+const FLAG_ATTR = /\s(hidden|defer|async|disabled|checked|selected|required|readonly|multiple|autofocus|autoplay|muted|loop|playsinline|controls|open|novalidate|nomodule|crossorigin|data-[\w-]+)=""(?=[\s/>])/g;
+const bareFlags = (html) => html.replace(FLAG_ATTR, " $1");
+
 // ---- SEO: one canonical per page + a build-time sitemap ------------------------------------
 const ORIGIN = "https://rogerai.fm";
 const canonicalURL = (page) => (page === "index.html" ? `${ORIGIN}/` : `${ORIGIN}/${page}`);
@@ -254,12 +332,20 @@ function ensureCanonical(html, page) {
   return html.replace(/<\/title>/, `</title>\n  <link rel="canonical" href="${canonicalURL(page)}" />`);
 }
 
-// sitemap.xml of the indexable pages (lastmod = the source file's mtime).
+// sitemap.xml of the indexable pages (lastmod = the source file's mtime: the legacy page, or
+// the app route's +page file).
+function lastmod(page) {
+  const route = page === "index.html" ? "" : page.replace(/\.html$/, "");
+  const candidates = [join(SRC, page), ...["+page.svelte", "+page.md"].map((f) => join(APP, "routes", route, f))];
+  const f = candidates.find((c) => existsSync(c));
+  if (!f) throw new Error(`no source file for ${page}`);
+  return statSync(f).mtime.toISOString().slice(0, 10);
+}
 function writeSitemap(indexablePages) {
   const idx = [...indexablePages].sort((a, b) =>
     a === "index.html" ? -1 : b === "index.html" ? 1 : a.localeCompare(b));
   const urls = idx
-    .map((p) => `  <url><loc>${canonicalURL(p)}</loc><lastmod>${statSync(join(SRC, p)).mtime.toISOString().slice(0, 10)}</lastmod></url>`)
+    .map((p) => `  <url><loc>${canonicalURL(p)}</loc><lastmod>${lastmod(p)}</lastmod></url>`)
     .join("\n");
   writeOut(
     join(DIST, "sitemap.xml"),
@@ -415,14 +501,30 @@ function build() {
   written.clear();
   mkdirSync(DIST, { recursive: true });
 
-  // pages: top-level *.html in src/
-  const pages = readdirSync(SRC).filter((f) => f.endsWith(".html"));
+  // pages: top-level *.html in src/ (legacy) + the app's owned routes. One owner per page.
+  const legacyPages = readdirSync(SRC).filter((f) => f.endsWith(".html"));
+  for (const page of APP_PAGES)
+    if (legacyPages.includes(page))
+      throw new Error(`${page} is owned by the app (app/owned.json) but web/src/${page} still exists: one owner per page`);
+  if (APP_PAGES.length) buildApp(APP_PAGES);
+  const pages = [...legacyPages, ...APP_PAGES];
   const indexable = [];
   const htmlByPage = new Map();
   const wave = loadWaveStatus();
   const cards = loadModelCards();
   const caps = loadCapabilities();
-  for (const page of pages) {
+  for (const page of APP_PAGES) {
+    let out = readFileSync(join(KIT_BUILD, page), "utf8");
+    if (/\{\{(wave|card|cap):/.test(out)) throw new Error(`${page}: the app reads wave/card/capability facts through app/lib/content, never {{tokens}}`);
+    out = bareFlags(out);               // hidden="" -> hidden: the legacy spelling of a flag
+    out = ensureCanonical(out, page);   // exactly one self-referential canonical per page
+    out = glueDashes(out);             // a heading's " - " never starts a line
+    out = cacheBust(out);               // content-version js/css urls so the CDN can't serve stale
+    writeOut(join(DIST, page), out);
+    htmlByPage.set(page, out);
+    if (!isNoindex(out)) indexable.push(page);
+  }
+  for (const page of legacyPages) {
     const raw = readFileSync(join(SRC, page), "utf8");
     let out = resolveIncludes(raw, 0);
     out = resolveWaveTokens(out, page, wave);   // wave status labels from the one data file
@@ -440,6 +542,12 @@ function build() {
   }
 
   copyAssets(SRC);
+  if (APP_PAGES.length) {
+    // the app's own output beside the pages: component stylesheets under _app/ (if any
+    // page has them) and the island bundles under js/islands/
+    if (existsSync(join(KIT_BUILD, "_app"))) copyTree(join(KIT_BUILD, "_app"), join(DIST, "_app"));
+    if (existsSync(ISLANDS_OUT)) copyTree(ISLANDS_OUT, join(DIST, "js", "islands"));
+  }
   const n = writeSitemap(indexable);
   const l = writeLlms(indexable, htmlByPage);
 
@@ -447,7 +555,7 @@ function build() {
   // delete-everything-first build got for free.
   pruneStale(DIST);
 
-  console.log(`built ${pages.length} page(s) + sitemap.xml (${n} urls) + llms.txt (${l} entries) -> ${relative(ROOT, DIST)}/`);
+  console.log(`built ${pages.length} page(s) (${APP_PAGES.length} from app/, ${legacyPages.length} legacy) + sitemap.xml (${n} urls) + llms.txt (${l} entries) -> ${relative(ROOT, DIST)}/`);
 }
 
 build();

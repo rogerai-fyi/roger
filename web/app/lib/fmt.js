@@ -1,4 +1,4 @@
-// GENERATED from web/src/js/fmt.js by scripts/gen-fmt.mjs. Do not edit.
+// GENERATED from web/src/js/fmt.js by scripts/gen-fmt.mjs. Do not edit; regenerate.
 const RogerFmt = // RogerFmt - the ONE site-wide number / money formatter.
 //
 // It renders a COMPACT, layout-safe form that fits a box (a k/M/B/T suffix for counts, a

@@ -104,10 +104,10 @@ test("every page leads with the three shared layers, in order, before any page s
 });
 
 test("every stylesheet is loaded by some page (no orphan sheet)", () => {
-  const manifest = read("../build.mjs");
-  for (const sheet of SHEETS) {
-    assert.match(manifest, new RegExp(`"${sheet.replace(".", "\\.")}"`), `${sheet} is in build.mjs CSS_SHARED/CSS_BUNDLES`);
-  }
+  const linked = new Set();
+  for (const page of readdirSync(path.join(WEB, "dist")).filter((f) => f.endsWith(".html")))
+    for (const m of dist(page).matchAll(/<link rel="stylesheet" href="styles\/([\w-]+\.css)/g)) linked.add(m[1]);
+  for (const sheet of SHEETS) assert.ok(linked.has(sheet), `${sheet} is linked by no built page`);
 });
 
 test("tokens.css declares tokens only: custom properties and color-scheme, nothing else", () => {

@@ -43,8 +43,11 @@ export function firstLoad(name) {
   const html = noComments(readFileSync(path.join(DIST, name), "utf8"));
   const refs = new Set([name]);
   for (const m of html.matchAll(/<link\b[^>]*>/g))
-    if (/rel="(stylesheet|preload)"/.test(m[0])) refs.add(local(attr(m[0], "href")));
+    if (/rel="(stylesheet|preload|modulepreload)"/.test(m[0])) refs.add(local(attr(m[0], "href")));
   for (const m of html.matchAll(/<script\b[^>]*\bsrc="([^"]+)"/g)) refs.add(local(m[1]));
+  // an inline loader (a SvelteKit-hydrated page) imports its chunks: those are first load too
+  for (const m of html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g))
+    for (const i of m[1].matchAll(/import\((?:"|')([^"']+)(?:"|')\)/g)) refs.add(local(i[1]));
   for (const { tag } of images(html)) if (attr(tag, "loading") !== "lazy")
     refs.add(candidates(tag).sort((a, b) => bytes(b) - bytes(a))[0]);
   for (const m of html.matchAll(/<video\b[^>]*>[\s\S]*?<\/video>/g)) {

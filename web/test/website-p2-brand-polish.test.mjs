@@ -8,7 +8,9 @@ import path from "node:path";
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const DIST = path.join(WEB, "dist");
 const SRC = path.join(WEB, "src");
-const read = (p) => readFileSync(path.join(DIST, p), "utf8");
+import { decodeMarkup } from "./_html.mjs";
+// decoded markup: the two renderers spell &copy;/&nbsp; differently, the copy is the same
+const read = (p) => decodeMarkup(readFileSync(path.join(DIST, p), "utf8"));
 const source = (p) => readFileSync(path.join(SRC, p), "utf8");
 const visible = (s) => s.replace(/<!--[\s\S]*?-->/g, "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
 
@@ -202,17 +204,17 @@ test("a link inside a sentence looks like a link, on every page", () => {
 // page is a real, indexed URL (the App Store listing points at it).
 
 test("the entity is named in the ToS, privacy, footer, company page, and structured data", () => {
-  assert.match(read("tos.html"), /RogerAI,&nbsp;Inc\., a Delaware corporation/,
+  assert.match(read("tos.html"), /RogerAI,\u00a0Inc\., a Delaware corporation/,
     "the contracting clause names the entity");
-  assert.match(read("privacy.html"), /RogerAI,&nbsp;Inc\., a Delaware corporation/,
+  assert.match(read("privacy.html"), /RogerAI,\u00a0Inc\., a Delaware corporation/,
     "the privacy page says who 'we' is");
   for (const page of readdirSync(DIST).filter((f) => f.endsWith(".html"))) {
     const html = read(page);
     if (!html.includes("footer__group")) continue; // pages without the site footer
-    assert.match(html, /&copy; 2026 RogerAI,&nbsp;Inc\., a Delaware corporation/,
+    assert.match(html, /\u00a9 2026 RogerAI,\u00a0Inc\., a Delaware corporation/,
       `the footer legal line rides ${page}`);
   }
-  assert.match(read("company.html"), /operated by <b>RogerAI,&nbsp;Inc\., a Delaware corporation<\/b>/,
+  assert.match(read("company.html"), /operated by <b>RogerAI,\u00a0Inc\., a Delaware corporation<\/b>/,
     "the company page names it directly");
   assert.match(read("index.html"), /"legalName":"RogerAI, Inc\."/,
     "the Organization structured data carries legalName");

@@ -35,12 +35,14 @@ function mains(page) {
   if (NEW_TUNER.has(page)) out = out.replace(/<nav\b[^>]*data-tuner[\s\S]*?<\/nav>/g, "");
   return out;
 }
-const squash = (h) => h.replace(/<[^>]+>/g, " ").replace(/\s+/g, "");
+import { squashText, decodeText } from "./_html.mjs";
+// entities decoded on both sides (test/_html.mjs): the two renderers spell them differently
+const squash = (h) => squashText(h);
 
 for (const page of Object.keys(fixture)) {
   test(`(a) ${page}: the words and links are the pre-rollout copy`, () => {
     const m = mains(page);
-    assert.equal(squash(m), fixture[page].text, `${page}: visible text changed; the rollout moves words, never edits them`);
+    assert.equal(squash(m), squash(fixture[page].text), `${page}: visible text changed; the rollout moves words, never edits them`);
     assert.deepEqual([...m.matchAll(/href="([^"]*)"/g)].map((x) => x[1]), fixture[page].hrefs, `${page}: links changed`);
   });
 }

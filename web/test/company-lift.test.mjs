@@ -20,6 +20,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { squashText, decodeText } from "./_html.mjs";
 
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (p) => readFileSync(path.join(WEB, "dist", p), "utf8");
@@ -38,9 +39,10 @@ const main = (page) => {
 };
 // the navigation the lift adds: derived from words already on the page
 const DERIVED = /<nav class="(?:toc-tuner|page-index)\b[^"]*"[\s\S]*?<\/nav>/g;
-const text = (html) => html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
-const squash = (s) => s.replace(/\s+/g, "");
-const decode = (s) => s.replace(/&rsquo;/g, "’").replace(/&amp;/g, "&").replace(/&middot;/g, "·");
+// the copy, entities decoded on both sides (test/_html.mjs): the two renderers spell them differently
+const text = (html) => decodeText(html.replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim();
+const squash = (s) => decodeText(s).replace(/\s+/g, "");
+const decode = decodeText;
 
 /* ---- (a) the words ------------------------------------------------------------- */
 

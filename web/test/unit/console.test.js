@@ -6,7 +6,7 @@
 //   - consumer and owner empty states, counters and the lineage table
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/svelte";
-import Console from "../src/routes/console/+page.svelte";
+import Console from "#lib/console/ConsoleApp.svelte";
 
 function broker(routes) {
   const calls = [];
@@ -32,6 +32,32 @@ describe("console boot", () => {
     await waitFor(() => expect(replaced).toEqual(["/login.html"]));
     expect(calls.map((c) => c.path)).toEqual(["/account"]);
     expect(calls[0].opts.credentials).toBe("include");
+  });
+
+  // web/test/login-loop.test.mjs pinned these for the legacy script: a 401 or 403 from the
+  // feed with a confirmed session is an error to show, never a bounce to login.
+  for (const status of [401, 403]) {
+    it(`signed in but /console ${status}: fault state shown, NO redirect (the login loop rule)`, async () => {
+      broker({ "/account": [200, { github_login: "someone@rogerai.fm", github_id: 0 }], "/console": [status, {}] });
+      render(Console);
+      await waitFor(() => expect(document.getElementById("cnError")).toBeTruthy());
+      expect(replaced).toEqual([]);
+      expect(document.getElementById("card").hidden).toBe(false);
+      expect(document.getElementById("who").textContent).toBe("someone@rogerai.fm");   // an address is shown as the address
+    });
+  }
+
+  it("a script error after the session is confirmed shows the error inside the card, never a redirect", async () => {
+    // the feed answers 200 with a body that cannot be read: the same shape as a render bug
+    globalThis.fetch = vi.fn(async (url) => {
+      const path = String(url).replace("https://broker.rogerai.fm", "");
+      if (path === "/account") return { ok: true, status: 200, json: async () => ({ github_login: "ada" }) };
+      return { ok: true, status: 200, json: async () => { throw new Error("boom"); } };
+    });
+    render(Console);
+    await waitFor(() => expect(document.getElementById("cnError")).toBeTruthy());
+    expect(replaced).toEqual([]);
+    expect(document.getElementById("card").hidden).toBe(false);
   });
 
   it("signed in but /console 500: fault state shown, NO redirect (the login loop rule)", async () => {

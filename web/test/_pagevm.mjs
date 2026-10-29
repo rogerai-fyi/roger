@@ -4,12 +4,14 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 import path from "node:path";
-import { createRequire } from "node:module";
 
 const SRC = path.join(path.dirname(fileURLToPath(import.meta.url)), "../src");
 export const src = (p) => readFileSync(path.join(SRC, p), "utf8");
-const require = createRequire(import.meta.url);
-export const Fmt = require(path.join(SRC, "js/fmt.js"));
+// fmt.js is a classic script (window.RogerFmt in a page, module.exports under CommonJS);
+// the package is an ES module package, so it is evaluated here with a CommonJS shim.
+const fmtModule = { exports: {} };
+new Function("module", "exports", "window", readFileSync(path.join(SRC, "js/fmt.js"), "utf8"))(fmtModule, fmtModule.exports, undefined);
+export const Fmt = fmtModule.exports;
 
 // A page environment: every element is a permissive stub that records hidden/textContent.
 export function page(pathname, routes, opts = {}) {

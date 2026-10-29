@@ -30,22 +30,10 @@ const fixture = JSON.parse(readFileSync(path.join(WEB, "test/fixtures/research-w
 
 before(() => execFileSync("node", ["build.mjs"], { cwd: WEB }));
 
-// The reader's words: <main> without comments, scripts, styles, the contents tuner and
-// the install pill's decorative "$" prompt. Entities are left as written.
-export function mainOf(html) {
-  return (html.match(/<main\b[\s\S]*<\/main>/) || [""])[0]
-    .replace(/<!--[\s\S]*?-->/g, "")
-    .replace(/<script\b[\s\S]*?<\/script>/g, "")
-    .replace(/<style\b[\s\S]*?<\/style>/g, "")
-    .replace(/<nav class="toc-tuner"[\s\S]*?<\/nav>/g, "");
-}
-export function wordsOf(html) {
-  const text = mainOf(html)
-    .replace(/<span class="install__prompt"[^>]*>\$<\/span>/g, "")
-    .replace(/<[^>]+>/g, " ").replace(/\s+/g, "");
-  return { sha: createHash("sha256").update(text).digest("hex"), length: text.length,
-    hrefs: [...mainOf(html).matchAll(/href="([^"]*)"/g)].map((m) => m[1]) };
-}
+// The reader's words (test/_html.mjs): <main> without comments, scripts, styles, the contents
+// tuner and the install pill's decorative "$" prompt, entities decoded before hashing.
+import { mainOf, wordsOf } from "./_html.mjs";
+export { mainOf, wordsOf };
 
 test("(a) every research-section page keeps its words and links (whitespace aside)", () => {
   assert.deepEqual(Object.keys(fixture).sort(), PAGES, "the fixture covers every research-section page");

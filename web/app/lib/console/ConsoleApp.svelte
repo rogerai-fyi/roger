@@ -1,19 +1,15 @@
 <script>
-  // Console - the live operational view (ported from web/src/js/console.js + console.html).
+  // The console card: the live operational view (the legacy web/src/js/console.js state
+  // machine), mounted as an island by app/islands/console.js.
   // GET /console -> { role, events[], counters{} }. Login gate: /account confirms the session;
   // ONLY a failed /account redirects to login. A /console error with a confirmed session is a
   // fault to show, never a reason to sign out (the login <-> dashboard loop).
   import { onMount } from "svelte";
-  import { siteHead, CSS_ACCOUNT } from "#lib/head.js";
   import { account, api, logout } from "#lib/api.js";
   import RogerFmt from "#lib/fmt.js";
-  import Nav from "#lib/ui/Nav.svelte";
-  import Footer from "#lib/ui/Footer.svelte";
   import AccountNav from "#lib/ui/AccountNav.svelte";
   import ModelsPanel from "#lib/console/ModelsPanel.svelte";
   import { n0, cr, num, kfmt, ago, shortId, rfmt } from "#lib/console/format.js";
-
-  const head = siteHead({ title: "Console - RogerAI", robots: "noindex", canonical: "https://rogerai.fm/console.html", css: [...CSS_ACCOUNT, "console.css"] });
 
   let signedIn = $state(false);
   let who = $state("-");
@@ -37,8 +33,6 @@
     } catch { status = "fault"; }
   });
 </script>
-<svelte:head>{@html head}</svelte:head>
-<Nav variant="lean" />
 <div class="authwrap tint-panel">
 <main class="card" id="card" hidden={!signedIn}>
   <h1>Console</h1>
@@ -110,4 +104,3 @@ roger share</pre>
   <button id="logout" class="ghost" onclick={logout}>Sign out</button>
 </main>
 </div>
-<Footer />
