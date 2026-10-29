@@ -14,7 +14,8 @@
 #     linked to it, from fields /account already returns: no extra request is added, and
 #     operator-only requests are NOT made for a consumer (less load, not more).
 # STATUS: IMPLEMENTED 2026-10-04 on the founder's brief ("improve the logged in experience"); scenarios await founder review.
-# Executable: cmd/rogerai-broker/logged_in_states_bdd_test.go runs web/test/*.test.mjs.
+# Executable: cmd/rogerai-broker/logged_in_states_bdd_test.go runs each scenario's pinning tests
+# (web/test/*.test.mjs guards, web/test/unit/*.test.js island tests).
 
 Feature: Signed-in pages are honest about identity and empty states
 
@@ -24,13 +25,13 @@ Feature: Signed-in pages are honest about identity and empty states
     Then it says they are not sharing from this sign-in and shows how to start
     And it does not say "could not load"
     And a real server fault still shows a retry hint
-    # test: web/test/stations-states.test.mjs
+    # test: web/test/unit/stations.test.js
 
   Scenario: API keys explains the same state and hides a mint form that cannot work
     When a signed-in person with no operator account opens the keys page
     Then it explains keys come from a machine on air and hides the mint form
     And a server error is never shown as "no keys yet"
-    # test: web/test/keys-states.test.mjs
+    # test: web/test/unit/keys.test.js
 
   Scenario: Payouts is for operators and costs a consumer nothing
     When a signed-in person with no operator account opens payouts
@@ -48,13 +49,13 @@ Feature: Signed-in pages are honest about identity and empty states
     When a new customer opens an empty dashboard
     Then it shows their balance with links to add credit, make a key and see stations
     And it shows how to earn, and adds no request beyond account and series
-    # test: web/test/dashboard-states.test.mjs
+    # test: web/test/unit/dashboard.test.js
 
   Scenario: The account page names the sign-in and whether machines are linked
     Then it shows GitHub, Apple or Email and whether machines are linked
     And an email sign-in's address is read-only
     And a refused contact-email save shows the broker's reason
-    # test: web/test/account-identity.test.mjs
+    # test: web/test/unit/account.test.js
 
   Scenario: Stations and API keys are reachable from the signed-in menus
     Then both appear in the dropdown and the footer sub-nav in the same order
@@ -69,23 +70,23 @@ Feature: Signed-in pages are honest about identity and empty states
     When they write a reason and send the appeal
     Then it posts only the reason (the account comes from the session) and shows the appeal id
     And an empty reason is not sent and a refusal is shown, never claimed as filed
-    # test: web/test/stations-appeal.test.mjs
+    # test: web/test/unit/stations.test.js
 
   Scenario: The dashboard shows balance, and what is payable to an operator, at no extra cost
     When a customer with traffic opens the dashboard
     Then a balance tile shows from the account response already fetched
     And an operator also sees payable now, and a consumer does not
-    # test: web/test/dashboard-states.test.mjs
+    # test: web/test/unit/dashboard.test.js
 
   Scenario: A server fault never signs a person out
     When the first feed of the account, billing or payouts page returns 5xx or the network drops
     Then the page shows an error with its card and a working logout, and does not redirect
     And only a 401 sends the person to login
-    # test: web/test/boot-faults.test.mjs
+    # test: web/test/boot-faults.test.mjs,web/test/unit/account.test.js,web/test/unit/payouts.test.js
 
   Scenario: Filed appeals are visible after a reload, and an expired session says so
     When an account with marks opens the stations page after filing an appeal
     Then its appeals are listed with their state
     And a 401 on sending an appeal says to sign in again, not to run roger login
-    # test: web/test/stations-appeal.test.mjs
+    # test: web/test/unit/stations.test.js
 

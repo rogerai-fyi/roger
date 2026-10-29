@@ -1,14 +1,13 @@
 package main
 
-// Makes features/auth/logged_in_states.feature executable: each scenario runs the real page
-// scripts through its web/test/*.test.mjs (skipped, not faked, when node is absent); the
+// Makes features/auth/logged_in_states.feature executable: each scenario runs the real pages
+// through the tests that pin it (web/test/*.test.mjs guards and web/test/unit/*.test.js
+// island component tests, comma-separated; skipped, not faked, when node is absent); the
 // /account scenario runs its Go test directly.
 
 import (
 	"context"
-	"fmt"
 	"os"
-	"os/exec"
 	"regexp"
 	"rogerai.fm/roger/v7/internal/bddrun"
 	"strings"
@@ -25,13 +24,13 @@ func TestLoggedInStatesBDD(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Every scenario names its pinning test; collect them per scenario in order.
-	var perScenario []string
+	var perScenario [][]string
 	for _, block := range strings.Split(string(feature), "  Scenario:")[1:] {
 		m := lisTestRe.FindStringSubmatch(block)
 		if m == nil {
 			t.Fatalf("a scenario names no pinning test: %.60s", block)
 		}
-		perScenario = append(perScenario, m[1])
+		perScenario = append(perScenario, strings.Split(m[1], ","))
 	}
 	idx := -1
 	suite := godog.TestSuite{
@@ -39,17 +38,13 @@ func TestLoggedInStatesBDD(t *testing.T) {
 			sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) { idx++; return ctx, nil })
 			// Every step of a scenario asserts the same thing: its pinning test passes.
 			sc.Step(`^.*$`, func() error {
-				target := perScenario[idx]
-				if strings.HasSuffix(target, "_test.go") {
-					return nil // run by `go test` itself in this package
-				}
-				node, err := exec.LookPath("node")
-				if err != nil {
-					return godog.ErrSkip
-				}
-				out, err := exec.Command(node, "--test", "../../"+target).CombinedOutput()
-				if err != nil {
-					return fmt.Errorf("%s failed:\n%s", target, out)
+				for _, target := range perScenario[idx] {
+					if strings.HasSuffix(target, "_test.go") {
+						continue // run by `go test` itself in this package
+					}
+					if err := webSpecsPass(target); err != nil {
+						return err
+					}
 				}
 				return nil
 			})

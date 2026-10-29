@@ -1,8 +1,9 @@
 package main
 
 // Makes features/auth/email_session_parity.feature executable: broker scenarios run the
-// real handlers over the real routes; page scenarios execute the real page scripts via
-// web/test/login-loop.test.mjs (skipped, not faked, when node is absent).
+// real handlers over the real routes; page scenarios run the pages' own tests (the
+// login-loop rule in web/test/unit/dashboard.test.js, console.test.js and login.test.js,
+// the signed-in name in format.test.js), skipped, not faked, when node is absent.
 
 import (
 	"context"
@@ -10,9 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"os/exec"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -29,25 +28,6 @@ type espState struct {
 	sess   *http.Cookie
 	codes  map[string]int
 	before int
-}
-
-var (
-	webOnce sync.Once
-	webOut  string
-	webErr  error
-)
-
-func runWebLoopTests() (string, error) {
-	webOnce.Do(func() {
-		node, err := exec.LookPath("node")
-		if err != nil {
-			webErr = godog.ErrSkip
-			return
-		}
-		out, err := exec.Command(node, "--test", "../../web/test/login-loop.test.mjs").CombinedOutput()
-		webOut, webErr = string(out), err
-	})
-	return webOut, webErr
 }
 
 func (s *espState) reset() {
@@ -75,14 +55,8 @@ func (s *espState) allOK() error {
 }
 
 func (s *espState) webPasses() error {
-	out, err := runWebLoopTests()
-	if err == godog.ErrSkip {
-		return err
-	}
-	if err != nil {
-		return fmt.Errorf("web loop tests failed:\n%s", out)
-	}
-	return nil
+	return webSpecsPass("web/test/unit/dashboard.test.js", "web/test/unit/console.test.js",
+		"web/test/unit/login.test.js", "web/test/unit/format.test.js")
 }
 
 func fileHas(path string, subs ...string) error {
