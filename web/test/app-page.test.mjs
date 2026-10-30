@@ -15,9 +15,10 @@ import { readFileSync, existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { source } from "./_html.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "src");
-const read = (p) => readFileSync(join(root, p), "utf8");
+const read = source;   // a page's source, legacy or app route (test/_html.mjs); js/ and styles/ from web/src
 const app = read("app.html");
 
 const APP_STORE_URL = "https://apps.apple.com/us/app/rogerai-fm/id6785743752";
@@ -61,9 +62,10 @@ test("screenshots are self-hosted, sized, and lazy (CSP allows img-src 'self' on
 });
 
 test("social card: og=post with the page's own absolute PNG", () => {
-  assert.match(app, /og=post/);
-  assert.match(app, /ogurl="https:\/\/rogerai\.fm\/app\.html"/);
-  assert.match(app, /ogimage="https:\/\/rogerai\.fm\/assets\/app\/og-app\.png"/);
+  // the page's own card, in its head call (legacy: og=post ogurl= ogimage= include args)
+  assert.match(app, /og: \{/);
+  assert.match(app, /url: 'https:\/\/rogerai\.fm\/app\.html'/);
+  assert.match(app, /image: 'https:\/\/rogerai\.fm\/assets\/app\/og-app\.png'/);
 });
 
 test("the App Store badge is the self-hosted official SVG", () => {
@@ -129,7 +131,7 @@ test("app.html ships the roger install command in a copy box, before the closing
   // The page includes it from _partials/install-box.html, so check the BUILT page.
   execFileSync("node", ["build.mjs"], { cwd: join(root, "..") });
   const built = readFileSync(join(root, "..", "dist", "app.html"), "utf8");
-  assert.match(app, /<!-- include: install-box\.html /, "the page uses the shared install-box partial");
+  assert.match(app, /<InstallBox\b/, "the page uses the shared install pill component");
   const box = built.match(/<button class="install__box"[\s\S]*?<\/button>/);
   assert.ok(box, "the install command sits in an install__box copy button");
   assert.match(box[0], /curl -fsSL https:\/\/rogerai\.fm\/install\.sh \| sh/,

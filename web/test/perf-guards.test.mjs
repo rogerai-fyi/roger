@@ -16,6 +16,7 @@
 //      two legacy-address redirect stubs are exempt (leaving at once is their job).
 //   5. Video: nothing downloads a film before it is asked for.
 //   6. Per-page weight budgets for the first load (fixtures/page-weight-budget.json).
+import { runtimeScripts, RUNTIME_TAG } from "./_html.mjs";
 import { test, before } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -24,11 +25,12 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { MASTERS, WEBP_DIR, WIDE, NARROW, SHARP, pngSize } from "../scripts/derive-webp.mjs";
 import { noComments, attr, local, bytes, candidates, images, firstLoad, BUDGET_FILE } from "../scripts/page-weight.mjs";
+import { allPages } from "./_html.mjs";
 
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = path.join(WEB, "src");
 const DIST = path.join(WEB, "dist");
-const PAGES = readdirSync(SRC).filter((f) => f.endsWith(".html")).sort();
+const PAGES = allPages();
 const page = (name) => readFileSync(path.join(DIST, name), "utf8");
 // legacy-address stubs (bands, playground): a meta refresh whose only job is to leave at
 // once, so a synchronous redirect script is right and they paint no text worth a font
@@ -241,14 +243,15 @@ test("the promo strip is laid out before first paint for a visitor who has not d
   assert.match(promo, /function hide\(\)\s*{[^}]*bar\.hidden = true;[^}]*classList\.remove\("promo-early"\)/, "hide() drops the mark");
 });
 
-test("a page without promo.js does not render the promo strip at all", () => {
-  // The strip is shown, hidden and closed by promo.js; the early-layout mark (theme-init.js)
-  // would otherwise lay it out, un-closable, on the pages that leave promo.js out
-  // (site-js.html promo=0, or no site-js at all). Such a page passes promo=0 to nav.html too.
+test("a page without the runtime (so without promo.js) does not render the promo strip at all", () => {
+  // The strip is shown, hidden and closed by promo.js, inside the runtime bundle; the
+  // early-layout mark (theme-init.js) would otherwise lay it out, un-closable, on a page that
+  // leaves the runtime out. Such a page passes promo={false} to Nav too.
   const bad = [];
   for (const p of PAGES) {
     const h = noComments(page(p));
-    if (/id="promoBar"/.test(h) && !/<script\b[^>]*src="js\/promo\.js/.test(h)) bad.push(p);
+    if (/id="promoBar"/.test(h) && !RUNTIME_TAG.test(h)) bad.push(p);
   }
   assert.deepEqual(bad, []);
+  assert.ok(runtimeScripts().includes("promo"), "the runtime bundle carries promo.js");
 });

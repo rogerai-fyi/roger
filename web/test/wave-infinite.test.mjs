@@ -210,7 +210,7 @@ test("the rail places Infinite past the numbers, hollow, and never as an eighth 
   assert.match(visible(beyond), /Wave Infinite/i, "and it is named on the rail");
 
   // 2. it sits where the numbers stop
-  assert.match(rail, /class="wf-tick wf-tick--end"[^>]*style="--at:\s*100%[^"]*"[\s\S]*?<b>&infin;<\/b>/,
+  assert.match(rail, /class="wf-tick wf-tick--end"[^>]*style="--at:\s*100%[^"]*"[\s\S]*?<b>(?:&infin;|∞)<\/b>/,
     "the end of the axis is the infinity symbol, not a finite size");
   assert.doesNotMatch(visible(rail), /\b1\s?TB\b/, "so no tier is read against a terabyte tick");
   assert.match(rail, /<b>100 GB<\/b>/, "and the numeric decades still run up to 100 GB");

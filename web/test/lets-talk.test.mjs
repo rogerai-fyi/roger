@@ -4,17 +4,19 @@
 // prefilled mailto to labs@rogerai.fm. There is no form backend, so the assertions
 // here are mostly about honesty - a real mailto fallback, no action/POST anywhere,
 // and the billing-help accessibility contract (trap, Esc, restore).
+import { runtimeScripts, RUNTIME_TAG } from "./_html.mjs";
 import { test, before } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { source, component } from "./_html.mjs";
 
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const DIST = path.join(WEB, "dist");
 const read = (p) => readFileSync(path.join(DIST, p), "utf8");
-const src = (p) => readFileSync(path.join(WEB, "src", p), "utf8");
+const src = source;   // a page's source, legacy or app route (test/_html.mjs)
 
 before(() => execFileSync("node", ["build.mjs"], { cwd: WEB }));
 
@@ -25,7 +27,7 @@ test("lets-talk: the trigger is a real mailto link on both pages (no-JS honest)"
     const html = read(page);
     assert.match(html, /<a[^>]*data-lets-talk[^>]*href="mailto:labs@rogerai\.fm[^"]*"/,
       `${page} offers the trigger as a plain mailto fallback`);
-    assert.match(html, /Let&rsquo;s talk|Let's talk/i, `${page} labels it`);
+    assert.match(html, /Let&rsquo;s talk|Let’s talk|Let's talk/i, `${page} labels it`);
   }
 });
 
@@ -36,8 +38,9 @@ test("lets-talk: the dialog is an accessible modal with the billing-help contrac
     assert.ok(dlg, `${page} carries the dialog markup`);
     assert.match(dlg, /role="dialog"/);
     assert.match(dlg, /aria-labelledby="letsTalkTitle"/);
-    assert.match(html, /js\/lets-talk\.js/, `${page} loads the behavior`);
+    assert.match(html, RUNTIME_TAG, `${page} loads the runtime bundle, which carries the behavior`);
   }
+  assert.ok(runtimeScripts().includes("lets-talk"), "the runtime bundle carries lets-talk.js");
   const js = src("js/lets-talk.js");
   for (const contract of [/keydown/, /Escape|Esc/, /focus/, /aria-expanded/]) {
     assert.match(js, contract, `lets-talk.js honors ${contract}`);
@@ -45,7 +48,7 @@ test("lets-talk: the dialog is an accessible modal with the billing-help contrac
 });
 
 test("lets-talk: send composes a mailto, never a POST", () => {
-  const partial = src("_partials/lets-talk.html");
+  const partial = component("LetsTalk");
   assert.doesNotMatch(partial, /<form[^>]*action=/, "the form has no action endpoint");
   assert.doesNotMatch(partial, /type="submit"/, "no submit button - Send is a plain button");
   const js = src("js/lets-talk.js");
@@ -56,7 +59,7 @@ test("lets-talk: send composes a mailto, never a POST", () => {
 
 test("lets-talk: topics prefill starter notes, free of em dashes", () => {
   const js = src("js/lets-talk.js");
-  const partial = src("_partials/lets-talk.html");
+  const partial = component("LetsTalk");
   assert.match(partial, /<select[^>]*id="ltTopic"/, "a topic select exists");
   assert.ok((partial.match(/<option/g) || []).length >= 4, "with a real set of topics");
   assert.doesNotMatch(js + partial, /—/, "no em dash in any starter note or copy");

@@ -14,11 +14,12 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { source, component } from "./_html.mjs";
 
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const REPO = path.join(WEB, "..");
 const read = (p) => readFileSync(path.join(WEB, "dist", p), "utf8");
-const src = (p) => readFileSync(path.join(WEB, "src", p), "utf8");
+const src = source;   // a page's source, legacy or app route (test/_html.mjs)
 const go = (...p) => readFileSync(path.join(REPO, ...p), "utf8");
 
 before(() => execFileSync("node", ["build.mjs"], { cwd: WEB }));
@@ -31,8 +32,8 @@ test("integrations: the page builds, is indexable, and is in the sitemap", () =>
 });
 
 test("integrations: it is reachable from the nav and the footer", () => {
-  assert.match(src("_partials/nav.html"), /href="\/integrations\.html"/, "nav links it");
-  assert.match(src("_partials/footer.html"), /href="\/integrations\.html"/, "footer links it");
+  assert.match(component("Nav"), /href="\/integrations\.html"/, "nav links it");
+  assert.match(component("Footer"), /href="\/integrations\.html"/, "footer links it");
 });
 
 /* ---- the serve side, locked to the detector ------------------------- */

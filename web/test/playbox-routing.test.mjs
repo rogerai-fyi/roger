@@ -14,14 +14,18 @@
 // with only a Content-Type header (playbox.js ~1224); there is no routing drawer, no routing
 // storage key, no usage-chunk footer, and relay errors render through relayErrorText.
 // Run: node --test web/test/playbox-routing.test.mjs
+import { pageBundle, PAGE_TAG } from "./_html.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { source } from "./_html.mjs";
 
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
-const read = (p) => readFileSync(path.join(WEB, p), "utf8");
+// a page (src/<page>.html) reads through source(): legacy file or app route; scripts and sheets from web/src
+const read = (p) => (/^src\/[\w-]+\.html$/.test(p) ? source(p.slice(4)) : readFileSync(path.join(WEB, p), "utf8"));
 const html = read("src/playbox.html");
 const js = read("src/js/playbox.js");
 const css = read("src/styles/playbox.css");
@@ -55,9 +59,13 @@ function needSendWiring() {
   assert.ok(i >= 0, "playbox.js has no routingBody");
   assert.match(js.slice(i, i + 600), /PlayboxRoute\.body\(ROUTE, model, body, \{ loggedIn: STATE\.loggedIn, routed:/,
     "routingBody does not hand the drawer state to PlayboxRoute.body");
-  const at = html.indexOf('src="js/playbox-route.js"');
-  assert.ok(at >= 0 && at < html.indexOf('src="js/playbox.js"'), "playbox.html does not load playbox-route.js before playbox.js");
+  // the page's scripts ride its head call, in order; the built page is the proof
+  const order = pageBundle("playbox");
+  assert.ok(order.indexOf("playbox-route") >= 0 && order.indexOf("playbox-route") < order.indexOf("playbox"), "playbox.html does not load playbox-route.js before playbox.js");
 }
+// the built page, once (build.mjs is incremental for the app half)
+let builtPage;
+const built = () => builtPage ||= (execFileSync("node", ["build.mjs"], { cwd: WEB }), readFileSync(path.join(WEB, "dist", "playbox.html"), "utf8"));
 const routeSrc = read("src/js/playbox-route.js");
 const routeMod = { exports: {} };
 new Function("module", "window", routeSrc)(routeMod, undefined);
@@ -355,7 +363,8 @@ test("prefers-reduced-motion disables the drawer's open animation", () => {
 });
 
 test("The drawer's script adds no parser-blocking work and stays inside the page's weight budget", () => {
-  assert.match(html, /<script[^>]*src="[^"]*playbox\.js"[^>]*\bdefer\b|<script[^>]*\bdefer\b[^>]*playbox\.js/, "playbox.js is no longer deferred");
+  assert.match(built(), PAGE_TAG("playbox"), "the Playbox scripts ship as the page's module (deferred by the spec)");
+  assert.ok(pageBundle("playbox").includes("playbox"), "and that module carries playbox.js");
   needDrawer();
 });
 

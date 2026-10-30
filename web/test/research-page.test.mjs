@@ -4,10 +4,11 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { svgSelfClose, element, source } from "./_html.mjs";
 
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const DIST = path.join(WEB, "dist");
-const read = (name) => readFileSync(path.join(DIST, name), "utf8");
+const read = (name) => svgSelfClose(readFileSync(path.join(DIST, name), "utf8"));   // <circle/> as authored
 const visibleText = (s) => s.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
 const text = (name) => read(name).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
 
@@ -145,7 +146,7 @@ test("the model scope plots parameter class as radar range on a true log axis", 
 
   // Every slot is an annular arc: one cell per variation it hosts, at its range band.
   // Each cell must stay inside the rim, and each slot must draw at least one.
-  const varAxis = scope.match(/<g class="scope__contacts" data-axis="variations">[\s\S]*?\n          <\/g>/)[0];
+  const varAxis = element(scope, /<g class="scope__contacts" data-axis="variations">/, "g");
   const contacts = [...varAxis.matchAll(/<g class="scope__contact" data-slot="([^"]+)">([\s\S]*?)<\/g>/g)];
   assert.equal(contacts.length, order.length, "every slot draws a contact on the capability axis");
   for (const [, slot, body] of contacts) {
@@ -187,9 +188,9 @@ test("model identity follows family size variant conventions", () => {
   const page = read("research-models.html");
   // SPECTRUM RENAME (2026-08-14): ids follow the pico->exa ladder.
   for (const id of [
-    "wave-pico-&lt;size&gt;-&lt;task&gt;",
-    "wave-nano-&lt;size&gt;-&lt;task&gt;",
-    "wave-giga-&lt;size&gt;-instruct",
+    "wave-pico-&lt;size(?:&gt;|>)-&lt;task(?:&gt;|>)",
+    "wave-nano-&lt;size(?:&gt;|>)-&lt;task(?:&gt;|>)",
+    "wave-giga-&lt;size(?:&gt;|>)-instruct",
   ]) assert.match(page, new RegExp(id));
   // The "Naming contract" paragraph came off the page on founder direction
   // (2026-07-31, noise reduction); the ids above still pin the convention.
@@ -531,7 +532,7 @@ test("every legend row is a real control, so the link is not pointer-only", () =
 });
 
 test("the link is driven from focus as well as hover, and can be released", () => {
-  const js = read("js/scope.js");
+  const js = source("js/scope.js");   // the script as authored (shipped inside js/pages/research.js)
   for (const evt of ["mouseenter", "mouseleave", "focus", "blur", "click"]) {
     assert.match(js, new RegExp(`addEventListener\\("${evt}"`), `the scope handles ${evt}`);
   }
@@ -540,7 +541,7 @@ test("the link is driven from focus as well as hover, and can be released", () =
 });
 
 test("the scope stays readable with no script and with motion off", () => {
-  const js = read("js/scope.js");
+  const js = source("js/scope.js");
   const css = read("styles/research.css");
   // The drawn state is the DEFAULT: only the script hides anything, so JS-off is complete.
   assert.match(js, /classList\.add\("is-pending"\)/, "pending is added by script, never authored");
@@ -586,7 +587,7 @@ test("each slot's arc spans exactly the variations the family page gives it", ()
   for (const slot of SLOTS) {
     const expected = ORDER.filter((v) => expands(livesAt[v]).has(slot));
     const slug = slot.toLowerCase().replace(/\s+/g, "-");
-    const axis = scope.match(/<g class="scope__contacts" data-axis="variations">[\s\S]*?\n          <\/g>/)[0];
+    const axis = element(scope, /<g class="scope__contacts" data-axis="variations">/, "g");
     const g = axis.match(new RegExp(`<g class="scope__contact" data-slot="${slug}">([\\s\\S]*?)</g>`))[1];
     const drawn = (g.match(/<path class="scope__cell"/g) || []).length;
     assert.equal(drawn, expected.length,
@@ -600,7 +601,7 @@ test("each slot's arc spans exactly the variations the family page gives it", ()
 // the capability axis matches the variations table.
 const scopeFig = () => surface().match(/<figure class="scope"[\s\S]*?<\/figure>/)[0];
 const axisGroup = (fig, axis) =>
-  fig.match(new RegExp(`<g class="scope__contacts" data-axis="${axis}">[\\s\\S]*?\\n          </g>`))[0];
+  element(fig, new RegExp(`<g class="scope__contacts" data-axis="${axis}">`), "g");
 
 test("the scope offers both axes and defaults to the capability one", () => {
   const fig = scopeFig();

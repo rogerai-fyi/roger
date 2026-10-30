@@ -9,6 +9,7 @@
 //   3. hardware-button feedback - buttons press down; the install command's
 //      copy icon turns into a tick while "copied" is showing.
 // And the clean-up: fewer boxes inside boxes (whitespace separates).
+import { runtimeScripts, RUNTIME_TAG } from "./_html.mjs";
 import { test, before } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -114,7 +115,8 @@ test("without JS the ladder is the complete static list; with JS every tier stay
   const ladder = html.match(/<ol class="home-spectrum" data-scrub[\s\S]*?<\/ol>/)?.[0] || "";
   assert.equal((ladder.match(/<li[ >]/g) || []).length, 7);
   assert.doesNotMatch(html, /type="range"/, "the control is added by scrub.js, never in the HTML");
-  assert.match(html, /<script src="js\/scrub\.js(\?v=[0-9a-f]+)?" defer><\/script>/);
+  assert.match(html, RUNTIME_TAG, "the runtime bundle ships");
+  assert.ok(runtimeScripts().includes("scrub"), "and it carries scrub.js");
   const css = dist("styles/home.css");
   assert.doesNotMatch(css, /\.home-spectrum li(:not\(\.is-tuned\))?\s*\{[^}]*opacity/, "untuned tiers are never faded");
   assert.match(css, /\.home-spectrum li\.is-tuned i\s*\{[^}]*color:\s*var\(--live-text\)/, "the tuned tier's wave is red (drawn in currentColor, so the red text shade)");

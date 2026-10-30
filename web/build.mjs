@@ -1,192 +1,131 @@
 #!/usr/bin/env node
-// RogerAI site build: resolve partial includes and copy assets.
+// RogerAI site build: ONE static tree (web/dist/) from the SvelteKit app in app/.
 //
-// One source of chrome. Pages live in web/src/*.html and pull shared chrome from
-// web/src/_partials/{head,brand,nav,footer}.html via `<!-- include: X -->` markers.
-// Output is web/dist/, a plain static tree (the same files the host serves).
+//   app/routes/<page>/+page.svelte   one route per page, prerendered to dist/<page>.html
+//   app/lib/                         the chrome (ui/), the head (head.js), the broker client
+//                                    (api.js), the data-file facts (content.js), the islands
+//   app/islands/<name>.js            an island's entry, bundled to dist/js/islands/<name>.js
+//   app/runtime.js                   the site runtime (src/js, the shared scripts) as one module, dist/js/runtime.js
+//   app/pages/<page>.js              a page's own scripts (src/js) as one module, dist/js/pages/<page>.js
+//   src/                             the static tree every page uses: js/ (the page scripts),
+//                                    styles/, assets/, data/ (build input), install.sh, roger/
 //
-// Dependency-light on purpose: Node ESM + node:fs only, no npm install. Run with
-//   node web/build.mjs        (or `make site`)
+// Order: the islands (a page names its island by a fixed name), the app (vite build, every
+// route prerendered, nothing hydrated through SvelteKit's client), then each page through
+// the finishing passes: hydration comments dropped outside islands, flags spelled bare, one
+// self-referential canonical, dash glue in headings, content-hash cache busting. Then the
+// static tree, the derived sitemap.xml and llms.txt, and a prune of stale output. Output is
+// written atomically. The app rebuilds only when an input changed (a content stamp), so the
+// guard suite's sixty rebuilds stay cheap.
 //
-// Include syntax (resolved recursively, depth-guarded):
-//   <!-- include: nav.html -->
-//   <!-- include: nav.html variant=marketing -->     // pass args to the partial
-// Inside a partial, args substitute as {{name}} and gate blocks (which may nest):
-//   {{#if variant=marketing}} ... {{/if}}
-//   {{#unless variant=marketing}} ... {{/unless}}
-// Unknown {{name}} resolve to "" so stray markers never ship literally.
-//
-// Wave status labels in a page render from src/data/wave-status.json:
-//   {{wave:<tier>.<label>}}      (scripts/wave-status.mjs; an unknown token fails the build)
-// A Wave model page's facts render from src/data/model-cards.json:
-//   {{card:<model>.<item>}}      (scripts/model-cards.mjs; every number carries its R-number)
-// Adapter, skill and device status renders from src/data/capabilities.json:
-//   {{cap:<id>.<field>}}         (scripts/wave-status.mjs; an unknown token fails the build)
+// Run with   node web/build.mjs   (or `make site`). Needs web/node_modules (installed on
+// first use with npm ci).
 
 import { readFileSync, writeFileSync, readdirSync, mkdirSync, rmSync, statSync, copyFileSync, renameSync, existsSync } from "node:fs";
 import { join, dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
-import { loadWaveStatus, resolveWaveTokens, loadCapabilities, resolveCapTokens } from "./scripts/wave-status.mjs";
-import { loadModelCards, resolveCardTokens } from "./scripts/model-cards.mjs";
+import { execFileSync } from "node:child_process";
 import { glueDashes } from "./scripts/glue-dashes.mjs";   // a heading's " - " never starts a line
 
 const ROOT = dirname(fileURLToPath(import.meta.url));   // web/
 const SRC = join(ROOT, "src");
-const PARTIALS = join(SRC, "_partials");
 const DIST = join(ROOT, "dist");
 
-const INCLUDE_RE = /<!--\s*include:\s*([^\s]+)\s*(.*?)\s*-->/g;
-const MAX_DEPTH = 12;
+// ---- the app half ---------------------------------------------------------------------------
+const APP = join(ROOT, "app");
+const KIT_BUILD = join(APP, ".build");        // adapter-static output (vite.config.js)
+const ISLANDS_OUT = join(APP, ".islands");    // island bundles (vite.islands.config.js)
+const routeOf = (page) => (page === "index.html" ? "/" : "/" + page.replace(/\.html$/, ""));
 
-// Per-page stylesheet manifest. Each page links exactly these CSS modules, in
-// order, so editing one page's styles never touches a file another page needs.
-// The shared lead is the design system's three layers, on EVERY page and in this
-// order: tokens.css (design tokens) -> base.css (reset, typesetting, site chrome) ->
-// components.css (the shared components; see DESIGN-SYSTEM.md). Account pages then
-// load account-base.css before their own account module. The head.html
-// `<!-- css-bundle -->` marker is expanded into one <link> per entry below (see
-// emitCssBundle). Keep this in sync when adding a page.
-const CSS_SHARED = ["tokens.css", "base.css", "components.css"];
-const CSS_MARKETING = CSS_SHARED;                                   // shared lead, marketing
-const CSS_ACCOUNT = [...CSS_SHARED, "account-base.css"];            // shared lead, account
-const CSS_BUNDLES = {
-  // marketing pages
-  "index.html":     [...CSS_MARKETING, "home.css"],
-  "manual.html":    [...CSS_MARKETING, "manual.css"],
-  "models.html":    [...CSS_MARKETING, "models.css"],
-  "playbox.html": [...CSS_MARKETING, "playbox.css", "wave-patch.css", "wave-factory.css"], // console + measured mesh + the separate factory game
-  "playground.html": CSS_MARKETING, // legacy address: a redirect stub to the Playbox
-  "tower.html":     [...CSS_MARKETING, "research.css", "tower.css"], // the broker, publicly
-  "research.html":  [...CSS_MARKETING, "research.css"],
-  "research-industry.html": [...CSS_MARKETING, "research.css"], // plant placement + standards, split out of the hub
-  "research-hardware.html": [...CSS_MARKETING, "research.css", "research-hardware.css"], // the board -> tier map, the only page carrying third-party photography
-  "careers.html":   [...CSS_MARKETING, "research.css", "careers.css", "company.css"], // hiring surface; notebook shell + the Company section sheet
-  "company.html":   [...CSS_MARKETING, "research.css", "company.css"], // About; company.css = the Company section sheet
-  "pricing.html":   [...CSS_MARKETING, "research.css", "pricing.css"], // reuses the notebook shell; pricing.css is only the plates
-  "faq.html":       [...CSS_MARKETING, "research.css", "faq.css", "company.css"], // ditto; faq.css is only the question list
-  "why.html":       [...CSS_MARKETING, "research.css"],                // the routing-fee argument; page-scoped styles inline
-  "integrations.html": [...CSS_MARKETING, "research.css", "integrations.css"], // ditto; the tables and guest plates
-  "research-models.html": [...CSS_MARKETING, "research.css"], // the model catalogue, split out of the hub
-  "research-wave-pico.html": [...CSS_MARKETING, "research.css", "wave-model.css"], // a Wave model page: facts from data/model-cards.json
-  "research-wave-nano.html": [...CSS_MARKETING, "research.css", "wave-model.css"], // ditto; Nano-VL is a section of it
-  "research-wave-family.html": [...CSS_MARKETING, "research.css", "wave-family.css"], // the Wave ladder field guide, split out so research.html keeps its byte budget
-  "voices.html":    [...CSS_MARKETING, "voices.css"],
-  "broadcasts.html":                 [...CSS_MARKETING, "broadcasts.css"], // the transmission-log blog index
-  "broadcasts-independence-v5.html": [...CSS_MARKETING, "broadcasts.css"], // broadcast 001 + the reusable post template
-  "broadcasts-run-local-llm.html":   [...CSS_MARKETING, "broadcasts.css"], // broadcast 002 · SEO field guide
-  "broadcasts-vram-for-llm.html":    [...CSS_MARKETING, "broadcasts.css"], // broadcast 003 · SEO field guide (VRAM)
-  "broadcasts-share-gpu-earn.html":  [...CSS_MARKETING, "broadcasts.css"], // broadcast 004 · SEO field guide (share/earn)
-  "broadcasts-one-gpu-many-users.html": [...CSS_MARKETING, "broadcasts.css"], // broadcast 005 · SEO field guide (concurrency)
-  "broadcasts-free-chatgpt-alternative.html": [...CSS_MARKETING, "broadcasts.css"], // broadcast 006 · SEO field guide (free ChatGPT alt)
-  "broadcasts-connect-bots-openai-api.html": [...CSS_MARKETING, "broadcasts.css"], // broadcast 007 · SEO field guide (connect bots / OpenAI API)
-  "broadcasts-deepseek-mtp-gguf.html": [...CSS_MARKETING, "broadcasts.css"], // broadcast 008 · field guide (DeepSeek MTP GGUF build story)
-  "broadcasts-how-rogerai-routes-models.html": [...CSS_MARKETING, "broadcasts.css", "broadcast-routing.css"], // broadcast 009 · capacity-aware smart routing
-  "broadcasts-run-a-tower.html": [...CSS_MARKETING, "broadcasts.css"], // broadcast 010 · field guide (run a Tower / relay operator)
-  "broadcasts-what-a-million-tokens-costs.html": [...CSS_MARKETING, "broadcasts.css", "broadcast-economics.css"], // broadcast 011 · unit economics (break-even per 1M tokens)
-  "broadcasts-llm-on-iphone.html": [...CSS_MARKETING, "broadcasts.css"], // broadcast 012 · SEO field guide (LLM on iPhone / v1.2 transmitter)
-  "broadcasts-agent-governance-identity.html": [...CSS_MARKETING, "broadcasts.css", "broadcast-agent-governance.css"], // broadcast 013 · dispatch (agent misalignment incident + Governance Identity)
-  "broadcasts-sharing-your-gpu-is-safe.html": [...CSS_MARKETING, "broadcasts.css", "broadcast-gpu-isolation.css"], // broadcast 014 · field guide (model vs. harness isolation)
-  "broadcasts-jev-vs-wave.html": [...CSS_MARKETING, "broadcasts.css"], // broadcast 015 · field guide (Jev vs the Wave family: decision models, the map, the ladder)
-  "broadcasts-how-llms-work.html": [...CSS_MARKETING, "broadcasts.css", "broadcast-how-llms-work.css"], // broadcast 016 · field guide (how an LLM works and learns, in pictures)
-  "bands.html":     [...CSS_MARKETING],                  // redirect shell: shared chrome only
-  "app.html":       [...CSS_MARKETING, "app.css"],       // the App Store launch page (shipped 2026-07-09)
-  "404.html":       [...CSS_MARKETING, "notfound.css"],
-  // account (chrome) pages
-  "account.html":   [...CSS_ACCOUNT, "account.css"],
-  "billing.html":   [...CSS_ACCOUNT, "billing.css"],
-  "payouts.html":   [...CSS_ACCOUNT, "payouts.css"],
-  "usage.html":     [...CSS_ACCOUNT, "metrics.css"],
-  "dashboard.html": [...CSS_ACCOUNT, "dashboard.css"],
-  "stations.html":  [...CSS_ACCOUNT, "stations.css"],
-  "device.html":    [...CSS_ACCOUNT, "device.css"],    // CLI sign-in approval  // operator station roll-up: status, usage, chain evidence
-  "console.html":   [...CSS_ACCOUNT, "console.css"],
-  "private.html":   [...CSS_ACCOUNT, "console.css", "private.css"], // reuses the cn-table; rc-* is its own
-  "r.html":         [...CSS_ACCOUNT],                    // link handler: shared chrome only
-  // admin.html (founder super-admin ops portal) moved to the PRIVATE rogerai-fyi/roger-admin repo.
-  "login.html":     [...CSS_ACCOUNT],                    // shared account plates only
-  "keys.html":      [...CSS_ACCOUNT, "metrics.css", "keys.css"], // reuses the mx-table ledger
-  "privacy.html":   [...CSS_MARKETING, "company.css"],   // legal reading column (Company section sheet)
-  "security.html":  [...CSS_MARKETING, "company.css"],   // ditto
-  "confidential.html": [...CSS_MARKETING, "confidential.css"], // gated TEE-tier info: section head + tinted panels
-  "tos.html":       [...CSS_MARKETING, "company.css"],   // ditto
-};
-
-const CSS_MARKER_RE = /^([ \t]*)<!--\s*css-bundle\s*-->[ \t]*$/m;
-
-// Expand head.html's `<!-- css-bundle -->` marker into this page's <link> set.
-function emitCssBundle(html, page) {
-  const bundle = CSS_BUNDLES[page];
-  if (!bundle) throw new Error(`no CSS bundle for page ${page} (add it to CSS_BUNDLES in build.mjs)`);
-  return html.replace(CSS_MARKER_RE, (_, indent) =>
-    bundle.map((f) => `${indent}<link rel="stylesheet" href="styles/${f}" />`).join("\n"));
-}
-
-// "k=v k2=v2" -> { k: "v", k2: "v2" }
-function parseArgs(s) {
-  const out = {};
-  const re = /([\w-]+)=("([^"]*)"|'([^']*)'|(\S+))/g;
-  let m;
-  while ((m = re.exec(s))) out[m[1]] = m[3] ?? m[4] ?? m[5] ?? "";
-  return out;
-}
-
-// Apply {{#if}} / {{#unless}} gates and {{var}} substitution for one arg set.
-// Gates may nest: each pass resolves only the INNERMOST blocks (a body that holds
-// no other gate marker), and passes repeat until none is left.
-const GATE_RE = /\{\{#(if|unless)\s+([\w-]+)(?:=([^}]*))?\}\}((?:(?!\{\{[#/](?:if|unless)\b)[\s\S])*?)\{\{\/\1\}\}/g;
-function applyArgs(html, args) {
-  // {{#if key=val}}...{{/if}}  (also bare {{#if key}} = truthy presence); {{#unless}} inverts
-  for (let prev = null; prev !== html;) {
-    prev = html;
-    html = html.replace(GATE_RE, (_, kind, key, val, body) => {
-      const have = args[key];
-      const ok = val === undefined ? (have !== undefined && have !== "") : have === val;
-      return ok === (kind === "if") ? body : "";
-    });
+// The pages: every +page.svelte / +page.md under app/routes, as dist file names.
+function routes(dir = join(APP, "routes"), rel = "") {
+  const out = [];
+  for (const ent of readdirSync(dir, { withFileTypes: true })) {
+    if (ent.isDirectory()) out.push(...routes(join(dir, ent.name), rel ? `${rel}/${ent.name}` : ent.name));
+    else if (/^\+page\.(svelte|md)$/.test(ent.name)) out.push(rel ? `${rel}.html` : "index.html");
   }
-  if (/\{\{[#/](if|unless)\b/.test(html)) throw new Error("unbalanced {{#if}}/{{#unless}} in a partial");
-  // {{var}} substitution; unknown -> ""
-  html = html.replace(/\{\{\s*([\w-]+)\s*\}\}/g, (_, key) => args[key] ?? "");
-  return html;
+  return out.sort();
+}
+const PAGES = routes();
+
+function ensureToolchain() {
+  if (existsSync(join(ROOT, "node_modules", "vite", "bin", "vite.js"))) return;
+  console.log("[build] installing the web toolchain (npm ci)");
+  execFileSync("npm", ["ci", "--no-audit", "--no-fund"], { cwd: ROOT, stdio: "inherit" });
+}
+const vite = (args, env = {}) =>
+  execFileSync(process.execPath, [join(ROOT, "node_modules", "vite", "bin", "vite.js"), ...args],
+    { cwd: ROOT, stdio: "inherit", env: { ...process.env, ...env } });
+
+// The app build is slow (SvelteKit resolves every module on every run) and the guard suite
+// rebuilds the site in sixty before() hooks, so the app half rebuilds only when an input
+// changed: a content hash of app/ (sources, never outputs), src/data (the facts pages read),
+// the vite configs, the lockfile and the page list, kept beside the output in .stamp.
+function appStamp(pages) {
+  const h = createHash("sha256");
+  const walk = (dir) => {
+    for (const ent of readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      const abs = join(dir, ent.name);
+      if (ent.isDirectory()) { if (!/^\.(build|islands|svelte-kit)$/.test(ent.name)) walk(abs); }
+      else { h.update(relative(ROOT, abs)); h.update(readFileSync(abs)); }
+    }
+  };
+  walk(APP);
+  if (existsSync(join(SRC, "data"))) walk(join(SRC, "data"));
+  walk(join(SRC, "js"));   // the bundles' sources
+  walk(join(ROOT, "scripts"));   // the resolvers the app imports (wave-status, model-cards, gen-fmt)
+  for (const f of ["vite.config.mjs", "vite.islands.config.mjs", "package-lock.json"]) h.update(readFileSync(join(ROOT, f)));
+  h.update(JSON.stringify(pages));
+  return h.digest("hex");
 }
 
-const partialCache = new Map();
-function loadPartial(name) {
-  if (!partialCache.has(name)) {
-    partialCache.set(name, readFileSync(join(PARTIALS, name), "utf8"));
-  }
-  return partialCache.get(name);
-}
+// The scripts the bundles carry (src/js/<name>.js, imported by app/runtime.js and
+// app/pages/<page>.js): shipped inside dist/js/runtime.js and dist/js/pages/<page>.js, not as
+// the files, so a page never loads one twice.
+const bundleEntries = [join(APP, "runtime.js"), ...readdirSync(join(APP, "pages")).filter((f) => f.endsWith(".js")).map((f) => join(APP, "pages", f))];
+const BUNDLED_SOURCES = [...new Set(bundleEntries.flatMap((e) => [...readFileSync(e, "utf8").matchAll(/import "\.\.\/(?:\.\.\/)?src\/js\/([\w-]+\.js)"/g)].map((m) => join("js", m[1]))))];
 
-function resolveIncludes(html, depth) {
-  if (depth > MAX_DEPTH) throw new Error("include depth exceeded (cycle?)");
-  return html.replace(INCLUDE_RE, (_, file, argStr) => {
-    const args = parseArgs(argStr);
-    let body = applyArgs(loadPartial(file), args);
-    return resolveIncludes(body, depth + 1);   // nested includes inside partials
-  });
+// The bundles first (a page references its island by a fixed name, the runtime by its one
+// name), then the pages.
+function buildApp(pages) {
+  ensureToolchain();
+  const stamp = appStamp(pages), stampFile = join(KIT_BUILD, ".stamp");
+  const islandSources = readdirSync(join(APP, "islands")).filter((f) => f.endsWith(".js"));
+  const pageSources = readdirSync(join(APP, "pages")).filter((f) => f.endsWith(".js")).map((f) => join("pages", f));
+  const islandsBuilt = [...islandSources, "runtime.js", ...pageSources].every((f) => existsSync(join(ISLANDS_OUT, f)));
+  if (existsSync(stampFile) && readFileSync(stampFile, "utf8") === stamp && islandsBuilt && pages.every((p) => existsSync(join(KIT_BUILD, p)))) return;
+  rmSync(ISLANDS_OUT, { recursive: true, force: true });
+  vite(["build", "--config", "vite.islands.config.mjs", "--logLevel", "warn"]);
+  vite(["build", "--logLevel", "warn"], { WEB_KIT_ENTRIES: JSON.stringify(pages.map(routeOf)) });
+  for (const page of pages)
+    if (!existsSync(join(KIT_BUILD, page))) throw new Error(`the app did not produce ${page} (is there an app/routes${routeOf(page)}/+page.* ?)`);
+  writeFileSync(stampFile, stamp);
 }
 
 // ---- copy every non-page asset from src/ to dist/, recursively ----
 function copyAssets(dir) {
   for (const ent of readdirSync(dir, { withFileTypes: true })) {
     const abs = join(dir, ent.name);
-    if (ent.isDirectory()) {
-      if (abs === PARTIALS) continue;            // partials are not shipped
-      copyAssets(abs);
-      continue;
-    }
+    if (ent.isDirectory()) { copyAssets(abs); continue; }
     const rel = relative(SRC, abs);
-    if (rel.startsWith("_partials")) continue;
     if (rel === join("data", "wave-status.json") || rel === join("data", "capabilities.json")) continue;   // build input, rendered into pages
     if (rel === join("data", "model-cards.json")) continue;   // build input, rendered into the model pages
-    // top-level *.html in src/ are pages, built separately below
-    if (!rel.includes("/") && ent.name.endsWith(".html")) continue;
+    if (BUNDLED_SOURCES.includes(rel)) continue;   // inside js/runtime.js or a js/pages/ bundle
+    if (!rel.includes("/") && ent.name.endsWith(".html")) throw new Error(`web/src/${rel}: a page is an app route (app/routes), not a file in src/`);
     const dest = join(DIST, rel);
     mkdirSync(dirname(dest), { recursive: true });
     if (rel.endsWith(".css")) writeOut(dest, cssOut(rel));   // its url()s versioned
     else copyOut(abs, dest);
+  }
+}
+
+// copy a built tree into dist, tracked like every other output (so pruneStale keeps it)
+function copyTree(from, to) {
+  for (const ent of readdirSync(from, { withFileTypes: true })) {
+    const abs = join(from, ent.name);
+    if (ent.isDirectory()) copyTree(abs, join(to, ent.name));
+    else copyOut(abs, join(to, ent.name));
   }
 }
 
@@ -202,7 +141,11 @@ function assetHash(rel) {
   if (assetHashCache.has(rel)) return assetHashCache.get(rel);
   let h = "0";
   try {
-    const data = rel.endsWith(".css") ? cssOut(rel) : readFileSync(join(SRC, rel));
+    const data = rel.endsWith(".css") ? cssOut(rel)
+      : rel.startsWith("js/islands/") ? readFileSync(join(ISLANDS_OUT, rel.slice("js/islands/".length)))
+      : rel === "js/runtime.js" ? readFileSync(join(ISLANDS_OUT, "runtime.js"))
+      : rel.startsWith("js/pages/") ? readFileSync(join(ISLANDS_OUT, "pages", rel.slice("js/pages/".length)))
+      : readFileSync(join(SRC, rel));
     h = createHash("sha256").update(data).digest("hex").slice(0, 8);
   } catch { /* missing/external: leave it unversioned rather than break the build */ }
   assetHashCache.set(rel, h);
@@ -236,6 +179,23 @@ function cacheBust(html) {
   }).join(", ") + '"');
 }
 
+// Svelte's hydration comments (<!---->, <!--[-->, <!--]-->, <!--[!-->, <!--[3-->) carry
+// nothing on a static page: no client walks them. An island hydrates, so it keeps its own
+// (from its <div data-island> to its <!--/island--> sentinel, lib/ui/Island.svelte);
+// everywhere else they are dropped, and the page reads like the hand-written one it replaces.
+// (SvelteKit's own head anchor, <!--1bexm30-->, a random id, goes the same way.)
+const MARKER_RE = /<!--(?:\[-?\d*|\]|!||[0-9a-z]{5,10})-->/g;
+function stripMarkers(html) {
+  const parts = html.split(/(<div data-island="[\w-]+">[\s\S]*?<!--\/island-->)/);
+  return parts.map((part, i) => (i % 2 ? part : part.replace(MARKER_RE, ""))).join("");
+}
+
+// The Svelte compiler writes a valueless attribute as attr="" (hidden="", data-reveal="");
+// the legacy pages, and every regex in the guard suite, spell it bare. Same meaning in HTML.
+// Only the boolean attributes and data-* flags are touched; a real empty value (alt="") stays.
+const FLAG_ATTR = /\s(hidden|defer|async|disabled|checked|selected|required|readonly|multiple|autofocus|autoplay|muted|loop|playsinline|controls|open|novalidate|nomodule|crossorigin|data-[\w-]+)=""(?=[\s/>])/g;
+const bareFlags = (html) => html.replace(FLAG_ATTR, " $1");
+
 // ---- SEO: one canonical per page + a build-time sitemap ------------------------------------
 const ORIGIN = "https://rogerai.fm";
 const canonicalURL = (page) => (page === "index.html" ? `${ORIGIN}/` : `${ORIGIN}/${page}`);
@@ -254,12 +214,18 @@ function ensureCanonical(html, page) {
   return html.replace(/<\/title>/, `</title>\n  <link rel="canonical" href="${canonicalURL(page)}" />`);
 }
 
-// sitemap.xml of the indexable pages (lastmod = the source file's mtime).
+// sitemap.xml of the indexable pages (lastmod = the route file's mtime).
+function lastmod(page) {
+  const route = page === "index.html" ? "" : page.replace(/\.html$/, "");
+  const f = ["+page.svelte", "+page.md"].map((n) => join(APP, "routes", route, n)).find(existsSync);
+  if (!f) throw new Error(`no route file for ${page}`);
+  return statSync(f).mtime.toISOString().slice(0, 10);
+}
 function writeSitemap(indexablePages) {
   const idx = [...indexablePages].sort((a, b) =>
     a === "index.html" ? -1 : b === "index.html" ? 1 : a.localeCompare(b));
   const urls = idx
-    .map((p) => `  <url><loc>${canonicalURL(p)}</loc><lastmod>${statSync(join(SRC, p)).mtime.toISOString().slice(0, 10)}</lastmod></url>`)
+    .map((p) => `  <url><loc>${canonicalURL(p)}</loc><lastmod>${lastmod(p)}</lastmod></url>`)
     .join("\n");
   writeOut(
     join(DIST, "sitemap.xml"),
@@ -415,39 +381,37 @@ function build() {
   written.clear();
   mkdirSync(DIST, { recursive: true });
 
-  // pages: top-level *.html in src/
-  const pages = readdirSync(SRC).filter((f) => f.endsWith(".html"));
+  buildApp(PAGES);
   const indexable = [];
   const htmlByPage = new Map();
-  const wave = loadWaveStatus();
-  const cards = loadModelCards();
-  const caps = loadCapabilities();
-  for (const page of pages) {
-    const raw = readFileSync(join(SRC, page), "utf8");
-    let out = resolveIncludes(raw, 0);
-    out = resolveWaveTokens(out, page, wave);   // wave status labels from the one data file
-    out = resolveCardTokens(out, page, cards);  // model page facts from the one data file
-    out = resolveCapTokens(out, page, caps);    // adapter, skill and device status, likewise
-    out = emitCssBundle(out, page);     // expand the per-page stylesheet bundle
+  for (const page of PAGES) {
+    let out = readFileSync(join(KIT_BUILD, page), "utf8");
+    if (/\{\{(wave|card|cap):/.test(out)) throw new Error(`${page}: a page reads wave/card/capability facts through app/lib/content, never {{tokens}}`);
+    out = stripMarkers(out);            // no hydration comments outside an island
+    out = bareFlags(out);               // hidden="" -> hidden: the legacy spelling of a flag
     out = ensureCanonical(out, page);   // exactly one self-referential canonical per page
     out = glueDashes(out);             // a heading's " - " never starts a line
     out = cacheBust(out);               // content-version js/css urls so the CDN can't serve stale
-    if (/<!--\s*include:/.test(out)) throw new Error(`unresolved include in ${page}`);
-    if (/<!--\s*css-bundle\s*-->/.test(out)) throw new Error(`unresolved css-bundle in ${page}`);
     writeOut(join(DIST, page), out);
     htmlByPage.set(page, out);
     if (!isNoindex(out)) indexable.push(page);   // sitemap tracks the ACTUAL robots directive
   }
 
   copyAssets(SRC);
+  // the app's own output beside the pages: component stylesheets under _app/ (if any page
+  // has them) and the island bundles under js/islands/
+  if (existsSync(join(KIT_BUILD, "_app"))) copyTree(join(KIT_BUILD, "_app"), join(DIST, "_app"));
+  for (const f of existsSync(ISLANDS_OUT) ? readdirSync(ISLANDS_OUT) : []) {
+    if (f === "pages") { copyTree(join(ISLANDS_OUT, f), join(DIST, "js", "pages")); continue; }   // a page's own scripts
+    copyOut(join(ISLANDS_OUT, f), f === "runtime.js" ? join(DIST, "js", f) : join(DIST, "js", "islands", f));
+  }
   const n = writeSitemap(indexable);
   const l = writeLlms(indexable, htmlByPage);
 
-  // last, so a page removed from src/ stops being served - the one thing the old
-  // delete-everything-first build got for free.
+  // last, so a page removed from app/routes stops being served
   pruneStale(DIST);
 
-  console.log(`built ${pages.length} page(s) + sitemap.xml (${n} urls) + llms.txt (${l} entries) -> ${relative(ROOT, DIST)}/`);
+  console.log(`built ${PAGES.length} page(s) + sitemap.xml (${n} urls) + llms.txt (${l} entries) -> ${relative(ROOT, DIST)}/`);
 }
 
 build();

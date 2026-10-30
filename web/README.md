@@ -5,8 +5,8 @@ local-AI enthusiasts who put their self-hosted LLMs **on air** so others can
 **tune in** and pay per token. One `rogerai` CLI (an interactive TUI) does all
 of it.
 
-This is a vanilla HTML/CSS/JS site with a tiny dependency-free Node build
-(`web/build.mjs` stitches the shared partials -> `web/dist/`). It's hosted on
+This is a static site: every page is a route of a small SvelteKit app, prerendered to
+plain HTML by `web/build.mjs` into `web/dist/` (the Layout section below). It's hosted on
 **DigitalOcean App Platform** (origin) behind **Cloudflare** (CDN/DNS proxy) -
 *not* Cloudflare Pages. See [`../.do/app.yaml`](../.do/app.yaml), the Deploy
 section below, and **[`EDGE.md`](EDGE.md)** for the Cloudflare edge rules.
@@ -28,22 +28,21 @@ section below, and **[`EDGE.md`](EDGE.md)** for the Cloudflare edge rules.
 White, minimal, lots of whitespace; one accent (volt `#5B5BFF`) with live/ember/
 gold used only as small signals. No emoji, no icon fonts, no JS frameworks.
 
-## Run it (tiny build)
+## Run it
 
-The chrome (nav, footer, head, brand) is defined ONCE in `web/src/_partials/`
-and stitched into every page by a dependency-free Node script. Pages live in
-`web/src/`; the static output lands in `web/dist/`.
+The chrome (nav, footer, head, brand) is defined ONCE as components in `web/app/lib/ui/`
+and rendered into every page by the build. Pages are routes in `web/app/routes/`; the
+static output lands in `web/dist/`.
 
 ```sh
 make site            # node web/build.mjs -> web/dist/
 make site-serve      # build + http.server on http://localhost:5173
 ```
 
-Include syntax: `<!-- include: nav.html variant=marketing -->`; inside a partial,
-args substitute as `{{name}}` and gate `{{#if k=v}}...{{/if}}` blocks. The build
-fails loudly on any unresolved marker.
+A page's head is one call, `siteHead({...})` (`web/app/lib/head.js`); its chrome is
+`<Nav>` and `<Footer>`. The build fails loudly on a route that does not produce its page.
 
-**How to change the logo:** edit **`web/src/_partials/brand.html`** - the single
+**How to change the logo:** edit **`web/app/lib/ui/Brand.svelte`** - the single
 source of the brand mark (the `[ ]` brackets + the live-red circle on-air beacon
 + the spanned `RogerAI` wordmark). Every page's nav and footer brand come from
 it. Keep the matching circle beacon in `favicon.svg`, `logo.svg` and Ping's eye
@@ -57,10 +56,11 @@ Infinite) lives in `src/data/wave-status.json`: the tier's canonical `stage` (on
 `publicCheckpoint`, `onAirBand`, and a `labels` map of the exact text each page shows today.
 The file is build input only and is not shipped.
 
-- **Wired labels** (`"wired": true`) are written in the page as `{{wave:<tier>.<label>}}`,
-  e.g. `{{wave:giga.research-models.chip}}`, and `build.mjs` fills them in
-  (`scripts/wave-status.mjs`). Change the `text` in the data file and every page follows.
-- **Stage words** (`{{wave-stage:<tier>}}`) render the tier's live `stage` as one short
+- **Wired labels** (`"wired": true`) are written in a route as `{@html facts.wave('<tier>.<label>')}`
+  (`facts = content('<page>.html')` from `web/app/lib/content.js`, which runs
+  `scripts/wave-status.mjs`), e.g. `facts.wave('giga.research-models.chip')`. Change the
+  `text` in the data file and every page follows.
+- **Stage words** (`facts.waveStage('<tier>')`) render the tier's live `stage` as one short
   public word from `stageWords` (`on-air` -> `ON AIR`, `training` -> `TRAINING`, ...). Nothing
   is typed per page: change a tier's `stage` and every stage word follows. The homepage Labs
   plate reads its Pico and Nano status this way.
@@ -84,11 +84,66 @@ pages actually agree.
 Adapters, base skills and device rows (the "your device, now a sensor" blocks) read
 `src/data/capabilities.json`: each entry's `stage` is one of `planned`, `lab`,
 `release-candidate`, `available` (defined in `stages`, with the public words in
-`stageLabels`). Pages write `{{cap:<id>.<name|stage|label|description>}}` and `build.mjs`
-fills them in (`scripts/wave-status.mjs`). The file is build input only and is not shipped.
+`stageLabels`). Pages write `{@html facts.cap('<id>.<name|stage|label|description>')}` and the
+build fills them in (`web/app/lib/content.js` over `scripts/wave-status.mjs`). The file is build input only and is not shipped.
 Flip a stage in the file and every lamp follows; `test/capabilities.test.mjs` checks every
 `data-cap` element on every built page against it and sweeps the site for any adapter
 claimed available, live or running ahead of the file. A lamp is red only for `available`.
+
+## Layout (2026-10, the SvelteKit migration)
+
+Every page of the site is a route of the SvelteKit app in `app/`, prerendered to a static
+file. `build.mjs` writes the one `dist/` tree the host serves:
+
+```
+web/
+  app/                      the SvelteKit app (SvelteKit 3, Svelte 5, Vite 8)
+    app.html                the shell: the two CSP-hashed inline scripts, nothing else
+    routes/<page>/+page.svelte   one route per page; routes/+page.svelte is the homepage
+    routes/<post>/+page.md       a broadcast as Markdown with frontmatter, on lib/ui/BroadcastPost.svelte
+    routes/broadcasts-*/+page.svelte   the earlier broadcasts: their body as written, on the same layout
+                            (a `post` object for the head and header, <Faq/> for the questions
+                            and the FAQPage schema from one list, <Signoff/> for the plate)
+    lib/head.js             the per-page <head>: siteHead({ title, desc, og, css, scripts })
+    lib/ui/*.svelte         the chrome, once: Nav, Footer, Rail, Brand, OnAir, InstallBox, ...
+    lib/api.js              the one broker client (credentialed fetch, getJSON, logout, the login-gate rule)
+    lib/format.js, lib/fmt.js   money, counts, dates, the rfmt tile action; fmt.js is generated from src/js/fmt.js
+    lib/rollup.js           the /metrics/series rollups (per model, totals) the dashboard and metrics share
+    lib/content.js          wave, model-card and capability facts from src/data, one resolver
+    lib/island.js, lib/ui/Island.svelte   islands: the interactive parts, hydrated by Svelte alone
+    lib/account/            boot.js (the first read: only a 401 is "signed out") and the account
+                            islands: LoginApp, LinkApp (/r), DeviceApp, AccountApp, StationsApp, PayoutsApp
+    lib/console/, lib/dashboard/, lib/keys/, lib/billing/, lib/private/, lib/usage/
+                            one folder per signed-in page: its component tree + the pure modules
+                            it renders from (charts.js, topup.js, spark.js, rc.js, series.js, ...)
+    islands/<name>.js       one entry per island, bundled to dist/js/islands/<name>.js
+    runtime.js              the site runtime (src/js: fmt, site, session, promo, tuner, ...) as ONE
+                            module, dist/js/runtime.js; a page asks for it with { runtime: true }
+    pages/<page>.js         a page's own scripts (src/js) as one module, dist/js/pages/<page>.js,
+                            loaded after the runtime; the page asks with { page: "<page>" }
+    body-attrs.json         per-route <body> attributes (class="auth", data-onair)
+  src/                      the static tree every page uses: js/ (the scripts the bundles carry, plus
+                            theme-init and easter-egg as files), styles/, assets/, data/ (build input), install.sh
+  build.mjs                 the orchestrator: bundles (islands, runtime, pages) -> app -> finishing passes -> sitemap, llms.txt
+  test/                     the guard suite (node:test) over dist/ and the sources; test/unit (vitest):
+                            every island's behavior over a fake broker, one file per page
+  e2e/                      browser flows (Playwright) over the built site
+```
+
+Rules the build enforces (test/dual-build.test.mjs): every route builds and no page is a
+file in src/; no page hydrates through SvelteKit's client (no inline loader, no `_app`
+chunk), so the edge CSP stays `script-src 'self'`; an island hydrates its own prerendered
+markup, strictly; the app shell's inline scripts are byte-identical to the legacy head's
+(their hashes are allow-listed at the edge); every built page is cache-busted, carries one
+canonical, and ships no hydration comment outside an island.
+
+Every signed-in page is an island (console, dashboard, stations, account, keys, billing,
+payouts, metrics, Base Station, sign-in, the device approval and the /r link handler): the
+route is a shell (head, nav, `<Island>`, footer), the card is a component tree under
+`app/lib/<page>/`, and the page's behavior is a vitest file under `test/unit/`. The Go
+scenarios that pin a page (features/auth/*.feature, `# test:` pointers) run those files
+through `cmd/rogerai-broker/web_spec_test.go`. `e2e/islands.spec.js` proves each island
+hydrates its prerendered markup in place in a real browser.
 
 ## Deploy
 
@@ -124,13 +179,16 @@ with `ROGERAI_VERSION=vX.Y.Z` or the dir with `ROGERAI_INSTALL_DIR=…`.
 
 ```
 web/
-├─ build.mjs           the build: partial includes, per-page CSS bundles, cache-busting
+├─ build.mjs           the build: bundles (islands, runtime, pages) -> the app -> finishing passes
+├─ app/                the SvelteKit app: routes/ (one per page), lib/ (chrome, islands, the one
+│                      broker client, the facts resolver), islands/, pages/, runtime.js
 ├─ src/
-│  ├─ *.html           the pages
-│  ├─ _partials/       shared HTML: head, nav, footer, site-js (the page runtime), ...
 │  ├─ styles/          tokens.css -> base.css -> components.css -> each page's own sheet
-│  └─ js/              site.js (the runtime) + self-initializing component modules
-├─ test/               node --test suites (npm test), incl. the design-system guards
+│  ├─ js/              the scripts the bundles carry (site.js, the component modules, the
+│  │                   content pages' scripts), plus theme-init.js and easter-egg.js as files
+│  └─ assets/, data/   images, fonts and the build-input data files
+├─ test/               node --test guards over dist/ and the sources (npm test), test/unit (vitest)
+├─ e2e/                browser flows (Playwright) over the built site
 ├─ DESIGN-SYSTEM.md    layers, tokens, components and their markup contracts
 ├─ TECH.md             tech choices + how to deploy
 └─ README.md           this file

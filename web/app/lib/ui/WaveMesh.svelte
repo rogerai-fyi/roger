@@ -1,0 +1,74 @@
+<script>
+  // HOW THE MESH WORKS: one explainer, shared by every Wave model page (legacy: _partials/wave-mesh.html).
+  // no = the section number on the page; fig = its figure number; parent = the model the page is about.
+  let { no, fig, parent } = $props();
+</script>
+<section class="section band band--inset" id="mesh">
+      <div class="wrap">
+        <div class="section__head section__head--left">
+          <span class="sectionno">&sect;{no} / MESH</span>
+          <h2>How the mesh works.</h2>
+          <p>Every Wave node speaks in typed records, not prose. A parent node reads the
+             records and answers a fixed set of questions about the fleet, so a reading can
+             climb from one sensor to a person without anyone retyping it.</p>
+        </div>
+
+        <figure class="figure figure--plate wm-mesh" aria-labelledby="wm-mesh-cap">
+          <div class="wm-mesh__grid">
+            <div class="wm-mesh__col">
+              <span class="research-kicker">Child nodes</span>
+              <ul class="wm-mesh__nodes">
+                <li><b>Pump</b><span>reads its channels</span></li>
+                <li><b>Valve</b><span>reads its channels</span></li>
+                <li><b>Compressor</b><span>reads its channels</span></li>
+              </ul>
+            </div>
+            <div class="wm-mesh__col">
+              <span class="research-kicker">Broker event log</span>
+              <ol class="wm-log">
+                <li><code>assert</code> <span><b>pump</b> call: drifting &middot; margin: clears its gate &middot; evidence: bearing temperature</span></li>
+                <li><code>escalate</code> <span><b>valve</b> call: none &middot; margin: under its gate &middot; evidence: valve position</span></li>
+                <li class="is-deciding"><code>assert</code> <span><b>compressor</b> call: stuck &middot; action: notify &middot; margin: clears its gate &middot; evidence: discharge pressure</span></li>
+              </ol>
+            </div>
+            <div class="wm-mesh__col">
+              <span class="research-kicker">Parent node &middot; {parent}</span>
+              <ol class="wm-q">
+                <li class="is-answered"><b>T11</b> Which asset is degraded? <em>The compressor, from the record marked in red.</em></li>
+                <li><b>T12</b> Adjudicate a channel from the evidence shown</li>
+                <li><b>T13</b> Resolve two children&rsquo;s conflict</li>
+                <li><b>T14</b> Mesh health, from the manifest</li>
+                <li><b>T15</b> Discovery: who joined, who left</li>
+                <li><b>T16</b> Site rollup</li>
+                <li><b>T17</b> The fire-site rollup</li>
+              </ol>
+            </div>
+          </div>
+          <figcaption class="fig mono" id="wm-mesh-cap">FIG. {fig} - Children write typed records to the log; the parent reads the log and answers. One record decides.</figcaption>
+        </figure>
+
+        <div class="device-contract wm-mesh__rules">
+          <p><b>Typed assertions.</b> Each record is
+             <code>&#123;kind: assert | escalate, call, action, margin, evidence&#125;</code>,
+             written to the broker&rsquo;s event log. Nothing downstream has to parse a
+             sentence.</p>
+          <p><b>Assert or escalate.</b> A node asserts only when its margin clears its own
+             measured gate. Below the gate it escalates: a record that says where to look,
+             not an answer. That is the right outcome for a read it cannot make.</p>
+          <p><b>Six questions, and a seventh for fire.</b> The parent answers T11 to T16
+             about the fleet. The fire family adds T17: the site state (quiet, watch,
+             elevated, threat, instrument fault, or abstain), the next action, which input
+             decided (mast, detector, controller or neighbours), and what is inconsistent
+             (camera against thermal, a valve open with zero flow, a stale record).</p>
+          <p><b>Persistence, then a person.</b> A threat needs two consecutive elevated
+             asserts, or one with the camera above its bar in the same tick. Pre-wet becomes
+             eligible only after every path was tried for ten minutes with no
+             acknowledgement, and it stays an owner-armed rule. An acknowledged escalation
+             hands the site to the person.</p>
+        </div>
+
+        <p class="wm-aside">A classical rule set answers every clean log by construction. The
+           model earns its place on dirty logs - a missing tick, a duplicated line, records
+           out of order - and on explaining what it saw.</p>
+      </div>
+    </section>

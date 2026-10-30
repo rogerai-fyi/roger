@@ -16,9 +16,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { source } from "./_html.mjs";
 
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
-const html = readFileSync(path.join(WEB, "src/research-wave-family.html"), "utf8");
+const html = source("research-wave-family.html");
 const css = readFileSync(path.join(WEB, "src/styles/wave-family.css"), "utf8");
 
 // Geometry read from the source, so the test tracks the design rather than a snapshot.

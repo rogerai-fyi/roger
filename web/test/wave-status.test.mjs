@@ -18,6 +18,7 @@ import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { resolveWaveTokens, loadWaveStatus } from "../scripts/wave-status.mjs";
+import { hasPageSource, source, hasFact, decodeMarkup, decodeText } from "./_html.mjs";
 
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = path.join(WEB, "src");
@@ -27,7 +28,7 @@ const DATA = path.join(SRC, "data", "wave-status.json");
 before(() => execFileSync("node", ["build.mjs"], { cwd: WEB }));
 
 const data = () => JSON.parse(readFileSync(DATA, "utf8"));
-const norm = (s) => s.replace(/\s+/g, " ").trim();
+const norm = (s) => decodeText(s).replace(/\s+/g, " ").trim();   // the data spells &middot;, a built page ·
 const LDJSON_RE = /<script type="application\/ld\+json">[\s\S]*?<\/script>/g;
 // Where a label is read: html pages from the BUILT tree (what a visitor gets), js from src
 // (it ships as-is). JSON-LD labels are read only inside JSON-LD, every other label only
@@ -83,7 +84,7 @@ test("wave-status: every tier carries the required fields with the right types",
     for (const [id, l] of Object.entries(t.labels)) {
       assert.match(id, /^[a-z-]+\.[a-z-]+$/, `${at}: label id ${id} is page-key.slot`);
       assert.equal(typeof l.page, "string", `${at}.${id}: page`);
-      assert.ok(existsSync(path.join(SRC, l.page)), `${at}.${id}: page ${l.page} exists`);
+      assert.ok(hasPageSource(l.page), `${at}.${id}: page ${l.page} exists`);
       assert.equal(typeof l.text, "string", `${at}.${id}: text`);
       assert.equal(typeof l.wired, "boolean", `${at}.${id}: wired`);
       assert.ok(!/\u2014/.test(l.text), `${at}.${id}: no em dash`);
@@ -169,7 +170,7 @@ test("resolver: a malformed stage token fails rather than shipping literally", (
 
 const plateOf = (html) => norm((html.match(/<a class="hero__proof"[\s\S]*?<\/a>/) || [""])[0]
   .replace(/<!--[\s\S]*?-->/g, "").replace(/<[^>]+>/g, " "));
-const SRC_INDEX = () => readFileSync(path.join(SRC, "index.html"), "utf8");
+const SRC_INDEX = () => source("index.html");
 
 test("plate: the homepage Labs plate names the Spectrum and the live stages of Pico and Nano", () => {
   const d = data();
@@ -181,34 +182,38 @@ test("plate: the homepage Labs plate names the Spectrum and the live stages of P
 
 test("plate: the status words come from the stage tokens, not hand-typed copy", () => {
   const src = SRC_INDEX().match(/<a class="hero__proof"[\s\S]*?<\/a>/)[0];
-  assert.match(src, /PICO \{\{wave-stage:pico\}\} · NANO \{\{wave-stage:nano\}\}/);
+  // the page reads the stage word through the data (app: facts.waveStage; legacy: {{wave-stage}})
+  assert.match(src, /PICO (?:\{\{wave-stage:pico\}\}|\{@html facts\.waveStage\('pico'\)\}) · NANO (?:\{\{wave-stage:nano\}\}|\{@html facts\.waveStage\('nano'\)\})/);
   assert.match(src, /aria-label="The Wave Spectrum at RogerAI Labs"/);
   assert.match(src, /href="\/research\.html"/);
 });
 
 test("plate: moving a stage in a copy of the data moves the rendered plate", () => {
+  // the plate's source, with the app's facts calls spelled as the tokens the resolver reads
+  const tokens = SRC_INDEX().match(/<a class="hero__proof"[\s\S]*?<\/a>/)[0]
+    .replace(/\{@html facts\.waveStage\('(\w+)'\)\}/g, "{{wave-stage:$1}}");
   const copy = structuredClone(data());
   copy.tiers.find((t) => t.id === "nano").stage = "gated";
   copy.tiers.find((t) => t.id === "pico").stage = "released";
-  const plate = plateOf(resolveWaveTokens(SRC_INDEX(), "index.html", copy));
+  const plate = plateOf(resolveWaveTokens(tokens, "index.html", copy));
   assert.equal(plate, "ROGERAI LABS THE WAVE SPECTRUM PICO RELEASED · NANO GATED");
-  assert.notEqual(plate, plateOf(resolveWaveTokens(SRC_INDEX(), "index.html", data())));
+  assert.notEqual(plate, plateOf(resolveWaveTokens(tokens, "index.html", data())));
 });
 
 /* ---- 3. every inventoried page shows exactly the label the data says ----- */
 
 test("pages: a wired label comes from its token, and ships as the data text", () => {
   for (const l of allLabels().filter((x) => x.wired)) {
-    const src = readFileSync(path.join(SRC, l.page), "utf8");
-    assert.ok(src.includes(`{{wave:${l.tier.id}.${l.id}}}`), `${l.page} renders ${l.tier.id}.${l.id} from the data`);
+    const src = source(l.page);
+    assert.ok(hasFact(src, "wave", `${l.tier.id}.${l.id}`), `${l.page} renders ${l.tier.id}.${l.id} from the data`);
     assert.ok(region(l.page, l.id).includes(norm(l.text)), `${l.page} shows "${l.text}"`);
   }
 });
 
 test("pages: a hand-typed label still reads exactly what the data says", () => {
   for (const l of allLabels().filter((x) => !x.wired)) {
-    const src = readFileSync(path.join(SRC, l.page), "utf8");
-    assert.ok(!src.includes(`{{wave:${l.tier.id}.${l.id}}}`), `${l.tier.id}.${l.id} is marked hand-typed but is wired`);
+    const src = l.page.endsWith(".html") ? source(l.page) : readFileSync(path.join(SRC, l.page), "utf8");
+    assert.ok(!hasFact(src, "wave", `${l.tier.id}.${l.id}`), `${l.tier.id}.${l.id} is marked hand-typed but is wired`);
     if (l.page === "js/playbox.js") continue;   // checked structurally below
     assert.ok(region(l.page, l.id).includes(norm(l.text)),
       `${l.page} no longer shows "${l.text}" for ${l.tier.name} (${l.id}): change the data file too`);
@@ -400,5 +405,5 @@ test("ruling 2026-10-21: Pico on air, Nano gated, and no page still says otherwi
     for (const re of [/WAYPOINT TRAINED/, /100M-class waypoint is trained/, /A planned scratch build/, /PLANNED TIERS/]) assert.doesNotMatch(js, re, `${f}: ${re}`);
   }
   const family = readFileSync(path.join(DIST, "research-wave-family.html"), "utf8");
-  assert.match(family, /270&ndash;562 MB/, "the family page states the measured GGUF range");
+  assert.match(decodeMarkup(family), /270–562 MB/, "the family page states the measured GGUF range");
 });

@@ -9,20 +9,21 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { source, component } from "./_html.mjs";
 
 const SRC = path.join(path.dirname(fileURLToPath(import.meta.url)), "../src");
-const read = (p) => readFileSync(path.join(SRC, p), "utf8");
+const read = source;  // a page's source, legacy or app route (test/_html.mjs)
 
 const js = read("js/playbox.js");
 const js2 = read("js/wave-patch.js");
 const routeJs = read("js/playbox-route.js"); // the deck asks it about Escape
 const html = read("playbox.html");
 const css = read("styles/playbox.css");
-const nav = read("_partials/nav.html");
+const nav = component("Nav");
 // Prose wraps across lines; a copy assertion must not break on where it wrapped.
 const flat = (s) => s.replace(/\s+/g, " ");
 const htmlFlat = flat(html);
-const footer = read("_partials/footer.html");
+const footer = component("Footer");
 
 // ---------- the rename (carried) ---------------------------------------------
 
@@ -46,9 +47,9 @@ test("playbox: the old playground address keeps working via a redirect stub", ()
 });
 
 test("playbox: the social card and metadata use the Playbox name and address", () => {
-  assert.ok(html.includes('title="Playbox'), "page title must say Playbox");
-  assert.ok(html.includes('ogurl="https://rogerai.fm/playbox.html"'), "og:url must be the playbox address");
-  assert.ok(!/ogtitle="[^"]*Playground/.test(html), "the social card must not say Playground");
+  assert.ok(html.includes("title: 'Playbox"), "page title must say Playbox");
+  assert.ok(html.includes("url: 'https://rogerai.fm/playbox.html'"), "og:url must be the playbox address");
+  assert.ok(!/og: \{ [^}]*title: '[^']*Playground/.test(html), "the social card must not say Playground");
 });
 
 // ---------- one view (deck spec) ---------------------------------------------

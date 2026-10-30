@@ -403,7 +403,7 @@ func (s *pkgBDD) journalNotice() error {
 func (s *pkgBDD) readsHelpAndManual() error {
 	s.d.tc.reset(s.t)
 	o, _, _ := s.d.tc.roger("tower", "serve", "--help")
-	m, err := os.ReadFile(filepath.Join(repoRoot(), "web", "src", "manual.html"))
+	m, err := os.ReadFile(filepath.Join(repoRoot(), "web", "app", "routes", "manual", "+page.svelte")) // the manual is an app route
 	if err != nil {
 		return err
 	}

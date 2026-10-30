@@ -1,0 +1,417 @@
+<script>
+  // RogerAI models - what we ship and its status
+  // Ported from web/src/research-models.html (2026-10-29); the copy is the legacy copy.
+  import { siteHead, CSS_SHARED, CSS_ACCOUNT } from "#lib/head.js";
+  import { content } from "#lib/content.js";
+  import Footer from "#lib/ui/Footer.svelte";
+  import Nav from "#lib/ui/Nav.svelte";
+  import OnAir from "#lib/ui/OnAir.svelte";
+  import Rail from "#lib/ui/Rail.svelte";
+  const facts = content('research-models.html');
+  const head = siteHead({
+    title: 'RogerAI models - what we ship and its status',
+    desc: 'Every RogerAI-designed Wave model and every upstream model we optimize, each with its program status, lineage, license, and evidence contract.',
+    og: { type: 'website', title: 'RogerAI models: what we ship and its honest status', desc: 'Wave models and Open Builds, each with program status, lineage, license, and the evidence contract behind any claim.', url: 'https://rogerai.fm/research-models.html', image: 'https://rogerai.fm/og-research.png' },
+    css: [...CSS_SHARED, 'research.css'],
+    scripts: [{ runtime: true }],
+  });
+</script>
+<svelte:head>{@html head}</svelte:head>
+<!-- The model catalogue. Split out of research.html so the hub can stay inside
+     its conciseness budget and each destination has room to be itself. This page
+     carries every release contract, lineage badge and download control; the hub
+     keeps only the family and points here. It also carries Roger Edge, which is NOT a
+     Wave tier: it is the microcontroller line, and it lives in its own banded section
+     so the catalogue cannot be read as one ladder. 
+     (the page's doc comment, from the legacy file; its sheets are the css: list above) -->
+  <Rail head='RogerAI &middot; Models' rev='Rev. 2026.07 &middot; LABS' />
+
+  <Nav variant='marketing' home='/' current='research' />
+
+  <main id="top">
+
+    <section class="research-hero">
+      <div class="wrap">
+        <a class="wf-back mono" href="/research.html">&larr; RogerAI Labs</a>
+        <span class="hero__eyebrow">
+          <OnAir />
+          <span class="hero__callsign">MODELS &middot; STATUS AND EVIDENCE</span>
+        </span>
+        <h1>Models and status.</h1>
+        <p class="research-hero__lead">
+          Every model carries its own program status. Wave Pico and Wave Nano each have a
+          page of their own: what the model is for, how to run it, what it scores and where
+          it stops.
+        </p>
+        <!-- FOUNDER 2026-10-20: the Wave models are served free on the RogerAI CLI and share,
+             not published to Hugging Face, so the hero's "View weights" button came off and
+             the two model pages took its place. The DeepSeek research build below keeps its
+             own download link: it is a public upstream build, not a Wave model. -->
+        <div class="research-actions research-actions--lead">
+          <a class="research-button" href="/research-wave-pico.html">Wave Pico</a>
+          <a class="research-button" href="/research-wave-nano.html">Wave Nano</a>
+          <a class="research-button" href="/research-wave-family.html">Family field guide</a>
+          <a class="research-button" data-lets-talk aria-expanded="false"
+             href="mailto:labs@rogerai.fm?subject=Hello%20from%20the%20website">Let&rsquo;s talk</a>
+        </div>
+      </div>
+    </section>
+
+    <nav class="toc-tuner" data-tuner aria-label="Sections">
+      <div class="wrap toc-tuner__band">
+      <div class="toc-tuner__readout" aria-hidden="true"></div>
+      <ol class="toc-tuner__scale">
+        <li><a class="toc-tuner__st" href="#model-pages"><b>§1</b><span class="toc-tuner__name">MODEL PAGES</span></a></li>
+        <li><a class="toc-tuner__st" href="#models"><b>§2</b><span class="toc-tuner__name">WAVE MODELS</span></a></li>
+        <li><a class="toc-tuner__st" href="#upstream"><b>§3</b><span class="toc-tuner__name">FRONTIER</span></a></li>
+        <li><a class="toc-tuner__st" href="#roger-edge"><b>§4</b><span class="toc-tuner__name">ROGER EDGE</span></a></li>
+        <li><a class="toc-tuner__st" href="#wave-infinite"><b>§5</b><span class="toc-tuner__name">WAVE INFINITE</span></a></li>
+      </ol>
+      <span class="toc-tuner__needle" aria-hidden="true"></span>
+      </div>
+    </nav>
+
+    <!-- MODEL PAGES: the two Wave models with a page of their own. The lamp and the stage
+         word render from wave-status.json, the numbers from model-cards.json, so this pair
+         cannot disagree with the model pages. A model gets a card here when it gets a page
+         (Giga next, when the lab supplies its facts). -->
+    <section class="section" id="model-pages">
+      <div class="wrap">
+        <div class="model-group-head">
+          <div>
+            <span class="research-kicker">MODEL PAGES</span>
+            <h2 class="model-group-head__title">Read a model in full</h2>
+          </div>
+          <p>Purpose &middot; how to run it &middot; measured, with R-numbers &middot; limits &middot; the mesh</p>
+        </div>
+        <div class="model-pages">
+          <a class="tint-panel model-page" href="/research-wave-pico.html">
+            <span class="model-page__status"><i class="model-lamp" data-air="{facts.t.waveAir('pico')}" aria-hidden="true"></i>{@html facts.waveStage('pico')} &middot; <code>{@html facts.waveBand('pico')}</code></span>
+            <b class="model-page__name">Wave Pico <span>{@html facts.card('pico.size')}</span></b>
+            <span class="model-page__line">A sensor reader that refuses what it cannot read. Answers {@html facts.card('pico.gate-accept')} of real work at {@html facts.card('pico.gate-precision')} precision and escalates the rest.</span>
+            <span class="model-page__go">Wave Pico model page</span>
+          </a>
+          <a class="tint-panel model-page" href="/research-wave-nano.html">
+            <span class="model-page__status"><i class="model-lamp" data-air="{facts.t.waveAir('nano')}" aria-hidden="true"></i>{@html facts.waveStage('nano')} &middot; not on the band yet</span>
+            <b class="model-page__name">Wave Nano <span>{@html facts.card('nano.size')}</span></b>
+            <span class="model-page__line">Reads telemetry, a fleet and a fire site, and talks. Carries the Nano-VL vision module for camera frames.</span>
+            <span class="model-page__go">Wave Nano model page</span>
+          </a>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="models">
+      <div class="wrap">
+        <div class="model-group-head">
+          <div>
+            <span class="research-kicker">DESIGNED BY ROGERAI</span>
+            <h2 class="model-group-head__title">Wave models</h2>
+          </div>
+          <p>The Wave Spectrum, pico to exa &middot; every tier retains its own program status &middot; no checkpoint released yet</p>
+        </div>
+
+        <div class="model-list model-list--native">
+          <article class="model-row">
+            <div class="model-row__identity">
+              <i class="model-lamp" data-air="{facts.t.waveAir('pico')}" aria-hidden="true"></i><span class="status">{@html facts.wave('pico.research-models.chip')}</span>
+              <h3>Wave Pico</h3>
+              <p class="research-parent">250&ndash;300M target &middot; Raspberry Pi &middot; no GPU &middot; ~50 ms target</p>
+              <code class="model-id">wave-pico-&lt;size&gt;-&lt;task&gt;</code>
+            </div>
+            <div>
+              <span class="research-kicker">ROLE</span>
+              <p>The edge child: reads one machine&rsquo;s telemetry and asserts, with
+                 margins. Trained from scratch on our data; the 293M v6 release is on
+                 air as the free band wave-pico-293m.</p>
+              <div class="model-row__actions">
+                <span class="model-stage">On air as wave-pico-293m &middot; v6 release</span>
+                <a class="model-note" href="/research-wave-pico.html">Model page</a>
+              </div>
+            </div>
+          </article>
+
+          <article class="model-row">
+            <div class="model-row__identity">
+              <i class="model-lamp" data-air="{facts.t.waveAir('nano')}" aria-hidden="true"></i><span class="status">{@html facts.wave('nano.research-models.chip')}</span>
+              <h3>Wave Nano</h3>
+              <p class="research-parent">0.8&ndash;1.5B &middot; gateway, concentrator</p>
+              <code class="model-id">wave-nano-&lt;size&gt;-&lt;task&gt;</code>
+            </div>
+            <div>
+              <span class="research-kicker">ROLE</span>
+              <p>The fleet gateway: rolls up many children, resolves conflicts, and routes
+                 by discovery. Scratch if the data program allows; a base-and-specialize
+                 fallback is held as the control.</p>
+              <div class="model-row__actions">
+                <span class="model-stage">Release build gated &middot; not on the band yet</span>
+                <a class="model-note" href="/research-wave-nano.html">Model page</a>
+              </div>
+            </div>
+          </article>
+
+          <article class="model-row" id="wave-micro">
+            <div class="model-row__identity">
+              <i class="model-lamp" data-air="{facts.t.waveAir('micro')}" aria-hidden="true"></i><span class="status">{@html facts.wave('micro.research-models.chip')}</span>
+              <h3>Wave Micro</h3>
+              <p class="research-parent">7&ndash;8B &middot; on-site server &middot; general + industrial</p>
+              <code class="model-id">no checkpoint released</code>
+            </div>
+            <div>
+              <span class="research-kicker">ROLE</span>
+              <p>The site brain: multi-fleet reasoning across a facility. Trained from
+                 scratch on our own data, and gated on keeping its general ability while
+                 the industrial score rises.</p>
+              <div class="model-row__actions">
+                <span class="model-stage">From-scratch 7B run in training</span>
+              </div>
+            </div>
+          </article>
+
+          <article class="model-row">
+            <div class="model-row__identity">
+              <i class="model-lamp" data-air="{facts.t.waveAir('giga')}" aria-hidden="true"></i><span class="status">{@html facts.wave('giga.research-models.chip')}</span>
+              <h3>Wave Giga</h3>
+              <p class="research-parent">27&ndash;35B &middot; plant datacenter</p>
+              <code class="model-id">wave-giga-&lt;size&gt;-instruct</code>
+            </div>
+            <div>
+              <span class="research-kicker">ROLE</span>
+              <p>The plant: full-plant reasoning, competitive on general benchmarks as
+                 well as machines. Base + specialize.</p>
+              <div class="model-row__actions">
+                <span class="model-stage">Release build gated &middot; not on the band yet</span>
+              </div>
+            </div>
+          </article>
+
+          <article class="model-row">
+            <div class="model-row__identity">
+              <i class="model-lamp" data-air="{facts.t.waveAir('tera')}" aria-hidden="true"></i><span class="status">{@html facts.wave('tera.research-models.chip')}</span>
+              <h3>Wave Tera</h3>
+              <p class="research-parent">80&ndash;120B &middot; enterprise cloud</p>
+              <code class="model-id">wave-tera-&lt;size&gt;-instruct</code>
+            </div>
+            <div>
+              <span class="research-kicker">ROLE</span>
+              <p>Cross-site enterprise: correlates faults and trends across many plants
+                 at once.</p>
+              <div class="model-row__actions">
+                <span class="model-stage">Architecture and data design</span>
+              </div>
+            </div>
+          </article>
+
+          <article class="model-row">
+            <div class="model-row__identity">
+              <i class="model-lamp" data-air="{facts.t.waveAir('peta')}" aria-hidden="true"></i><span class="status">{@html facts.wave('peta.research-models.chip')}</span>
+              <h3>Wave Peta</h3>
+              <p class="research-parent">150&ndash;200B &middot; regional cloud</p>
+              <code class="model-id">wave-peta-&lt;size&gt;-instruct</code>
+            </div>
+            <div>
+              <span class="research-kicker">ROLE</span>
+              <p>Regional scale: a leaner giant, expert-pruned and distilled down from
+                 the frontier flagship rather than trained.</p>
+              <div class="model-row__actions">
+                <span class="model-stage">Pruning plan</span>
+              </div>
+            </div>
+          </article>
+
+          <article class="model-row">
+            <div class="model-row__identity">
+              <i class="model-lamp" data-air="{facts.t.waveAir('exa')}" aria-hidden="true"></i><span class="status">{@html facts.wave('exa.research-models.chip')}</span>
+              <h3>Wave Exa</h3>
+              <p class="research-parent">&gt;280B &middot; frontier datacenter</p>
+              <code class="model-id">DeepSeek-V4-Flash class &middot; MTP</code>
+            </div>
+            <div>
+              <span class="research-kicker">ROLE</span>
+              <p>The flagship: exascale-class frontier capability, and the teacher the
+                 whole family learns from. Every tier ships with Wave Mesh baked in and
+                 understands the output of every tier beneath it.</p>
+              <div class="model-row__actions">
+                <span class="model-stage">The family teacher</span>
+              </div>
+            </div>
+          </article>
+        </div>
+
+        <p class="model-roadmap" id="licence"><b>License boundary.</b> A released Wave artifact carries
+          its own license, and running it locally will never require RogerAI or its broker.
+          Publication, routing, payments, failover, and signed receipts are separate
+          network services under separate terms.</p>
+
+        <div class="model-group-head model-group-head--upstream" id="upstream">
+          <div>
+            <span class="research-kicker">FRONTIER OPTIMIZATION</span>
+            <h2 class="model-group-head__title">Workstation-scale research</h2>
+          </div>
+          <p>Runtime, compression, and hardware-fit experiments</p>
+        </div>
+
+        <div class="model-list">
+          <article class="model-row">
+            <div class="model-row__identity">
+              <span class="status">RESEARCH BUILD</span>
+              <h3>DeepSeek-V4-Flash MTP</h3>
+              <p class="research-parent"><b>Optimized by RogerAI</b> ·
+                Upstream: DeepSeek-V4-Flash · MIT License</p>
+              <code class="model-id">284B total · 13B active · MTP · GGUF</code>
+            </div>
+            <div>
+              <span class="research-kicker">ROLE</span>
+              <p>Converter, runtime, MTP, and GGUF work for more practical local inference
+                 with a frontier-scale model.</p>
+              <div class="model-row__actions">
+                <a class="model-download" href="https://huggingface.co/rogerai-fyi/DeepSeek-V4-Flash-MTP-GGUF">Hugging Face</a>
+                <a class="model-note" href="/broadcasts-deepseek-mtp-gguf.html">Field note</a>
+              </div>
+            </div>
+          </article>
+
+          <article class="model-row">
+            <div class="model-row__identity">
+              <span class="status">IN PROGRESS</span>
+              <h3>Kimi-K3</h3>
+              <p class="research-parent"><b>Optimized by RogerAI</b> ·
+                Upstream: Kimi-K3 · Kimi K3 License</p>
+              <code class="model-id">2.8T total · 104B active · MXFP4</code>
+            </div>
+            <div>
+              <span class="research-kicker">ROLE</span>
+              <p>Test whether pruning, low-precision execution, and conversion can fit a
+                 frontier-scale model on one high-memory workstation.</p>
+              <div class="model-row__actions">
+                <span class="model-stage">Current gate · 16K saliency calibration</span>
+                <a class="model-note" href="/broadcasts.html">Follow measurements</a>
+              </div>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- Roger Edge is a SECOND LINE, not an eighth Wave tier. It is deliberately NOT a
+         third group inside #models: a reader who scans one list comes away thinking
+         everything in it is the same kind of thing, and the one mistake this section
+         exists to prevent is "Roger Edge is the small Wave". So it gets its own banded
+         section, its own list rule, and a status chip in the accent - because the fact a
+         reader must not miss is that nothing is trained. Everything else here is written
+         as INTENT: there is no artifact, no library and no standard, and nothing on this
+         page may read as though there were. -->
+    <section class="section band band--inset section--edge" id="roger-edge">
+      <div class="wrap">
+        <div class="model-group-head">
+          <div>
+            <span class="research-kicker">DESIGNED BY ROGERAI &middot; A SEPARATE LINE</span>
+            <h2 class="model-group-head__title">The microcontroller line</h2>
+          </div>
+          <p>Task models, not language models &middot; not a Wave tier &middot; experimental</p>
+        </div>
+
+        <div class="model-list model-list--native">
+          <article class="model-row">
+            <div class="model-row__identity">
+              <span class="status status--none">{@html facts.wave('edge.research-models.chip')}</span>
+              <h3>Roger Edge</h3>
+              <p class="research-parent">ESP32 class boards &middot; intent and anomaly classifiers</p>
+              <code class="model-id">no artifact exists</code>
+            </div>
+            <div>
+              <span class="research-kicker">ROLE</span>
+              <p>Two halves of one line, both down where the sensor already is.
+                 A small model that classifies against a fixed set of labels, and the
+                 layer around it: wake, voice-activity detection, sampling, fixed
+                 commands, and the hop up to a Wave model for anything it cannot name.
+                 Roger Edge detects; Wave reasons.</p>
+              <div class="model-row__actions">
+                <span class="model-stage">Prototype, actively testing</span>
+                <a class="model-note" href="/research-industry.html#devices">Where it sits in a plant</a>
+              </div>
+            </div>
+          </article>
+        </div>
+
+        <div class="device-contract">
+          <p><b>A classifier in the sensor&rsquo;s own flash.</b> Roger Edge is a task
+             model: a small classifier with a fixed set of labels, distilled from Wave
+             Pico and quantized to int8, sized to sit in a microcontroller&rsquo;s flash
+             at kilobytes to a few megabytes. It wakes, watches the signal, names what it
+             recognises, and hands anything it cannot name up to a Wave model. Roger Edge
+             detects; Wave reasons. No Wave tier runs on an ESP32 or an Arduino - the
+             board is the sensor, and a Raspberry Pi is the smallest model host.</p>
+          <p><b>The decision happens where the measurement does.</b> A node that can name
+             what it is seeing does not have to send everything it sees. That saves the
+             round trip, the bandwidth and the wait on a link that may not be there, and
+             it fits the power budget of a board running off a panel and a battery. A Wave
+             model runs on whatever machine hosts it, with or without a board like this
+             near the sensor, so this is something a deployment adds where it earns its
+             place.</p>
+          <p><b>One line, bench to cabinet.</b> The same job turns up at both ends: an
+             ESP32 and a Pi on a bench at home, and a plant sensor wired to a model in a
+             cabinet. We intend one line for both - the same classifier, and the same
+             contract for what the node sends and what comes back - so what you learn on
+             the bench is what runs in the plant. Which boards ship first is still
+             open.</p>
+          <p><b>Write once, build for the board in front of you.</b> Getting a model onto
+             a board is well served already: Arduino for bring-up and library reuse,
+             ESP-IDF for shipping and OTA, Zephyr when one RTOS has to cover several
+             vendors, PlatformIO to build across them, TensorFlow Lite for
+             Microcontrollers and Edge Impulse to compile a network down to something
+             that fits. What none of them standardises is the hop to a language model -
+             what a node sends when it cannot decide, in what format, and what shape the
+             answer comes back in. That hop is what we want to make ordinary: one API for
+             sample, window, features, classify, escalate, packaged the way each
+             ecosystem already expects it, so the same node code moves between boards
+             instead of being rewritten for each one.</p>
+        </div>
+
+        <p class="model-roadmap"><b>Prototype phase.</b> Roger Edge is in prototype.
+           We will publish the pieces as the work advances and each one is ready to be
+           used in public.</p>
+      </div>
+    </section>
+
+    <!-- WAVE INFINITE. Not a size, so not in the list above - it is a programme that
+         starts FROM one of those sizes. Every claim here is in the design register and
+         mirrors §5 of the family page, which is the canonical statement; this band is a
+         pointer with enough substance to be worth reading, not a second source of truth. -->
+    <section class="section band band--inset" id="wave-infinite">
+      <div class="wrap">
+        <div class="model-group-head">
+          <div>
+            <span class="research-kicker">DESIGNED BY ROGERAI &middot; NOT A SIZE CLASS</span>
+            <h2>Wave Infinite</h2>
+          </div>
+          <p>The model that grows &middot; prototype &middot; foundations measured, growth
+             loop in development</p>
+        </div>
+
+        <p class="model-roadmap"><b>What it is.</b> Every model listed above is a fixed
+           size: you pick the tier that fits your hardware and that is the model you run.
+           Wave Infinite is the opposite idea. It starts from a trained Wave base &ndash;
+           Nano, Micro or Giga &ndash; and is designed to <b>grow new weights on your own
+           work</b>: real parameters added to the network, not prompts and not retrieval.
+           A plant that has been running it for a year would be running a larger model
+           than the one it installed, shaped by that plant.</p>
+
+        <p class="model-roadmap"><b>Why that is hard.</b> Anything that changes a model&rsquo;s
+           weights can also damage what the model already knew. So the design puts every
+           round of growth behind a proof: new capacity is added where measurement says it
+           helps, the original behaviour has to be shown intact afterwards, and there is an
+           exact path back to the model you started from. That certificate is the programme
+           &ndash; the growing part is comparatively easy.</p>
+
+        <p class="model-roadmap"><b>Where it actually stands.</b> The foundations are
+           measured and the growth loop is in development. It is not a working system, there
+           is nothing to download, and no tier in the catalogue above runs it today. The
+           full write-up, including the loop and what each stage has to clear, is
+           <a href="/research-wave-family.html#infinite">&sect;5 of the Wave family page</a>.</p>
+      </div>
+    </section>
+
+  </main>
+
+  <Footer anchors='/' />

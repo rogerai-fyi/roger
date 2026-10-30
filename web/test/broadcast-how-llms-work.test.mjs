@@ -14,11 +14,12 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import vm from "node:vm";
+import { source, decodeMarkup } from "./_html.mjs";
 
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PAGE = "broadcasts-how-llms-work.html";
 const read = (p) => readFileSync(path.join(WEB, "dist", p), "utf8");
-const src = (p) => readFileSync(path.join(WEB, "src", p), "utf8");
+const src = source;   // a page's source, legacy or app route (test/_html.mjs)
 const visible = (html) => html.replace(/<!--[\s\S]*?-->/g, "");
 const mainOf = (html) => (visible(html).match(/<main\b[\s\S]*<\/main>/) || [""])[0];
 const text = (html) => html.replace(/<script\b[\s\S]*?<\/script>/g, " ").replace(/<style\b[\s\S]*?<\/style>/g, " ")
@@ -40,7 +41,7 @@ test("how-llms: the transmission log carries it first, as 016, above 015", () =>
   assert.equal(rows[0], PAGE, "newest first");
   assert.equal(rows[1], "broadcasts-jev-vs-wave.html", "016 sits right above 015");
   assert.match(log, /<b class="bc-row__no">BROADCAST 016<\/b>/);
-  assert.match(read(PAGE), /BROADCAST 016 &middot; FIELD GUIDE/);
+  assert.match(decodeMarkup(read(PAGE)), /BROADCAST 016 · FIELD GUIDE/);
 });
 
 test("how-llms: a Quick Answer of 40 to 60 words opens the article", () => {
@@ -89,7 +90,7 @@ test("how-llms: every figure has a caption and a text alternative", () => {
   const figs = [...mainOf(read(PAGE)).matchAll(/<figure\b[\s\S]*?<\/figure>/g)].map((m) => m[0]);
   assert.equal(figs.length, 18, "eighteen figures, FIG. 1 to FIG. 18");
   figs.forEach((fig, i) => {
-    assert.match(fig, new RegExp(`<figcaption class="fig mono">FIG\\. ${i + 1} &middot; `), `FIG. ${i + 1} is captioned, in order`);
+    assert.match(decodeMarkup(fig), new RegExp(`<figcaption class="fig mono">FIG\\. ${i + 1} · `), `FIG. ${i + 1} is captioned, in order`);
     const img = fig.match(/<img\b[^>]*>/);
     if (img) {
       const alt = img[0].match(/\salt="([^"]*)"/);
@@ -190,7 +191,7 @@ test("how-llms: the glossary defines the words the page uses, and the vendor lis
   }
   const ask = [...html.match(/<ol class="llm-ask">[\s\S]*?<\/ol>/)[0].matchAll(/<li>([\s\S]*?)<\/li>/g)].map((m) => m[1]);
   assert.equal(ask.length, 5);
-  for (const q of ask) assert.match(q, /^&ldquo;[^?]+\?&rdquo;/, "a quoted question");
+  for (const q of ask) assert.match(q, /^(?:&ldquo;|“)[^?]+\?(?:&rdquo;|”)/, "a quoted question");
 });
 
 test("how-llms: every scrubbed stage draws its last stop by default and reads the tuned stop through :has()", () => {
@@ -238,10 +239,10 @@ test("how-llms: the page has a first-load weight budget", () => {
   assert.ok(budget.pages[PAGE] > 0, "budgeted in test/fixtures/page-weight-budget.json");
 });
 
-test("how-llms: the shipped source comment is a neutral one-liner", () => {
-  const first = read(PAGE).match(/<!DOCTYPE html>\s*<!--([\s\S]*?)-->/)[1];
-  assert.ok(!first.includes("\n"), "one line");
-  assert.doesNotMatch(first, /founder|reddit|brief/i);
+test("how-llms: the shipped page carries no source comment at all", () => {
+  // the legacy build shipped the page's doc comment (kept to a neutral one-liner); the app
+  // ships none, so no working note can reach a reader
+  assert.doesNotMatch(read(PAGE), /<!--/, "no comment ships");
 });
 
 test("how-llms: vocabulary size is stated as it is today, in the body, the FAQ and the schema alike", () => {

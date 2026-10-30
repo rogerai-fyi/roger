@@ -5,6 +5,21 @@ curl-install hero, an animated terminal demo, and a quiet animated "radio map"
 background. Hosted on **DigitalOcean App Platform** behind a **Cloudflare**
 CDN/DNS proxy - *not* Cloudflare Pages (see the Deploy section + `EDGE.md`).
 
+## 2026-10: SvelteKit, prerendered
+
+The decision below stood for a year and the site it produced is the one this build still
+emits. What changed in October 2026 is how the pages are WRITTEN: 56 hand-written HTML
+files, each pulling chrome from include markers, became routes of one SvelteKit app, with
+the chrome as components, the head as one function, the broker client in one module and
+the data-file facts behind one resolver. Every signed-in page is a Svelte island (its card a
+component tree under `app/lib/<page>/`, its behavior a vitest file), the nine scripts
+every page ran ship as one module with `fmt.js` (`app/runtime.js`, built to `js/runtime.js`),
+and a page's own scripts as one more (`app/pages/<page>.js`). The
+output is the same static tree (every route prerendered, nothing hydrates through
+SvelteKit), on the same host, under the same edge CSP, inside the same weight budgets. The plan and
+the spike numbers are in the private planning notes. The rest of this file is the original decision, kept because the
+runtime story (Canvas2D, no animation libraries, self-hosted fonts) is unchanged.
+
 ## The decision: hand-written vanilla, no framework, no bundler
 
 After surveying how modern animated/CLI sites get their motion, the lightest
@@ -33,21 +48,12 @@ with a tiny footprint, no shader/program setup, and trivially respects
 
 ## Files
 
-```
-web/
-├─ index.html          One page. Hero (curl box) · terminal demo · what-it-is ·
-│                       how-it-works · monetize · CTA · footer.
-├─ install.sh          Real POSIX installer piped from the hero curl.
-├─ styles/
-│  ├─ tokens.css        Design tokens (colors, type, spacing, motion) - source of truth.
-│  └─ site.css          All layout & components. Consumes tokens.css.
-├─ js/
-│  ├─ radiomap.js       Canvas2D blip-map background (grid · blips · ripples · beams).
-│  ├─ terminal.js       Hand-built TUI replay (run → browse → tune in → endpoint+key).
-│  └─ site.js           Nav state, scroll-reveal, copy-on-click, OS hint, earn sparkline.
-├─ TECH.md              This file.
-└─ README.md            Overview + run/deploy.
-```
+The tree is in [`README.md`](README.md) (Layout): the routes and components under `app/`,
+the static tree under `src/` (`styles/` is `tokens.css` -> `base.css` -> `components.css` ->
+a sheet per page; `js/` holds the scripts the bundles carry, with `terminal.js` the hand-built
+TUI replay and `site.js` the nav state, scroll-reveal and copy-on-click), `build.mjs`, and the
+guards under `test/` and `e2e/`. `src/install.sh` is the real POSIX installer the hero `curl`
+pipes, copied to the output root.
 
 No dependencies are bundled. The fonts (Space Grotesk + JetBrains Mono, SIL OFL)
 are self-hosted in `src/assets/fonts` (`scripts/vendor-fonts.mjs`), so a page makes
@@ -65,15 +71,14 @@ no icon fonts, no JS libs.
   screen readers get the gist without parsing animated text.
 - Copy-on-click works with the async Clipboard API and falls back to `execCommand`.
 
-## Run it locally (no build)
+## Run it locally
 
 ```sh
-cd web
-python3 -m http.server 5173
-# → http://localhost:5173
+make site-serve      # node web/build.mjs, then http.server on http://localhost:5173
 ```
 
-Or just open `index.html` directly (fonts/canvas behave best when served).
+or, from `web/`, `node build.mjs && python3 -m http.server -d dist 5173`. The pages are
+routes, so there is no file to open directly: the build writes `dist/`, and that is the site.
 
 ## Deploy (DigitalOcean App Platform + Cloudflare edge)
 

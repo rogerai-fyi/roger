@@ -12,11 +12,12 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { source, component } from "./_html.mjs";
 
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const DIST = path.join(WEB, "dist");
 const read = (p) => readFileSync(path.join(DIST, p), "utf8");
-const src = (p) => readFileSync(path.join(WEB, "src", p), "utf8");
+const src = source;   // a page's source, legacy or app route (test/_html.mjs)
 const compact = (s) => s.replace(/\s+/g, " ");
 
 before(() => execFileSync("node", ["build.mjs"], { cwd: WEB }));
@@ -213,13 +214,13 @@ test("llms: robots.txt names it at the path it is actually served from", () => {
    =================================================================== */
 
 test("wiring: both pages are reachable from the shared footer", () => {
-  const footer = src("_partials/footer.html");
+  const footer = component("Footer");
   assert.match(footer, /href="\/pricing\.html"/, "footer links pricing");
   assert.match(footer, /href="\/faq\.html"/, "footer links the FAQ");
 });
 
 test("wiring: pricing is in the nav, and the FAQ is reachable from pricing", () => {
-  assert.match(src("_partials/nav.html"), /href="\/pricing\.html"/, "nav links pricing");
+  assert.match(component("Nav"), /href="\/pricing\.html"/, "nav links pricing");
   assert.match(read("pricing.html"), /href="\/faq\.html"/, "pricing links the FAQ");
 });
 

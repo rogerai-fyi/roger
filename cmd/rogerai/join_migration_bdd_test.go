@@ -403,7 +403,7 @@ func TestJoinMigrationBDD(t *testing.T) {
 
 			// The manual
 			sc.Step(`^the manual's LAN section is read$`, func() error {
-				b, err := os.ReadFile("../../web/src/manual.html")
+				b, err := os.ReadFile("../../web/app/routes/manual/+page.svelte") // the manual is an app route
 				if err != nil {
 					return err
 				}

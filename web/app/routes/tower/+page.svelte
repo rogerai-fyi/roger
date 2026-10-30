@@ -1,0 +1,380 @@
+<script>
+  // The Tower - RogerAI
+  // Ported from web/src/tower.html (2026-10-29); the copy is the legacy copy.
+  import { siteHead, CSS_SHARED, CSS_ACCOUNT } from "#lib/head.js";
+  import Footer from "#lib/ui/Footer.svelte";
+  import InstallBox from "#lib/ui/InstallBox.svelte";
+  import Nav from "#lib/ui/Nav.svelte";
+  import OnAir from "#lib/ui/OnAir.svelte";
+  import Rail from "#lib/ui/Rail.svelte";
+  const head = siteHead({
+    title: 'The Tower - RogerAI',
+    desc: 'How RogerAI picks a station for your request, meters it, and co-signs a receipt neither side can forge. Capacity-aware routing, power-of-two-choices, and settlement bound to a verified receipt.',
+    og: { type: 'website', title: 'The Tower - how RogerAI routes, meters and signs', desc: 'Capacity-aware routing with a health gate, and a receipt signed by the station and counter-signed by the broker, so a station cannot profit from misreporting price or tokens.', url: 'https://rogerai.fm/tower.html', image: 'https://rogerai.fm/og-research.png' },
+    css: [...CSS_SHARED, 'research.css', 'tower.css'],
+    scripts: [{ runtime: true }],
+  });
+</script>
+<svelte:head>{@html head}</svelte:head>
+<!-- THE TOWER: the broker, given a page. It was named on twenty pages and had one
+     nowhere. The signal path used to open the homepage as FIG.3, where it had to explain
+     the whole company in one picture; it opens §1 here instead, where it only has to
+     explain the tower.
+     "Tower" is the public name; "broker" stays the term in the code, API and manual, and
+     the page reconciles the two once.
+     Every claim traces to a committed spec - features/trust/lineage_receipts.feature and
+     features/routing/scoring.feature. Nothing here may get ahead of either. Contract: features/web/tower.feature. 
+     (the page's doc comment, from the legacy file; its sheets are the css: list above) -->
+  <Rail head='RogerAI &middot; The Tower' rev='Rev. 2026.07 &middot; ON AIR' />
+
+  <Nav variant='marketing' home='/' promo={false} current='tower' />
+
+  <main id="top" data-lift>
+    <section class="research-hero">
+      <div class="wrap">
+        <span class="hero__eyebrow">
+          <OnAir />
+          <span class="hero__callsign">THE TOWER</span>
+        </span>
+        <h1>Every station dials the tower. The tower never dials a station.</h1>
+        <p class="research-hero__lead tower__kicker"><b>And the tower is a program you can run:</b> keep 5% of everything you carry on the public band, or run one standalone as your own free private network. <a href="/broadcasts-run-a-tower.html">Raise one &rarr;</a> &middot; <a href="/pricing.html#why">Why this network &rarr;</a></p>
+        <p class="research-hero__lead">
+          One endpoint in front of machines nobody controls centrally. The tower decides
+          which station takes your request, counts what it actually used, and co-signs a
+          receipt that neither side can forge alone. In the API, the manual and the source
+          it is called the <b>broker</b> - same thing, older name.
+        </p>
+        <div class="research-actions research-actions--lead">
+          <a class="research-button" href="#run">Become a Tower <span aria-hidden="true">&darr;</span></a>
+          <a class="research-button" href="/manual.html#sTower">The Tower runbook</a>
+        </div>
+      </div>
+    </section>
+
+    <!-- The page's contents as the homepage's tuning scale (components.css .toc-tuner).
+         Each station reads its section's own label. Never pinned. -->
+    <nav class="toc-tuner" data-tuner aria-label="Sections">
+      <div class="wrap toc-tuner__band">
+      <div class="toc-tuner__readout" aria-hidden="true"></div>
+      <ol class="toc-tuner__scale">
+        <li><a class="toc-tuner__st" href="#path"><b>&sect;1</b><span class="toc-tuner__name">THE SIGNAL PATH</span></a></li>
+        <li><a class="toc-tuner__st" href="#patch"><b>&sect;2</b><span class="toc-tuner__name">THE PATCH</span></a></li>
+        <li><a class="toc-tuner__st" href="#tape"><b>&sect;3</b><span class="toc-tuner__name">THE TAPE</span></a></li>
+        <li><a class="toc-tuner__st" href="#run"><b>&sect;4</b><span class="toc-tuner__name">RUN ONE</span></a></li>
+        <li><a class="toc-tuner__st" href="#back"><b>&sect;5</b><span class="toc-tuner__name">WHAT YOU GET BACK</span></a></li>
+      </ol>
+      <span class="toc-tuner__needle" aria-hidden="true"></span>
+      </div>
+    </nav>
+
+    <!-- INK PANEL: the page's moment, the two instruments (components.css .tone-zone). -->
+    <div class="tone-zone" data-tone="ink">
+    <section class="section" id="path">
+      <div class="wrap">
+        <div class="section__head section__head--left" data-reveal>
+          <span class="sectionno">&sect;1 / THE SIGNAL PATH</span>
+          <h2>Three hops, and only one of them opens a port.</h2>
+          <p>Before the routing and the receipts, the shape: where a request goes, what
+             comes back, and which side does the dialing.</p>
+        </div>
+
+          <!-- The signal path, moved here from the homepage. CSS offset-path carries the packets, so there is no
+             SMIL to pause and reduced-motion is one media query rather than a script.
+             The labels are load-bearing claims, not decoration: the station opens no
+             inbound port, and the return leg carries a signed receipt. -->
+        <figure class="signal" aria-labelledby="signal-caption">
+          <div class="scroll-box scroll-box--diagram">
+          <svg class="signal__svg" viewBox="0 0 720 235" role="img" aria-labelledby="signal-caption">
+            <g class="signal__wire" aria-hidden="true">
+              <path d="M175 118 H285"/>
+              <path d="M440 118 H545"/>
+              <path d="M620 148 V196 H100 V148"/>
+            </g>
+
+            <g class="signal__packets" aria-hidden="true">
+              <circle class="signal__pkt signal__pkt--leg1" r="4.5"/>
+              <circle class="signal__pkt signal__pkt--leg2" r="4.5"/>
+              <circle class="signal__pkt signal__pkt--tok" r="4.5"/>
+            </g>
+
+            <g class="signal__nodes">
+              <g class="signal__node">
+                <rect x="25" y="88" width="150" height="60" rx="2"/>
+                <text class="signal__name" x="100" y="107">YOUR APP</text>
+                <text class="signal__sub" x="100" y="123">127.0.0.1</text>
+                <text class="signal__sub" x="100" y="137">OpenAI-compatible</text>
+              </g>
+              <g class="signal__node signal__node--mid">
+                <rect x="285" y="88" width="155" height="60" rx="2"/>
+                <text class="signal__name" x="362" y="107">TOWER</text>
+                <text class="signal__sub" x="362" y="123">the broker</text>
+                <text class="signal__sub" x="362" y="137">routes &#183; meters &#183; signs</text>
+              </g>
+              <g class="signal__node">
+                <rect x="545" y="88" width="150" height="60" rx="2"/>
+                <text class="signal__name" x="620" y="112">STATION</text>
+                <text class="signal__sub" x="620" y="132">someone&#39;s own GPU</text>
+              </g>
+            </g>
+
+            <g class="signal__labels" aria-hidden="true">
+              <text x="230" y="106">request</text>
+              <text x="492" y="106">routed</text>
+              <text x="360" y="214">tokens + signed receipt</text>
+              <text class="signal__note" x="620" y="76">dials out &#183; no inbound port</text>
+            </g>
+          </svg>
+          </div>
+          <figcaption id="signal-caption">A request leaves your machine for the broker, which
+            picks a station with capacity and forwards it. Tokens come back the same way with a
+            signed receipt, so what you were charged and what the operator earned are the same
+            record. The station dials out and never opens a port for you to reach. The tower relays both
+            directions, so it handles the request and the response in transit; what is
+            retained is in the <a href="/privacy.html">privacy policy</a>.</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section class="section" id="patch">
+      <div class="wrap">
+        <div class="section__head section__head--left" data-reveal>
+          <span class="sectionno">&sect;2 / THE PATCH</span>
+          <h2>Choosing a station is a score, not a queue.</h2>
+          <p>Every station on air is scored for your request, and the score is divided by
+             how much work that station is already carrying.</p>
+          <p class="dir-sibling"><span>Also on the network:</span>
+            <a href="/models.html">Models <span aria-hidden="true">&rarr;</span></a>
+            <a href="/voices.html">Voices <span aria-hidden="true">&rarr;</span></a></p>
+        </div>
+
+        <!-- The patch panel. Two cords are drawn; the animation hands the call from one
+             station to another when the first drops. Both cords and every capacity bar are
+             in the markup, so the still frame carries the same information as the motion. -->
+        <figure class="tower__patch" aria-labelledby="patch-title" aria-describedby="patch-cap">
+          <div class="tower__head"><span id="patch-title">ROUTING</span><span>score &divide; load, then power-of-two-choices</span></div>
+          <div class="scroll-box scroll-box--diagram">
+          <svg class="tower__svg" viewBox="0 0 640 250" role="img" aria-labelledby="patch-title" aria-describedby="patch-cap">
+            <g class="tower__frame" aria-hidden="true">
+              <rect x="14" y="96" width="96" height="46" rx="2"/>
+              <text class="tower__label" x="62" y="118">YOUR APP</text>
+              <text class="tower__sub" x="62" y="132">one endpoint</text>
+              <rect x="176" y="30" width="72" height="180" rx="2"/>
+              <text class="tower__label tower__label--v" x="212" y="120">TOWER</text>
+            </g>
+            <g class="tower__lines" aria-hidden="true">
+              <path class="tower__feed" d="M110 119 H176"/>
+            </g>
+
+            <g class="tower__stations" aria-hidden="true">
+              <g class="tower__station" data-tier="a">
+                <rect x="392" y="34" width="234" height="46" rx="2"/>
+                <text class="tower__st" x="406" y="55">STATION A</text>
+                <text class="tower__meta" x="406" y="70">healthy &middot; 3 of 8 in flight</text>
+                <rect class="tower__gauge" x="536" y="46" width="76" height="8"/>
+                <rect class="tower__fill" x="536" y="46" width="28" height="8"/>
+              </g>
+              <g class="tower__station" data-tier="a">
+                <rect x="392" y="98" width="234" height="46" rx="2"/>
+                <text class="tower__st" x="406" y="119">STATION B</text>
+                <text class="tower__meta" x="406" y="134">healthy &middot; 7 of 8 in flight</text>
+                <rect class="tower__gauge" x="536" y="110" width="76" height="8"/>
+                <rect class="tower__fill" x="536" y="110" width="66" height="8"/>
+              </g>
+              <g class="tower__station" data-tier="b">
+                <rect x="392" y="162" width="234" height="46" rx="2"/>
+                <text class="tower__st" x="406" y="183">STATION C</text>
+                <text class="tower__meta" x="406" y="198">probationary &middot; held back</text>
+                <rect class="tower__gauge" x="536" y="174" width="76" height="8"/>
+                <rect class="tower__fill" x="536" y="174" width="14" height="8"/>
+              </g>
+            </g>
+
+            <g class="tower__cords" aria-hidden="true">
+              <path class="tower__cord tower__cord--b" d="M248 120 C320 120 330 121 392 121"/>
+              <path class="tower__cord tower__cord--a" d="M248 120 C320 120 330 57 392 57"/>
+              <circle class="tower__jack" cx="248" cy="120" r="3.5"/>
+            </g>
+            <text class="tower__note" x="626" y="232">B drops &rarr; the call moves &middot; you are not charged for the failed attempt</text>
+          </svg>
+          </div>
+          <figcaption id="patch-cap">Each station on air is scored on price, reliability
+            and speed-fit for this request. That score is then divided by how much the
+            station is already carrying. Load is counted across broker instances, not per
+            instance, so a busy station never looks idle to one of them.
+            Healthy stations are selected ahead of
+            probationary ones, and a probationary station is used only when no healthy one
+            is available. The final choice is power-of-two-choices: two candidates are drawn
+            and the better one wins, so work spreads instead of piling onto whichever
+            station happens to score highest. If the chosen station drops mid-request the
+            call moves to another and the failed attempt costs you nothing.</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    </div><!-- /tone-zone -->
+
+    <section class="section research-tone" id="tape">
+      <div class="wrap">
+        <div class="section__head section__head--left" data-reveal>
+          <span class="sectionno">&sect;3 / THE TAPE</span>
+          <h2>A station cannot profit from misreporting the bill.</h2>
+          <p>Every served request produces a receipt signed by the station that served it
+             and counter-signed by the broker, chained to that station&rsquo;s previous one.</p>
+        </div>
+
+        <figure class="tower__tape" aria-labelledby="tape-title" aria-describedby="tape-cap">
+          <div class="tower__head"><span id="tape-title">RECEIPT TAPE</span><span>node signature &middot; broker counter-signature &middot; per-station chain</span></div>
+          <ol class="tape">
+            <li>
+              <span class="tape__id">#1042</span>
+              <span class="tape__tok">1,284 tok</span>
+              <span class="tape__hash">prev 9f2c&hellip;</span>
+              <span class="tape__sig">station &check;</span>
+              <span class="tape__sig tape__sig--broker">broker &check;</span>
+            </li>
+            <li>
+              <span class="tape__id">#1043</span>
+              <span class="tape__tok">892 tok</span>
+              <span class="tape__hash">prev 41ab&hellip;</span>
+              <span class="tape__sig">station &check;</span>
+              <span class="tape__sig tape__sig--broker">broker &check;</span>
+            </li>
+            <li data-void="1">
+              <span class="tape__id">#1044</span>
+              <span class="tape__tok">$0 &middot; no usable output</span>
+              <span class="tape__hash">prev c7e0&hellip;</span>
+              <span class="tape__sig">station &check;</span>
+              <span class="tape__sig tape__sig--broker">broker &check;</span>
+            </li>
+          </ol>
+          <figcaption id="tape-cap">The receipt returns to you with the response. Neither
+            side can rewrite history alone. The station signs the receipt, the broker
+            counter-signs the same canonical bytes, and each receipt carries the hash of
+            that station&rsquo;s previous receipt. A request that produced nothing usable
+            still gets a zero-value receipt, so the chain has no gaps to hide in.</figcaption>
+        </figure>
+
+        <div class="device-contract">
+          <p><b>The price is not the station&rsquo;s to claim.</b> A station&rsquo;s claimed
+             price is discarded at settlement and the broker&rsquo;s own resolved price is
+             used, so quoting one number and billing another is not a thing that can
+             happen.</p>
+          <p><b>The token count is checked, not trusted.</b> The broker recounts the tokens
+             itself and bills the lower of the claim and its own recount, on the prompt and
+             the completion separately.</p>
+          <p><b>The ceiling is set before the work starts.</b> Cost is capped at the hold
+             authorized up front, so a request cannot bill past what you agreed to when it
+             began.</p>
+        </div>
+
+        <div class="research-prose">
+          <p><b>What happens when it goes wrong is the guarantee.</b> A receipt signed with
+             the wrong key does not verify, so it settles nothing and the hold is refunded
+             in full. A request that returns no usable output costs zero, and the hold comes
+             back. If settlement itself fails, the hold is refunded - the failure path leans
+             toward the caller, not the house.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- §4 RUN ONE. Three sections explain what a Tower does; this is where a reader can
+         become one. Every number here is pinned elsewhere and none is invented: the split is
+         features/tower/edge_dispatch.feature, the artifacts are the goreleaser assets the
+         installer fetches by name, and "Linux only" is the installer's own refusal rather
+         than a preference. The hold and the minimum are deliberately NOT repeated here -
+         they are policy and env-tunable, so the page points at the manual instead of
+         printing a number that a deployment can change underneath it. -->
+    <section class="section" id="run">
+      <div class="wrap">
+        <div class="section__head section__head--left" data-reveal>
+          <span class="sectionno">&sect;4 / RUN ONE</span>
+          <h2>The tower is a program. You can run one.</h2>
+          <p>A Tower carries work between the people asking and the machines answering. It
+             runs no model of its own, and it is paid for the carrying: every settled request
+             pays the serving node <b>90%</b> of that node&rsquo;s own listed price, the
+             tower operator <b>5%</b>, and the platform the remaining <b>5%</b>. What a
+             Tower can and cannot see is the same as everything above on this page - the
+             <a href="/manual.html#sTower">runbook</a> is exact about it.</p>
+        </div>
+
+        <InstallBox id='installTower' size='lg' oslock='linux' label='Copy the Tower install command to clipboard'>curl -fsSL https://rogerai.fm/install.sh <span class="tok">| ROGERAI_COMPONENT=tower sh</span></InstallBox>
+        <p class="run__note">Linux only, and on purpose: a Tower is a long-running server
+           process. The installer verifies the release checksum before it installs anything,
+           and refuses outright on macOS or Windows rather than leaving you a binary that
+           cannot serve.</p>
+
+        <div class="run__grid">
+          <div class="run__row">
+            <span class="run__k">Linux &middot; amd64</span>
+            <span class="run__v"><a href="https://github.com/rogerai-fyi/roger/releases/latest/download/roger-tower-linux-amd64">roger-tower-linux-amd64 &darr;</a></span>
+          </div>
+          <div class="run__row">
+            <span class="run__k">Linux &middot; arm64</span>
+            <span class="run__v"><a href="https://github.com/rogerai-fyi/roger/releases/latest/download/roger-tower-linux-arm64">roger-tower-linux-arm64 &darr;</a></span>
+          </div>
+          <div class="run__row">
+            <span class="run__k">Verify</span>
+            <span class="run__v"><a href="https://github.com/rogerai-fyi/roger/releases/latest/download/checksums.txt">checksums.txt</a>
+              &middot; check with <code class="inline">sha256sum -c</code> before you run it</span>
+          </div>
+        </div>
+
+        <p class="run__note">What your Tower carries and earns shows up on your
+           <a href="/payouts.html">payouts page</a>, beside anything you earn from serving,
+           and cashes out the same way. Traffic through any one Tower is early, so expect
+           that figure to start at zero and follow demand rather than the day you install.</p>
+
+        <!-- Standalone. The page above is entirely about joining the public network, which
+             left the other half of what this binary does undocumented here: a Tower that
+             joins nothing. It is the answer to "can I use this on my own machines" and it
+             was reachable only by running `roger-tower --help`. -->
+        <p class="run__note"><b>Or join nothing at all.</b> A Tower does not have to be part of this network. In
+           <b>standalone</b> mode it needs <b>no account</b> and makes <b>no outbound
+           connection</b>: it mints its own local network and trust root, admits the machines
+           you invite, and routes between them. That is a private relay for your own local
+           models &ndash; a household, a lab, an air-gapped site &ndash; with nothing leaving
+           your machines and nobody to sign up with. A site that never dials out can still
+           run it: offline, on its own machines, with its own local models.</p>
+        <p class="run__note">Standalone routing is <b>free and locally accounted</b>. Every
+           receipt names your local network and claims nothing about RogerAI: there is no
+           credit, no payout and no platform share, and the configuration <b>refuses</b> a
+           payout setting rather than quietly defaulting it off. It is not an open relay
+           either &ndash; only the client you admitted may route through it. The
+           <a href="/manual.html#sTower">runbook</a> has the commands, and two commented
+           example configurations ship in the repository under <code class="inline">packaging/tower/</code>.</p>
+
+        <div class="research-actions research-actions--lead">
+          <a class="research-button" href="/manual.html#sTower">The Tower runbook</a>
+          <a class="research-button" href="/payouts.html">Payouts</a>
+        </div>
+      </div>
+    </section>
+
+    <!-- The close. "Verify it yourself" would be the obvious ending for a trust page and
+         it is not available to us: node public keys are held broker-side and are not
+         published, so a reader cannot check the station signature independently. What IS
+         true is that the evidence leaves with the work - the co-signed receipt rides back
+         on the response header - so that is what this section claims, and no more. The
+         relay caveat stays, because the page must not imply a privacy property it lacks. -->
+    <section class="section research-closing" id="back">
+      <div class="wrap">
+        <span class="sectionno">&sect;5 / WHAT YOU GET BACK</span>
+        <h2>The receipt leaves with the work.</h2>
+        <p>Every response carries its co-signed receipt on the
+           <code class="inline">X-RogerAI-Receipt</code> header, so the evidence arrives in
+           your hands rather than living only in our database. It carries the model, the
+           token counts both sides settled on, the price that was actually used, and both
+           signatures. The same records show up on your usage page, and the station&rsquo;s
+           signature is verified before anything settles - that check runs on every
+           request, not at audit time.</p>
+        <div class="research-actions research-actions--lead">
+          <a class="research-button" href="/usage.html">Your usage and receipts</a>
+          <a class="research-button" href="/manual.html#s10">Lineage in the manual</a>
+          <a class="research-button" href="/privacy.html">Privacy policy</a>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <Footer anchors='/' />

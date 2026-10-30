@@ -3,7 +3,8 @@
 // Run: node --test test/stations-appeal-styles.test.mjs
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { src } from "./_pagevm.mjs";
+import { source } from "./_html.mjs";
+const src = source;   // a page or a script as authored (test/_html.mjs)
 
 const html = src("stations.html");
 const block = html.slice(html.indexOf('id="stAppeal"'), html.indexOf("</div>", html.indexOf('id="appealMsg"')));

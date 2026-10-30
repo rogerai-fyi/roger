@@ -117,7 +117,7 @@ test("wildfire: a valve opens only on the owner's command or an owner-armed rule
   const b = boundary();
   assert.match(b, /raises the alert/i);
   assert.match(b, /makes the threat call/i);
-  assert.match(b, /valve opens only on the owner's command/i);
+  assert.match(b, /valve opens only on the owner[’']s command/i);
   assert.match(b, /under a rule the owner armed in advance/i);
   assert.match(b, /the controller[^.]*not the model[^.]*executes[^.]*its own abort window/i);
   assert.match(b, /never opens a valve by itself/i);

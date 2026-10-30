@@ -22,30 +22,18 @@ import path from "node:path";
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = path.join(WEB, "src");
 const dist = (p) => readFileSync(path.join(WEB, "dist", p), "utf8");
-const src = (p) => readFileSync(path.join(SRC, p), "utf8");
+const src = source;   // a page's source, legacy or app route (test/_html.mjs)
 const css = (p) => src(`styles/${p}`).replace(/\/\*[\s\S]*?\*\//g, "");
-export const PAGES = readdirSync(SRC).filter((f) => /^(broadcasts|research)[\w-]*\.html$/.test(f)).sort();
+export const PAGES = allPages().filter((f) => /^(broadcasts|research)[\w-]*\.html$/.test(f));
 const ARTICLES = PAGES.filter((f) => f.startsWith("broadcasts-"));
 const fixture = JSON.parse(readFileSync(path.join(WEB, "test/fixtures/research-words.json"), "utf8"));
 
 before(() => execFileSync("node", ["build.mjs"], { cwd: WEB }));
 
-// The reader's words: <main> without comments, scripts, styles, the contents tuner and
-// the install pill's decorative "$" prompt. Entities are left as written.
-export function mainOf(html) {
-  return (html.match(/<main\b[\s\S]*<\/main>/) || [""])[0]
-    .replace(/<!--[\s\S]*?-->/g, "")
-    .replace(/<script\b[\s\S]*?<\/script>/g, "")
-    .replace(/<style\b[\s\S]*?<\/style>/g, "")
-    .replace(/<nav class="toc-tuner"[\s\S]*?<\/nav>/g, "");
-}
-export function wordsOf(html) {
-  const text = mainOf(html)
-    .replace(/<span class="install__prompt"[^>]*>\$<\/span>/g, "")
-    .replace(/<[^>]+>/g, " ").replace(/\s+/g, "");
-  return { sha: createHash("sha256").update(text).digest("hex"), length: text.length,
-    hrefs: [...mainOf(html).matchAll(/href="([^"]*)"/g)].map((m) => m[1]) };
-}
+// The reader's words (test/_html.mjs): <main> without comments, scripts, styles, the contents
+// tuner and the install pill's decorative "$" prompt, entities decoded before hashing.
+import { mainOf, wordsOf, source, allPages } from "./_html.mjs";
+export { mainOf, wordsOf };
 
 test("(a) every research-section page keeps its words and links (whitespace aside)", () => {
   assert.deepEqual(Object.keys(fixture).sort(), PAGES, "the fixture covers every research-section page");
@@ -140,13 +128,24 @@ test("(c) the Quick Answer is set in the prose face as .bc-answer", () => {
   }
 });
 
+test("(c) the rail keeps a space between the orange and the revision on every broadcast", () => {
+  for (const page of ARTICLES) {
+    const rail = dist(page).match(/<span class="rail__rev">([\s\S]*?)<\/span><\/div>/)?.[1] || "";
+    if (!/orange3d/.test(rail)) continue;
+    assert.match(rail, /<\/span>\s+Rev\. /, `${page}: a space after the orange, before "Rev."`);
+  }
+});
+
 test("(c) every article sign-off is an inset panel; a closing install command is the shared pill", () => {
   let panels = 0, pills = 0;
   for (const page of ARTICLES) {
     const html = src(page);
     assert.doesNotMatch(html, /man-note--live/, `${page}: the pink sign-off box is gone`);
-    panels += (html.match(/<aside class="tint-panel bc-signoff"/g) || []).length;
-    pills += (html.match(/include: install-box\.html id=signoffInstall/g) || []).length;
+    // a post on the layout signs off with <Signoff> (the inset panel; the pill unless install={false});
+    // a Markdown post gets the layout's default sign-off, pill included
+    const md = /^layout: broadcast$/m.test(html);
+    panels += (html.match(/<aside class="tint-panel bc-signoff"|<Signoff\b/g) || []).length + (md ? 1 : 0);
+    pills += (html.match(/<InstallBox id='signoffInstall'|<Signoff\b(?![^>]*install=\{false\})/g) || []).length + (md ? 1 : 0);
   }
   assert.ok(panels >= 14, `${panels} articles sign off in an inset panel`);
   assert.ok(pills >= 9, `the install command is the shared pill in ${pills} sign-offs`);
@@ -162,7 +161,9 @@ test("index: the founder telegram folds on a phone and stays whole without JS", 
 
 /* ---- contents tuners on the long pages ----------------------------------------------- */
 
-const NUMBERED = (html) => [...mainOf(html).matchAll(/class="(?:sectionno|bc-sec__no[^"]*)">(?:&sect;|§)(\d+)/g)].map((m) => "§" + m[1]);
+// a numbered section: its label in a built page or a route; on a post route the FAQ section is
+// its <Faq no={N}/>, and the route has no <main> of its own (the post layout carries it)
+const NUMBERED = (html) => [...(/<main\b/.test(html) ? mainOf(html) : html).matchAll(/class="(?:sectionno|bc-sec__no[^"]*)">(?:&sect;|§)(\d+)|<Faq no=\{(\d+)\}/g)].map((m) => "§" + (m[1] || m[2]));
 // Every research-section page with four or more numbered sections is long (the "one role,
 // one pattern" rule), so that part of the list is derived, not hand-kept; the hand list
 // holds pages that carry one anyway (Hardware has three sections and a tuner).
