@@ -814,7 +814,7 @@ rogerai.fm/roger/v7/cmd/rogerai-broker/moderation.go:407:		screen					100.0%
 rogerai.fm/roger/v7/cmd/rogerai-broker/moderation.go:440:		urlFailMode				100.0%
 rogerai.fm/roger/v7/cmd/rogerai-broker/moderation.go:470:		urlCall					96.8%
 rogerai.fm/roger/v7/cmd/rogerai-broker/moderation.go:551:		screenGroq				100.0%
-rogerai.fm/roger/v7/cmd/rogerai-broker/moderation.go:578:		classify				100.0%
+rogerai.fm/roger/v7/cmd/rogerai-broker/moderation.go:578:		classify				92.3%
 rogerai.fm/roger/v7/cmd/rogerai-broker/moderation.go:610:		classifyOffPath				100.0%
 rogerai.fm/roger/v7/cmd/rogerai-broker/moderation.go:619:		configured				100.0%
 rogerai.fm/roger/v7/cmd/rogerai-broker/moderation.go:633:		groqCall				94.4%
@@ -1616,7 +1616,7 @@ rogerai.fm/roger/v7/cmd/rogerai-broker/tunnel.go:1487:			agentPoll				96.2%
 rogerai.fm/roger/v7/cmd/rogerai-broker/tunnel.go:1540:			agentPollMulti				93.4%
 rogerai.fm/roger/v7/cmd/rogerai-broker/tunnel.go:1646:			resubscribeJobs				78.6%
 rogerai.fm/roger/v7/cmd/rogerai-broker/tunnel.go:1674:			agentResult				82.1%
-rogerai.fm/roger/v7/cmd/rogerai-broker/tunnel.go:1743:			relay					95.5%
+rogerai.fm/roger/v7/cmd/rogerai-broker/tunnel.go:1743:			relay					96.1%
 rogerai.fm/roger/v7/cmd/rogerai-broker/tunnel.go:3873:			rekeyHold				100.0%
 rogerai.fm/roger/v7/cmd/rogerai-broker/tunnel.go:3886:			await					100.0%
 rogerai.fm/roger/v7/cmd/rogerai-broker/tunnel.go:3909:			dispatchErrOutcome			100.0%
@@ -2211,7 +2211,7 @@ rogerai.fm/roger/v7/cmd/rogerai/edgetrouble.go:34:			cmdEdgeTrouble				91.7%
 rogerai.fm/roger/v7/cmd/rogerai/edgetrouble.go:69:			edgePrintTroubleFeed			100.0%
 rogerai.fm/roger/v7/cmd/rogerai/edgetrouble.go:185:			edgeWatchTrouble			86.4%
 rogerai.fm/roger/v7/cmd/rogerai/filelock.go:20:				fileLockConfig				90.0%
-rogerai.fm/roger/v7/cmd/rogerai/filelock.go:67:				staleLock				100.0%
+rogerai.fm/roger/v7/cmd/rogerai/filelock.go:67:				staleLock				75.0%
 rogerai.fm/roger/v7/cmd/rogerai/filelock.go:85:				takeOverStaleLock			100.0%
 rogerai.fm/roger/v7/cmd/rogerai/filelock.go:102:			lockToken				100.0%
 rogerai.fm/roger/v7/cmd/rogerai/grant.go:20:				cmdGrant				100.0%
@@ -2725,10 +2725,10 @@ rogerai.fm/roger/v7/internal/agent/attest.go:77:			fetchChallenge				84.6%
 rogerai.fm/roger/v7/internal/agent/attest.go:101:			attestForRegistration			31.8%
 rogerai.fm/roger/v7/internal/agent/attest_sevsnp.go:21:			teeAvailable				60.0%
 rogerai.fm/roger/v7/internal/agent/attest_sevsnp.go:34:			generateQuote				37.5%
-rogerai.fm/roger/v7/internal/agent/cancel.go:43:			start					92.3%
+rogerai.fm/roger/v7/internal/agent/cancel.go:43:			start					100.0%
 rogerai.fm/roger/v7/internal/agent/cancel.go:63:			cancel					100.0%
 rogerai.fm/roger/v7/internal/agent/cancel.go:73:			cancelledResult				100.0%
-rogerai.fm/roger/v7/internal/agent/cancel.go:78:			cancelLoop				91.7%
+rogerai.fm/roger/v7/internal/agent/cancel.go:78:			cancelLoop				97.2%
 rogerai.fm/roger/v7/internal/agent/localtower.go:23:			idFromPriv				100.0%
 rogerai.fm/roger/v7/internal/agent/localtower.go:31:			NodeID					100.0%
 rogerai.fm/roger/v7/internal/agent/localtower.go:47:			ServeLocalTower				86.1%
@@ -7266,7 +7266,7 @@ rogerai.fm/roger/v7/internal/tui/tui.go:4752:				atOnAirLimit				100.0%
 rogerai.fm/roger/v7/internal/tui/tui.go:4756:				hasSchedule				100.0%
 rogerai.fm/roger/v7/internal/tui/tui.go:4764:				pilotLamp				100.0%
 rogerai.fm/roger/v7/internal/tui/tui.go:4783:				marquee					91.7%
-rogerai.fm/roger/v7/internal/tui/tui.go:4804:				editorLivePreview			96.0%
+rogerai.fm/roger/v7/internal/tui/tui.go:4804:				editorLivePreview			92.0%
 rogerai.fm/roger/v7/internal/tui/tui.go:4853:				maskKey					100.0%
 rogerai.fm/roger/v7/internal/tui/tui.go:4869:				modalFooter				100.0%
 rogerai.fm/roger/v7/internal/tui/tui.go:4890:				footer					92.3%
