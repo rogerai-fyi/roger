@@ -6,10 +6,9 @@ local-AI enthusiasts who put their self-hosted LLMs **on air** so others can
 of it.
 
 This is a static site: every page is a route of a small SvelteKit app, prerendered to
-plain HTML by `web/build.mjs` into `web/dist/` (the Layout section below). It's hosted on
-**DigitalOcean App Platform** (origin) behind **Cloudflare** (CDN/DNS proxy) -
-*not* Cloudflare Pages. See [`../.do/app.yaml`](../.do/app.yaml), the Deploy
-section below, and **[`EDGE.md`](EDGE.md)** for the Cloudflare edge rules.
+plain HTML by `web/build.mjs` into `web/dist/` (the Layout section below). Any static host
+can serve it; the security headers and the `www -> apex` redirect are applied at the edge.
+See the Deploy section below, and **[`EDGE.md`](EDGE.md)** for the edge rules.
 
 ## What's on the page
 
@@ -147,22 +146,18 @@ hydrates its prerendered markup in place in a real browser.
 
 ## Deploy
 
-Two layers (this is **not** Cloudflare Pages):
+Two layers:
 
-**Host / origin - DigitalOcean App Platform.** A single app spec
-(**[`../.do/app.yaml`](../.do/app.yaml)**) defines both the `broker` service and
-the `site` static site; both `deploy_on_push: true` on `main`. At deploy time DO
-runs the build (`build_command: node web/build.mjs`, `output_dir: web/dist`) and
-serves the result. The hero `curl` resolves to
-**[`src/install.sh`](src/install.sh)**, copied to the output root.
+**Origin - a static host.** Merging to `main` deploys the site: the host runs the build
+in `web/` (`npm install && npm run build`, on Node 22) and serves `web/dist/` as plain
+files. The hero `curl` resolves to **[`src/install.sh`](src/install.sh)**, copied to the
+output root.
 
-**Edge - Cloudflare (CDN/DNS proxy).** The apex and the `broker.` subdomain are
-proxied by Cloudflare in front of the DO origin (`x-do-app-origin` + `server:
-cloudflare` in the live headers). DO static hosting can't emit custom response
-headers, so the security headers in [`src/_headers`](src/_headers) and the `www ->
-apex` redirect in [`src/_redirects`](src/_redirects) are **not** applied by the
-host - they're mirrored to the Cloudflare edge as Transform / Redirect Rules. The
-exact rules + an apply script are in **[`EDGE.md`](EDGE.md)**.
+**Edge - a CDN/DNS proxy.** The site's hostnames (the apex and `www.`) sit behind it.
+The origin does not read [`src/_headers`](src/_headers) or [`src/_redirects`](src/_redirects),
+so the security headers and the `www -> apex` redirect are mirrored to the edge as rules,
+with those two files as the source of truth. The exact rules + an apply script are in
+**[`EDGE.md`](EDGE.md)**.
 
 The rationale for the tech choices is in **[`TECH.md`](TECH.md)**.
 

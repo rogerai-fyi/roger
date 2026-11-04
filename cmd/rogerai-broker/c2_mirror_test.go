@@ -20,8 +20,8 @@ import (
 // TestMultiInstanceRegistryMirrorEnablesCrossInstance is the C2 regression guard. Unlike
 // the older rendezvous test (which seeded the node on BOTH instances and so masked the
 // prod break), here the node registers on instance A ONLY and is mirrored to B via the
-// shared registry. This reproduces production (a node dials ONE instance, DO load-
-// balances each request) and proves the fix: B can PICK the node and ACCEPT its poll/
+// shared registry. This reproduces production (a node dials ONE instance, the load
+// balancer spreads each request) and proves the fix: B can PICK the node and ACCEPT its poll/
 // result (before the fix, B 503'd on pick and 404'd on poll - "unknown node").
 func TestMultiInstanceRegistryMirrorEnablesCrossInstance(t *testing.T) {
 	mr := miniredis.RunT(t)
@@ -244,7 +244,7 @@ func TestSyncRegistryConfidentialSeedsAttestation(t *testing.T) {
 // instance restarts it rehydrates registrations from Postgres, and (multi-instance) must
 // re-publish PUBLIC nodes to the shared registry so a peer can re-learn a heartbeat-only
 // node whose shared reg key lapsed while this instance was down. Private nodes must NOT be
-// published. Every DO deploy rolls instances, so this is the common path.
+// published. Every deploy rolls instances, so this is the common path.
 func TestRehydrateRepublishesToSharedRegistry(t *testing.T) {
 	mr := miniredis.RunT(t)
 	_, brokerPriv, _ := ed25519.GenerateKey(nil)

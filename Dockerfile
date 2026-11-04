@@ -11,6 +11,6 @@ RUN CGO_ENABLED=0 GOTOOLCHAIN=local go build -trimpath ${VERSION:+-ldflags "-X r
 
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /rogerai-broker /rogerai-broker
-# DO App Platform injects $PORT; the broker binds 0.0.0.0:$PORT automatically.
+# When the host injects $PORT, the broker binds 0.0.0.0:$PORT automatically.
 EXPOSE 8080
 ENTRYPOINT ["/rogerai-broker"]

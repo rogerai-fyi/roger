@@ -641,9 +641,9 @@ const livenessTTL = 10 * time.Minute
 // falls back to in-memory.
 const sharedOpTimeout = 750 * time.Millisecond
 
-// busSubscribe RETRY tuning. DO App Platform reaches the managed Valkey over PUBLIC networking,
-// so the pub/sub re-subscribe re-resolves the public hostname and intermittently hits DO's slow
-// public DNS (`dial tcp: lookup ...: i/o timeout`). A SINGLE such blip used to drop the whole
+// busSubscribe RETRY tuning. The broker reached the managed Valkey over PUBLIC networking,
+// so the pub/sub re-subscribe re-resolved the public hostname and intermittently hit a slow
+// public resolver (`dial tcp: lookup ...: i/o timeout`). A SINGLE such blip used to drop the whole
 // subscription to the in-memory fallback; these bound a short retry so an isolated timeout is
 // absorbed. A genuinely-down bus still falls back after the attempts are spent (worst case ~=
 // attempts*sharedOpTimeout + (attempts-1)*backoff, only on the already-degraded path).
@@ -2407,7 +2407,7 @@ func (v *valkeyStore) busSubscribe(ctx context.Context, channel string) (<-chan 
 		return nil, func() {}, errNoSharedStore
 	}
 	subCtx, cancel := context.WithCancel(ctx)
-	// Establish + confirm the subscription, retrying a transient failure (e.g. a DO public-DNS
+	// Establish + confirm the subscription, retrying a transient failure (e.g. a public-DNS
 	// i/o timeout on the re-subscribe) before giving up: Receive blocks for the subscribe
 	// confirmation so a Publish racing the Subscribe is not missed, bounded by sharedOpTimeout
 	// so a hung backend cannot stall the caller. Each attempt re-creates the PubSub (the prior

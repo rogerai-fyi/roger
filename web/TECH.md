@@ -2,8 +2,8 @@
 
 The brief: a **super-minimal, white, no-build static site** for a CLI tool - a
 curl-install hero, an animated terminal demo, and a quiet animated "radio map"
-background. Hosted on **DigitalOcean App Platform** behind a **Cloudflare**
-CDN/DNS proxy - *not* Cloudflare Pages (see the Deploy section + `EDGE.md`).
+background. Served as plain files from a static origin behind an edge proxy (see the
+Deploy section + `EDGE.md`).
 
 ## 2026-10: SvelteKit, prerendered
 
@@ -80,24 +80,21 @@ make site-serve      # node web/build.mjs, then http.server on http://localhost:
 or, from `web/`, `node build.mjs && python3 -m http.server -d dist 5173`. The pages are
 routes, so there is no file to open directly: the build writes `dist/`, and that is the site.
 
-## Deploy (DigitalOcean App Platform + Cloudflare edge)
+## Deploy
 
-The site is **not** on Cloudflare Pages. Two layers:
+Two layers:
 
-**Host / origin - DigitalOcean App Platform.** One app spec
-([`../.do/app.yaml`](../.do/app.yaml)) defines both the `broker` service and the
-`site` static site; both `deploy_on_push: true` on `main`. At deploy time DO runs
-the build (`build_command: node web/build.mjs`, `output_dir: web/dist`) and serves
-the result from DO Spaces.
+**Origin - a static host.** Merging to `main` deploys the site: the host runs the build in
+`web/` (`npm install && npm run build`, on Node 22, the floor `package.json` sets) and serves
+`dist/` as plain files, with `404.html` as the error page. Nothing else is asked of it, so
+any static host will do. CI builds with a newer Node, so a change to the build has to pass
+on Node 22 as well.
 
-**Edge - Cloudflare (CDN/DNS proxy).** The apex and the `broker.` subdomain are
-proxied by Cloudflare in front of the DO origin - visible as `x-do-app-origin` +
-`server: cloudflare` in the live response headers. Because DO static hosting can't
-emit custom response headers, the security headers in
-[`src/_headers`](src/_headers) and the `www -> apex` redirect in
-[`src/_redirects`](src/_redirects) live as Cloudflare **Transform / Redirect
-Rules**, not as files the host reads. The exact rules + an apply script are in
-**[`EDGE.md`](EDGE.md)**.
+**Edge - a CDN/DNS proxy.** The site's hostnames (the apex and `www.`) sit behind it. The
+origin does not read [`src/_headers`](src/_headers) or [`src/_redirects`](src/_redirects)
+(Cloudflare-Pages/Netlify conventions), so the security headers and the `www -> apex`
+redirect are applied at the edge as rules, with those two files as the source of truth for
+the values. The exact rules + an apply script are in **[`EDGE.md`](EDGE.md)**.
 
 Because `install.sh` is copied to the output root, it is served at
 `https://rogerai.fm/install.sh` - exactly what the hero `curl` pipes to.

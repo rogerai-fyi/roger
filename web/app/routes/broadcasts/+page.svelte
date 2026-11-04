@@ -103,10 +103,10 @@
       </div>
 
       <!-- ---- the transmission log ---- -->
-      <!-- To add a broadcast: clone broadcasts-independence-v5.html to a new flat
-           <slug> as a route on lib/ui/BroadcastPost.svelte (or a +page.md), then add ONE
-           <li class="bc-row"> at the TOP of this list (newest first) and bump the
-           <b class="bc-row__no"> counter (002, 003, ...). -->
+      <!-- To add a broadcast: write it as app/routes/broadcasts-<slug>/+page.md
+           (Markdown with frontmatter, layout: broadcast; see web/DESIGN-SYSTEM.md, The
+           article kit), then add ONE <li class="bc-row"> at the TOP of this list (newest
+           first) and bump the <b class="bc-row__no"> counter (002, 003, ...). -->
       <ol class="bc-list" data-reveal data-reveal-delay="80">
 
         <li class="bc-row">

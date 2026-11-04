@@ -24,17 +24,16 @@
 </script>
 <BroadcastPost {...post} renderFaq={false} signoff={false}>
 <!-- =====================================================================
-     BROADCAST TEMPLATE - clone this file for a new broadcast.
+     A NEW BROADCAST is not a copy of this file.
      ---------------------------------------------------------------------
      To start a new post:
-       1. cp broadcasts-independence-v5.html broadcasts-<your-slug>.html
-          (FLAT filename - the DO static host serves NO clean URLs, every
-           page is a .html at the root; do NOT use a subdirectory.)
-       2. Put it on the post layout (lib/ui/BroadcastPost.svelte), mirroring this page:
-            "broadcasts-<your-slug>.html": [...CSS_MARKETING, "broadcasts.css"],
-       3. Update the <head> title/desc, the .bc-post__no counter, the date,
-          the H1, the dek, and the section bodies.
-       4. Add a <li class="bc-row"> for it at the TOP of broadcasts.html.
+       1. Write it as Markdown with frontmatter at
+          app/routes/broadcasts-<your-slug>/+page.md (layout: broadcast), on the
+          one post layout; routes/broadcasts-free-chatgpt-alternative/+page.md
+          is the worked example and web/DESIGN-SYSTEM.md (The article kit) the
+          rules. It builds to broadcasts-<your-slug>.html.
+       2. Add ONE <li class="bc-row"> for it at the TOP of the list in
+          app/routes/broadcasts/+page.svelte and bump the counter.
      ===================================================================== 
      (the page's doc comment, from the legacy file; its sheets are the css: list above) -->
   {#snippet meta()}
