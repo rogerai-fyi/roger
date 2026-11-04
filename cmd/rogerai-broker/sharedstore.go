@@ -642,7 +642,7 @@ const livenessTTL = 10 * time.Minute
 const sharedOpTimeout = 750 * time.Millisecond
 
 // busSubscribe RETRY tuning. The broker reached the managed Valkey over PUBLIC networking,
-// so the pub/sub re-subscribe re-resolves the public hostname and intermittently hit a slow
+// so the pub/sub re-subscribe re-resolved the public hostname and intermittently hit a slow
 // public resolver (`dial tcp: lookup ...: i/o timeout`). A SINGLE such blip used to drop the whole
 // subscription to the in-memory fallback; these bound a short retry so an isolated timeout is
 // absorbed. A genuinely-down bus still falls back after the attempts are spent (worst case ~=
