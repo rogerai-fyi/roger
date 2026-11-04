@@ -344,7 +344,7 @@ const dmConsumerIP = "203.0.113.7"
 
 func (s *dmState) dmGet(h func(http.ResponseWriter, *http.Request), path string) *httptest.ResponseRecorder {
 	r := httptest.NewRequest(http.MethodGet, path, nil)
-	r.Header.Set("CF-Connecting-IP", dmConsumerIP)
+	setCallerIP(r, dmConsumerIP)
 	w := httptest.NewRecorder()
 	h(w, r)
 	return w

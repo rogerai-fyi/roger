@@ -3,9 +3,10 @@
 // from" block.
 //
 // It is COARSE and PRIVACY-PRESERVING BY CONSTRUCTION. The only origin it records is the
-// 2-letter ISO country Cloudflare already hands Core on the inbound request (CF-IPCountry) -
-// never an IP, never the consumer account, wallet, or pubkey. An attempt with no country
-// header (a dev path, a non-CF hop) is counted as "unknown" rather than dropped or guessed.
+// 2-character country code an edge proxy in front of Core sets on the inbound request (the
+// header the operator names, such as Cloudflare's CF-IPCountry) - never an IP, never the
+// consumer account, wallet, or pubkey. An attempt with no country (no header named, a dev path)
+// is counted as "unknown" rather than dropped or guessed.
 //
 // The privacy is STRUCTURAL, not merely a matter of what the view chooses to render: no
 // stored record ever carries an attempt id BESIDE a country. Idempotency (a retried
@@ -46,16 +47,20 @@ type Store interface {
 	ByTower(towerID string, since time.Time) ([]Tally, error)
 }
 
-// normCountry folds a raw header value to the stored bucket: upper-case ISO code, or Unknown
-// when absent. Cloudflare uses "XX" / "T1" for unresolved and Tor; those are kept verbatim
-// (they are still "where", coarsely) rather than merged into Unknown, which means "no header".
+// normCountry folds a raw header value to the stored bucket: an upper-case 2-character code, or
+// Unknown when there is none. Cloudflare uses "XX" / "T1" for unresolved and Tor; those are kept
+// verbatim (they are still "where", coarsely) rather than merged into Unknown, which means "no
+// country". Anything else (a longer string, markup, punctuation) is not a place and is Unknown
+// too: the value comes from a request header, and the tally must not keep a caller's text.
 func normCountry(c string) string {
 	c = strings.ToUpper(strings.TrimSpace(c))
-	if c == "" {
+	if len(c) != 2 || !countryChar(c[0]) || !countryChar(c[1]) {
 		return Unknown
 	}
 	return c
 }
+
+func countryChar(b byte) bool { return 'A' <= b && b <= 'Z' || '0' <= b && b <= '9' }
 
 func sortTallies(t []Tally) {
 	sort.Slice(t, func(i, j int) bool { return t[i].Country < t[j].Country })

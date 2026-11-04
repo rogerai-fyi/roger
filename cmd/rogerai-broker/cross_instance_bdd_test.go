@@ -666,13 +666,14 @@ func (s *xiState) rehydrates() error {
 func (s *xiState) instanceBansNode(inst string) error {
 	i := s.inst[inst]
 	i.b.reportEjectAt = 2                                        // corroborated auto-eject ON, as production configures it
+	withAddrTrust(s.t, "127.0.0.1", "")                          // the test server is reached through loopback: name it as the proxy
 	for _, ip := range []string{"203.0.113.7", "198.51.100.9"} { // two DISTINCT reporters
 		body, _ := json.Marshal(map[string]string{
 			"category": "abuse", "node_id": s.node.id, "detail": "xi: abusive station",
 		})
 		req, _ := http.NewRequest(http.MethodPost, i.url()+"/report", bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("CF-Connecting-IP", ip)
+		req.Header.Set("X-Forwarded-For", ip) // the test server sees a loopback peer: a trusted proxy
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			return err

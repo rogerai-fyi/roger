@@ -43,7 +43,7 @@ func TestUnknownKeyBurstIsBoundedUnderConcurrency(t *testing.T) {
 			defer wg.Done()
 			r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 			r.Header.Set("Authorization", fmt.Sprintf("Bearer rog-key_burst%064d", i))
-			r.Header.Set("CF-Connecting-IP", "203.0.113.9")
+			setCallerIP(r, "203.0.113.9")
 			<-start
 			b.resolveRelayKey(r)
 		}(i)
@@ -69,7 +69,7 @@ func TestALiveKeyNeverSpendsTheMissBudget(t *testing.T) {
 	for i := 0; i < 10*burst; i++ {
 		r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 		r.Header.Set("Authorization", "Bearer "+secret)
-		r.Header.Set("CF-Connecting-IP", "203.0.113.10")
+		setCallerIP(r, "203.0.113.10")
 		if _, ok, ref := b.resolveRelayKey(r); !ok || ref != nil {
 			t.Fatalf("live key relay %d refused: %+v", i+1, ref)
 		}
@@ -97,7 +97,7 @@ func TestAConcurrentLiveKeyBurstIsNeverRefused(t *testing.T) {
 			defer wg.Done()
 			r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 			r.Header.Set("Authorization", "Bearer "+secret)
-			r.Header.Set("CF-Connecting-IP", "203.0.113.11")
+			setCallerIP(r, "203.0.113.11")
 			<-start
 			if _, ok, ref := b.resolveRelayKey(r); !ok || ref != nil {
 				mu.Lock()

@@ -71,6 +71,7 @@ type sa6Spec struct {
 	maxPrice     []sa6KV
 	top          []sa6KV
 	hdr          map[string]string
+	callerIP     string // the address the request arrives from; "" = httptest's default
 	maxTokens    int
 	promptTokens int
 	tools        bool
@@ -434,7 +435,8 @@ func (h *sa6H) rs1(q sa6Spec) rs1Req {
 		kind = "illegal"
 	}
 	return rs1Req{caller: q.caller, kind: kind, model: q.model, noModel: q.noModel, frag: q.frag(),
-		headers: q.hdr, maxTokens: q.maxTokens, promptTokens: q.promptTokens, raw: q.raw}
+		headers: q.hdr, maxTokens: q.maxTokens, promptTokens: q.promptTokens, raw: q.raw,
+		callerIP: q.callerIP}
 }
 
 // othersStale makes every on-air station but keep stale for the duration of fn.

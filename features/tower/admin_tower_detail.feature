@@ -131,14 +131,17 @@ Feature: The admin Tower detail view
   # Traffic origin: WHERE the work came from, geographically, so an operator can
   # see the shape of a Tower's demand and spot an anomaly (all traffic from one
   # country overnight). Origin is COARSE and PRIVACY-PRESERVING by construction:
-  #   - The only origin recorded is the 2-letter ISO country Cloudflare already
-  #     hands Core on the inbound request (CF-IPCountry). No IP is ever stored.
+  #   - The only origin recorded is the 2-character country code an edge proxy in
+  #     front of Core sets on the inbound request: the header the operator names in
+  #     ROGERAI_COUNTRY_HEADER (for example Cloudflare's CF-IPCountry), read only from
+  #     a trusted proxy (features/security/client_address_trust.feature). No IP is
+  #     ever stored.
   #   - It is PRIVACY-PRESERVING BY CONSTRUCTION: no stored record ever carries an
   #     attempt id beside a country. Idempotency is tracked by the attempt id alone,
   #     the country under a surrogate id with no attempt id - so nothing in the store
   #     joins a consumer (reached via the attempt id) to where their request came from.
   #     The view answers "how much from where" but the schema itself cannot answer "who".
-  #   - A request with no country header (dev, a non-CF path) is counted as
+  #   - A request with no country (no header named, a dev path) is counted as
   #     "unknown" rather than dropped or guessed.
   # ---------------------------------------------------------------------------
   Scenario: The detail rolls traffic origin up by country
@@ -160,8 +163,11 @@ Feature: The admin Tower detail view
     When an admin requests the detail of "tw-detail"
     Then the origin block carries no IP address, consumer account, pubkey, or wallet
 
-  Scenario: The country is taken from Cloudflare's header, not a client-supplied one
-    Given a consumer request carrying CF-IPCountry "US" and a forged X-Country "CN"
+  # CHANGED 2026-11-04, pending founder approval: the country header is the one the operator
+  # names, read only from a trusted proxy (it read CF-IPCountry on every request).
+  Scenario: The country is taken from the edge's header, not a client-supplied one
+    Given the operator names "CF-IPCountry" as the country header
+    And a consumer request through a trusted proxy carrying CF-IPCountry "US" and a forged X-Country "CN"
     When the attempt's origin is recorded for "tw-detail"
     Then the origin block counts it under "US"
 

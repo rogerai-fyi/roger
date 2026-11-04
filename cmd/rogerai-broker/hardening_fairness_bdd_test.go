@@ -11,7 +11,7 @@ package main
 //
 // OBSERVATION POINTS (stated once, used throughout):
 //   - Consumers "alice".."dave" are distinct GitHub-bound accounts with their own wallets and
-//     their own client IP (CF-Connecting-IP); "one client IP" scenarios share one address.
+//     their own client IP (the address they connect from); "one client IP" scenarios share one address.
 //   - "X is (NOT) a candidate for P" fires ONE relay as payer P with provider.only [X] and
 //     reads whether X's upstream received it. A pair cooldown or a station cooldown both show
 //     as "not reached"; the station-wide state alone is read through pickFor (no payer).
@@ -519,8 +519,7 @@ func (s *fa6State) do(sp fa6Spec) fa6Resp {
 	if ip == "" {
 		ip = "198.51.100.250"
 	}
-	r.Header.Set("CF-Connecting-IP", ip)
-	r.RemoteAddr = ip + ":40000"
+	setCallerIP(r, ip)
 	for k, v := range sp.hdr {
 		r.Header.Set(k, v)
 	}

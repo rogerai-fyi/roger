@@ -27,6 +27,7 @@ func TestRunServe(t *testing.T) {
 	t.Setenv("ROGERAI_SEED_LIMIT", "7")     // override parse branch
 	t.Setenv("ROGERAI_PROBE_INTERVAL", "0") // keep the prober daemon off in the test
 
+	isolateAddrTrust(t) // runServe installs the trust setting from the environment
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)

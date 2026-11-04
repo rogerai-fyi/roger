@@ -224,7 +224,7 @@ func (s *nsState) doRegister(reg protocol.NodeRegistration, o *nsOwner) {
 	reg.SignRegistration(nodePriv)
 	body, _ := json.Marshal(reg)
 	r := httptest.NewRequest(http.MethodPost, "/nodes/register", bytes.NewReader(body))
-	r.Header.Set("CF-Connecting-IP", "203.0.113.7")
+	setCallerIP(r, "203.0.113.7")
 	if o != nil {
 		signReq(r, o.priv, body)
 	}

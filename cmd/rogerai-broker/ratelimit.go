@@ -63,7 +63,7 @@ func loadRateLimiter() *rateLimiter {
 }
 
 // loadAnonRateLimiter builds the per-IP limiter for the UNAUTHENTICATED public
-// surfaces (the free/anon relay + /discover), keyed on the validated CF-Connecting-IP.
+// surfaces (the free/anon relay + /discover), keyed on clientIP (clientaddr.go).
 // It is intentionally TIGHTER than the per-identity relay limiter: an anonymous source
 // IP gets a smaller sustained rate + burst than a signed wallet, since the anon surface
 // is the abuse-prone one and a logged-in caller has its own per-identity bucket.

@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"io"
 	"log"
-	"net"
 	"net/http"
 	"os"
 	"strconv"
@@ -707,51 +706,6 @@ func conciergeCORS(w http.ResponseWriter) {
 	h.Set("Access-Control-Allow-Origin", "*")
 	h.Set("Access-Control-Allow-Methods", "POST, OPTIONS")
 	h.Set("Access-Control-Allow-Headers", "Content-Type")
-}
-
-// clientIP extracts the TRUE caller IP for rate-limiting AND the abuse/CSAM legal
-// record. Trust order, most-trustworthy first:
-//
-//  1. CF-Connecting-IP - set by Cloudflare for every proxied request to the single
-//     real client address. We sit behind CF in production, and a client CANNOT spoof
-//     this header: CF strips any inbound CF-Connecting-IP and rewrites it from the
-//     observed TCP peer, so it is the only IP source safe to feed a CyberTipline
-//     record (a forged IP there poisons a legal report, 18 USC 2258A). When CF is in
-//     front this is authoritative.
-//  2. X-Forwarded-For (first hop) - the fallback when CF is absent (a non-CF proxy
-//     such as a hosting platform's load balancer). This IS client-appendable, so it is used ONLY
-//     when CF-Connecting-IP is missing - never preferred over it.
-//  3. RemoteAddr - the raw TCP peer when no proxy header is present (direct/dev).
-//
-// Preferring CF-Connecting-IP closes the old spoof: previously X-Forwarded-For was
-// trusted first, so a client could forge the IP that keys the rate limiter and the
-// preserved abuse record. Behind CF, XFF is no longer the leading source.
-func clientIP(r *http.Request) string {
-	if cf := strings.TrimSpace(r.Header.Get("CF-Connecting-IP")); cf != "" {
-		return cf
-	}
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		if i := strings.IndexByte(xff, ','); i >= 0 {
-			return strings.TrimSpace(xff[:i])
-		}
-		return strings.TrimSpace(xff)
-	}
-	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
-		return host
-	}
-	return r.RemoteAddr
-}
-
-// clientCountry is the coarse origin of a request: the 2-letter ISO country Cloudflare
-// resolves and sets as CF-IPCountry. It is read ONLY from that one header - never a
-// client-supplied X-Country - so an ordinary consumer request through the edge cannot move
-// the tally by inventing a country. It is not a security control: a caller who reaches the
-// origin DIRECTLY, bypassing Cloudflare, could set CF-IPCountry themselves, and the origin
-// tally is a monitoring aid, not an authorization input, so that is acceptable. Empty when
-// absent (a dev path or a non-CF hop); the origin store records that as "unknown". No IP is
-// read here - the country is all the origin tally ever keeps.
-func clientCountry(r *http.Request) string {
-	return strings.TrimSpace(r.Header.Get("CF-IPCountry"))
 }
 
 // lastUserText returns the most recent user message content (for the precheck).

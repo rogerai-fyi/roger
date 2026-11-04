@@ -555,7 +555,7 @@ func (s *opsState) relay(id int, body []byte) relayResult {
 		s.largestBody = int64(len(body))
 	}
 	r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
-	r.Header.Set("CF-Connecting-IP", "203.0.113.9")
+	setCallerIP(r, "203.0.113.9")
 	signReq(r, priv, body)
 	w := &timedRecorder{ResponseRecorder: httptest.NewRecorder()}
 	start := time.Now()

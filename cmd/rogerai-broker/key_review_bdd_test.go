@@ -223,7 +223,7 @@ func (k *kg5State) rvUnknownKeys() error {
 		r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
 		r.Header.Set("Content-Type", "application/json")
 		r.Header.Set("Authorization", fmt.Sprintf("Bearer rog-key_unknown%064d", i))
-		r.Header.Set("CF-Connecting-IP", "203.0.113.7")
+		setCallerIP(r, "203.0.113.7")
 		rr := httptest.NewRecorder()
 		k.b.routes().ServeHTTP(rr, r)
 		k.codes = append(k.codes, rr.Code)
@@ -308,7 +308,7 @@ func (k *kg5State) rvMgmtBearer(label string, n int) error {
 	for i := 0; i < n; i++ {
 		r := httptest.NewRequest(http.MethodPatch, "/account/keys/"+k.keyID(label), bytes.NewReader(body))
 		r.Header.Set("Authorization", "Bearer "+secret)
-		r.Header.Set("CF-Connecting-IP", "203.0.113.9")
+		setCallerIP(r, "203.0.113.9")
 		rr := httptest.NewRecorder()
 		k.b.routes().ServeHTTP(rr, r)
 		k.codes = append(k.codes, rr.Code)

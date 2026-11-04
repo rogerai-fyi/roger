@@ -1018,7 +1018,7 @@ func (s *ri6State) ownerRowCarriesNone() error {
 func (s *ri6State) getGen(priv []byte, id string) {
 	r := httptest.NewRequest(http.MethodGet, "/generation?id="+id, nil)
 	signReq(r, priv, nil)
-	r.Header.Set("CF-Connecting-IP", "198.51.100.77")
+	setCallerIP(r, "198.51.100.77")
 	w := httptest.NewRecorder()
 	s.b.generation(w, r)
 	s.genCode, s.genBody = w.Code, w.Body.Bytes()

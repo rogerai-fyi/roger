@@ -102,8 +102,9 @@ forever.
 the stations dashboard. No router reads it. The `tower_routable` projection does not even
 carry a region column.
 
-The broker does resolve a real client IP (`concierge.go`: CF-Connecting-IP → X-Forwarded-For
-→ RemoteAddr), but it is used for rate limiting, never for placement.
+The broker does resolve a real client IP (`clientaddr.go`: the TCP peer, or behind a named proxy
+the right-most X-Forwarded-For entry that proxy appended), but it is used for rate limiting,
+never for placement.
 
 And note what TTFT measures today: it is probed **broker → node**. That is a proxy for node
 speed plus broker-to-node latency. It says nothing about consumer-to-node distance, which is

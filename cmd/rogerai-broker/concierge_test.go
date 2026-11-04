@@ -40,7 +40,7 @@ func postConcierge(t *testing.T, b *broker, ip, content string) (int, map[string
 	body := `{"messages":[{"role":"user","content":"` + content + `"}]}`
 	r := httptest.NewRequest(http.MethodPost, "/concierge", strings.NewReader(body))
 	if ip != "" {
-		r.Header.Set("X-Forwarded-For", ip)
+		setCallerIP(r, ip)
 	}
 	w := httptest.NewRecorder()
 	b.conciergeHandler(w, r)

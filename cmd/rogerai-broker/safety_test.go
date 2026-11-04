@@ -239,13 +239,12 @@ func postReport(b *broker, body string) *httptest.ResponseRecorder {
 	return postReportIP(b, body, "9.9.9.9")
 }
 
-// postReportIP posts a report from a specific reporter IP (set via CF-Connecting-IP so
-// each call presents a distinct reporter), so a test can drive the distinct-reporter
+// postReportIP posts a report from a specific reporter IP (the address the request comes
+// from, so each call presents a distinct reporter), so a test can drive the distinct-reporter
 // corroboration count (one IP counts once; N distinct IPs corroborate).
 func postReportIP(b *broker, body, ip string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(http.MethodPost, "/report", strings.NewReader(body))
-	req.Header.Set("CF-Connecting-IP", ip)
-	req.RemoteAddr = ip + ":1234"
+	setCallerIP(req, ip)
 	rec := httptest.NewRecorder()
 	b.report(rec, req)
 	return rec

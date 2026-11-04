@@ -7,6 +7,8 @@ package origin
 
 import (
 	"database/sql"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -97,6 +99,29 @@ func TestOriginNoHeaderIsUnknown(t *testing.T) {
 			require.Equal(t, []Tally{
 				{Country: "US", Attempts: 1},
 				{Country: Unknown, Attempts: 2},
+			}, got)
+		})
+	}
+}
+
+// Only a 2-character code (letters, or Cloudflare's XX and T1) is a country. Anything else a
+// request carried is not a place, so it counts as unknown instead of storing the caller's text.
+// features/security/client_address_trust.feature, the origin tally's country.
+func TestOriginKeepsOnlyTwoCharacterCodes(t *testing.T) {
+	now := time.Now().UTC()
+	raw := []string{"USA", "<b>", "U$", "1", "U", "ß", "u s", strings.Repeat("A", 4096), "XX", "T1", "de", " FR "}
+	for name, st := range stores(t) {
+		st := st
+		t.Run(name, func(t *testing.T) {
+			for i, c := range raw {
+				require.NoError(t, st.Record("tw-V", fmt.Sprintf("v%d", i), c, now))
+			}
+			got, err := st.ByTower("tw-V", time.Time{})
+			require.NoError(t, err)
+			require.Equal(t, []Tally{
+				{Country: "DE", Attempts: 1}, {Country: "FR", Attempts: 1},
+				{Country: "T1", Attempts: 1}, {Country: "XX", Attempts: 1},
+				{Country: Unknown, Attempts: 8},
 			}, got)
 		})
 	}

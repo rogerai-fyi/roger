@@ -154,7 +154,8 @@ type towerSubsystem struct {
 	// money - disbursement is a separate concern behind the payment rails.
 	earnings earnings.Store
 	// origin is the coarse traffic-origin tally (attempts per country) the admin detail view
-	// reads. Country only, from CF-IPCountry, never an address or a consumer identity.
+	// reads. Country only, from the operator's country header (clientCountry), never an
+	// address or a consumer identity.
 	origin origin.Store
 	// repPolicy is the threshold set the outcomes are judged against.
 	repPolicy reputation.Policy

@@ -536,7 +536,7 @@ func (s *id6State) freshNotReplay() error {
 func (s *id6State) anonFree(key string) error {
 	s.onAir("f1", "m", 0, 0)
 	s.goOffAir("s1") // "a free station": the anonymous caller's only supply
-	q := sa6Spec{caller: "anon", model: "m", hdr: map[string]string{"Idempotency-Key": key, "CF-Connecting-IP": "198.51.100.7"}}
+	q := sa6Spec{caller: "anon", model: "m", hdr: map[string]string{"Idempotency-Key": key}, callerIP: "198.51.100.7"}
 	if err := s.send(q); err != nil {
 		return err
 	}
@@ -547,7 +547,7 @@ func (s *id6State) otherAnon(key string) error {
 	_, s.anonPriv, _ = ed25519.GenerateKey(nil)
 	return s.resend("", func(q *sa6Spec) {
 		q.hdr["Idempotency-Key"] = key
-		q.hdr["CF-Connecting-IP"] = "203.0.113.9"
+		q.callerIP = "203.0.113.9"
 	})
 }
 
