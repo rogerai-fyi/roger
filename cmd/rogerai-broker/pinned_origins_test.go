@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The exact values now pinned in .do/app.yaml, checked against the real originAllowed.
+// The exact origin values production sets, checked against the real originAllowed.
 func TestPinnedProductionOriginsAreAcceptedAndOthersAreNot(t *testing.T) {
 	t.Setenv("ROGERAI_WEB_ORIGIN", "https://rogerai.fm")
 	t.Setenv("ROGERAI_WEB_ORIGINS",

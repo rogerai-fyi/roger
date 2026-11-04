@@ -17,7 +17,7 @@ type rateLimiter struct {
 	buckets map[string]*tokenBucket
 	rpm     float64
 	burst   float64
-	// shared is an optional cross-instance backend (DO Valkey) for this limiter's
+	// shared is an optional cross-instance backend (Valkey) for this limiter's
 	// buckets. nil (the default) = purely in-memory, byte-for-byte today's behavior.
 	// When non-nil, allowAt consults the shared token bucket so multiple broker
 	// instances enforce ONE limit; on ANY shared-backend error it falls back to the

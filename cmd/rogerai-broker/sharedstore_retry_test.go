@@ -1,9 +1,9 @@
 package main
 
 // sharedstore_retry_test.go pins the RETRY-BEFORE-FALLBACK behavior added to the Valkey bus
-// subscribe path. The production symptom (2026-07-18/22): DO App Platform reaches the managed
+// subscribe path. The production symptom (2026-07-18/22): the broker reached the managed
 // Valkey over PUBLIC networking, and the pub/sub RE-SUBSCRIBE re-resolves the public hostname,
-// so it intermittently hits DO's slow public DNS -> `dial tcp: lookup ...: i/o timeout`. Before
+// so it intermittently hit a slow public resolver -> `dial tcp: lookup ...: i/o timeout`. Before
 // this change, a SINGLE such blip dropped that subscription straight to the in-memory fallback.
 // retrySubscribe absorbs an isolated transient failure with a bounded retry so the cross-instance
 // bus stays live; a genuinely-down bus still falls back after the attempts are exhausted.

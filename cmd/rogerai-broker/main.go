@@ -293,7 +293,7 @@ type broker struct {
 	recount   recountConfig // L1 independent token re-count (`rogerai-broker tokenizer`)
 	probe     probeConfig   // active canary + latency probe
 
-	// shared is the optional cross-instance state layer (DO Valkey via
+	// shared is the optional cross-instance state layer (a managed Valkey via
 	// ROGERAI_REDIS_URL). nil = the default + the fallback: purely in-memory, ZERO
 	// behavior change. When set, the SAFE state is mirrored to Valkey so multiple
 	// broker instances share it: the anon/concierge rate-limit buckets and node
@@ -321,7 +321,7 @@ type broker struct {
 	// provider long-polling a PEER instance, and the result/stream flows back over the
 	// Valkey bus to this (originating) instance, which relays it to the waiting consumer.
 	// It is gated behind ROGERAI_MULTI_INSTANCE=1 AND requires a wired shared backend
-	// (ROGERAI_REDIS_URL); UNSET (the default + the DO single-instance deploy) leaves it
+	// (ROGERAI_REDIS_URL); UNSET (the default + a single-instance deploy) leaves it
 	// false and EVERY relay/poll/stream path uses the in-memory channels EXACTLY as
 	// today (byte-for-byte, zero allocation). When true, the relay dispatch, the poll,
 	// the non-stream result, and the SSE stream all additionally go over the bus so the
@@ -483,7 +483,7 @@ type broker struct {
 	recountHoldDays int
 
 	// holdTTL bounds how long a relay pre-auth hold may live before the backstop sweep
-	// (releaseStaleHoldsSweep) reclaims it: a hold stranded because DO SIGKILLed the
+	// (releaseStaleHoldsSweep) reclaims it: a hold stranded because the host SIGKILLed the
 	// instance mid-redeploy before its deferred ReleaseHoldFor could run. Must exceed the
 	// longest legitimate relay (a 300s stream) with margin so a live relay is never
 	// reclaimed. Env ROGERAI_HOLD_TTL (default 10m). <=0 disables the sweep.
@@ -621,7 +621,7 @@ func main() {
 	seed := flag.Float64("seed-credits", 100.0, "starting credits per new user (until Stripe)")
 	lock := flag.Duration("price-lock", 24*time.Hour, "how long a quoted price is honored per user+node+model")
 	flag.Parse()
-	// DO App Platform sets $PORT; bind all interfaces there.
+	// A platform host sets $PORT; bind all interfaces there.
 	a := *addr
 	if p := os.Getenv("PORT"); p != "" {
 		a = "0.0.0.0:" + p
@@ -743,7 +743,7 @@ func runServe(ln net.Listener, fee, seed float64, lock time.Duration, stop <-cha
 		IdleTimeout:       120 * time.Second,
 		MaxHeaderBytes:    1 << 16, // 64 KiB
 	}
-	// GRACEFUL DRAIN (deploy-orphan fix, part 1). On SIGTERM (a DO rolling redeploy) - or a
+	// GRACEFUL DRAIN (deploy-orphan fix, part 1). On SIGTERM (a rolling redeploy) - or a
 	// closed stop in tests - call srv.Shutdown so in-flight relays RETURN (running their
 	// deferred ReleaseHoldFor / Finalize) before the process exits, instead of being killed
 	// mid-flight with their consumer holds stranded. We MUST wait for Shutdown to finish
@@ -1038,7 +1038,7 @@ func (b *broker) wireShared(ss sharedStore) {
 	// Valkey backend (the only place jobs/results/chunks can rendezvous across
 	// instances), so it is only ever enabled when b.shared is non-nil. Unset = the
 	// in-memory single-instance fast-path, byte-for-byte unchanged. PROD runs it ON
-	// (.do/app.yaml: instance_count:2 + ROGERAI_MULTI_INSTANCE=1, reconciled in P1-4).
+	// (ROGERAI_MULTI_INSTANCE=1 on every instance, reconciled in P1-4).
 	if multiInstanceEnabled() {
 		b.multiInstance = true
 		b.dispatchMode = dispatchModeFromEnv()
@@ -1053,7 +1053,7 @@ func (b *broker) wireShared(ss sharedStore) {
 		// Best-effort: a shared-store hiccup just defers presence to the next tick.
 		_ = b.shared.markInstance(b.instanceID, time.Now())
 		// Tag EVERY log line with this instance's id so logs from the 2+ instances
-		// (interleaved in the aggregated DO log stream) are attributable at a glance -
+		// (interleaved in the aggregated log stream) are attributable at a glance -
 		// the team no longer has to guess which instance emitted a relay/bus line. This
 		// is gated on multi-instance, so the single-instance log format is unchanged.
 		log.SetPrefix("[" + b.instanceID + "] ")
