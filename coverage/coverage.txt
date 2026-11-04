@@ -259,7 +259,7 @@ rogerai.fm/roger/v7/cmd/rogerai-broker/cacheaccel.go:78:		cachedAccountOfNode			
 rogerai.fm/roger/v7/cmd/rogerai-broker/cacheaccel.go:104:		cachedOwnerOf				100.0%
 rogerai.fm/roger/v7/cmd/rogerai-broker/cacheaccel.go:115:		invalidateAccountOfNode			100.0%
 rogerai.fm/roger/v7/cmd/rogerai-broker/cacheaccel.go:132:		capSpendKey				100.0%
-rogerai.fm/roger/v7/cmd/rogerai-broker/cacheaccel.go:149:		monthSpend				85.7%
+rogerai.fm/roger/v7/cmd/rogerai-broker/cacheaccel.go:149:		monthSpend				100.0%
 rogerai.fm/roger/v7/cmd/rogerai-broker/cacheaccel.go:187:		recordMonthSpend			83.3%
 rogerai.fm/roger/v7/cmd/rogerai-broker/cacheaccel.go:209:		seededFlagKey				100.0%
 rogerai.fm/roger/v7/cmd/rogerai-broker/cacheaccel.go:228:		ensureSeeded				100.0%
@@ -814,7 +814,7 @@ rogerai.fm/roger/v7/cmd/rogerai-broker/moderation.go:407:		screen					100.0%
 rogerai.fm/roger/v7/cmd/rogerai-broker/moderation.go:440:		urlFailMode				100.0%
 rogerai.fm/roger/v7/cmd/rogerai-broker/moderation.go:470:		urlCall					96.8%
 rogerai.fm/roger/v7/cmd/rogerai-broker/moderation.go:551:		screenGroq				100.0%
-rogerai.fm/roger/v7/cmd/rogerai-broker/moderation.go:578:		classify				92.3%
+rogerai.fm/roger/v7/cmd/rogerai-broker/moderation.go:578:		classify				100.0%
 rogerai.fm/roger/v7/cmd/rogerai-broker/moderation.go:610:		classifyOffPath				100.0%
 rogerai.fm/roger/v7/cmd/rogerai-broker/moderation.go:619:		configured				100.0%
 rogerai.fm/roger/v7/cmd/rogerai-broker/moderation.go:633:		groqCall				94.4%
@@ -825,7 +825,7 @@ rogerai.fm/roger/v7/cmd/rogerai-broker/moderation.go:761:		groqFailMode				100.0
 rogerai.fm/roger/v7/cmd/rogerai-broker/moderation.go:768:		matchedCategoryList			100.0%
 rogerai.fm/roger/v7/cmd/rogerai-broker/moderation.go:789:		screenVoiceRegistration			100.0%
 rogerai.fm/roger/v7/cmd/rogerai-broker/moderation.go:816:		promptText				100.0%
-rogerai.fm/roger/v7/cmd/rogerai-broker/moderation.go:827:		collectStrings				85.0%
+rogerai.fm/roger/v7/cmd/rogerai-broker/moderation.go:827:		collectStrings				95.0%
 rogerai.fm/roger/v7/cmd/rogerai-broker/monthlycap.go:33:		monthlyCapState				100.0%
 rogerai.fm/roger/v7/cmd/rogerai-broker/monthlycap.go:43:		capStateFrom				100.0%
 rogerai.fm/roger/v7/cmd/rogerai-broker/monthlycap.go:59:		monthlyCapCheck				100.0%
@@ -996,7 +996,7 @@ rogerai.fm/roger/v7/cmd/rogerai-broker/rc.go:414:			rcSubtree				78.6%
 rogerai.fm/roger/v7/cmd/rogerai-broker/rc.go:445:			rcJoin					55.0%
 rogerai.fm/roger/v7/cmd/rogerai-broker/rc.go:475:			rcAuthHost				100.0%
 rogerai.fm/roger/v7/cmd/rogerai-broker/rc.go:486:			rcAuthViewer				72.7%
-rogerai.fm/roger/v7/cmd/rogerai-broker/rc.go:505:			rcPoll					74.4%
+rogerai.fm/roger/v7/cmd/rogerai-broker/rc.go:505:			rcPoll					79.5%
 rogerai.fm/roger/v7/cmd/rogerai-broker/rc.go:581:			rcEvents				64.7%
 rogerai.fm/roger/v7/cmd/rogerai-broker/rc.go:608:			rcSend					79.3%
 rogerai.fm/roger/v7/cmd/rogerai-broker/rc.go:652:			rcStream				76.6%
@@ -1312,7 +1312,7 @@ rogerai.fm/roger/v7/cmd/rogerai-broker/sharedstore.go:2017:		counterSet				88.9%
 rogerai.fm/roger/v7/cmd/rogerai-broker/sharedstore.go:2032:		counterIncr				90.0%
 rogerai.fm/roger/v7/cmd/rogerai-broker/sharedstore.go:2058:		counterSetIfGreater			88.9%
 rogerai.fm/roger/v7/cmd/rogerai-broker/sharedstore.go:2083:		counterDel				66.7%
-rogerai.fm/roger/v7/cmd/rogerai-broker/sharedstore.go:2097:		counterDelIfEqual			0.0%
+rogerai.fm/roger/v7/cmd/rogerai-broker/sharedstore.go:2097:		counterDelIfEqual			70.0%
 rogerai.fm/roger/v7/cmd/rogerai-broker/sharedstore.go:2154:		edgeSlotReserve				90.0%
 rogerai.fm/roger/v7/cmd/rogerai-broker/sharedstore.go:2172:		edgeSlotPromote				78.6%
 rogerai.fm/roger/v7/cmd/rogerai-broker/sharedstore.go:2204:		edgeSlotAdopt				84.2%
@@ -1393,7 +1393,7 @@ rogerai.fm/roger/v7/cmd/rogerai-broker/strikes.go:81:			strikeDecayDays				100.0
 rogerai.fm/roger/v7/cmd/rogerai-broker/strikes.go:93:			strikeCorroborateKinds			100.0%
 rogerai.fm/roger/v7/cmd/rogerai-broker/strikes.go:106:			ownerOf					100.0%
 rogerai.fm/roger/v7/cmd/rogerai-broker/strikes.go:122:			strikeUnboundReceipt			100.0%
-rogerai.fm/roger/v7/cmd/rogerai-broker/strikes.go:146:			checkChain				87.5%
+rogerai.fm/roger/v7/cmd/rogerai-broker/strikes.go:146:			checkChain				62.5%
 rogerai.fm/roger/v7/cmd/rogerai-broker/strikes.go:168:			strike					100.0%
 rogerai.fm/roger/v7/cmd/rogerai-broker/strikes.go:198:			strikeAccount				92.7%
 rogerai.fm/roger/v7/cmd/rogerai-broker/strikes.go:292:			banOwner				100.0%
@@ -1613,7 +1613,7 @@ rogerai.fm/roger/v7/cmd/rogerai-broker/tunnel.go:1415:			applyOfferOverrides			1
 rogerai.fm/roger/v7/cmd/rogerai-broker/tunnel.go:1437:			mirrorRegistration			88.9%
 rogerai.fm/roger/v7/cmd/rogerai-broker/tunnel.go:1460:			heartbeat				93.8%
 rogerai.fm/roger/v7/cmd/rogerai-broker/tunnel.go:1487:			agentPoll				96.2%
-rogerai.fm/roger/v7/cmd/rogerai-broker/tunnel.go:1540:			agentPollMulti				93.4%
+rogerai.fm/roger/v7/cmd/rogerai-broker/tunnel.go:1540:			agentPollMulti				90.2%
 rogerai.fm/roger/v7/cmd/rogerai-broker/tunnel.go:1646:			resubscribeJobs				78.6%
 rogerai.fm/roger/v7/cmd/rogerai-broker/tunnel.go:1674:			agentResult				82.1%
 rogerai.fm/roger/v7/cmd/rogerai-broker/tunnel.go:1743:			relay					96.1%
@@ -2211,7 +2211,7 @@ rogerai.fm/roger/v7/cmd/rogerai/edgetrouble.go:34:			cmdEdgeTrouble				91.7%
 rogerai.fm/roger/v7/cmd/rogerai/edgetrouble.go:69:			edgePrintTroubleFeed			100.0%
 rogerai.fm/roger/v7/cmd/rogerai/edgetrouble.go:185:			edgeWatchTrouble			86.4%
 rogerai.fm/roger/v7/cmd/rogerai/filelock.go:20:				fileLockConfig				90.0%
-rogerai.fm/roger/v7/cmd/rogerai/filelock.go:67:				staleLock				75.0%
+rogerai.fm/roger/v7/cmd/rogerai/filelock.go:67:				staleLock				100.0%
 rogerai.fm/roger/v7/cmd/rogerai/filelock.go:85:				takeOverStaleLock			100.0%
 rogerai.fm/roger/v7/cmd/rogerai/filelock.go:102:			lockToken				100.0%
 rogerai.fm/roger/v7/cmd/rogerai/grant.go:20:				cmdGrant				100.0%
@@ -2725,7 +2725,7 @@ rogerai.fm/roger/v7/internal/agent/attest.go:77:			fetchChallenge				84.6%
 rogerai.fm/roger/v7/internal/agent/attest.go:101:			attestForRegistration			31.8%
 rogerai.fm/roger/v7/internal/agent/attest_sevsnp.go:21:			teeAvailable				60.0%
 rogerai.fm/roger/v7/internal/agent/attest_sevsnp.go:34:			generateQuote				37.5%
-rogerai.fm/roger/v7/internal/agent/cancel.go:43:			start					100.0%
+rogerai.fm/roger/v7/internal/agent/cancel.go:43:			start					92.3%
 rogerai.fm/roger/v7/internal/agent/cancel.go:63:			cancel					100.0%
 rogerai.fm/roger/v7/internal/agent/cancel.go:73:			cancelledResult				100.0%
 rogerai.fm/roger/v7/internal/agent/cancel.go:78:			cancelLoop				97.2%
@@ -3975,7 +3975,7 @@ rogerai.fm/roger/v7/internal/emailauth/emailauth.go:199:		hashCode				100.0%
 rogerai.fm/roger/v7/internal/emailauth/emailauth.go:205:		sha256hex				100.0%
 rogerai.fm/roger/v7/internal/emailauth/emailauth.go:210:		unavailable				100.0%
 rogerai.fm/roger/v7/internal/emailauth/emailauth.go:223:		Request					94.1%
-rogerai.fm/roger/v7/internal/emailauth/emailauth.go:260:		Submit					100.0%
+rogerai.fm/roger/v7/internal/emailauth/emailauth.go:260:		Submit					95.8%
 rogerai.fm/roger/v7/internal/emailauth/emailauth.go:311:		randomCode				87.5%
 rogerai.fm/roger/v7/internal/emailauth/store.go:89:			NewMemStore				100.0%
 rogerai.fm/roger/v7/internal/emailauth/store.go:93:			Put					100.0%
