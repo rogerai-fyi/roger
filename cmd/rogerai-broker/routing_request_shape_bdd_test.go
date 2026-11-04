@@ -80,6 +80,7 @@ type rs1Req struct {
 	headers      map[string]string
 	maxTokens    int
 	promptTokens int
+	callerIP     string // the address the request arrives from; "" = httptest's default
 }
 
 // rs1Shot is what one relay left behind (cached so a probe replay cannot disturb it).
@@ -367,6 +368,9 @@ func (s *rs1State) httpRequest(q rs1Req, body []byte) *http.Request {
 	}
 	for k, v := range q.headers {
 		r.Header.Set(k, s.mapHeader(k, v))
+	}
+	if q.callerIP != "" {
+		setCallerIP(r, q.callerIP)
 	}
 	return r
 }

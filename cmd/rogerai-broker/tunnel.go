@@ -1916,7 +1916,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		// Any UNAUTHENTICATED caller that resolves to the shared "anon" identity (no
 		// signed/grant identity) would otherwise share ONE relay bucket for the whole
 		// public surface, so enforce a SEPARATE per-IP limit first (keyed on the
-		// validated CF-Connecting-IP). A signed caller has its own per-identity bucket
+		// caller's address, clientIP). A signed caller has its own per-identity bucket
 		// (keyed on its pubkey-derived id) and skips this. The relay spend gate below
 		// already 401s a bare unsigned request, so this is the defense for any no-auth
 		// relay path AND keeps the per-IP discipline uniform with /discover + concierge.
@@ -6313,8 +6313,8 @@ func parseNodeSet(s string) map[string]bool {
 // with the most to gain from lying are exactly the ones a locality term is supposed to
 // deprioritize. The connecting address is the one location signal in the system that the party
 // being located does not get to choose: it is where the TCP session actually came from, resolved
-// by concierge.go's clientIP with CF-Connecting-IP preferred over the client-appendable
-// X-Forwarded-For for precisely this reason.
+// by clientIP (clientaddr.go), which believes a forwarding header only from a trusted proxy,
+// for precisely this reason.
 //
 // The broker has been computing this on every registration - for the free-registration rate
 // limiter - and throwing it away. This keeps a bucket of it, and nothing more.

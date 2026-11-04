@@ -33,6 +33,7 @@ func TestRunServeStopsTheSharedRetryOnShutdown(t *testing.T) {
 	sharedRetrySleep = func(time.Duration) { tries.Add(1); time.Sleep(5 * time.Millisecond) }
 	t.Cleanup(func() { sharedRetrySleep = saved })
 
+	isolateAddrTrust(t) // runServe installs the trust setting from the environment
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)

@@ -60,8 +60,8 @@ func TestTheNetworkBucketComesFromTheConnectionNotTheRegistration(t *testing.T) 
 	body, err := json.Marshal(reg)
 	require.NoError(t, err)
 	r := httptest.NewRequest(http.MethodPost, "/nodes/register", bytes.NewReader(body))
-	// The header clientIP prefers over every client-appendable one.
-	r.Header.Set("CF-Connecting-IP", "203.0.113.42")
+	// The address the registration arrives from.
+	setCallerIP(r, "203.0.113.42")
 	w := httptest.NewRecorder()
 	b.register(w, r)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
@@ -80,7 +80,7 @@ func TestRegisteringANodeLogsNoAddress(t *testing.T) {
 	body, err := json.Marshal(reg)
 	require.NoError(t, err)
 	r := httptest.NewRequest(http.MethodPost, "/nodes/register", bytes.NewReader(body))
-	r.Header.Set("CF-Connecting-IP", "203.0.113.42")
+	setCallerIP(r, "203.0.113.42")
 
 	var buf bytes.Buffer
 	old := log.Writer()
@@ -105,7 +105,7 @@ func TestAnUnbucketableAddressClearsTheOldBucket(t *testing.T) {
 		require.NoError(t, err)
 		r := httptest.NewRequest(http.MethodPost, "/nodes/register", bytes.NewReader(body))
 		if ip != "" {
-			r.Header.Set("CF-Connecting-IP", ip)
+			setCallerIP(r, ip)
 		} else {
 			r.RemoteAddr = "not-a-host-port"
 		}

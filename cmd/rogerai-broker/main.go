@@ -285,7 +285,7 @@ type broker struct {
 	// (the free/anon relay, /discover). identityOf collapses all unauthenticated callers
 	// to the single id "anon", so the per-identity b.rl bucket would be ONE shared bucket
 	// for the entire public surface - a single abuser could starve every anon caller, and
-	// no abuser is individually bounded. anonRL is keyed on the validated CF-Connecting-IP
+	// no abuser is individually bounded. anonRL is keyed on the caller's address
 	// (clientIP), giving each source IP its own bucket. This extends the same per-IP
 	// discipline the concierge already uses (concierge.rl) to the other anon surfaces.
 	anonRL    *rateLimiter
@@ -647,6 +647,9 @@ func main() {
 // exact same path ListenAndServe takes after its own net.Listen).
 func runServe(ln net.Listener, fee, seed float64, lock time.Duration, stop <-chan struct{}) error {
 	logBrokerCommitStatus()
+	if err := loadClientAddrTrust(os.Getenv); err != nil {
+		return err // a trust setting the broker cannot read: refuse to serve rather than guess
+	}
 	if v := os.Getenv("ROGERAI_FEE"); v != "" {
 		if f, err := strconv.ParseFloat(v, 64); err == nil {
 			fee = f

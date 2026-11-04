@@ -52,10 +52,10 @@ func rlTestBroker(t *testing.T) *broker {
 	return b
 }
 
-// getFrom issues a GET against the handler from a single fixed CF-Connecting-IP.
+// getFrom issues a GET against the handler from a single fixed client address.
 func getFrom(h func(http.ResponseWriter, *http.Request), path, ip string) *httptest.ResponseRecorder {
 	r := httptest.NewRequest(http.MethodGet, path, nil)
-	r.Header.Set("CF-Connecting-IP", ip)
+	setCallerIP(r, ip)
 	w := httptest.NewRecorder()
 	h(w, r)
 	return w

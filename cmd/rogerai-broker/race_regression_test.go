@@ -48,7 +48,7 @@ func raceReg(t *testing.T, nodeID string) []byte {
 func racePostRegister(t *testing.T, b *broker, body []byte) {
 	t.Helper()
 	r := httptest.NewRequest(http.MethodPost, "/nodes/register", bytes.NewReader(body))
-	r.Header.Set("CF-Connecting-IP", "203.0.113.9")
+	setCallerIP(r, "203.0.113.9")
 	w := httptest.NewRecorder()
 	b.register(w, r)
 	if w.Code != http.StatusOK {

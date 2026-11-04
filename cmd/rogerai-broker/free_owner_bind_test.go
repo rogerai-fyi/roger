@@ -28,7 +28,7 @@ func registerFreeOwned(t *testing.T, b *broker, nodeID string, nodePriv ed25519.
 	r := httptest.NewRequest(http.MethodPost, "/nodes/register", bytes.NewReader(body))
 	signReq(r, userPriv, body) // OWNER signature on the request
 	if ip != "" {
-		r.Header.Set("CF-Connecting-IP", ip)
+		setCallerIP(r, ip)
 	}
 	w := httptest.NewRecorder()
 	b.register(w, r)

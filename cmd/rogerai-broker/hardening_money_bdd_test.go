@@ -1078,7 +1078,7 @@ func (s *mh6State) streamWithCancel(who string, after int) {
 	r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body)).WithContext(ctx)
 	w := s.consumer(who)
 	signReq(r, w.priv, body)
-	r.Header.Set("CF-Connecting-IP", w.ip)
+	setCallerIP(r, w.ip)
 	rw := &mh6CancelWriter{recWriter: &recWriter{ResponseRecorder: httptest.NewRecorder()}, after: after, cancel: cancel}
 	s.b.relay(rw, r)
 	res := fa6Resp{who: who, code: rw.Code, body: rw.Body.Bytes(), hdr: rw.Header(), stream: true}
@@ -1700,7 +1700,7 @@ func (s *mh6State) doConc(sp fa6Spec) fa6Resp {
 	r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
 	w := s.who[sp.who]
 	signReq(r, w.priv, body)
-	r.Header.Set("CF-Connecting-IP", w.ip)
+	setCallerIP(r, w.ip)
 	rw := &recWriter{ResponseRecorder: httptest.NewRecorder()}
 	s.b.relay(rw, r)
 	return fa6Resp{who: sp.who, code: rw.Code, body: rw.Body.Bytes(), hdr: rw.Header()}

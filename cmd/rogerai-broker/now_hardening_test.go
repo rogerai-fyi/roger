@@ -72,28 +72,32 @@ func TestNonStreamRelayWaitUnderCFCap(t *testing.T) {
 	}
 }
 
-// TestClientIPPrefersCFConnectingIP asserts the true-client-IP helper trusts
-// CF-Connecting-IP first (NOT client-spoofable behind Cloudflare) and IGNORES a spoofed
-// X-Forwarded-For when the CF header is present, falling back to XFF then RemoteAddr only
-// when CF is absent. This is the IP that keys the rate limiter AND the CSAM legal record.
-func TestClientIPPrefersCFConnectingIP(t *testing.T) {
-	// CF header present + a spoofed XFF: the CF IP wins, the spoof is ignored.
+// TestClientIPReadsOnlyWhatATrustedProxyAppended: a direct caller is its own address whatever it
+// sends; behind a named proxy the caller is the right-most X-Forwarded-For entry, the one the
+// proxy appended; CF-Connecting-IP is never read. This is the address that keys the rate limiter
+// AND the CSAM legal record. The full set of cases is features/security/client_address_trust.feature.
+func TestClientIPReadsOnlyWhatATrustedProxyAppended(t *testing.T) {
+	withAddrTrust(t, "10.0.0.1", "")
+
+	// A direct caller's headers are ignored: the address it connected from wins.
 	r := httptest.NewRequest(http.MethodPost, "/concierge", nil)
 	r.Header.Set("CF-Connecting-IP", "203.0.113.7")
-	r.Header.Set("X-Forwarded-For", "1.2.3.4, 5.6.7.8") // attacker-supplied, must be ignored
-	r.RemoteAddr = "10.0.0.1:5555"
-	if got := clientIP(r); got != "203.0.113.7" {
-		t.Errorf("clientIP with CF header = %q, want the CF-Connecting-IP 203.0.113.7 (spoofed XFF must be ignored)", got)
+	r.Header.Set("X-Forwarded-For", "1.2.3.4, 5.6.7.8")
+	r.RemoteAddr = "198.51.100.9:4444"
+	if got := clientIP(r); got != "198.51.100.9" {
+		t.Errorf("clientIP for a direct caller = %q, want its own address 198.51.100.9", got)
 	}
 
-	// No CF header: fall back to the first XFF hop.
+	// Behind a trusted proxy: the right-most entry, and still not CF-Connecting-IP.
 	r2 := httptest.NewRequest(http.MethodPost, "/concierge", nil)
+	r2.Header.Set("CF-Connecting-IP", "203.0.113.7")
 	r2.Header.Set("X-Forwarded-For", "1.2.3.4, 5.6.7.8")
-	if got := clientIP(r2); got != "1.2.3.4" {
-		t.Errorf("clientIP without CF = %q, want the first XFF hop 1.2.3.4", got)
+	r2.RemoteAddr = "10.0.0.1:5555"
+	if got := clientIP(r2); got != "5.6.7.8" {
+		t.Errorf("clientIP behind a proxy = %q, want the entry the proxy appended, 5.6.7.8", got)
 	}
 
-	// No proxy headers at all: fall back to the RemoteAddr host.
+	// No forwarding headers: the RemoteAddr host.
 	r3 := httptest.NewRequest(http.MethodPost, "/concierge", nil)
 	r3.RemoteAddr = "198.51.100.9:4444"
 	if got := clientIP(r3); got != "198.51.100.9" {
@@ -133,7 +137,7 @@ func TestDiscoverNotAnonGated(t *testing.T) {
 
 	doDiscover := func(ip string) int {
 		r := httptest.NewRequest(http.MethodGet, "/discover", nil)
-		r.Header.Set("CF-Connecting-IP", ip)
+		setCallerIP(r, ip)
 		w := httptest.NewRecorder()
 		b.discover(w, r)
 		return w.Code
@@ -151,7 +155,7 @@ func TestDiscoverNotAnonGated(t *testing.T) {
 	}
 	// A spoofed X-Forwarded-For changes nothing - the endpoint never consults the bucket at all.
 	r := httptest.NewRequest(http.MethodGet, "/discover", nil)
-	r.Header.Set("CF-Connecting-IP", "198.51.100.1")
+	setCallerIP(r, "198.51.100.1")
 	r.Header.Set("X-Forwarded-For", "9.9.9.9")
 	w := httptest.NewRecorder()
 	b.discover(w, r)
@@ -279,7 +283,7 @@ func registerFree(t *testing.T, b *broker, nodeID, ip string) (int, string) {
 	reg.SignRegistration(nodePriv) // proof-of-possession of the node key (NOT an owner sig)
 	body, _ := json.Marshal(reg)
 	r := httptest.NewRequest(http.MethodPost, "/nodes/register", bytes.NewReader(body))
-	r.Header.Set("CF-Connecting-IP", ip)
+	setCallerIP(r, ip)
 	w := httptest.NewRecorder()
 	b.register(w, r)
 	var resp struct {

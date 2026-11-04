@@ -309,20 +309,33 @@ func attemptN(prefix string, i int) string {
 	return prefix + "-" + string(rune('a'+i%26)) + string(rune('0'+(i/26)%10))
 }
 
-// The origin country is taken from Cloudflare's CF-IPCountry, never a client-supplied
-// header: an ordinary edge request cannot move the tally by inventing a country. (It is a
-// monitoring aid, not an authorization input - a caller reaching the origin directly could
-// forge it, and that is acceptable, so this pins the ordinary-path behaviour, not a security
-// boundary.)
-func TestClientCountryTakesCFHeaderNotClientHeader(t *testing.T) {
+// The origin country is taken only from the header the operator names (here CF-IPCountry, as
+// when Cloudflare fronts the broker), only when a trusted proxy delivered the request, and never
+// from a client-supplied header such as X-Country. With no header named there is no country:
+// a caller could write any value into one the front does not set.
+// features/security/client_address_trust.feature has the full table.
+func TestClientCountryTakesTheNamedHeaderNotAClientOne(t *testing.T) {
+	withAddrTrust(t, "10.0.0.1", "CF-IPCountry")
 	r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	r.RemoteAddr = "10.0.0.1:40000" // through a trusted proxy
 	r.Header.Set("CF-IPCountry", "US")
 	r.Header.Set("X-Country", "CN") // a forged client header must be ignored
-	require.Equal(t, "US", clientCountry(r), "the CF header wins, the client header is ignored")
+	require.Equal(t, "US", clientCountry(r), "the named header wins, the client header is ignored")
 
 	// Absent: empty, which the origin store records as "unknown".
 	r2 := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	r2.RemoteAddr = "10.0.0.1:40000"
 	require.Equal(t, "", clientCountry(r2))
+
+	// A direct caller's country header is not read.
+	r3 := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	r3.RemoteAddr = "203.0.113.5:40000"
+	r3.Header.Set("CF-IPCountry", "US")
+	require.Equal(t, "", clientCountry(r3))
+
+	// No header named: no country, whatever the request carries.
+	withAddrTrust(t, "10.0.0.1", "")
+	require.Equal(t, "", clientCountry(r))
 }
 
 // A failed store read must surface as a 500, never as a silent zero on a money/quality view.

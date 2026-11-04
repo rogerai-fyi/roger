@@ -89,7 +89,7 @@ func (s *attMirrorState) register(node string, claim, verifierOK, private bool) 
 	nr.SignRegistration(priv)
 	body, _ := json.Marshal(nr)
 	r := httptest.NewRequest(http.MethodPost, "/nodes/register", bytes.NewReader(body))
-	r.Header.Set("CF-Connecting-IP", "203.0.113.9")
+	setCallerIP(r, "203.0.113.9")
 	if private {
 		if s.ownerKey == nil {
 			_, s.ownerKey, _ = ed25519.GenerateKey(nil)
