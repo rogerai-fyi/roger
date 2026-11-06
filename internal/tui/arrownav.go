@@ -1,6 +1,6 @@
 package tui
 
-// arrownav.go - the 2-second arrow-key section window.
+// arrownav.go: the 2-second arrow-key section window.
 //
 // ←/→ step the preset bank one section at a time (cyclePreset). Some sections take
 // the arrows for themselves: AGENT is a text prompt (←/→ move the cursor, → accepts

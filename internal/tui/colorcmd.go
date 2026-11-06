@@ -1,6 +1,6 @@
 package tui
 
-// colorcmd.go - the live /theme and /colorblind switches. Both retint the running
+// colorcmd.go: the live /theme and /colorblind switches. Both retint the running
 // TUI at once (the hue slots and the forced renderer arm are read at render time)
 // and persist through the host hooks when they are wired.
 
@@ -28,11 +28,11 @@ func (m model) setThemeLive(args []string) (tea.Model, tea.Cmd) {
 	}
 	switch next {
 	case "light":
-		m.status = stKey.Render("theme light") + stDim.Render(" - white page, black text · /theme auto follows your terminal")
+		m.status = stKey.Render("theme light") + stDim.Render(": light page, dark text · /theme auto follows your terminal")
 	case "dark":
-		m.status = stKey.Render("theme dark") + stDim.Render(" - dark page, light text · /theme auto follows your terminal")
+		m.status = stKey.Render("theme dark") + stDim.Render(": dark page, light text · /theme auto follows your terminal")
 	default:
-		m.status = stKey.Render("theme auto") + stDim.Render(" - follows your terminal · /theme light or dark to choose")
+		m.status = stKey.Render("theme auto") + stDim.Render(": follows your terminal · /theme light or dark to choose")
 	}
 	return m, nil
 }
@@ -54,11 +54,11 @@ func (m model) setColorblindLive(args []string) (tea.Model, tea.Cmd) {
 	}
 	switch next {
 	case "protan", "deutan":
-		m.status = stKey.Render("colorblind "+next) + stDim.Render(" - red highlights are blue now, green is cyan · /colorblind off restores")
+		m.status = stKey.Render("colorblind "+next) + stDim.Render(": red highlights are blue now, and green is cyan · /colorblind off restores")
 	case "tritan":
-		m.status = stKey.Render("colorblind tritan") + stDim.Render(" - blue info is magenta now, red stays · /colorblind off restores")
+		m.status = stKey.Render("colorblind tritan") + stDim.Render(": blue info is magenta now, and red stays · /colorblind off restores")
 	default:
-		m.status = stKey.Render("colorblind off") + stDim.Render(" - the full color board")
+		m.status = stKey.Render("colorblind off") + stDim.Render(": the full color board")
 	}
 	return m, nil
 }
