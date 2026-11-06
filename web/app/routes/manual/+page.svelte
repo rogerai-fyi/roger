@@ -268,6 +268,13 @@
             <p>The lit preset is the screen you are on. <kbd>&larr;</kbd> / <kbd>&rarr;</kbd>
               step through the bank; <kbd>m</kbd> collapses the header into a compact
               "windowshade" line and the choice sticks across runs.</p>
+            <p>After an arrow press you have 2 seconds to press <kbd>&larr;</kbd> /
+              <kbd>&rarr;</kbd> again and keep moving, even when you land on a screen that
+              uses the arrows itself, like the <b>[0] AGENT</b> prompt or the <b>[3] EDGE</b>
+              map. A small <code>&larr;/&rarr; 2s</code> countdown shows next to the bank
+              while it runs. Any other key ends it at once: in AGENT that key is simply the
+              start of your ask. Once the 2 seconds are up, the arrows belong to the screen
+              you are on again.</p>
           </section>
 
           <!-- ============== §A THE [0] AGENT ============== -->
@@ -383,11 +390,13 @@
                   <tr><td><kbd>U</kbd></td><td>toggle: hide curated stations (commercial-API proxies, counted apart from people's hardware)</td></tr>
                   <tr><td><kbd>r</kbd> · <code>/search</code></td><td>re-scan the band for stations</td></tr>
                   <tr><td><kbd>m</kbd></td><td>compact "windowshade" mode (collapse the header)</td></tr>
-                  <tr><td><kbd>/</kbd> or <kbd>:</kbd></td><td>open the command prompt for a slash command</td></tr>
+                  <tr><td><kbd>/</kbd> or <kbd>:</kbd></td><td>open the command prompt for a slash command. The prompt shows the <code>/</code> you pressed, so type the rest (<code>search</code>); typing <code>/search</code> again works too</td></tr>
                   <tr><td><code>/limits</code> · <code>/balance</code> · <code>/topup [usd]</code></td><td>spend maxes · wallet balance ($) · add funds (minimum $1)</td></tr>
                   <tr><td><code>/share [off|&lt;model&gt;]</code></td><td>open SHARE; <code>off</code> stops all, <code>&lt;model&gt;</code> flips one on air</td></tr>
                   <tr><td><code>/grant [create &lt;name&gt;]</code></td><td>private free keys for your bots/family</td></tr>
                   <tr><td><code>/confidential</code> · <code>/config</code> · <code>/help</code></td><td>TEE-only toggle · broker/identity · help</td></tr>
+                  <tr><td><code>/theme [light|dark|auto]</code></td><td>colors: a light page with dark text, a dark page, or follow your terminal. On its own, <code>/theme</code> steps to the next one. Saved for next time (§8)</td></tr>
+                  <tr><td><code>/colorblind [protan|deutan|tritan|off]</code></td><td>color-blind safe colors (§8). On its own, <code>/colorblind</code> steps to the next one. Saved for next time</td></tr>
                   <tr><td><kbd>q</kbd> · <code>/quit</code></td><td>quit the app (confirms first if you are ON AIR)</td></tr>
                 </tbody>
               </table>
@@ -1544,10 +1553,29 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre></div>
               user-config dir). It holds the broker URL, your user handle, saved spend
               limits, the onboarding state, and the saved share config. Inspect and set it
               with <code>roger config</code>.</p>
-            <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">$</span> roger config                       <span class="code-block__comment"># print broker, user, webui-open, palette, limits, path</span>
+            <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">$</span> roger config                       <span class="code-block__comment"># print broker, user, webui-open, palette, deck, theme, colorblind, limits, path</span>
 <span class="code-block__prompt" aria-hidden="true">$</span> roger config set broker https://broker.rogerai.fm
 <span class="code-block__prompt" aria-hidden="true">$</span> roger config set palette mono      <span class="code-block__comment"># mono+red escape hatch (full = the lamp board, default)</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> roger config set theme light       <span class="code-block__comment"># light page, dark text (dark, or auto = follow the terminal)</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> roger config set colorblind protan <span class="code-block__comment"># color-blind safe colors (deutan, tritan, or off)</span>
 <span class="code-block__prompt" aria-hidden="true">$</span> roger config get broker</pre></div>
+
+            <h3>Colors: light mode and color-blind settings</h3>
+            <p>Two settings change how the app looks. Both can be set here, with an env
+              var for one run, or live inside the app with <code>/theme</code> and
+              <code>/colorblind</code> (the in-app switch is saved for next time).</p>
+            <div class="man-plate">
+              <div class="man-plate__row"><span class="man-plate__k">theme auto</span><span class="man-plate__v">the default: follow your terminal's own light or dark background</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">theme light</span><span class="man-plate__v">the light paper page with dark text and the red highlights, even in a dark terminal</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">theme dark</span><span class="man-plate__v">the dark page with light text, even in a light terminal</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">colorblind protan · deutan</span><span class="man-plate__v">for red-green color blindness. Red and green look alike here, so the red highlights turn <b>blue</b>, green turns cyan, and amber stays amber</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">colorblind tritan</span><span class="man-plate__v">for blue-yellow color blindness. The red highlights stay red; the blue info color turns magenta so it no longer looks like the green one</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">colorblind off</span><span class="man-plate__v">the default color board</span></div>
+            </div>
+            <p>The two work together (for example a light page with the red-green colors),
+              and with <code>palette mono</code>, which keeps only the one accent color. A
+              forced theme paints its own page even after <code>roger config set deck off</code>, so its text
+              always has the ground it was made for.</p>
 
             <h3>Spend limits</h3>
             <p>Set per-model spend ceilings once and they apply to every connect. A
@@ -1562,6 +1590,8 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre></div>
               <div class="man-plate__row"><span class="man-plate__k">ROGER_BROKER</span><span class="man-plate__v">override the broker URL for one session (federation: pick who you trust)</span></div>
               <div class="man-plate__row"><span class="man-plate__k">ROGER_USER</span><span class="man-plate__v">override your user handle for one session</span></div>
               <div class="man-plate__row"><span class="man-plate__k">ROGER_PALETTE</span><span class="man-plate__v">override the TUI color layer for one session: <code>mono</code> (the mono+red escape hatch) or <code>full</code> (the lamp board, default). Persist with <code>roger config set palette</code></span></div>
+              <div class="man-plate__row"><span class="man-plate__k">ROGER_THEME</span><span class="man-plate__v">override the theme for one session: <code>light</code>, <code>dark</code>, or <code>auto</code>. Persist with <code>roger config set theme</code></span></div>
+              <div class="man-plate__row"><span class="man-plate__k">ROGER_COLORBLIND</span><span class="man-plate__v">override the color-blind setting for one session: <code>protan</code>, <code>deutan</code>, <code>tritan</code>, or <code>off</code>. Persist with <code>roger config set colorblind</code></span></div>
               <div class="man-plate__row"><span class="man-plate__k">ROGERAI_INSTALL_DIR</span><span class="man-plate__v">where the installer puts the binary (default <code>~/.local/bin</code>)</span></div>
               <div class="man-plate__row"><span class="man-plate__k">ROGERAI_NO_UPDATE_CHECK</span><span class="man-plate__v">set to <code>1</code> to silence the startup update banner</span></div>
             </div>
@@ -1613,7 +1643,7 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre></div>
                   <tr><td><code>onboard</code></td><td>re-run the first-run setup (alias: <code>setup</code>)</td></tr>
                   <tr><td><code>drphil</code></td><td>diagnose why your node is not earning - config, reachability, upstream, and the broker's own view of your account, including a hold or ban and its reason (aliases: <code>diagnose</code>, <code>doctor</code>)</td></tr>
                   <tr><td><code>appeal</code></td><td>contest a strike, hold or ban: <code>--reason "..."</code> for the account, <code>--node &lt;id&gt;</code> for one node, <code>appeal status</code> to track it</td></tr>
-                  <tr><td><code>config</code></td><td>broker, user, webui-open, palette, spend limits: <code>config get/set broker|user|webui-open|palette</code> · <code>config set-limit &lt;model|default&gt; --max-out P [--max-in P] [--min-tps N]</code> · <code>config clear-limit &lt;model&gt;</code> · <code>config limits</code> (see §8)</td></tr>
+                  <tr><td><code>config</code></td><td>broker, user, webui-open, palette, theme, colorblind, spend limits: <code>config get/set broker|user|webui-open|palette|theme|colorblind</code> · <code>config set-limit &lt;model|default&gt; --max-out P [--max-in P] [--min-tps N]</code> · <code>config clear-limit &lt;model&gt;</code> · <code>config limits</code> (see §8)</td></tr>
                   <tr><td><code>perms</code> <span class="man-note">[confirm|edits|all]</span></td><td>set the persisted default for the AGENT's tool-approval mode (also <code>/perms</code> / <kbd>ctrl+p</kbd> in the app; <code>--yolo</code> / <code>--perms</code> override per run)</td></tr>
                   <tr><td><code>context</code></td><td>export / import a signed conversation capsule to hand a session off between <code>roger</code> and the app: <code>context export</code> · <code>context import &lt;file&gt;</code></td></tr>
                   <tr><td><code>support</code></td><td>open the site (community, docs, and the Discord invite live in its footer) (aliases: <code>community</code>, <code>discord</code>, <code>help-me</code>)</td></tr>
@@ -1631,7 +1661,8 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre></div>
             <p>Every screen carries the preset bank along the bottom -
               <b>[0] AGENT [1] TUNE IN [2] SHARE [3] EDGE [4] CONFIG [L] LOGIN/LOGOUT [?] HELP</b> -
               and the lit preset is where you are. Press a key to jump there;
-              <kbd>&larr;</kbd>/<kbd>&rarr;</kbd> step through the bank; <kbd>m</kbd> is the
+              <kbd>&larr;</kbd>/<kbd>&rarr;</kbd> step through the bank (keep pressing
+              within 2 seconds to keep going, even through AGENT and EDGE; see §2); <kbd>m</kbd> is the
               compact "windowshade". The full keys for <b>[0] AGENT</b> are in §A and for
               <b>[1] TUNE IN</b> + the channel in §3; <b>[2] SHARE</b> is below.
               <b>[4] CONFIG</b> is the spend-limits editor (§8) and <b>[L]</b> is the login

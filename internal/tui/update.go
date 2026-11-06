@@ -137,6 +137,14 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m.toggleCompact(), nil
 	}
+	// The ←/→ section window: right after an arrow jump, more arrows keep switching
+	// sections even from a text prompt; any other key closes it and falls through.
+	var navM tea.Model
+	var navCmd tea.Cmd
+	var navDone bool
+	if m, navM, navCmd, navDone = m.navKey(k); navDone {
+		return navM, navCmd
+	}
 	switch m.mode {
 	case modeCommand:
 		switch k.String() {
@@ -155,7 +163,10 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case "enter":
-			cmd := strings.TrimSpace(m.cmd.Value())
+			// The palette is opened by `/`, so a pasted `/freq ...` or `//search` means the
+			// same as typing the bare verb. Strip the slashes BEFORE the history scrub, which
+			// only recognizes the verb without them.
+			cmd := strings.TrimLeft(strings.TrimSpace(m.cmd.Value()), "/")
 			m.cmd.SetValue("")
 			m.mode = modeBrowse
 			// Recorded WITHOUT its secret. `/freq <code>` carries a band's frequency
@@ -170,6 +181,12 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.cmd.SetValue("")
 			m.mode = modeBrowse
 			return m, nil
+		case "/":
+			// The prompt already shows the `/` that opened it, so a second leading one
+			// (muscle memory: `//search`) is dropped instead of breaking the command.
+			if m.cmd.Value() == "" {
+				return m, nil
+			}
 		}
 		var c tea.Cmd
 		m.cmd, c = m.cmd.Update(k)
@@ -608,6 +625,7 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "/", ":":
 			m.mode = modeCommand
+			m.cmdLead = k.String() // echoed in the prompt, so the `/` you pressed shows
 			m.cmd.Focus()
 			return m, textinput.Blink
 		case "f":
@@ -935,11 +953,18 @@ func (m model) runSession(line string) (tea.Model, tea.Cmd) {
 
 // run handles a slash command.
 func (m model) run(cmd string) (tea.Model, tea.Cmd) {
+	// The palette is opened by `/`, so a typed or pasted `/search` (or `//search`)
+	// means the same as `search`.
+	cmd = strings.TrimLeft(strings.TrimSpace(cmd), "/")
 	fields := strings.Fields(cmd)
 	if len(fields) == 0 {
 		return m, nil
 	}
 	switch fields[0] {
+	case "theme":
+		return m.setThemeLive(fields[1:])
+	case "colorblind", "colourblind", "cb":
+		return m.setColorblindLive(fields[1:])
 	case "search", "s":
 		m.status = "re-scanning the band…"
 		m.scanErr, m.scanned = false, false
@@ -1084,6 +1109,10 @@ func (m model) onSharesDetected(found []detect.Found, needKey []string) (tea.Mod
 	// The fold differs: a quiet result must not move the operator anywhere, must not
 	// reset their cursor, and an empty one must not erase rows that were on screen.
 	quiet := m.shareRefreshing && !m.shareLoading
+	// A LOUD scan the operator already walked away from (a ←/→ walk passes through SHARE
+	// on its way to EDGE, CONFIG, ...): like a quiet one, it must not move them. The rows
+	// are kept for the next visit, and [2] SHARE scans again on entry anyway.
+	away := !quiet && !m.inShareSection()
 	m.shareLoading = false
 	m.shareRefreshing = false
 	if quiet && len(found) == 0 {
@@ -1096,6 +1125,9 @@ func (m model) onSharesDetected(found []detect.Found, needKey []string) (tea.Mod
 		return m, nil
 	}
 	if len(found) == 0 {
+		if away {
+			return m, nil
+		}
 		if m.setupOnEmpty {
 			// GUIDED FALLBACK: nothing usable detected -> the in-TUI setup wizard (pick a
 			// tool for a one-liner, or paste a URL we verify), not a dead-end status line.
@@ -1166,10 +1198,12 @@ func (m model) onSharesDetected(found []detect.Found, needKey []string) (tea.Mod
 	// QUIET one changes nothing about where they are: they may have hopped to another
 	// screen while it ran, and a background result that teleports them back is a bug
 	// wearing a feature's clothes.
-	if !quiet {
+	if !quiet && !away {
 		m.mode = modeShare
 	}
-	if len(m.shareRows) == 0 {
+	if away {
+		// Off the table: the table's hint would describe a screen that is not showing.
+	} else if len(m.shareRows) == 0 {
 		m.status = stEmber.Render("! the local server reported no models - check it serves /v1/models")
 	} else {
 		m.status = stDim.Render("provider table - ↑↓ select, enter/a toggle ON-AIR, esc done")
@@ -1771,12 +1805,20 @@ func (m model) onLoginKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// keeps running in the background and still lands its loginMsg). No key restarts
 	// the flow, so there is never a surprise second code.
 	switch k.String() {
-	case "esc", "left", "right":
-		// Dismiss: keep the current login state exactly as it is. Arrowing away (the
-		// preset cycle keys) must NOT start a flow or log anyone out - it just leaves.
+	case "esc":
+		// Dismiss: keep the current login state exactly as it is.
 		m.mode = m.loginReturn
 		m.status = stDim.Render("")
 		return m, nil
+	case "left", "right":
+		// Arrowing away moves on to the neighbouring section (HELP / CONFIG) like every
+		// other preset, instead of bouncing back to where LOGIN was opened from. It
+		// never starts a flow or logs anyone out; the login state is kept as it is.
+		dir := +1
+		if k.String() == "left" {
+			dir = -1
+		}
+		return m.stepPreset(dir)
 	}
 	if m.loggedInState() {
 		// LOGGED IN -> a logout confirm. y logs out; everything else keeps the session.

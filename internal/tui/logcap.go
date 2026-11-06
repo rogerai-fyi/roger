@@ -78,6 +78,8 @@ func mirror() io.Writer {
 // program's lifetime (restored on exit), so node/agent log lines never corrupt the
 // alt-screen render. The run itself goes through the runProgram seam (swappable in tests).
 func launchTUI(m tea.Model, opts ...tea.ProgramOption) error {
+	// Put a forced light/dark theme into effect before Bubble Tea owns the terminal.
+	applyTheme()
 	prev := log.Writer()
 	out := io.Writer(tuiLog)
 	if m := mirror(); m != nil {
