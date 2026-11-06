@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"rogerai.fm/roger/v7/internal/agent"
 	"rogerai.fm/roger/v7/internal/glyphs"
 	"rogerai.fm/roger/v7/internal/node"
@@ -125,7 +126,12 @@ func (m model) presetBar(w int) string {
 	// and wrapped, which cost a row and - now that the frame is painted on a deck ground
 	// - broke the ground's rectangle where it spilled. Every other row on this screen
 	// already clips; this one was the exception.
-	return truncVisible("  "+bar, w)
+	bar = "  " + bar
+	// The ←/→ section countdown rides after the bank while the arrow window is open.
+	if nh := m.navHint(); nh != "" && lipgloss.Width(bar)+2+lipgloss.Width(nh) <= w {
+		bar += "  " + nh
+	}
+	return truncVisible(bar, w)
 }
 
 func (m model) presetForKey(key string) (tea.Model, tea.Cmd, bool) {
@@ -138,10 +144,14 @@ func (m model) presetForKey(key string) (tea.Model, tea.Cmd, bool) {
 		// / limits-not-editing / help), so left/right inherit that exact guard and never
 		// steal a cursor move in the schedule editor's window sub-fields, the command
 		// palette, chat, the AGENT prompt, the `f` filter, or a numeric field.
-		return m.cyclePreset(+1)
+		// The jump also opens the 2s arrow window (arrownav.go), so the NEXT arrow keeps
+		// moving even when this one lands on AGENT's prompt or EDGE's map.
+		nm, cmd := m.stepPreset(+1)
+		return nm, cmd, true
 	case "left":
 		// Previous preset (wraps the other way: 0 -> ? -> L -> 4 -> 3 -> 2 -> 1 -> 0).
-		return m.cyclePreset(-1)
+		nm, cmd := m.stepPreset(-1)
+		return nm, cmd, true
 	case "m":
 		// COMPACT (the "windowshade"): toggle the calm, dense, animation-free view. Lives
 		// alongside the preset jumps so it works in every non-text-entry context (browse /
@@ -158,7 +168,7 @@ func (m model) presetForKey(key string) (tea.Model, tea.Cmd, bool) {
 	case "1":
 		// TUNE IN: leave any SHARE/limits screen, back to the band browser. A live
 		// channel stays open (tab/c returns to it).
-		if m.inShareSection() || m.mode == modeLimits || m.mode == modeEdge {
+		if m.inShareSection() || m.mode == modeLimits || m.mode == modeEdge || m.mode == modeHelp || m.mode == modeLogin {
 			m.mode = modeBrowse
 			m.status = stDim.Render("TUNE IN - browse the band, enter to tune in")
 		}

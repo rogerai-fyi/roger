@@ -252,9 +252,12 @@ func keyMsg2ByName(name string) tea.KeyMsg {
 func TestSharesDetectedBranches(t *testing.T) {
 	found := []detect.Found{{Name: "ollama", BaseURL: "http://127.0.0.1:11434/v1", Chat: "http://127.0.0.1:11434/v1/chat/completions", Models: []string{"gpt-oss-20b"}}}
 
-	// Found rows -> provider table.
+	// Found rows -> provider table. Each fixture starts on SHARE, where doShare puts the
+	// operator before the scan result lands (a result that lands after they left SHARE
+	// keeps the screen; see TestLateShareScanDoesNotPullBack).
 	m := New("http://broker.local", "tester")
 	m.width, m.height = 100, 30
+	m.mode = modeShare
 	fm, _ := m.onSharesDetected(found, nil)
 	if asModel(fm).mode != modeShare || len(asModel(fm).shareRows) == 0 {
 		t.Fatalf("a found set should build the provider table, mode=%v rows=%d", asModel(fm).mode, len(asModel(fm).shareRows))
@@ -263,6 +266,7 @@ func TestSharesDetectedBranches(t *testing.T) {
 	// Empty initial scan (setupOnEmpty) -> guided wizard.
 	w := New("http://broker.local", "tester")
 	w.width, w.height = 100, 30
+	w.mode = modeShare
 	w.setupOnEmpty = true
 	wm, _ := w.onSharesDetected(nil, nil)
 	if asModel(wm).mode != modeShareSetup {
@@ -285,6 +289,7 @@ func TestSharesDetectedBranches(t *testing.T) {
 	// A key-protected server routes onto the paste row, awaiting a key.
 	k := New("http://broker.local", "tester")
 	k.width, k.height = 100, 30
+	k.mode = modeShare
 	k.setupOnEmpty = true
 	km, _ := k.onSharesDetected(nil, []string{"http://127.0.0.1:8081/v1"})
 	kam := asModel(km)
