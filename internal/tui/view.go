@@ -336,6 +336,8 @@ var paletteCmds = []paletteCmd{
 	{"/endpoint", "the OpenAI-compatible endpoint + key", ""},
 	{"/config", "broker + identity", ""},
 	{"/compact", "minimize to the dense windowshade", "m · alt+m"},
+	{"/theme", "colors: auto · light (white page) · dark", ""},
+	{"/colorblind", "color-blind safe colors: protan · deutan · tritan · off", ""},
 	{"/ping", "the Ping World screensaver", "z"},
 	{"/webui", "open the browser node console", "w · ⌃w"},
 	{"/support", "rogerai.fm - community + Discord", ""},
@@ -347,7 +349,7 @@ var paletteCmds = []paletteCmd{
 // paletteMatch returns the palette entries whose name contains the (case-insensitive) query;
 // an empty query lists them all. Pure - the filter behind the live `/` palette.
 func paletteMatch(query string) []paletteCmd {
-	q := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(query, "/")))
+	q := strings.ToLower(strings.TrimSpace(strings.TrimLeft(query, "/")))
 	out := make([]paletteCmd, 0, len(paletteCmds))
 	for _, c := range paletteCmds {
 		if q == "" || strings.Contains(strings.TrimPrefix(c.name, "/"), q) {
@@ -392,7 +394,11 @@ func (m model) paletteView(w int) string {
 // `/` when idle, so the user always sees a clear, labeled place to type.
 func (m model) promptLine(w int) string {
 	if m.mode == modeCommand {
-		return stPrompt.Render("  rog › ") + m.cmd.View()
+		lead := m.cmdLead
+		if lead == "" {
+			lead = "/"
+		}
+		return stPrompt.Render("  rog › ") + stKey.Render(lead) + m.cmd.View()
 	}
 	hint := "press / to type a command  ·  enter to tune in"
 	if m.narrow() {
@@ -971,7 +977,7 @@ func (m model) helpView() string {
 	// card says "you can always get here again with ?", and this is where.
 	// The rest of the keys follow at the end, under "more keys".
 	more := [][2]string{
-		{"←/→", "switch section: cycle the [0] AGENT … [?] HELP bar (same as pressing its number)"},
+		{"←/→", "switch section: cycle the [0] AGENT … [?] HELP bar (same as pressing its number) · keep pressing within 2s to keep going, even from AGENT or EDGE; any other key types"},
 		{"f", "FILTER the band by name (live) - esc clears, enter keeps it applied"},
 		{"t", "YOUR BANDS: switch the dial between OPEN MARKET and your own PRIVATE bands. A private band is hidden from the public list - including from you - so this is where you find it. ⏎ on one whose model runs here opens a DIRECT channel (no broker, no meter); n mints a new code, f clears a revoked row"},
 		{"~", "PRIVATE FREQ: enter SOMEONE ELSE'S frequency code to tune onto their hidden band - esc returns to OPEN MARKET"},
@@ -999,6 +1005,8 @@ func (m model) helpView() string {
 		{"/endpoint · /config", "endpoint + key · broker/identity"},
 		{"/support", "open rogerai.fm - community + Discord (CLI: roger support)"},
 		{"/ping (/zen · z)", "SCREENSAVER: Ping's world fullscreen (CLI: roger --ping) - any key wakes"},
+		{"/theme [light|dark]", "colors: a light page with dark text, or dark · /theme auto follows the terminal (CLI: roger config set theme)"},
+		{"/colorblind [protan|…]", "color-blind safe colors: protan · deutan (red-green) · tritan (blue-yellow) · off"},
 		{"/help · /quit", "this · quit RogerAI"},
 	}
 	var b strings.Builder
