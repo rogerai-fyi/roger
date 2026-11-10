@@ -291,6 +291,10 @@
           "ref": "R.462"
         },
         {
+          "text": "A check on the training data found that about a third of the ARC prompts and a quarter of the IFEval prompts of the public suite had appeared, with answers, in the chat portion of the training data. On the prompts that had not appeared the readings sit within sampling error of the full-set numbers (IFEval 12.6 strict, ARC-Challenge 29.2), so the table keeps the full sets, which is what the other models were read on.",
+          "ref": "R.462"
+        },
+        {
           "text": "Sizing arithmetic and tool-plan JSON are new skills still being trained in.",
           "ref": "R.382"
         },
