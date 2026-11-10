@@ -1,325 +1,325 @@
 {
- "broadcasts-agent-governance-identity.html": {
-  "sha": "093ef2742185c8400efd1491dbd9afd67567aab1dc9bcebb6db2f69abdf9c078",
-  "length": 8477,
-  "hrefs": [
-   "/broadcasts.html",
-   "/security.html",
-   "/security.html",
-   "mailto:security@rogerai.fm",
-   "mailto:security@rogerai.fm",
-   "/security.html",
-   "https://metr.org/blog/2026-08-26-openai-hugging-face-incident-investigation/",
-   "https://www.nbcnews.com/tech/tech-news/openai-new-incidents-concerning-behavior-model-misalignment-rcna598277",
-   "https://techcrunch.com/2026/09/17/openai-caught-its-models-leaving-notes-to-successors-to-hide-bad-behavior/",
-   "https://www.theregister.com/security/2026/08/27/openai-explains-how-its-naughty-ai-agents-attacked-hugging-face/5292780",
-   "https://labs.cloudsecurityalliance.org/wp-content/uploads/2026/03/governance-nist-ai-agent-standards-agentic-governance-v1-csa-styled.pdf",
-   "https://en.wikipedia.org/wiki/2026_OpenAI_agent_cyberattacks"
-  ]
- },
- "broadcasts-connect-bots-openai-api.html": {
-  "sha": "10bbcfc8d17e589e8efc35ca276206a9bad1e32896b43c2a469ede445ddd14d6",
-  "length": 6106,
-  "hrefs": [
-   "/broadcasts.html",
-   "/broadcasts-share-gpu-earn.html",
-   "/models.html",
-   "/models.html"
-  ]
- },
- "broadcasts-deepseek-mtp-gguf.html": {
-  "sha": "28e4e9c4edb777f0375221cd952b0c624d6bb0220c9d8f5747115aa63583a281",
-  "length": 6203,
-  "hrefs": [
-   "/broadcasts.html",
-   "https://github.com/rogerai-fyi/llama.cpp",
-   "https://huggingface.co/rogerai-fyi/DeepSeek-V4-Flash-MTP-GGUF",
-   "/models.html",
-   "/bands.html"
-  ]
- },
- "broadcasts-free-chatgpt-alternative.html": {
-  "sha": "c74ba6306d20a7ed2d1cec87fb500f1ccd4248572fc01f0ce6d1708f1ef32f93",
-  "length": 3858,
-  "hrefs": [
-   "/broadcasts.html",
-   "/broadcasts-run-local-llm.html",
-   "/broadcasts-vram-for-llm.html",
-   "/bands.html",
-   "/models.html"
-  ]
- },
- "broadcasts-how-llms-work.html": {
-  "sha": "52f2fca0f5d218183d67424a1374c516b19358b90472dea5c0578991bea8a5c9",
-  "length": 12466,
-  "hrefs": [
-   "/broadcasts.html",
-   "/research-wave-family.html",
-   "/broadcasts-vram-for-llm.html"
-  ]
- },
- "broadcasts-how-rogerai-routes-models.html": {
-  "sha": "0639731a2df8df52a2c64a52d9308de6e07402eb08276803443d7270a3dc748f",
-  "length": 5928,
-  "hrefs": [
-   "/broadcasts.html"
-  ]
- },
- "broadcasts-independence-v5.html": {
-  "sha": "645cc854a0262e02e78c72934fc5012bceedd5b0680f0b2a92d1a0f274ace3ed",
-  "length": 3470,
-  "hrefs": [
-   "/broadcasts.html",
-   "assets/broadcasts/independence-v5.mp4?v=3cd90196"
-  ]
- },
- "broadcasts-jev-vs-wave.html": {
-  "sha": "020ea4c2686f820b564a108a0b27176727485e0ef1bd402b3e4ff924cd33b16a",
-  "length": 11409,
-  "hrefs": [
-   "/broadcasts.html",
-   "/research-wave-family.html"
-  ]
- },
- "broadcasts-llm-on-iphone.html": {
-  "sha": "ad463ecf16362fa01fe1df9c1dc6b11215f371eb8d592a478bf2b666b1db46e3",
-  "length": 5219,
-  "hrefs": [
-   "/broadcasts.html",
-   "/app.html",
-   "/models.html",
-   "/pricing.html",
-   "https://apps.apple.com/us/app/rogerai-fm/id6785743752"
-  ]
- },
- "broadcasts-one-gpu-many-users.html": {
-  "sha": "85c6cbbee45ea1bb39828cd677ef790bb9690fe6e3aed01125fc924aca275d2a",
-  "length": 4889,
-  "hrefs": [
-   "/broadcasts.html",
-   "/models.html",
-   "/bands.html"
-  ]
- },
- "broadcasts-run-a-tower.html": {
-  "sha": "7e318bde16b15e7716290fb261ed83a92d502284488e4ba5f7d54f8e3759acef",
-  "length": 12321,
-  "hrefs": [
-   "/broadcasts.html",
-   "/payouts.html",
-   "/tower.html",
-   "/manual.html#sTower"
-  ]
- },
- "broadcasts-run-local-llm.html": {
-  "sha": "177b3a9662c572a120c4c5e68a66fe92e807d7051822279b3a87e5ae8725a3b0",
-  "length": 4208,
-  "hrefs": [
-   "/broadcasts.html",
-   "/models.html",
-   "/bands.html",
-   "/manual.html",
-   "/models.html"
-  ]
- },
- "broadcasts-share-gpu-earn.html": {
-  "sha": "def782e2327908b3993efab6889e20f8907acad6a0426aec8394d3fb092f8141",
-  "length": 5130,
-  "hrefs": [
-   "/broadcasts.html",
-   "/models.html",
-   "/payouts.html",
-   "/manual.html"
-  ]
- },
- "broadcasts-sharing-your-gpu-is-safe.html": {
-  "sha": "9cd6ae2108c28cac50a7341b64ff242869967965c8453ebd4e969bc2e030de7a",
-  "length": 7437,
-  "hrefs": [
-   "/broadcasts.html",
-   "/security.html"
-  ]
- },
- "broadcasts-vram-for-llm.html": {
-  "sha": "31dc888e3fd7012fa62d40b174b6599dfde80b8adaa835dc220c7435cf1fd690",
-  "length": 4123,
-  "hrefs": [
-   "/broadcasts.html",
-   "/models.html",
-   "/bands.html",
-   "/manual.html"
-  ]
- },
- "broadcasts-what-a-million-tokens-costs.html": {
-  "sha": "d967f669c1dfa53c1360682220bdd1fa6c4bb6a7fdac2ecbaf882fd162a1df57",
-  "length": 8577,
-  "hrefs": [
-   "/broadcasts.html",
-   "/manual.html#rented"
-  ]
- },
- "broadcasts.html": {
-  "sha": "6067e66c4aac55325bad26696839e5b07789862f4ece491f911cf3233368caa5",
-  "length": 4928,
-  "hrefs": [
-   "/broadcasts-how-llms-work.html",
-   "/broadcasts-jev-vs-wave.html",
-   "/broadcasts-sharing-your-gpu-is-safe.html",
-   "/broadcasts-agent-governance-identity.html",
-   "/broadcasts-llm-on-iphone.html",
-   "/broadcasts-what-a-million-tokens-costs.html",
-   "/broadcasts-run-a-tower.html",
-   "/broadcasts-how-rogerai-routes-models.html",
-   "/broadcasts-deepseek-mtp-gguf.html",
-   "/broadcasts-connect-bots-openai-api.html",
-   "/broadcasts-free-chatgpt-alternative.html",
-   "/broadcasts-one-gpu-many-users.html",
-   "/broadcasts-share-gpu-earn.html",
-   "/broadcasts-vram-for-llm.html",
-   "/broadcasts-run-local-llm.html",
-   "/broadcasts-independence-v5.html"
-  ]
- },
- "research-hardware.html": {
-  "sha": "25cf3141bf735240e8ecc550cad02a71999d1395b56035c60df75cb8ff0788dd",
-  "length": 8211,
-  "hrefs": [
-   "/research.html",
-   "/research-models.html",
-   "https://commons.wikimedia.org/wiki/File:ESP32_on_Lolin32_Lite_clone_board_cropped.jpg",
-   "https://commons.wikimedia.org/wiki/File:Arduino_Uno_board.jpg",
-   "https://commons.wikimedia.org/wiki/File:Raspberry_Pi_Pico_oblique.jpg",
-   "https://commons.wikimedia.org/wiki/File:Raspberry_Pi_5.jpg",
-   "https://commons.wikimedia.org/wiki/File:Nvidia_Jetson_Nano_2_Development_Kit.jpeg",
-   "https://commons.wikimedia.org/wiki/File:Mac_Studio_(2022)_front.jpg",
-   "/broadcasts-what-a-million-tokens-costs.html",
-   "https://commons.wikimedia.org/wiki/File:Nvidia_DGX_Spark_oblique_view_dllu.jpg",
-   "https://commons.wikimedia.org/wiki/File:4%C3%97_NVIDIA_RTX%E2%84%A2_6000_der_Ada-Generation_(%E6%9E%81%E5%AE%A2%E6%B9%BEGeekerwan)_02.png",
-   "https://commons.wikimedia.org/wiki/File:4%C3%97_NVIDIA_RTX%E2%84%A2_6000_der_Ada-Generation_(%E6%9E%81%E5%AE%A2%E6%B9%BEGeekerwan)_01.png",
-   "https://commons.wikimedia.org/wiki/File:Racks_Amravati_Data_Center.jpg",
-   "https://huggingface.co/rogerai-fyi/DeepSeek-V4-Flash-MTP-GGUF",
-   "/manual.html#rented",
-   "/broadcasts-what-a-million-tokens-costs.html",
-   "/broadcasts-deepseek-mtp-gguf.html",
-   "/broadcasts-one-gpu-many-users.html",
-   "/broadcasts-what-a-million-tokens-costs.html",
-   "/broadcasts.html"
-  ]
- },
- "research-industry.html": {
-  "sha": "927ec4909eeb18970e61d1a9d5d0e894bc91ead267e993412ac7c72da8b59e7e",
-  "length": 8073,
-  "hrefs": [
-   "/research.html",
-   "#market-oilgas",
-   "#market-power",
-   "#market-manufacturing",
-   "#market-aerospace",
-   "#market-mining",
-   "#market-water",
-   "#market-healthcare",
-   "#market-defense",
-   "#market-wildfire",
-   "https://unsplash.com/photos/u13zBF4r56A",
-   "https://unsplash.com/photos/VuR4oHZ3ucc",
-   "https://unsplash.com/photos/8gr6bObQLOI",
-   "https://unsplash.com/photos/vWUOx-3r7SY",
-   "https://unsplash.com/photos/Mk2ls9UBO2E",
-   "https://unsplash.com/photos/6wSevhW1Dzc",
-   "https://unsplash.com/photos/QTP8UKW_PgI",
-   "https://unsplash.com/photos/8QZGzUbatJU",
-   "/assets/edge/hero-fd.mp4",
-   "/research-models.html#roger-edge",
-   "mailto:labs@rogerai.fm?subject=Industrial%20pilot",
-   "/research.html",
-   "/broadcasts.html"
-  ]
- },
- "research-models.html": {
-  "sha": "ae8a140e3b156c7241650e872e3f5e0c92d6b38d5e57a85d90021247ed4bc1b2",
-  "length": 6762,
-  "hrefs": [
-   "/research.html",
-   "/research-wave-pico.html",
-   "/research-wave-nano.html",
-   "/research-wave-family.html",
-   "mailto:labs@rogerai.fm?subject=Hello%20from%20the%20website",
-   "/research-wave-pico.html",
-   "/research-wave-nano.html",
-   "/research-wave-pico.html",
-   "/research-wave-nano.html",
-   "https://huggingface.co/rogerai-fyi/DeepSeek-V4-Flash-MTP-GGUF",
-   "/broadcasts-deepseek-mtp-gguf.html",
-   "/broadcasts.html",
-   "/research-industry.html#devices",
-   "/research-wave-family.html#infinite"
-  ]
- },
- "research-wave-family.html": {
-  "sha": "f3a818f4eca0e8618658cfa3522f9a057ca2d309f28207350c1be98057d4eba1",
-  "length": 17359,
-  "hrefs": [
-   "/research.html",
-   "#infinite",
-   "/research-wave-pico.html",
-   "/research-wave-nano.html",
-   "/research-industry.html#devices",
-   "/playbox.html#factory",
-   "/research.html#models",
-   "/broadcasts.html"
-  ]
- },
- "research-wave-nano.html": {
-  "sha": "3576ca5bf92cf129b2249f96a18d44668ec4e509d9c24a38a1ae228295a1afb1",
-  "length": 10085,
-  "hrefs": [
-   "/research-models.html",
-   "#measured",
-   "#vision",
-   "/research-wave-pico.html",
-   "/research-wave-pico.html",
-   "/research-wave-family.html",
-   "/research-models.html"
-  ]
- },
- "research-wave-pico.html": {
-  "sha": "757fef1d76fb8b28d18c8ac333bf902acb6b95aaf4beafe2c3a614416393d130",
-  "length": 8509,
-  "hrefs": [
-   "/research-models.html",
-   "#run",
-   "#measured",
-   "/research-wave-nano.html",
-   "/research-wave-nano.html",
-   "/research-wave-family.html",
-   "/research-models.html"
-  ]
- },
- "research.html": {
-  "sha": "4a64460e27f906b81cf829c462e07ea02ad3f9168a9595d06fbb77c6447a0e4e",
-  "length": 5427,
-  "hrefs": [
-   "/research-models.html",
-   "/research-wave-pico.html",
-   "/research-wave-nano.html",
-   "/research-wave-family.html",
-   "/research-hardware.html",
-   "/research-industry.html",
-   "/broadcasts.html",
-   "/models.html",
-   "/research-models.html",
-   "/research-wave-family.html",
-   "/broadcasts.html",
-   "/research-hardware.html#experiments",
-   "/broadcasts.html",
-   "/research-industry.html",
-   "/research-industry.html#envelope",
-   "/research-wave-family.html#jobs",
-   "mailto:labs@rogerai.fm",
-   "https://huggingface.co/rogerai-fyi",
-   "https://github.com/rogerai-fyi/roger",
-   "/broadcasts.html",
-   "mailto:labs@rogerai.fm"
-  ]
- }
+  "broadcasts-agent-governance-identity.html": {
+    "sha": "093ef2742185c8400efd1491dbd9afd67567aab1dc9bcebb6db2f69abdf9c078",
+    "length": 8477,
+    "hrefs": [
+      "/broadcasts.html",
+      "/security.html",
+      "/security.html",
+      "mailto:security@rogerai.fm",
+      "mailto:security@rogerai.fm",
+      "/security.html",
+      "https://metr.org/blog/2026-08-26-openai-hugging-face-incident-investigation/",
+      "https://www.nbcnews.com/tech/tech-news/openai-new-incidents-concerning-behavior-model-misalignment-rcna598277",
+      "https://techcrunch.com/2026/09/17/openai-caught-its-models-leaving-notes-to-successors-to-hide-bad-behavior/",
+      "https://www.theregister.com/security/2026/08/27/openai-explains-how-its-naughty-ai-agents-attacked-hugging-face/5292780",
+      "https://labs.cloudsecurityalliance.org/wp-content/uploads/2026/03/governance-nist-ai-agent-standards-agentic-governance-v1-csa-styled.pdf",
+      "https://en.wikipedia.org/wiki/2026_OpenAI_agent_cyberattacks"
+    ]
+  },
+  "broadcasts-connect-bots-openai-api.html": {
+    "sha": "10bbcfc8d17e589e8efc35ca276206a9bad1e32896b43c2a469ede445ddd14d6",
+    "length": 6106,
+    "hrefs": [
+      "/broadcasts.html",
+      "/broadcasts-share-gpu-earn.html",
+      "/models.html",
+      "/models.html"
+    ]
+  },
+  "broadcasts-deepseek-mtp-gguf.html": {
+    "sha": "28e4e9c4edb777f0375221cd952b0c624d6bb0220c9d8f5747115aa63583a281",
+    "length": 6203,
+    "hrefs": [
+      "/broadcasts.html",
+      "https://github.com/rogerai-fyi/llama.cpp",
+      "https://huggingface.co/rogerai-fyi/DeepSeek-V4-Flash-MTP-GGUF",
+      "/models.html",
+      "/bands.html"
+    ]
+  },
+  "broadcasts-free-chatgpt-alternative.html": {
+    "sha": "c74ba6306d20a7ed2d1cec87fb500f1ccd4248572fc01f0ce6d1708f1ef32f93",
+    "length": 3858,
+    "hrefs": [
+      "/broadcasts.html",
+      "/broadcasts-run-local-llm.html",
+      "/broadcasts-vram-for-llm.html",
+      "/bands.html",
+      "/models.html"
+    ]
+  },
+  "broadcasts-how-llms-work.html": {
+    "sha": "52f2fca0f5d218183d67424a1374c516b19358b90472dea5c0578991bea8a5c9",
+    "length": 12466,
+    "hrefs": [
+      "/broadcasts.html",
+      "/research-wave-family.html",
+      "/broadcasts-vram-for-llm.html"
+    ]
+  },
+  "broadcasts-how-rogerai-routes-models.html": {
+    "sha": "0639731a2df8df52a2c64a52d9308de6e07402eb08276803443d7270a3dc748f",
+    "length": 5928,
+    "hrefs": [
+      "/broadcasts.html"
+    ]
+  },
+  "broadcasts-independence-v5.html": {
+    "sha": "645cc854a0262e02e78c72934fc5012bceedd5b0680f0b2a92d1a0f274ace3ed",
+    "length": 3470,
+    "hrefs": [
+      "/broadcasts.html",
+      "assets/broadcasts/independence-v5.mp4?v=3cd90196"
+    ]
+  },
+  "broadcasts-jev-vs-wave.html": {
+    "sha": "020ea4c2686f820b564a108a0b27176727485e0ef1bd402b3e4ff924cd33b16a",
+    "length": 11409,
+    "hrefs": [
+      "/broadcasts.html",
+      "/research-wave-family.html"
+    ]
+  },
+  "broadcasts-llm-on-iphone.html": {
+    "sha": "ad463ecf16362fa01fe1df9c1dc6b11215f371eb8d592a478bf2b666b1db46e3",
+    "length": 5219,
+    "hrefs": [
+      "/broadcasts.html",
+      "/app.html",
+      "/models.html",
+      "/pricing.html",
+      "https://apps.apple.com/us/app/rogerai-fm/id6785743752"
+    ]
+  },
+  "broadcasts-one-gpu-many-users.html": {
+    "sha": "85c6cbbee45ea1bb39828cd677ef790bb9690fe6e3aed01125fc924aca275d2a",
+    "length": 4889,
+    "hrefs": [
+      "/broadcasts.html",
+      "/models.html",
+      "/bands.html"
+    ]
+  },
+  "broadcasts-run-a-tower.html": {
+    "sha": "7e318bde16b15e7716290fb261ed83a92d502284488e4ba5f7d54f8e3759acef",
+    "length": 12321,
+    "hrefs": [
+      "/broadcasts.html",
+      "/payouts.html",
+      "/tower.html",
+      "/manual.html#sTower"
+    ]
+  },
+  "broadcasts-run-local-llm.html": {
+    "sha": "177b3a9662c572a120c4c5e68a66fe92e807d7051822279b3a87e5ae8725a3b0",
+    "length": 4208,
+    "hrefs": [
+      "/broadcasts.html",
+      "/models.html",
+      "/bands.html",
+      "/manual.html",
+      "/models.html"
+    ]
+  },
+  "broadcasts-share-gpu-earn.html": {
+    "sha": "def782e2327908b3993efab6889e20f8907acad6a0426aec8394d3fb092f8141",
+    "length": 5130,
+    "hrefs": [
+      "/broadcasts.html",
+      "/models.html",
+      "/payouts.html",
+      "/manual.html"
+    ]
+  },
+  "broadcasts-sharing-your-gpu-is-safe.html": {
+    "sha": "9cd6ae2108c28cac50a7341b64ff242869967965c8453ebd4e969bc2e030de7a",
+    "length": 7437,
+    "hrefs": [
+      "/broadcasts.html",
+      "/security.html"
+    ]
+  },
+  "broadcasts-vram-for-llm.html": {
+    "sha": "31dc888e3fd7012fa62d40b174b6599dfde80b8adaa835dc220c7435cf1fd690",
+    "length": 4123,
+    "hrefs": [
+      "/broadcasts.html",
+      "/models.html",
+      "/bands.html",
+      "/manual.html"
+    ]
+  },
+  "broadcasts-what-a-million-tokens-costs.html": {
+    "sha": "d967f669c1dfa53c1360682220bdd1fa6c4bb6a7fdac2ecbaf882fd162a1df57",
+    "length": 8577,
+    "hrefs": [
+      "/broadcasts.html",
+      "/manual.html#rented"
+    ]
+  },
+  "broadcasts.html": {
+    "sha": "6067e66c4aac55325bad26696839e5b07789862f4ece491f911cf3233368caa5",
+    "length": 4928,
+    "hrefs": [
+      "/broadcasts-how-llms-work.html",
+      "/broadcasts-jev-vs-wave.html",
+      "/broadcasts-sharing-your-gpu-is-safe.html",
+      "/broadcasts-agent-governance-identity.html",
+      "/broadcasts-llm-on-iphone.html",
+      "/broadcasts-what-a-million-tokens-costs.html",
+      "/broadcasts-run-a-tower.html",
+      "/broadcasts-how-rogerai-routes-models.html",
+      "/broadcasts-deepseek-mtp-gguf.html",
+      "/broadcasts-connect-bots-openai-api.html",
+      "/broadcasts-free-chatgpt-alternative.html",
+      "/broadcasts-one-gpu-many-users.html",
+      "/broadcasts-share-gpu-earn.html",
+      "/broadcasts-vram-for-llm.html",
+      "/broadcasts-run-local-llm.html",
+      "/broadcasts-independence-v5.html"
+    ]
+  },
+  "research-hardware.html": {
+    "sha": "25cf3141bf735240e8ecc550cad02a71999d1395b56035c60df75cb8ff0788dd",
+    "length": 8211,
+    "hrefs": [
+      "/research.html",
+      "/research-models.html",
+      "https://commons.wikimedia.org/wiki/File:ESP32_on_Lolin32_Lite_clone_board_cropped.jpg",
+      "https://commons.wikimedia.org/wiki/File:Arduino_Uno_board.jpg",
+      "https://commons.wikimedia.org/wiki/File:Raspberry_Pi_Pico_oblique.jpg",
+      "https://commons.wikimedia.org/wiki/File:Raspberry_Pi_5.jpg",
+      "https://commons.wikimedia.org/wiki/File:Nvidia_Jetson_Nano_2_Development_Kit.jpeg",
+      "https://commons.wikimedia.org/wiki/File:Mac_Studio_(2022)_front.jpg",
+      "/broadcasts-what-a-million-tokens-costs.html",
+      "https://commons.wikimedia.org/wiki/File:Nvidia_DGX_Spark_oblique_view_dllu.jpg",
+      "https://commons.wikimedia.org/wiki/File:4%C3%97_NVIDIA_RTX%E2%84%A2_6000_der_Ada-Generation_(%E6%9E%81%E5%AE%A2%E6%B9%BEGeekerwan)_02.png",
+      "https://commons.wikimedia.org/wiki/File:4%C3%97_NVIDIA_RTX%E2%84%A2_6000_der_Ada-Generation_(%E6%9E%81%E5%AE%A2%E6%B9%BEGeekerwan)_01.png",
+      "https://commons.wikimedia.org/wiki/File:Racks_Amravati_Data_Center.jpg",
+      "https://huggingface.co/rogerai-fyi/DeepSeek-V4-Flash-MTP-GGUF",
+      "/manual.html#rented",
+      "/broadcasts-what-a-million-tokens-costs.html",
+      "/broadcasts-deepseek-mtp-gguf.html",
+      "/broadcasts-one-gpu-many-users.html",
+      "/broadcasts-what-a-million-tokens-costs.html",
+      "/broadcasts.html"
+    ]
+  },
+  "research-industry.html": {
+    "sha": "927ec4909eeb18970e61d1a9d5d0e894bc91ead267e993412ac7c72da8b59e7e",
+    "length": 8073,
+    "hrefs": [
+      "/research.html",
+      "#market-oilgas",
+      "#market-power",
+      "#market-manufacturing",
+      "#market-aerospace",
+      "#market-mining",
+      "#market-water",
+      "#market-healthcare",
+      "#market-defense",
+      "#market-wildfire",
+      "https://unsplash.com/photos/u13zBF4r56A",
+      "https://unsplash.com/photos/VuR4oHZ3ucc",
+      "https://unsplash.com/photos/8gr6bObQLOI",
+      "https://unsplash.com/photos/vWUOx-3r7SY",
+      "https://unsplash.com/photos/Mk2ls9UBO2E",
+      "https://unsplash.com/photos/6wSevhW1Dzc",
+      "https://unsplash.com/photos/QTP8UKW_PgI",
+      "https://unsplash.com/photos/8QZGzUbatJU",
+      "/assets/edge/hero-fd.mp4",
+      "/research-models.html#roger-edge",
+      "mailto:labs@rogerai.fm?subject=Industrial%20pilot",
+      "/research.html",
+      "/broadcasts.html"
+    ]
+  },
+  "research-models.html": {
+    "sha": "ae8a140e3b156c7241650e872e3f5e0c92d6b38d5e57a85d90021247ed4bc1b2",
+    "length": 6762,
+    "hrefs": [
+      "/research.html",
+      "/research-wave-pico.html",
+      "/research-wave-nano.html",
+      "/research-wave-family.html",
+      "mailto:labs@rogerai.fm?subject=Hello%20from%20the%20website",
+      "/research-wave-pico.html",
+      "/research-wave-nano.html",
+      "/research-wave-pico.html",
+      "/research-wave-nano.html",
+      "https://huggingface.co/rogerai-fyi/DeepSeek-V4-Flash-MTP-GGUF",
+      "/broadcasts-deepseek-mtp-gguf.html",
+      "/broadcasts.html",
+      "/research-industry.html#devices",
+      "/research-wave-family.html#infinite"
+    ]
+  },
+  "research-wave-family.html": {
+    "sha": "f3a818f4eca0e8618658cfa3522f9a057ca2d309f28207350c1be98057d4eba1",
+    "length": 17359,
+    "hrefs": [
+      "/research.html",
+      "#infinite",
+      "/research-wave-pico.html",
+      "/research-wave-nano.html",
+      "/research-industry.html#devices",
+      "/playbox.html#factory",
+      "/research.html#models",
+      "/broadcasts.html"
+    ]
+  },
+  "research-wave-nano.html": {
+    "sha": "cebe67e872746e4c1b346c34fe86342b9bfec7e0729b5a410e04e317bb48c1e3",
+    "length": 11481,
+    "hrefs": [
+      "/research-models.html",
+      "#measured",
+      "#vision",
+      "/research-wave-pico.html",
+      "/research-wave-pico.html",
+      "/research-wave-family.html",
+      "/research-models.html"
+    ]
+  },
+  "research-wave-pico.html": {
+    "sha": "757fef1d76fb8b28d18c8ac333bf902acb6b95aaf4beafe2c3a614416393d130",
+    "length": 8509,
+    "hrefs": [
+      "/research-models.html",
+      "#run",
+      "#measured",
+      "/research-wave-nano.html",
+      "/research-wave-nano.html",
+      "/research-wave-family.html",
+      "/research-models.html"
+    ]
+  },
+  "research.html": {
+    "sha": "4a64460e27f906b81cf829c462e07ea02ad3f9168a9595d06fbb77c6447a0e4e",
+    "length": 5427,
+    "hrefs": [
+      "/research-models.html",
+      "/research-wave-pico.html",
+      "/research-wave-nano.html",
+      "/research-wave-family.html",
+      "/research-hardware.html",
+      "/research-industry.html",
+      "/broadcasts.html",
+      "/models.html",
+      "/research-models.html",
+      "/research-wave-family.html",
+      "/broadcasts.html",
+      "/research-hardware.html#experiments",
+      "/broadcasts.html",
+      "/research-industry.html",
+      "/research-industry.html#envelope",
+      "/research-wave-family.html#jobs",
+      "mailto:labs@rogerai.fm",
+      "https://huggingface.co/rogerai-fyi",
+      "https://github.com/rogerai-fyi/roger",
+      "/broadcasts.html",
+      "mailto:labs@rogerai.fm"
+    ]
+  }
 }

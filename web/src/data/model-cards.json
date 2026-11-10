@@ -512,7 +512,7 @@
         },
         {
           "id": "std-macro",
-          "label": "Public suite, five-task macro (piqa, arc_easy, arc_challenge, winogrande, openbookqa), read on Instruct v3d",
+          "label": "Public suite, five-task macro (piqa, arc_easy, arc_challenge, winogrande, openbookqa), read on the release build",
           "value": "48.2",
           "num": 48.2,
           "unit": "macro",
@@ -530,7 +530,7 @@
         },
         {
           "id": "std-hellaswag",
-          "label": "HellaSwag, Instruct v3d",
+          "label": "HellaSwag, the release build",
           "value": "43.3",
           "num": 43.3,
           "ref": "R.462",
@@ -547,7 +547,7 @@
         },
         {
           "id": "std-mmlu",
-          "label": "MMLU 5-shot, Instruct v3d",
+          "label": "MMLU 5-shot, the release build",
           "value": "23.3",
           "num": 23.3,
           "ref": "R.462",
@@ -564,7 +564,7 @@
         },
         {
           "id": "std-gsm8k",
-          "label": "GSM8K 5-shot strict, Instruct v3d",
+          "label": "GSM8K 5-shot strict, the release build",
           "value": "0.7",
           "num": 0.7,
           "ref": "R.462",
@@ -581,7 +581,7 @@
         },
         {
           "id": "std-ifeval",
-          "label": "IFEval prompt-level strict through the chat template, Instruct v3d",
+          "label": "IFEval prompt-level strict through the chat template, the release build",
           "value": "12.4",
           "num": 12.4,
           "ref": "R.462",
@@ -589,7 +589,7 @@
         },
         {
           "id": "std-ifeval-class",
-          "label": "IFEval prompt-level strict, the one instruct model of the class that could be measured (SmolLM2-1.7B-Instruct)",
+          "label": "IFEval prompt-level strict, the one instruct model of the class that could be measured",
           "value": "47.9",
           "num": 47.9,
           "ref": "R.462",
@@ -597,7 +597,7 @@
         },
         {
           "id": "std-truthfulqa",
-          "label": "TruthfulQA MC2, Instruct v3d",
+          "label": "TruthfulQA MC2, the release build",
           "value": "41.2",
           "num": 41.2,
           "ref": "R.462",
