@@ -194,6 +194,25 @@ Orange County, California.</pre></div>
            wrong against Nano&rsquo;s {{card:nano.dup}}. The comparator was read against the
            earlier Nano build, under the same protocol.</p>
 
+        <figure class="figure figure--plate wm-standard" aria-labelledby="wm-std-cap">
+          <div class="tier-scroll">
+            <table class="data-table">
+              <thead>
+                <tr><th scope="col">Public suite, read on Instruct v3d</th><th scope="col">Wave Nano</th><th scope="col">Six open 1 to 2B models, same instrument</th></tr>
+              </thead>
+              <tbody>
+                <tr><th scope="row">Five-task macro (piqa, ARC, WinoGrande, OpenBookQA)</th><td>{{card:nano.std-macro}}</td><td>{{card:nano.std-macro-class}}</td></tr>
+                <tr><th scope="row">HellaSwag</th><td>{{card:nano.std-hellaswag}}</td><td>{{card:nano.std-hellaswag-class}}</td></tr>
+                <tr><th scope="row">MMLU, 5-shot</th><td>{{card:nano.std-mmlu}}</td><td>{{card:nano.std-mmlu-class}}</td></tr>
+                <tr><th scope="row">GSM8K, 5-shot strict</th><td>{{card:nano.std-gsm8k}}</td><td>{{card:nano.std-gsm8k-class}}</td></tr>
+                <tr><th scope="row">IFEval, prompt-level strict</th><td>{{card:nano.std-ifeval}}</td><td>{{card:nano.std-ifeval-class}} (one measured)</td></tr>
+                <tr><th scope="row">TruthfulQA MC2</th><td>{{card:nano.std-truthfulqa}}</td><td>{{card:nano.std-truthfulqa-class}}</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <figcaption class="fig mono" id="wm-std-cap">FIG. 4 - The public small-model suite, every row read here on one day on one instrument, nothing quoted from a model card. On this suite Wave Nano is last in its size class on every task and at chance on MMLU and GSM8K; the industrial readouts above are where it leads. {{card-ref:nano.std-macro}}.</figcaption>
+        </figure>
+
         <aside class="wm-footnote" aria-labelledby="wm-notes-head">
           <span class="research-kicker" id="wm-notes-head">Measured</span>
           <ol class="wm-notes">{{card-notes:nano}}</ol>
