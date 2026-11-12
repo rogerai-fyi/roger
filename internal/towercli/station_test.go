@@ -16,6 +16,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"rogerai.fm/roger/v7/internal/tower"
 )
 
 // joinedRegisteredTower is a joined Tower that has already registered.
@@ -266,4 +268,67 @@ func TestStationDispatchAnswersEveryDoor(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), `"revok"`, "the typo must be echoed so the operator sees it")
 	require.Contains(t, err.Error(), "station revoke", "and the usage must ride along")
+}
+
+// features/tower/approval_visibility.feature, "Status names the id RogerAI knows". The first
+// outside operator wrote in quoting the id minted locally at init, while the admin email and
+// the dashboard name Core's id, so the two could not be matched from what was on screen.
+func TestStatusNamesTheIDToQuote(t *testing.T) {
+	core := newCoreStub(t)
+	dir := joinedRegisteredTower(t)
+	core.reply["/tower/status"] = func(w http.ResponseWriter, _ int) bool {
+		_, _ = w.Write([]byte(`{"towers":[{"tower_id":"tw-1","state":"quarantine"}]}`))
+		return true
+	}
+	st, err := tower.Open(dir)
+	require.NoError(t, err)
+
+	out, err := runCLI(t, "status", "--dir", dir)
+	require.NoError(t, err)
+	require.Contains(t, out, "tower id: tw-1 (quote this id to RogerAI)")
+	require.Contains(t, out, "local id: "+st.TowerID)
+	require.NotContains(t, out, "tower id: "+st.TowerID, "the local id is never labelled as the tower id")
+}
+
+// The id comes from the Tower's own admission record, so a Core that cannot be reached
+// still leaves the operator with the id to quote.
+func TestStatusNamesTheIDToQuoteWhenCoreIsUnreachable(t *testing.T) {
+	dir := joinedRegisteredTower(t)
+	t.Setenv("ROGER_BROKER", "http://127.0.0.1:1")
+
+	out, err := runCLI(t, "status", "--dir", dir)
+	require.NoError(t, err)
+	require.Contains(t, out, "tower id: tw-1 (quote this id to RogerAI)")
+	require.Contains(t, out, "could not ask RogerAI")
+}
+
+// Before registration Core has assigned nothing, so only the local id is shown, as that.
+func TestStatusBeforeRegistrationShowsOnlyTheLocalID(t *testing.T) {
+	newCoreStub(t)
+	dir := filepath.Join(t.TempDir(), "tw")
+	var b bytes.Buffer
+	require.NoError(t, run([]string{"init", "--dir", dir, "--mode", "joined"}, &b))
+	st, err := tower.Open(dir)
+	require.NoError(t, err)
+
+	out, err := runCLI(t, "status", "--dir", dir)
+	require.NoError(t, err)
+	require.Contains(t, out, "local id: "+st.TowerID)
+	require.NotContains(t, out, "tower id:")
+	require.Contains(t, out, "roger tower register")
+}
+
+// Init on a joined Tower must not call the local id "tower id" either: an operator copying
+// from init's output would quote the same wrong id status used to print.
+func TestInitLabelsAJoinedTowersIDAsLocal(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "tw")
+	var b bytes.Buffer
+	require.NoError(t, run([]string{"init", "--dir", dir, "--mode", "joined"}, &b))
+	st, err := tower.Open(dir)
+	require.NoError(t, err)
+	out := b.String()
+	require.Contains(t, out, "local id: "+st.TowerID)
+	require.NotContains(t, out, "tower id:")
+	require.Contains(t, out, "roger tower register")
+	require.Contains(t, out, "roger tower status")
 }
