@@ -85,6 +85,11 @@ func (m model) View() string {
 	// The in-TUI Ping World screensaver paints fullscreen - no header/preset/footer chrome,
 	// just the world (any key wakes back to prevMode; see onKey).
 	if m.mode == modePingWorld {
+		if themeForced() {
+			// A forced theme's colors are drawn for its own page, so the screensaver
+			// stands on that page too rather than on the terminal's background.
+			return paintDeck(m.world.View(), m.effWidth())
+		}
 		return m.world.View()
 	}
 	w := m.effWidth()
@@ -100,7 +105,7 @@ func (m model) View() string {
 		// the [1] TUNE IN ... bar and the ▟▄▙ R O G E R · A I ((•)) logo read as two
 		// distinct rows instead of one cramped block. A single line keeps it tight on a
 		// short terminal; an empty line is inherently NO_COLOR / narrow-safe.
-		b.WriteString(m.presetBar(w) + "\n\n")
+		b.WriteString(m.presetBar(w) + "\n" + m.presetSpacer(w) + "\n")
 		b.WriteString(m.header(w) + "\n")
 	}
 	b.WriteString(m.ownerJoinBanner(w))
@@ -336,8 +341,8 @@ var paletteCmds = []paletteCmd{
 	{"/endpoint", "the OpenAI-compatible endpoint + key", ""},
 	{"/config", "broker + identity", ""},
 	{"/compact", "minimize to the dense windowshade", "m · alt+m"},
-	{"/theme", "colors: auto · light (white page) · dark", ""},
-	{"/colorblind", "color-blind safe colors: protan · deutan · tritan · off", ""},
+	{"/theme", "colors: " + strings.Join(ThemeModes, " · "), ""},
+	{"/colorblind", "color-blind safe colors: " + strings.Join(ColorblindModes, " · "), ""},
 	{"/ping", "the Ping World screensaver", "z"},
 	{"/webui", "open the browser node console", "w · ⌃w"},
 	{"/support", "rogerai.fm - community + Discord", ""},
@@ -977,7 +982,7 @@ func (m model) helpView() string {
 	// card says "you can always get here again with ?", and this is where.
 	// The rest of the keys follow at the end, under "more keys".
 	more := [][2]string{
-		{"←/→", "switch section: cycle the [0] AGENT … [?] HELP bar (same as pressing its number) · keep pressing within 2s to keep going, even from AGENT or EDGE; any other key types"},
+		{"←/→", "switch section: cycle the [0] AGENT … [?] HELP bar (same as pressing its number) · keep pressing within 2s to keep going, even from AGENT; any other key types. [3] EDGE keeps its arrows for its map"},
 		{"f", "FILTER the band by name (live) - esc clears, enter keeps it applied"},
 		{"t", "YOUR BANDS: switch the dial between OPEN MARKET and your own PRIVATE bands. A private band is hidden from the public list - including from you - so this is where you find it. ⏎ on one whose model runs here opens a DIRECT channel (no broker, no meter); n mints a new code, f clears a revoked row"},
 		{"~", "PRIVATE FREQ: enter SOMEONE ELSE'S frequency code to tune onto their hidden band - esc returns to OPEN MARKET"},
@@ -1005,8 +1010,8 @@ func (m model) helpView() string {
 		{"/endpoint · /config", "endpoint + key · broker/identity"},
 		{"/support", "open rogerai.fm - community + Discord (CLI: roger support)"},
 		{"/ping (/zen · z)", "SCREENSAVER: Ping's world fullscreen (CLI: roger --ping) - any key wakes"},
-		{"/theme [light|dark]", "colors: a light page with dark text, or dark · /theme auto follows the terminal (CLI: roger config set theme)"},
-		{"/colorblind [protan|…]", "color-blind safe colors: protan · deutan (red-green) · tritan (blue-yellow) · off"},
+		{"/theme [" + strings.Join(ThemeModes, "|") + "]", "colors: light is a light page with dark text, dark a dark page, auto follows the terminal (CLI: roger config set theme)"},
+		{"/colorblind [" + strings.Join(ColorblindModes, "|") + "]", "color-blind safe colors: protan and deutan (red-green), tritan (blue-yellow) (CLI: roger config set colorblind)"},
 		{"/help · /quit", "this · quit RogerAI"},
 	}
 	var b strings.Builder

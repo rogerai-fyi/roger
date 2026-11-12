@@ -115,27 +115,44 @@ func TestArrowWindowRefreshesOnEachStep(t *testing.T) {
 	}
 }
 
-// EDGE owns ←/→ for its node map, so it used to stop an arrow walk the same way AGENT
-// did. Inside the window the walk carries on to CONFIG; after it, EDGE has its arrows.
-func TestArrowWindowPassesThroughEdge(t *testing.T) {
-	advance := freezeNavClock(t)
+// EDGE owns ←/→ for its node map and action buttons (the 2026-09-23 fix), so an arrow
+// walk stops there: landing on EDGE opens no window, and the next Right is EDGE's own.
+func TestArrowWalkStopsAtEdge(t *testing.T) {
+	freezeNavClock(t)
 	m := browseModel(t)
 	m, _ = m.Update(keyRight()) // TUNE IN -> SHARE
 	m, _ = m.Update(keyRight()) // SHARE -> EDGE
 	if got := asModel(m).mode; got != modeEdge {
 		t.Fatalf("expected EDGE, got %v", got)
 	}
-	m, _ = m.Update(keyRight())
-	if got := asModel(m).mode; got != modeLimits {
-		t.Errorf("Right inside the window should carry on from EDGE to CONFIG, got %v", got)
+	if asModel(m).navLive() || asModel(m).navHint() != "" {
+		t.Errorf("landing on EDGE must close the arrow window")
 	}
-	e := browseModel(t)
-	e, _ = e.Update(keyRight())
-	e, _ = e.Update(keyRight()) // -> EDGE
-	advance(navWindow + time.Second)
-	e, _ = e.Update(keyRight())
-	if got := asModel(e).mode; got != modeEdge {
-		t.Errorf("after the window, Right belongs to EDGE's map and must stay on EDGE, got %v", got)
+	m, _ = m.Update(keyRight())
+	if got := asModel(m).mode; got != modeEdge {
+		t.Errorf("Right right after arriving belongs to EDGE's map and must stay on EDGE, got %v", got)
+	}
+}
+
+// A held arrow key walks the bank at most once and stops at EDGE, in both directions,
+// so it never cycles through every section's entry work again and again.
+func TestHeldArrowStopsAtEdge(t *testing.T) {
+	freezeNavClock(t)
+	for _, dir := range []tea.KeyMsg{keyRight(), keyLeft()} {
+		m := browseModel(t)
+		seen := map[mode]int{}
+		for i := 0; i < 30; i++ {
+			m, _ = m.Update(dir)
+			seen[asModel(m).mode]++
+		}
+		if got := asModel(m).mode; got != modeEdge {
+			t.Errorf("%s held: the walk should stop at EDGE, got %v", dir, got)
+		}
+		for md, n := range seen {
+			if md != modeEdge && n > 1 {
+				t.Errorf("%s held: section %v was entered %d times", dir, md, n)
+			}
+		}
 	}
 }
 
@@ -375,6 +392,24 @@ func TestLightThemePaintsLightPage(t *testing.T) {
 		t.Errorf("a forced theme must paint even with the deck off")
 	}
 	SetDeck(oldDeck)
+
+	// Mono is the escape hatch: it drops the forced page AND the forced arm, so the
+	// terminal's own background and polarity come back in one flip.
+	oldMono := paletteMono
+	t.Cleanup(func() { paletteMono = oldMono })
+	SetPalette("mono")
+	applyTheme()
+	if got := m.View(); strings.Contains(got, prefix) {
+		t.Errorf("mono must drop the forced light page")
+	}
+	if !lipgloss.HasDarkBackground() {
+		t.Errorf("mono must give the terminal's dark background back")
+	}
+	SetPalette("full")
+	applyTheme()
+	if lipgloss.HasDarkBackground() {
+		t.Fatalf("palette full again restores the forced light arm")
+	}
 
 	// Back to auto restores the detected background; the forced ink is gone.
 	SetTheme("auto")

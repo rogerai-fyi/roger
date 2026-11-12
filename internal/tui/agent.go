@@ -432,15 +432,19 @@ func (m model) enterAgent() (tea.Model, tea.Cmd) {
 			// noted once, when it resolves - never a per-turn "no station" pile-up.
 			m.agentLines = append(m.agentLines,
 				stDim.Render("· ")+stDim.Render("AGENT ready · dj.md persona · local session history"))
-			m.autoTuneBeatLen = len(m.agentLines) // the beat below is swapped for the outcome
-			m.agentLines = append(m.agentLines,
-				agentFindingBandBeat())
 			m.agentLandingLines = len(m.agentLines)
-			m.autoTuning = true
 			m.agentIn.Focus()
 			m.status = stDim.Render("AGENT ready · esc exits")
 			m.localScanning = true
-			return m, tea.Batch(textinput.Blink, operatorScanCmd(), localModelsCmd(), autoTuneCmd(m.broker, m.scanned))
+			if m.navArrive {
+				// Passing through on a ←/→ walk: the auto-tune waits until the operator
+				// settles here (settleAgentTune), so a walk never binds a band.
+				m.agentTuneOwed = true
+				return m, tea.Batch(textinput.Blink, operatorScanCmd(), localModelsCmd())
+			}
+			var tune tea.Cmd
+			m, tune = m.armAutoTune()
+			return m, tea.Batch(textinput.Blink, operatorScanCmd(), localModelsCmd(), tune)
 		} else {
 			// A proxy holder exists but no model resolves (a disconnected / oddly-seeded
 			// session): keep the honest up-front hint - the turn is still allowed and falls

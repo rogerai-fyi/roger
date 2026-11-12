@@ -559,33 +559,42 @@ func paletteFromConfig(c config) string {
 	return "full"
 }
 
-// themeFromConfig resolves the TUI theme ("auto" | "light" | "dark") from the config,
-// with ROGER_THEME winning for the run. Unknown values fall back to auto.
+// themeFromConfig resolves the TUI theme (one of tui.ThemeModes) from the config, with
+// a valid ROGER_THEME winning for the run. Like ROGER_PALETTE and ROGER_DECK, a value
+// the env var does not recognize is ignored, so a typo never overrides the saved
+// setting. Case does not matter anywhere.
 func themeFromConfig(c config) string {
-	pick := c.Theme
-	if env := os.Getenv("ROGER_THEME"); env != "" {
-		pick = env
-	}
-	switch pick {
-	case "light", "dark":
-		return pick
-	}
-	return "auto"
+	return pickMode(c.Theme, "ROGER_THEME", tui.ParseTheme)
 }
 
-// colorblindFromConfig resolves the TUI color-vision board ("off" | "protan" |
-// "deutan" | "tritan") from the config, with ROGER_COLORBLIND winning for the run.
-// Unknown values fall back to off.
+// colorblindFromConfig resolves the TUI color-vision board (one of
+// tui.ColorblindModes) the same way, with ROGER_COLORBLIND.
 func colorblindFromConfig(c config) string {
-	pick := c.Colorblind
-	if env := os.Getenv("ROGER_COLORBLIND"); env != "" {
-		pick = env
+	return pickMode(c.Colorblind, "ROGER_COLORBLIND", tui.ParseColorblind)
+}
+
+// pickMode is the config value, or the env var when it holds a valid value; an unknown
+// saved value reads as the default (parse returns it for anything it rejects).
+func pickMode(saved, envVar string, parse func(string) (string, bool)) string {
+	if env, ok := parse(os.Getenv(envVar)); ok {
+		return env
 	}
-	switch pick {
-	case "protan", "deutan", "tritan":
-		return pick
+	mode, _ := parse(saved)
+	return mode
+}
+
+// setMode stores a `roger config set theme|colorblind` value: the default clears the key,
+// and anything that is not in modes is a usage error listing them.
+func setMode(dst *string, key, value string, modes []string, parse func(string) (string, bool)) error {
+	mode, ok := parse(value)
+	if !ok {
+		return fmt.Errorf("usage: roger config set %s %s", key, strings.Join(modes, "|"))
 	}
-	return "off"
+	*dst = mode
+	if mode == modes[0] {
+		*dst = ""
+	}
+	return nil
 }
 
 // configNeedsMerge reports whether the on-disk config carries state the plain struct write
@@ -888,19 +897,15 @@ func tuiHooks(cfg config) tui.Hooks {
 		// Persist an in-TUI /theme or /colorblind switch ("auto" / "off" clear the key).
 		SaveTheme: func(mode string) {
 			c := loadConfig()
-			c.Theme = mode
-			if mode == "auto" {
-				c.Theme = ""
+			if setMode(&c.Theme, "theme", mode, tui.ThemeModes, tui.ParseTheme) == nil {
+				_ = saveConfig(c)
 			}
-			_ = saveConfig(c)
 		},
 		SaveColorblind: func(mode string) {
 			c := loadConfig()
-			c.Colorblind = mode
-			if mode == "off" {
-				c.Colorblind = ""
+			if setMode(&c.Colorblind, "colorblind", mode, tui.ColorblindModes, tui.ParseColorblind) == nil {
+				_ = saveConfig(c)
 			}
-			_ = saveConfig(c)
 		},
 		SaveSession: sessionStore.Save,
 		// BASE STATION / remote control (v5.0.0): the host bridge + roster/stream closures,
@@ -2745,25 +2750,15 @@ func cmdConfig(args []string) error {
 			// The TUI theme: "auto" follows the terminal background (default), "light"
 			// paints a light page with dark text, "dark" a dark page. ROGER_THEME
 			// overrides per-run; /theme switches it live inside the TUI.
-			switch args[2] {
-			case "auto":
-				c.Theme = ""
-			case "light", "dark":
-				c.Theme = args[2]
-			default:
-				return fmt.Errorf("usage: roger config set theme auto|light|dark")
+			if err := setMode(&c.Theme, "theme", args[2], tui.ThemeModes, tui.ParseTheme); err != nil {
+				return err
 			}
 		case "colorblind":
 			// Color-blind safe colors: "protan" / "deutan" (red-green: the red accent
 			// turns blue) or "tritan" (blue-yellow: the blue info color turns magenta).
 			// "off" restores the full board. ROGER_COLORBLIND overrides per-run.
-			switch args[2] {
-			case "off":
-				c.Colorblind = ""
-			case "protan", "deutan", "tritan":
-				c.Colorblind = args[2]
-			default:
-				return fmt.Errorf("usage: roger config set colorblind off|protan|deutan|tritan")
+			if err := setMode(&c.Colorblind, "colorblind", args[2], tui.ColorblindModes, tui.ParseColorblind); err != nil {
+				return err
 			}
 		case "agent-timeout":
 			seconds, err := parseAgentTimeout(args[2])

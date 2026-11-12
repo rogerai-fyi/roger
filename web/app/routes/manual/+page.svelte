@@ -269,12 +269,16 @@
               step through the bank; <kbd>m</kbd> collapses the header into a compact
               "windowshade" line and the choice sticks across runs.</p>
             <p>After an arrow press you have 2 seconds to press <kbd>&larr;</kbd> /
-              <kbd>&rarr;</kbd> again and keep moving, even when you land on a screen that
-              uses the arrows itself, like the <b>[0] AGENT</b> prompt or the <b>[3] EDGE</b>
-              map. A small <code>&larr;/&rarr; 2s</code> countdown shows next to the bank
-              while it runs. Any other key ends it at once: in AGENT that key is simply the
-              start of your ask. Once the 2 seconds are up, the arrows belong to the screen
-              you are on again.</p>
+              <kbd>&rarr;</kbd> again and keep moving, even when you land on the
+              <b>[0] AGENT</b> prompt, which uses the arrows itself. A small
+              <code>&larr;/&rarr; 2s</code> countdown shows next to the bank (or just under
+              it on a narrow terminal) while it runs. Any other key ends it at once: in AGENT
+              that key is simply the start of your ask. Once the 2 seconds are up, the arrows
+              belong to the screen you are on again.</p>
+            <p>Two places keep their arrows even inside the 2 seconds. <b>[3] EDGE</b> uses
+              them for its map and buttons, so an arrow walk stops there; a number key or
+              <kbd>esc</kbd> moves on. AGENT keeps them when you left a draft in the prompt
+              or it is showing a suggested next step.</p>
           </section>
 
           <!-- ============== §A THE [0] AGENT ============== -->
@@ -1572,10 +1576,12 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre></div>
               <div class="man-plate__row"><span class="man-plate__k">colorblind tritan</span><span class="man-plate__v">for blue-yellow color blindness. The red highlights stay red; the blue info color turns magenta so it no longer looks like the green one</span></div>
               <div class="man-plate__row"><span class="man-plate__k">colorblind off</span><span class="man-plate__v">the default color board</span></div>
             </div>
-            <p>The two work together (for example a light page with the red-green colors),
-              and with <code>palette mono</code>, which keeps only the one accent color. A
-              forced theme paints its own page even after <code>roger config set deck off</code>, so its text
-              always has the ground it was made for.</p>
+            <p>The two work together, for example a light page with the red-green colors. A
+              forced theme paints its own page even after <code>roger config set deck off</code>,
+              so its text always has the ground it was made for. <code>palette mono</code> is
+              the escape hatch: it turns a forced theme off too, so your terminal's own
+              background shows, and the color-blind setting still applies to the one accent
+              color mono keeps.</p>
 
             <h3>Spend limits</h3>
             <p>Set per-model spend ceilings once and they apply to every connect. A
@@ -1662,7 +1668,7 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre></div>
               <b>[0] AGENT [1] TUNE IN [2] SHARE [3] EDGE [4] CONFIG [L] LOGIN/LOGOUT [?] HELP</b> -
               and the lit preset is where you are. Press a key to jump there;
               <kbd>&larr;</kbd>/<kbd>&rarr;</kbd> step through the bank (keep pressing
-              within 2 seconds to keep going, even through AGENT and EDGE; see §2); <kbd>m</kbd> is the
+              within 2 seconds to keep going, even through AGENT; a walk stops at EDGE; see §2); <kbd>m</kbd> is the
               compact "windowshade". The full keys for <b>[0] AGENT</b> are in §A and for
               <b>[1] TUNE IN</b> + the channel in §3; <b>[2] SHARE</b> is below.
               <b>[4] CONFIG</b> is the spend-limits editor (§8) and <b>[L]</b> is the login

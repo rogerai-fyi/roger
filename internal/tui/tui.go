@@ -1131,12 +1131,21 @@ type model struct {
 	compact bool
 	// The arrow-key section window (navWindow): after a ←/→ preset jump, further ←/→
 	// keep switching sections for navWindow, even when the section just reached is a
-	// text prompt (AGENT), a screen that owns the arrows (EDGE) or the LOGIN panel. Any
-	// other key closes the window and is handled normally, so typing starts at once.
+	// text prompt (AGENT) or the LOGIN panel. EDGE keeps its arrows and ends a walk.
+	// Any other key closes the window and is handled normally, so typing starts at once.
 	// navMode pins the window to the section it opened on; navSeq retires stale ticks.
 	navUntil time.Time
 	navMode  mode
 	navSeq   int
+	// navArrive is set only while a ←/→ step runs the destination's jump, so AGENT can
+	// tell a walk passing through from an operator arriving to stay.
+	navArrive bool
+	// agentTuneOwed: AGENT's first entry was a walk passing through, so its one silent
+	// auto-tune has not run yet. settleAgentTune runs it once the operator settles there.
+	agentTuneOwed bool
+	// shareHeld is a first SHARE scan that came back empty while the operator was off
+	// SHARE; the wizard it would have opened shows when they return (landHeldShareScan).
+	shareHeld *heldShareScan
 	// cmdLead is the key that opened the command palette (`/` or `:`), echoed in
 	// front of the input so the prompt shows what was pressed.
 	cmdLead string
@@ -5700,6 +5709,10 @@ func wrapStatus(status string, w int) string {
 // case so the next one is a single line and cannot be forgotten.
 var secretArgCommands = map[string]bool{"freq": true, "f": true}
 
+// normCommand is a palette line as run and as recorded: leading blanks and slashes in
+// any mix (` / //freq`) are dropped, so `/x`, `//x` and `x` are the same command.
+func normCommand(s string) string { return strings.TrimSpace(strings.TrimLeft(s, " \t/")) }
+
 // scrubSecretArgs strips the argument from a command that carries a secret, leaving the
 // verb. History is for "what did I run", and for these the answer is the verb - the
 // argument is a thing the product promised never to store.
@@ -5708,7 +5721,7 @@ func scrubSecretArgs(cmd string) string {
 	if len(fields) < 2 {
 		return cmd
 	}
-	verb := strings.ToLower(strings.TrimPrefix(fields[0], "/"))
+	verb := strings.ToLower(strings.TrimLeft(fields[0], "/"))
 	if !secretArgCommands[verb] {
 		return cmd
 	}

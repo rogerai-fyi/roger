@@ -3,7 +3,6 @@ package tui
 import (
 	"strings"
 	"testing"
-	"time"
 
 	"rogerai.fm/roger/v7/internal/detect"
 
@@ -55,11 +54,8 @@ func TestArrowCyclesPresetsFromBrowse(t *testing.T) {
 
 // TestArrowCycleWraps: the preset bank steps in order and wraps, EXCEPT the EDGE screen owns
 // the arrow keys for its own map/action navigation (2026-09-23) - so an arrow onto EDGE enters it
-// and, once the 2s arrow window (arrownav.go) has closed, further arrows stay, while number keys
-// still jump. Inside the window an arrow walk carries on through EDGE (TestArrowWindowPassesThroughEdge).
-// Left from TUNE IN wraps to AGENT.
+// and further arrows stay, while number keys still jump. Left from TUNE IN wraps to AGENT.
 func TestArrowCycleWraps(t *testing.T) {
-	advance := freezeNavClock(t)
 	// Right walk: TUNE IN -> SHARE -> EDGE.
 	m := browseModel(t)
 	m, _ = m.Update(keyRight()) // -> SHARE
@@ -71,10 +67,8 @@ func TestArrowCycleWraps(t *testing.T) {
 		t.Errorf("step 2 should be EDGE, got %v", got)
 	}
 	// The EDGE screen OWNS the arrow keys - it has its own map + action-button navigation
-	// (2026-09-23: a stray Right must not leave mid-navigation). So once the arrow window has
-	// closed, a further Right STAYS on EDGE rather than stepping to CONFIG; leaving is esc or a
-	// number key.
-	advance(navWindow + time.Second)
+	// (2026-09-23: a stray Right must not leave mid-navigation). So a further Right STAYS on EDGE
+	// rather than stepping to CONFIG; leaving is esc or a number key.
 	m, _ = m.Update(keyRight())
 	if got := asModel(m).mode; got != modeEdge {
 		t.Errorf("Right on EDGE must stay on EDGE (it owns the arrows), got %v", got)
@@ -91,8 +85,7 @@ func TestArrowCycleWraps(t *testing.T) {
 	if got := asModel(m).mode; got != modeEdge {
 		t.Errorf("Left from CONFIG should step back to EDGE, got %v", got)
 	}
-	advance(navWindow + time.Second)
-	m, _ = m.Update(keyLeft()) // EDGE owns Left once the window has closed; stays
+	m, _ = m.Update(keyLeft()) // EDGE owns Left; stays
 	if got := asModel(m).mode; got != modeEdge {
 		t.Errorf("Left on EDGE must stay on EDGE (it owns the arrows), got %v", got)
 	}
