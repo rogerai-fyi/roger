@@ -317,3 +317,18 @@ func TestStatusBeforeRegistrationShowsOnlyTheLocalID(t *testing.T) {
 	require.NotContains(t, out, "tower id:")
 	require.Contains(t, out, "roger tower register")
 }
+
+// Init on a joined Tower must not call the local id "tower id" either: an operator copying
+// from init's output would quote the same wrong id status used to print.
+func TestInitLabelsAJoinedTowersIDAsLocal(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "tw")
+	var b bytes.Buffer
+	require.NoError(t, run([]string{"init", "--dir", dir, "--mode", "joined"}, &b))
+	st, err := tower.Open(dir)
+	require.NoError(t, err)
+	out := b.String()
+	require.Contains(t, out, "local id: "+st.TowerID)
+	require.NotContains(t, out, "tower id:")
+	require.Contains(t, out, "roger tower register")
+	require.Contains(t, out, "roger tower status")
+}

@@ -236,7 +236,13 @@ func cmdInit(args []string, out io.Writer) error {
 		return err
 	}
 	fmt.Fprintf(out, "initialized %s Tower in %s\n", st.Mode, *dir)
-	fmt.Fprintf(out, "tower id: %s\n", st.TowerID)
+	if st.Mode == tower.ModeJoined {
+		// Not the id to quote: Core allocates that at registration (see cmdStatus).
+		fmt.Fprintf(out, "local id: %s\n", st.TowerID)
+		fmt.Fprint(out, "RogerAI assigns this Tower's id when you run `roger tower register`; `roger tower status` shows it.\n")
+	} else {
+		fmt.Fprintf(out, "tower id: %s\n", st.TowerID)
+	}
 	if st.LocalNetworkID != "" {
 		fmt.Fprintf(out, "local network: %s (separate from the public RogerAI network)\n", st.LocalNetworkID)
 	}

@@ -57,6 +57,11 @@ Feature: A Tower's approval is visible to the operator and workable for the admi
     Then the only id shown is the local id, labelled as such
     And it is told to run `roger tower register`
 
+  Scenario: Init labels a joined Tower's id as local, and says where the id to quote comes from
+    When the operator initializes a joined Tower
+    Then the id it prints is labelled as the local id, never as the tower id
+    And it says RogerAI assigns the id to quote at registration, shown by status
+
   # --- the admin approves on the website ------------------------------------
 
   Scenario: The admin dashboard lists Towers pending approval
