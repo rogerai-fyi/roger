@@ -36,6 +36,27 @@ Feature: A Tower's approval is visible to the operator and workable for the admi
     When the admin suspends it
     Then within one heartbeat serve says it no longer takes work and why that can be
 
+  # Added 2026-11-11 at the founder's request ("write the status fix"): the first outside
+  # operator wrote in quoting the local id from `status`, while the admin email and the
+  # dashboard name Core's id. Nothing on the operator's screen let the two be matched.
+  Scenario: Status names the id RogerAI knows, and says it is the one to quote
+    Given a joined Tower that registered and was given the id "tw-1" by Roger Core
+    When the operator runs status
+    Then the tower id line shows "tw-1" and says it is the id to quote to RogerAI
+    And the id minted locally at init is still shown, labelled as the local id
+
+  Scenario: The id to quote is shown even when Roger Core cannot be reached
+    Given a joined Tower that registered and was given the id "tw-1" by Roger Core
+    And Roger Core cannot be reached
+    When the operator runs status
+    Then the tower id line still shows "tw-1", read from the Tower's own admission record
+
+  Scenario: Before registration there is no RogerAI id to quote
+    Given a joined Tower that has not registered
+    When the operator runs status
+    Then the only id shown is the local id, labelled as such
+    And it is told to run `roger tower register`
+
   # --- the admin approves on the website ------------------------------------
 
   Scenario: The admin dashboard lists Towers pending approval

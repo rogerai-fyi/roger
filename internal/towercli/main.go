@@ -359,7 +359,18 @@ func cmdStatus(args []string, out io.Writer) error {
 		return err
 	}
 	fmt.Fprintf(out, "mode: %s\n", st.Mode)
-	fmt.Fprintf(out, "tower id: %s\n", st.TowerID)
+	if st.LocalNetworkID == "" {
+		// A joined Tower has two ids: the one init minted locally, and the one Core
+		// allocated at enrollment, which is the one the admin email and the dashboard name.
+		// The first outside operator wrote in quoting the local one, labelled "tower id",
+		// and nothing on screen matched it to the Tower waiting for approval.
+		if adm, ok := towerjoin.LoadAdmission(st.Dir()); ok && adm.TowerID != "" {
+			fmt.Fprintf(out, "tower id: %s (quote this id to RogerAI)\n", adm.TowerID)
+		}
+		fmt.Fprintf(out, "local id: %s\n", st.TowerID)
+	} else {
+		fmt.Fprintf(out, "tower id: %s\n", st.TowerID)
+	}
 	if st.LocalNetworkID != "" {
 		fmt.Fprintf(out, "local network: %s\n", st.LocalNetworkID)
 		if fp, err := st.JoinFingerprint(); err == nil {
