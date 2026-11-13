@@ -561,8 +561,13 @@ func (b *broker) towerStationPromote(w http.ResponseWriter, r *http.Request) {
 	// the attachment lives in another store, and an action Core cannot record is not taken.
 	// Only a Station that can actually be promoted is recorded; the no-op answer below is not.
 	var recordedOn string
-	if cur, found, ferr := ts.stations.Station(req.StationID); ferr == nil && found &&
-		cur.State == attach.StateQuarantine && cur.Origin.TowerID != "" {
+	cur, found, ferr := ts.stations.Station(req.StationID)
+	if ferr != nil {
+		// No promotion without knowing whose record it lands on.
+		jsonErr(w, http.StatusServiceUnavailable, "could not read the Station registry - try again in a moment")
+		return
+	}
+	if found && cur.State == attach.StateQuarantine && cur.Origin.TowerID != "" {
 		if rerr := ts.registry.Record(admit.Event{TowerID: cur.Origin.TowerID, Kind: evStationPromoted,
 			Actor: actor, Reason: req.Reason, Instance: b.instanceID, Detail: map[string]any{"station": req.StationID}}); rerr != nil {
 			b.towerGovUnavailable(rerr)

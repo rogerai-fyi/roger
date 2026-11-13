@@ -358,6 +358,8 @@ type broker struct {
 	towerRefusals  refusalLimiter
 	towerLinkState linkStateCache
 	towerGovFail   pacer
+	towerLogPace   logPacer
+	towerAdmitted  admittedSet
 
 	// stats are the low-overhead, lock-free MULTI-INSTANCE dispatch counters (local vs.
 	// cross-instance bus dispatch, no-poller, and bus errors) surfaced read-only on the

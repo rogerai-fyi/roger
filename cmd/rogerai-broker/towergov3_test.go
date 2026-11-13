@@ -196,7 +196,14 @@ func (c *eventCountingStore) LinkSummaries(kinds []string) (map[string]admit.Lin
 // demand - the write a promotion makes.
 type promoteFailingStations struct {
 	attach.Store
-	fail bool
+	fail, failReads bool
+}
+
+func (p *promoteFailingStations) ByStation(stationID string) (attach.Attachment, bool, error) {
+	if p.failReads {
+		return attach.Attachment{}, false, attach.ErrUnavailable
+	}
+	return p.Store.ByStation(stationID)
 }
 
 func (p *promoteFailingStations) SetState(stationID, state string) (bool, error) {

@@ -122,7 +122,7 @@ func (b *broker) RunCanary(towerID string) reputation.Outcome {
 		return ""
 	}
 
-	outcome := b.driveSealedCanary(grant, target, endpoint, endpointPin, consumerKey, envPriv)
+	outcome, cause := b.driveSealedCanary(grant, target, endpoint, endpointPin, consumerKey, envPriv)
 	if outcome == "" {
 		// Core could not build the probe out of its own materials. Nobody is at fault but this
 		// process, and an aborted probe is not evidence about anybody - see driveSealedCanary.
@@ -141,7 +141,7 @@ func (b *broker) RunCanary(towerID string) reputation.Outcome {
 	// exactly why none of them may be moved to the Station on the Tower's say-so. The single
 	// exception is a probe that never reached the Tower at all (see driveSealedCanary).
 	b.recordOutcome(towerID, row.StationID, grant.AttemptID, outcome)
-	b.noteCanary(towerID, row.StationID, outcome)
+	b.noteCanaryCause(towerID, row.StationID, outcome, cause)
 	// AND IN PROCESS, for placement. This map is not a duplicate of the ledger row above: it is
 	// this instance's own placement reading, deliberately kept out of b.trust and read on the
 	// authorize path with no store round trip - see edgeCanaryHealth for the whole argument.
@@ -243,13 +243,13 @@ const neverCanariedAge = 1000 * canaryInterval
 // The verdict is one of three things, and the third is new: an empty outcome means the probe
 // never happened and nothing is recorded about anybody, because the only thing that went wrong
 // was inside this process.
-func (b *broker) driveSealedCanary(grant dispatch.EdgeGrant, target dispatch.Target, endpoint, endpointPin string, consumerKey ed25519.PrivateKey, envPriv []byte) reputation.Outcome {
+func (b *broker) driveSealedCanary(grant dispatch.EdgeGrant, target dispatch.Target, endpoint, endpointPin string, consumerKey ed25519.PrivateKey, envPriv []byte) (reputation.Outcome, string) {
 	// The sealed loop itself is shared with the edge bridge (edgebridge.go): one proven
 	// drive, two callers - the canary judges the outcome, the bridge keeps the answer.
-	_, outcome := b.driveSealed(grant, target, endpoint, endpointPin, consumerKey, envPriv,
+	_, outcome, cause := b.driveSealedF(grant, target, endpoint, endpointPin, consumerKey, envPriv,
 		sealedDrive{tag: "canary", body: canaryBodyFor(grant.Model), timeout: canaryTimeout, usageIn: 0,
 			onDesignSkip: func() { b.noteCanarySkip(target.TowerID, target.StationID) }})
-	return outcome
+	return outcome, cause
 }
 
 // canaryTargetFor picks a routable Station with a data plane behind a specific Tower.

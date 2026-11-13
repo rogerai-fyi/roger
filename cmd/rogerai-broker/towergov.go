@@ -131,7 +131,14 @@ func pacedKind(kind string) bool {
 	return false
 }
 
-// towerEvent prints the line and records the event, best effort. A paced kind over its
+// pacedEvent reports whether an event counts against the budget: a paced kind, driven by
+// the Tower itself or an operator. The same kind written by Core or an administrator is
+// never capped, so an operator cannot crowd those records out.
+func pacedEvent(ev admit.Event) bool {
+	return pacedKind(ev.Kind) && (ev.Actor == admit.ActorTower || strings.HasPrefix(ev.Actor, "operator:"))
+}
+
+// towerEvent prints the line and records the event, best effort. A paced event over its
 // hourly budget is logged and not recorded, and the log says so once a minute.
 func (b *broker) towerEvent(ev admit.Event) {
 	if ev.Instance == "" {
@@ -142,14 +149,14 @@ func (b *broker) towerEvent(ev admit.Event) {
 	if b.tower == nil {
 		return
 	}
-	if pacedKind(ev.Kind) {
+	if pacedEvent(ev) {
 		n, err := b.tower.registry.CountEvents(ev.TowerID, ev.Kind, "", time.Now().Add(-time.Hour))
 		if err != nil {
 			b.towerGovUnavailable(err)
 			return
 		}
 		if n >= towerEventBudget {
-			if logIt, _, _, _ := b.towerRefusals.note("budget|" + ev.TowerID + "|" + ev.Kind); logIt {
+			if b.towerLogPace.allow("budget|" + ev.TowerID + "|" + ev.Kind) {
 				log.Printf("tower-event: %s budget reached for tower %s (%d an hour); further events are logged, not recorded",
 					ev.Kind, logValue(ev.TowerID), towerEventBudget)
 			}
@@ -204,6 +211,63 @@ func (b *broker) towerGovUnavailable(err error) {
 
 // --- refused Tower requests -------------------------------------------------------------
 
+// logPacer lets one log line per key through each minute. It only ever paces logging:
+// nothing it holds becomes a record, which is why it is separate from refusalLimiter.
+type logPacer struct {
+	mu   sync.Mutex
+	last map[string]time.Time
+}
+
+func (p *logPacer) allow(key string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.last == nil {
+		p.last = map[string]time.Time{}
+	}
+	now := time.Now()
+	if last, ok := p.last[key]; ok && now.Sub(last) < time.Minute {
+		return false
+	}
+	p.last[key] = now
+	return true
+}
+
+// prune forgets keys quiet for an hour, so callers cannot grow the map without bound.
+func (p *logPacer) prune() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for k, at := range p.last {
+		if time.Since(at) > time.Hour {
+			delete(p.last, k)
+		}
+	}
+}
+
+// admittedSet is the ids of admitted Towers, refreshed by the sweep, so a refusal can be
+// attributed to a real Tower without a store read per request and without keeping state
+// for ids an attacker invents.
+type admittedSet struct {
+	mu  sync.Mutex
+	ids map[string]bool
+	at  time.Time
+}
+
+func (a *admittedSet) refresh(ids []string) {
+	m := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		m[id] = true
+	}
+	a.mu.Lock()
+	a.ids, a.at = m, time.Now()
+	a.mu.Unlock()
+}
+
+func (a *admittedSet) has(id string) (known, fresh bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.ids[id], !a.at.IsZero() && time.Since(a.at) < 2*towerGovSweepInterval
+}
+
 // refusalLimiter paces refusal logging (one line per key per minute) and recording (one
 // event per key per hour, carrying the count it stands for).
 type refusalLimiter struct {
@@ -249,6 +313,20 @@ func (l *refusalLimiter) note(key string) (logIt, record bool, count int, now ti
 	return logIt, record, count, now
 }
 
+// prune forgets keys with nothing pending and nothing logged or recorded for an hour.
+func (l *refusalLimiter) prune() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	now := l.now()
+	for k := range l.logged {
+		if l.counts[k] == 0 && now.Sub(l.logged[k]) > time.Hour && now.Sub(l.recorded[k]) > time.Hour {
+			delete(l.logged, k)
+			delete(l.recorded, k)
+			delete(l.counts, k)
+		}
+	}
+}
+
 // carry returns a count to the pending pile when its record was not written.
 func (l *refusalLimiter) carry(key string, n int) {
 	l.mu.Lock()
@@ -264,7 +342,7 @@ func (l *refusalLimiter) due() map[string]int {
 	now := l.now()
 	out := map[string]int{}
 	for key, n := range l.counts {
-		if n == 0 || strings.HasPrefix(key, "budget|") || key == "unknown_tower" {
+		if n == 0 {
 			continue
 		}
 		if now.Sub(l.recorded[key]) >= time.Hour {
@@ -299,28 +377,29 @@ func (b *broker) noteTowerRefusal(towerID, reason, route string) {
 	}
 	switch reason {
 	case "unsigned", "no_tower_id", "unavailable":
-		// Anyone can send an unsigned request naming any id, so these are one paced stream,
-		// checked against the registry only when the stream is due: no store read per
-		// request, and no per-id state an attacker could grow.
-		logIt, _, _, _ := b.towerRefusals.note("unsigned")
-		if !logIt {
-			return
+		// Anyone can send an unsigned request naming any id. It is attributed to a Tower only
+		// when the id is one the sweep knows is admitted - no store read per request, and no
+		// state kept for invented ids - and is otherwise part of the unknown stream below.
+		known, fresh := b.towerAdmitted.has(towerID)
+		if !fresh && b.towerLogPace.allow("admitted-refresh") {
+			b.refreshAdmitted()
+			known, _ = b.towerAdmitted.has(towerID)
 		}
-		if _, admitted := b.tower.registry.Get(towerID); !admitted {
+		if !known {
 			reason = "unknown_tower"
 		}
 	}
 	if reason == "unknown_tower" {
 		// Anyone can name any id, so these are paced as one stream, not per id, and never
 		// recorded: a record per invented id would be a table anyone can fill.
-		if logIt, _, _, _ := b.towerRefusals.note("unknown_tower"); logIt {
+		if b.towerLogPace.allow("unknown_tower") {
 			b.logTowerEvent(admit.Event{TowerID: towerID, Kind: evRequestRefused, Actor: admit.ActorTower,
 				Reason: "unknown_tower", Detail: map[string]any{"route": route}})
 		}
 		return
 	}
-	// Every other reason was reached after the registry lookup in towerCallerWhy, so the
-	// Tower is admitted and the id is not attacker-chosen.
+	// From here the Tower is admitted: either towerCallerWhy found it in the registry, or the
+	// admitted set did. Its refusals are counted for it.
 	logIt, record, count, now := b.towerRefusals.note(towerID + "|" + reason)
 	ev := admit.Event{TowerID: towerID, Kind: evRequestRefused, Actor: admit.ActorTower, Reason: reason,
 		Detail: map[string]any{"route": route}}
@@ -455,11 +534,27 @@ func (b *broker) towerGovSweepOnce(now time.Time) {
 	if ts == nil {
 		return
 	}
-	for _, tw := range ts.registry.All() {
+	towers := ts.registry.All()
+	ids := make([]string, 0, len(towers))
+	for _, tw := range towers {
+		ids = append(ids, tw.ID)
 		b.sweepLink(tw.ID, now)
 		b.sweepLease(tw, now)
 	}
+	b.towerAdmitted.refresh(ids)
 	b.flushRefusals()
+	b.towerRefusals.prune()
+	b.towerLogPace.prune()
+}
+
+// refreshAdmitted reloads the admitted set outside the sweep, at most once a minute.
+func (b *broker) refreshAdmitted() {
+	towers := b.tower.registry.All()
+	ids := make([]string, 0, len(towers))
+	for _, tw := range towers {
+		ids = append(ids, tw.ID)
+	}
+	b.towerAdmitted.refresh(ids)
 }
 
 func (b *broker) sweepLink(towerID string, now time.Time) {
@@ -478,6 +573,11 @@ func (b *broker) sweepLink(towerID string, now time.Time) {
 	seen, known, err := b.tower.link.LastSeenChecked(towerID)
 	if err != nil {
 		b.towerGovUnavailable(err)
+		return
+	}
+	// A session that is no longer there was closed, whether or not its close made the
+	// record (a close over the budget is logged, not recorded). Closed is not quiet.
+	if _, open := b.tower.link.Current(towerID); !open {
 		return
 	}
 	if !known || seen.Before(last.At) {
@@ -570,26 +670,35 @@ func (b *broker) recordStationsSwept(s []attach.Swept, why string) {
 // noteCanary logs every failed probe with its Station and records a probe result only when
 // it differs from the last one recorded, so the record shows changes rather than a heartbeat.
 func (b *broker) noteCanary(towerID, stationID string, outcome reputation.Outcome) {
+	b.noteCanaryCause(towerID, stationID, outcome, "")
+}
+
+// noteCanaryCause is noteCanary with the drive's failure class, when it named one.
+func (b *broker) noteCanaryCause(towerID, stationID string, outcome reputation.Outcome, cause string) {
 	result := string(outcome)
 	switch outcome {
 	case reputation.CanaryPass:
 		result = "pass"
 	case reputation.CanaryFail:
 		result = "fail"
-		log.Printf("canary: tower %s failed station=%s outcome=%s", towerID, stationID, outcome)
+		line := fmt.Sprintf("canary: tower %s failed station=%s outcome=%s", towerID, stationID, outcome)
+		if cause != "" {
+			line += " cause=" + logValue(cause)
+		}
+		log.Print(line)
 	case "":
 		return
 	}
-	b.recordCanaryChange(towerID, stationID, result, string(outcome))
+	b.recordCanaryChange(towerID, stationID, result, string(outcome), cause)
 }
 
 // noteCanarySkip records, once until the result changes, that a Tower's endpoint was skipped
 // as unreachable by design.
 func (b *broker) noteCanarySkip(towerID, stationID string) {
-	b.recordCanaryChange(towerID, stationID, "unreachable_by_design", "")
+	b.recordCanaryChange(towerID, stationID, "unreachable_by_design", "", "")
 }
 
-func (b *broker) recordCanaryChange(towerID, stationID, result, reason string) {
+func (b *broker) recordCanaryChange(towerID, stationID, result, reason, cause string) {
 	if b.tower == nil {
 		return
 	}
@@ -605,8 +714,12 @@ func (b *broker) recordCanaryChange(towerID, stationID, result, reason string) {
 	if ok {
 		lastID = last.ID
 	}
+	detail := map[string]any{"result": result, "station": stationID}
+	if cause != "" {
+		detail["cause"] = admit.CleanReason(cause)
+	}
 	b.towerRecordIfLast(admit.Event{TowerID: towerID, Kind: evCanary, Actor: admit.ActorSystem, Reason: reason,
-		Detail: map[string]any{"result": result, "station": stationID}}, []string{evCanary}, lastID)
+		Detail: detail}, []string{evCanary}, lastID)
 }
 
 // statusCapture remembers the status and the start of the body a handler wrote, so a
@@ -641,7 +754,7 @@ func (b *broker) logAttachRefused(c *statusCapture, who string) {
 		return
 	}
 	// Paced per caller and status: an unsigned loop is one line a minute, not one per request.
-	if logIt, _, _, _ := b.towerRefusals.note("attach|" + who + "|" + strconv.Itoa(c.code)); !logIt {
+	if !b.towerLogPace.allow("attach|" + who + "|" + strconv.Itoa(c.code)) {
 		return
 	}
 	var env struct {
