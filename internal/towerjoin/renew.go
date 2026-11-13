@@ -112,7 +112,6 @@ func issuedAt(dir string, adm Admission) time.Time {
 
 // renew performs the exchange and replaces the stored credential.
 func renew(st *tower.State, adm Admission) error {
-	broker := brokerBase()
 	identity, err := st.IdentityKey()
 	if err != nil {
 		return fmt.Errorf("this Tower's identity key is unreadable: %w", err)
@@ -122,7 +121,7 @@ func renew(st *tower.State, adm Admission) error {
 		return fmt.Errorf("this Tower's channel key is unreadable: %w", err)
 	}
 
-	nonce, signingInput, err := renewChallenge(broker, identity, adm.TowerID)
+	nonce, signingInput, err := renewChallenge(st, adm.TowerID)
 	if err != nil {
 		return err
 	}
@@ -150,7 +149,9 @@ func renew(st *tower.State, adm Admission) error {
 		LeaseExpires int64  `json:"lease_expires"`
 		NotAfter     int64  `json:"not_after"`
 	}
-	if err := signedPost(broker+"/tower/renew", identity, body, &out); err != nil {
+	// Signed by the TOWER (towerPost), like the link: Core admits the identity key, not the
+	// operator's account key, and refuses a renewal signed by anything else.
+	if err := towerPost(st, "/tower/renew", body, &out); err != nil {
 		return err
 	}
 
@@ -185,7 +186,7 @@ func renew(st *tower.State, adm Admission) error {
 	return saveAdmission(dir, adm)
 }
 
-func renewChallenge(broker string, identity ed25519.PrivateKey, towerID string) (nonce string, signingInput []byte, err error) {
+func renewChallenge(st *tower.State, towerID string) (nonce string, signingInput []byte, err error) {
 	body, err := json.Marshal(map[string]any{"tower_id": towerID})
 	if err != nil {
 		return "", nil, err
@@ -194,7 +195,7 @@ func renewChallenge(broker string, identity ed25519.PrivateKey, towerID string) 
 		Nonce        string `json:"nonce"`
 		SigningInput string `json:"signing_input"`
 	}
-	if err := signedPost(broker+"/tower/renew/challenge", identity, body, &out); err != nil {
+	if err := towerPost(st, "/tower/renew/challenge", body, &out); err != nil {
 		return "", nil, err
 	}
 	if out.Nonce == "" || out.SigningInput == "" {
