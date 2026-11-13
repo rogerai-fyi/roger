@@ -222,8 +222,10 @@ func (b *broker) towerCertRevoke(w http.ResponseWriter, r *http.Request) {
 	// Suspend it too, so the effect does not rest on the serial check alone - defence in depth,
 	// and it takes the fleet off at once rather than aging out. A Tower not in a state that can
 	// be suspended (already terminal) is fine; the serial revocation stands regardless.
-	if err := ts.registry.TransitionAs(req.TowerID, admit.StateSuspended, admit.Event{Kind: evLifecycle,
-		Actor: actor, Reason: "certificate revoked", Instance: b.instanceID}); err != nil {
+	if written, err := ts.registry.TransitionRecorded(req.TowerID, admit.StateSuspended, admit.Event{Kind: evLifecycle,
+		Actor: actor, Reason: "certificate revoked", Instance: b.instanceID}); err == nil {
+		b.logTowerEvent(written)
+	} else {
 		log.Printf("tower %s: certificate revoked; suspend transition declined (%v) - serial revocation stands", req.TowerID, err)
 	}
 	ts.inv.Forget(req.TowerID)

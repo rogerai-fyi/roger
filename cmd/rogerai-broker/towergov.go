@@ -299,6 +299,7 @@ type refusalLimiter struct {
 	logged   map[string]time.Time
 	recorded map[string]time.Time
 	counts   map[string]int
+	deferred map[string]bool // a pending count already deferred once to a peer's record
 }
 
 func (l *refusalLimiter) now() time.Time { return time.Now().Add(l.offset) }
@@ -346,6 +347,7 @@ func (l *refusalLimiter) prune() {
 			delete(l.logged, k)
 			delete(l.recorded, k)
 			delete(l.counts, k)
+			delete(l.deferred, k)
 		}
 	}
 }
@@ -355,6 +357,23 @@ func (l *refusalLimiter) carry(key string, n int) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.counts[key] += n
+}
+
+// deferOnce reports whether a pending count may be deferred to a peer's record this time,
+// and marks it: a count is deferred at most once, so two instances cannot keep losing each
+// other's counts hour after hour.
+func (l *refusalLimiter) deferOnce(key string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.deferred == nil {
+		l.deferred = map[string]bool{}
+	}
+	if l.deferred[key] {
+		delete(l.deferred, key)
+		return false
+	}
+	l.deferred[key] = true
+	return true
 }
 
 // due hands back every key with refusals pending whose last record is an hour old or more,
@@ -383,8 +402,8 @@ func (b *broker) flushRefusals() {
 		if !ok {
 			continue
 		}
-		if b.refusalRecordedElsewhere(towerID, reason, b.towerRefusals.clock()) {
-			b.towerRefusals.carry(key, n) // another instance wrote this hour's; try again next hour
+		if b.refusalRecordedElsewhere(towerID, reason, b.towerRefusals.clock()) && b.towerRefusals.deferOnce(key) {
+			b.towerRefusals.carry(key, n) // another instance wrote this hour's; written next hour at the latest
 			continue
 		}
 		b.towerEvent(admit.Event{TowerID: towerID, Kind: evRequestRefused, Actor: refusalActor(reason), Reason: reason,

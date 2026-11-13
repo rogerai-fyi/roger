@@ -6,13 +6,18 @@ package main
 import (
 	"bytes"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 
+	"rogerai.fm/roger/v7/internal/store"
 	"rogerai.fm/roger/v7/internal/towercore/admit"
 	"rogerai.fm/roger/v7/internal/towercore/attach"
+	"rogerai.fm/roger/v7/internal/towercore/cert"
+	"rogerai.fm/roger/v7/internal/towercore/enroll"
+	"rogerai.fm/roger/v7/internal/towercore/head"
 )
 
 // Retiring your own Tower is terminal and cannot loop, so the hourly budget never blocks it.
@@ -89,14 +94,14 @@ func TestADeferredRefusalCountIsWrittenTheNextHour(t *testing.T) {
 // Two administrators promoting one Station at once: the one whose promote found it already
 // active did not fail, and the record must not say it did.
 func TestAPromotionAPeerAlreadyMadeIsNotRecordedAsFailed(t *testing.T) {
-	b, srv := towerTestBroker(t)
+	peer := &promotingPeerStore{}
+	b, srv := towerTestBrokerOverStations(t, peer)
 	op := signedInOperator(t, b, "octocat")
 	lt := enrolledTower(t, b, op.login)
 	attachStation(t, b, "st-q", lt.id, ownerPubkeyOf(t, b, op.login))
-	// A peer promotes between this request's read and its promote.
-	b.tower.stationStore = &promotingPeerStore{Store: b.tower.stationStore}
 	_, err := b.tower.stationStore.SetState("st-q", attach.StateQuarantine)
 	require.NoError(t, err)
+	peer.armed = true // a peer promotes between this request's read and its promote
 	b.adminKey = "admin-secret"
 	code, _ := adminTowerPost(t, srv, "/tower/station/promote", `{"station_id":"st-q"}`)
 	require.Equal(t, http.StatusOK, code)
@@ -105,14 +110,34 @@ func TestAPromotionAPeerAlreadyMadeIsNotRecordedAsFailed(t *testing.T) {
 
 type promotingPeerStore struct {
 	attach.Store
+	armed bool
 	reads int
 }
 
 func (p *promotingPeerStore) ByStation(id string) (attach.Attachment, bool, error) {
 	at, ok, err := p.Store.ByStation(id)
-	p.reads++
-	if p.reads == 1 && ok && at.State == attach.StateQuarantine {
+	if p.armed {
+		p.reads++
+	}
+	if p.armed && p.reads == 1 && ok && at.State == attach.StateQuarantine {
 		_, _ = p.Store.SetState(id, attach.StateActive) // the peer's promotion lands now
 	}
 	return at, ok, err
+}
+
+// towerTestBrokerOverStations is towerTestBroker over a wrapping attachment store, so the
+// Station registry itself reads through it.
+func towerTestBrokerOverStations(t *testing.T, st *promotingPeerStore) (*broker, *httptest.Server) {
+	t.Helper()
+	st.Store = attach.NewMemStore()
+	b := testBrokerWithDB(store.NewMem())
+	ts, err := newTowerSubsystem(b, admit.NewMemStore(), cert.NewMemCustody(), enroll.NewMemStore(),
+		cert.Config{TTL: time.Hour}, linkDeps{stations: st, heads: head.NewMemStore()})
+	require.NoError(t, err)
+	b.tower = ts
+	mux := http.NewServeMux()
+	b.registerTowerRoutes(mux)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return b, srv
 }

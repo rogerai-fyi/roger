@@ -575,11 +575,20 @@ func (b *broker) towerStationPromote(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		recordedOn = cur.Origin.TowerID
+		b.logTowerEvent(admit.Event{TowerID: recordedOn, Kind: evStationPromoted, Actor: actor, Reason: req.Reason,
+			Detail: map[string]any{"station": req.StationID}})
 	}
 	promoted, err := ts.stations.Promote(req.StationID)
 	if err != nil || !promoted {
-		// The record above said a promotion was taken; say plainly that it did not land.
-		if recordedOn != "" {
+		// The record above said a promotion was taken; say plainly that it did not land -
+		// unless a concurrent promotion landed it, in which case nothing failed.
+		landed := false
+		if err == nil {
+			if now, ok, rerr := ts.stations.Station(req.StationID); rerr == nil && ok && now.State == attach.StateActive {
+				landed = true
+			}
+		}
+		if recordedOn != "" && !landed {
 			b.towerEvent(admit.Event{TowerID: recordedOn, Kind: "station_promote_failed", Actor: actor,
 				Detail: map[string]any{"station": req.StationID}})
 		}
