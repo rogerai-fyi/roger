@@ -341,3 +341,102 @@ func TestExpireLeaseAsRefusesToOverwriteAConcurrentDecision(t *testing.T) {
 	}})
 	require.Error(t, r2.ExpireLeaseAs(tw.ID, Event{Kind: "lease_expired", Actor: ActorSystem}))
 }
+
+// THE REFUSAL MESSAGE IS UNCHANGED by the new classification: callers and operators already
+// read "a quarantine Tower cannot become draining".
+func TestARefusedTransitionKeepsItsMessage(t *testing.T) {
+	r := NewWithStore(Config{}, NewMemStore())
+	tw := enrolled(t, r, "acct-1", "key-1")
+	err := r.Transition(tw.ID, StateDraining)
+	require.EqualError(t, err, "a quarantine Tower cannot become draining")
+	require.ErrorIs(t, err, ErrIllegalTransition)
+	require.EqualError(t, r.Transition(tw.ID, "bogus"), `"bogus" is not a Tower state`)
+}
+
+// The store itself refuses an unattributed event, not only the registry in front of it.
+func TestEveryStoreRefusesAnUnattributedEvent(t *testing.T) {
+	eachStore(t, func(t *testing.T, s Store) {
+		r := NewWithStore(Config{}, s)
+		tw := enrolled(t, r, "acct-1", "key-1")
+		bad := Event{TowerID: tw.ID, Kind: "x"} // no actor
+		require.Error(t, s.AppendEvent(bad))
+		_, err := s.CASTowerEvent(tw, bad)
+		require.Error(t, err)
+		_, err = s.AppendEventIfLast(bad, []string{"x"}, 0)
+		require.Error(t, err)
+	})
+}
+
+func TestCASTowerEventLosesToAStaleRevisionAndWritesNothing(t *testing.T) {
+	eachStore(t, func(t *testing.T, s Store) {
+		r := NewWithStore(Config{}, s)
+		tw := enrolled(t, r, "acct-1", "key-1")
+		stale := tw
+		moveTowerBehindTheCaller(t, s, tw.ID, StateSuspended)
+		stale.State = StateActive
+		won, err := s.CASTowerEvent(stale, Event{TowerID: tw.ID, Kind: "lifecycle", Actor: ActorSystem, At: time.Now()})
+		require.NoError(t, err)
+		require.False(t, won)
+		evs, err := s.Events(tw.ID, 5)
+		require.NoError(t, err)
+		require.Empty(t, evs, "a lost CAS writes no event")
+	})
+}
+
+func TestEventsAtTheSameInstantAreOrderedByID(t *testing.T) {
+	eachStore(t, func(t *testing.T, s Store) {
+		r := NewWithStore(Config{}, s)
+		at := time.Now().UTC().Truncate(time.Microsecond)
+		require.NoError(t, r.Record(Event{TowerID: "tw-1", At: at, Kind: "a", Actor: ActorSystem}))
+		require.NoError(t, r.Record(Event{TowerID: "tw-1", At: at, Kind: "b", Actor: ActorSystem}))
+		evs, err := r.Events("tw-1", 5)
+		require.NoError(t, err)
+		require.Equal(t, "b", evs[0].Kind, "the later write wins a tie")
+		first, _, err := r.FindEvent("tw-1", []string{"a", "b"}, true)
+		require.NoError(t, err)
+		require.Equal(t, "a", first.Kind)
+	})
+}
+
+func TestEveryEventPathReportsAnOutage(t *testing.T) {
+	dsn := pgtest.DSN(t)
+	if dsn == "" {
+		t.Skip("ROGERAI_TEST_DATABASE_URL not set")
+	}
+	db, err := sql.Open("pgx", dsn)
+	require.NoError(t, err)
+	s, err := NewPGStore(db)
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+	r := NewWithStore(Config{}, s)
+	ev := Event{Kind: "x", Actor: ActorSystem}
+
+	_, _, err = r.FindEvent("tw-1", []string{"x"}, false)
+	require.ErrorIs(t, err, ErrUnavailable)
+	_, err = r.RecordIfLast(Event{TowerID: "tw-1", Kind: "x", Actor: ActorSystem}, []string{"x"}, 0)
+	require.ErrorIs(t, err, ErrUnavailable)
+	require.ErrorIs(t, r.TransitionAs("tw-1", StateActive, ev), ErrUnavailable)
+	require.ErrorIs(t, r.ExpireLeaseAs("tw-1", ev), ErrUnavailable)
+	_, err = s.CASTowerEvent(Tower{ID: "tw-1"}, Event{TowerID: "tw-1", Kind: "x", Actor: ActorSystem})
+	require.ErrorIs(t, err, ErrUnavailable)
+	_, err = s.AppendEventIfLast(Event{TowerID: "tw-1", Kind: "x", Actor: ActorSystem}, []string{"x"}, 0)
+	require.ErrorIs(t, err, ErrUnavailable)
+}
+
+// A store whose event write fails AFTER the Tower row was written must not leave the row
+// changed: that is the whole point of one transaction.
+func TestTheDurableTransitionRollsBackWhenItsEventCannotBeWritten(t *testing.T) {
+	s := pgStore(t)
+	db := s.(*PGStore).db
+	_, err := db.Exec(`TRUNCATE rogerai.tower_events`)
+	require.NoError(t, err)
+	r := NewWithStore(Config{}, s)
+	tw := enrolled(t, r, "acct-1", "key-1")
+
+	// Detail that cannot be encoded as JSON fails the insert inside the transaction.
+	err = r.TransitionAs(tw.ID, StateActive, Event{Kind: "lifecycle", Actor: ActorSystem,
+		Detail: map[string]any{"bad": make(chan int)}})
+	require.Error(t, err)
+	got, _ := r.Get(tw.ID)
+	require.Equal(t, StateQuarantine, got.State, "the row change rolled back with the event")
+}
