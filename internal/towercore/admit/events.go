@@ -203,3 +203,28 @@ func (r *Registry) RecordIfLast(ev Event, kinds []string, lastID int64) (bool, e
 	}
 	return won, nil
 }
+
+// ExpireLeaseAs ends a Tower's lease now and records who did it, in one write.
+func (r *Registry) ExpireLeaseAs(id string, ev Event) error {
+	ev.TowerID = id
+	ev = ev.normalized()
+	if err := ev.valid(); err != nil {
+		return err
+	}
+	tw, ok, err := r.store.TowerByID(id)
+	if err != nil {
+		return unavailable(err)
+	}
+	if !ok {
+		return errors.New("no such Tower")
+	}
+	tw.LeaseExpires = time.Now().Add(-time.Second)
+	won, err := r.store.CASTowerEvent(tw, ev)
+	if err != nil {
+		return unavailable(err)
+	}
+	if !won {
+		return errors.New("this Tower changed concurrently; re-read it and retry")
+	}
+	return nil
+}

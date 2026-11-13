@@ -310,3 +310,34 @@ func TestRecordIfLastHoldsUnderConcurrentSweeps(t *testing.T) {
 		require.Equal(t, int64(1), wins.Load(), "exactly one instance records it")
 	})
 }
+
+func TestExpireLeaseAsEndsTheLeaseAndRecordsItTogether(t *testing.T) {
+	eachStore(t, func(t *testing.T, s Store) {
+		r := NewWithStore(Config{}, s)
+		tw := enrolled(t, r, "acct-1", "key-1")
+		require.NoError(t, r.ExpireLeaseAs(tw.ID, Event{Kind: "lease_expired", Actor: "admin:broker-key", Reason: "x"}))
+		got, _ := r.Get(tw.ID)
+		require.True(t, got.LeaseExpires.Before(time.Now()))
+		evs, err := r.Events(tw.ID, 5)
+		require.NoError(t, err)
+		require.Len(t, evs, 1)
+		require.Equal(t, "admin:broker-key", evs[0].Actor)
+
+		// Unrecordable: refused, and the lease stands.
+		tw2 := enrolled(t, r, "acct-1", "key-2")
+		require.Error(t, r.ExpireLeaseAs(tw2.ID, Event{Kind: "lease_expired"}))
+		got2, _ := r.Get(tw2.ID)
+		require.True(t, got2.LeaseExpires.After(time.Now()))
+		require.Error(t, r.ExpireLeaseAs("tw-nope", Event{Kind: "lease_expired", Actor: ActorSystem}))
+	})
+}
+
+func TestExpireLeaseAsRefusesToOverwriteAConcurrentDecision(t *testing.T) {
+	inner := NewMemStore()
+	r := NewWithStore(Config{}, inner)
+	tw := enrolled(t, r, "acct-1", "key-1")
+	r2 := NewWithStore(Config{}, &interposingStore{Store: inner, after: func() {
+		moveTowerBehindTheCaller(t, inner, tw.ID, StateRevoked)
+	}})
+	require.Error(t, r2.ExpireLeaseAs(tw.ID, Event{Kind: "lease_expired", Actor: ActorSystem}))
+}

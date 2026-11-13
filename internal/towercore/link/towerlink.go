@@ -614,3 +614,23 @@ func newSessionID() (string, error) {
 	}
 	return "sess-" + hex.EncodeToString(raw), nil
 }
+
+// LastSeen reports when Core last heard from a Tower: this instance's session or the shared
+// mirror, whichever is newer. It is for the governance record and the admin view; liveness
+// decisions use Live, which also applies the freshness window.
+func (s *Sessions) LastSeen(towerID string) (time.Time, bool) {
+	var seen time.Time
+	s.mu.Lock()
+	if id, ok := s.byTower[towerID]; ok {
+		if sess, ok := s.byID[id]; ok {
+			seen = sess.lastSeen
+		}
+	}
+	s.mu.Unlock()
+	if s.cfg.Mirror != nil {
+		if rec, there, err := s.cfg.Mirror.Get(towerID); err == nil && there && rec.LastSeen.After(seen) {
+			seen = rec.LastSeen
+		}
+	}
+	return seen, !seen.IsZero()
+}

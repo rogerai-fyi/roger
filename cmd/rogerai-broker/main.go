@@ -353,6 +353,12 @@ type broker struct {
 	// ages out via inflightTTL). Empty when multi-instance is off.
 	instanceID string
 
+	// towerRefusals paces refused-Tower-request logging and recording, and towerLinkState
+	// spares heartbeats a database read (towergov.go).
+	towerRefusals  refusalLimiter
+	towerLinkState linkStateCache
+	towerGovFail   pacer
+
 	// stats are the low-overhead, lock-free MULTI-INSTANCE dispatch counters (local vs.
 	// cross-instance bus dispatch, no-poller, and bus errors) surfaced read-only on the
 	// admin overview. Bumped with a single atomic add on the relay path; see instmetrics.go.

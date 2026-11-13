@@ -141,6 +141,7 @@ func (b *broker) RunCanary(towerID string) reputation.Outcome {
 	// exactly why none of them may be moved to the Station on the Tower's say-so. The single
 	// exception is a probe that never reached the Tower at all (see driveSealedCanary).
 	b.recordOutcome(towerID, row.StationID, grant.AttemptID, outcome)
+	b.noteCanary(towerID, row.StationID, outcome)
 	// AND IN PROCESS, for placement. This map is not a duplicate of the ledger row above: it is
 	// this instance's own placement reading, deliberately kept out of b.trust and read on the
 	// authorize path with no store round trip - see edgeCanaryHealth for the whole argument.
@@ -246,7 +247,8 @@ func (b *broker) driveSealedCanary(grant dispatch.EdgeGrant, target dispatch.Tar
 	// The sealed loop itself is shared with the edge bridge (edgebridge.go): one proven
 	// drive, two callers - the canary judges the outcome, the bridge keeps the answer.
 	_, outcome := b.driveSealed(grant, target, endpoint, endpointPin, consumerKey, envPriv,
-		sealedDrive{tag: "canary", body: canaryBodyFor(grant.Model), timeout: canaryTimeout, usageIn: 0})
+		sealedDrive{tag: "canary", body: canaryBodyFor(grant.Model), timeout: canaryTimeout, usageIn: 0,
+			onDesignSkip: func() { b.noteCanarySkip(target.TowerID, target.StationID) }})
 	return outcome
 }
 
@@ -485,9 +487,7 @@ func (b *broker) towerCanarySweepOnce() {
 		return
 	}
 	for _, towerID := range towers {
-		if outcome := b.RunCanary(towerID); outcome == reputation.CanaryFail {
-			log.Printf("canary: tower %s failed", towerID)
-		}
+		b.RunCanary(towerID) // a failure is logged, with its Station, by noteCanary
 	}
 }
 

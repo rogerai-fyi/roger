@@ -118,6 +118,7 @@ func (b *broker) towerRenew(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	prior, _ := ts.registry.Get(req.TowerID)
 	res, err := ts.enroller.Renew(enroll.RenewRequest{
 		TowerID: req.TowerID, Nonce: req.Nonce, IdentityKey: identity,
 		Signature: sig, CSR: csr, Now: time.Now(),
@@ -128,10 +129,14 @@ func (b *broker) towerRenew(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// Recorded here, not handed to whoever is probing.
-		log.Printf("tower: renewal refused for %s: %v", req.TowerID, err)
+		b.logTowerEvent(admit.Event{TowerID: req.TowerID, Kind: "cert_renew_refused", Actor: admit.ActorTower,
+			Reason: err.Error()})
 		jsonErr(w, http.StatusBadRequest, "that renewal is not valid")
 		return
 	}
+	b.towerEvent(admit.Event{TowerID: req.TowerID, Kind: evCertRenewed, Actor: admit.ActorTower,
+		Detail: map[string]any{"old_serial": prior.CertSerial, "new_serial": res.Tower.CertSerial,
+			"lease_expires": res.Tower.LeaseExpires.UTC().Format(time.RFC3339)}})
 	writeJSON(w, http.StatusOK, map[string]any{
 		"tower_id":      res.TowerID,
 		"certificate":   base64.StdEncoding.EncodeToString(res.Certificate.Raw),
@@ -172,11 +177,13 @@ func (b *broker) towerCertRevoke(w http.ResponseWriter, r *http.Request) {
 	}
 	var req struct {
 		TowerID string `json:"tower_id"`
+		Reason  string `json:"reason"`
 	}
 	if json.Unmarshal(readTowerBody(r), &req) != nil || req.TowerID == "" {
 		jsonErr(w, http.StatusBadRequest, "tower_id required")
 		return
 	}
+	actor := "admin:" + b.adminActor(r)
 	tw, ok := ts.registry.Get(req.TowerID)
 	if !ok {
 		jsonErr(w, http.StatusNotFound, "no such Tower")
@@ -191,21 +198,35 @@ func (b *broker) towerCertRevoke(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusServiceUnavailable, "this Tower's certificate serial is unreadable")
 		return
 	}
+	// ON THE GOVERNANCE RECORD BEFORE IT HAPPENS. The revocation lives in another store, so
+	// the two cannot share a transaction; writing the record first means an action Core
+	// cannot record is an action Core does not take (governance_record.feature). If the
+	// revocation then fails, that is recorded too.
+	if err := ts.registry.Record(admit.Event{TowerID: req.TowerID, Kind: evCertRevoked, Actor: actor,
+		Reason: req.Reason, Instance: b.instanceID, Detail: map[string]any{"serial": tw.CertSerial}}); err != nil {
+		b.towerGovUnavailable(err)
+		jsonErr(w, http.StatusServiceUnavailable, "the revocation was not made: Core could not record it - retry shortly")
+		return
+	}
 	// REVOKED FIRST, and the failure is fatal to the request: a revocation reported as done
 	// but not recorded would be undone by the next restart, and the admin would have no
 	// reason to look again.
 	if err := ts.ca.Revoke(serial); err != nil {
+		b.towerEvent(admit.Event{TowerID: req.TowerID, Kind: "cert_revoke_failed", Actor: actor,
+			Detail: map[string]any{"serial": tw.CertSerial}})
 		jsonErr(w, http.StatusServiceUnavailable, "the revocation could not be recorded and has NOT taken effect")
 		return
 	}
 	// Suspend it too, so the effect does not rest on the serial check alone - defence in depth,
 	// and it takes the fleet off at once rather than aging out. A Tower not in a state that can
 	// be suspended (already terminal) is fine; the serial revocation stands regardless.
-	if err := ts.registry.Transition(req.TowerID, admit.StateSuspended); err != nil {
+	if err := ts.registry.TransitionAs(req.TowerID, admit.StateSuspended, admit.Event{Kind: evLifecycle,
+		Actor: actor, Reason: "certificate revoked", Instance: b.instanceID}); err != nil {
 		log.Printf("tower %s: certificate revoked; suspend transition declined (%v) - serial revocation stands", req.TowerID, err)
 	}
 	ts.inv.Forget(req.TowerID)
 	b.forgetRoutable(req.TowerID)
-	log.Printf("tower %s: certificate %s revoked by an administrator", req.TowerID, tw.CertSerial)
+	b.logTowerEvent(admit.Event{TowerID: req.TowerID, Kind: evCertRevoked, Actor: actor, Reason: req.Reason,
+		Detail: map[string]any{"serial": tw.CertSerial}})
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "revoked": true, "serial": tw.CertSerial})
 }

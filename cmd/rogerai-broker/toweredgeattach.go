@@ -39,6 +39,7 @@ import (
 	"time"
 
 	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/towercore/admit"
 	"rogerai.fm/roger/v7/internal/towercore/attach"
 	"rogerai.fm/roger/v7/internal/towercore/link"
 )
@@ -526,6 +527,9 @@ func (b *broker) towerEdgeAttach(w http.ResponseWriter, r *http.Request) {
 	} else {
 		at.State = attach.StateActive
 	}
+
+	b.towerEvent(admit.Event{TowerID: towerID, Kind: evStationAttached, Actor: "operator:" + owner,
+		Detail: map[string]any{"station": at.StationID, "quarantine": at.State == attach.StateQuarantine}})
 
 	// The node is routable NOW: publish its row (merged with the tower's leaf rows) so
 	// edgeTargetFor can find it at its listed price.
