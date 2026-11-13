@@ -216,6 +216,13 @@ type refusalLimiter struct {
 
 func (l *refusalLimiter) now() time.Time { return time.Now().Add(l.offset) }
 
+// clock is now() for callers outside the lock.
+func (l *refusalLimiter) clock() time.Time {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.now()
+}
+
 func (l *refusalLimiter) shift(d time.Duration) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -275,6 +282,10 @@ func (b *broker) flushRefusals() {
 		if !ok {
 			continue
 		}
+		if b.refusalRecordedElsewhere(towerID, reason, b.towerRefusals.clock()) {
+			b.towerRefusals.carry(key, n) // another instance wrote this hour's; try again next hour
+			continue
+		}
 		b.towerEvent(admit.Event{TowerID: towerID, Kind: evRequestRefused, Actor: admit.ActorTower, Reason: reason,
 			Detail: map[string]any{"count": n, "flushed": true}})
 	}
@@ -286,7 +297,20 @@ func (b *broker) noteTowerRefusal(towerID, reason, route string) {
 	if towerID == "" || b.tower == nil {
 		return
 	}
-	if _, admitted := b.tower.registry.Get(towerID); !admitted {
+	switch reason {
+	case "unsigned", "no_tower_id", "unavailable":
+		// Anyone can send an unsigned request naming any id, so these are one paced stream,
+		// checked against the registry only when the stream is due: no store read per
+		// request, and no per-id state an attacker could grow.
+		logIt, _, _, _ := b.towerRefusals.note("unsigned")
+		if !logIt {
+			return
+		}
+		if _, admitted := b.tower.registry.Get(towerID); !admitted {
+			reason = "unknown_tower"
+		}
+	}
+	if reason == "unknown_tower" {
 		// Anyone can name any id, so these are paced as one stream, not per id, and never
 		// recorded: a record per invented id would be a table anyone can fill.
 		if logIt, _, _, _ := b.towerRefusals.note("unknown_tower"); logIt {
@@ -295,6 +319,8 @@ func (b *broker) noteTowerRefusal(towerID, reason, route string) {
 		}
 		return
 	}
+	// Every other reason was reached after the registry lookup in towerCallerWhy, so the
+	// Tower is admitted and the id is not attacker-chosen.
 	logIt, record, count, now := b.towerRefusals.note(towerID + "|" + reason)
 	ev := admit.Event{TowerID: towerID, Kind: evRequestRefused, Actor: admit.ActorTower, Reason: reason,
 		Detail: map[string]any{"route": route}}
@@ -445,7 +471,15 @@ func (b *broker) sweepLink(towerID string, now time.Time) {
 	if !ok || (last.Kind != evSessionOpened && last.Kind != evSessionResumed) {
 		return // never connected, closed in order, or already recorded as quiet
 	}
-	seen, known := b.tower.link.LastSeen(towerID)
+	// UNKNOWN IS NOT GONE. The last-seen time comes from this instance's session or the
+	// shared view, whichever is newer; an instance that cannot read the shared view skips the
+	// Tower this round rather than write a permanent "went quiet" for one heartbeating to a
+	// peer.
+	seen, known, err := b.tower.link.LastSeenChecked(towerID)
+	if err != nil {
+		b.towerGovUnavailable(err)
+		return
+	}
 	if !known || seen.Before(last.At) {
 		seen = last.At
 	}
@@ -606,6 +640,10 @@ func (b *broker) logAttachRefused(c *statusCapture, who string) {
 	if c.code < 400 {
 		return
 	}
+	// Paced per caller and status: an unsigned loop is one line a minute, not one per request.
+	if logIt, _, _, _ := b.towerRefusals.note("attach|" + who + "|" + strconv.Itoa(c.code)); !logIt {
+		return
+	}
 	var env struct {
 		Error struct {
 			Message string `json:"message"`
@@ -617,4 +655,26 @@ func (b *broker) logAttachRefused(c *statusCapture, who string) {
 	}
 	b.logTowerEvent(admit.Event{TowerID: "-", Kind: "station_attach_refused", Actor: who, Reason: reason,
 		Detail: map[string]any{"status": c.code}})
+}
+
+// towerGovSweepInterval paces the governance sweep: going quiet, lapsed leases, and pending
+// refusal counts. Short against the freshness window, so a quiet Tower is recorded promptly.
+const towerGovSweepInterval = time.Minute
+
+// towerGovSweep runs the governance sweep on its own ticker. It depends on the Tower
+// subsystem only - not on any other store - so no deployment shape can switch it off.
+func (b *broker) towerGovSweep(stop <-chan struct{}, every time.Duration) {
+	if b.tower == nil {
+		return
+	}
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		select {
+		case <-stop:
+			return
+		case now := <-t.C:
+			b.towerGovSweepOnce(now)
+		}
+	}
 }

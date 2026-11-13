@@ -658,3 +658,28 @@ func (s *Sessions) LastSeen(towerID string) (time.Time, bool) {
 	}
 	return seen, !seen.IsZero()
 }
+
+// LastSeenChecked is LastSeen that reports a mirror read failure instead of answering from
+// this instance alone. Anything that writes a permanent record from the answer - "this
+// Tower went quiet" - must use it: an instance that cannot read the shared view does not
+// know, and unknown is not gone.
+func (s *Sessions) LastSeenChecked(towerID string) (time.Time, bool, error) {
+	var seen time.Time
+	s.mu.Lock()
+	if id, ok := s.byTower[towerID]; ok {
+		if sess, ok := s.byID[id]; ok {
+			seen = sess.lastSeen
+		}
+	}
+	s.mu.Unlock()
+	if s.cfg.Mirror != nil {
+		rec, there, err := s.cfg.Mirror.Get(towerID)
+		if err != nil {
+			return time.Time{}, false, err
+		}
+		if there && rec.LastSeen.After(seen) {
+			seen = rec.LastSeen
+		}
+	}
+	return seen, !seen.IsZero(), nil
+}

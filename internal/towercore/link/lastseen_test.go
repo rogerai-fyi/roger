@@ -93,3 +93,21 @@ func TestCurrentNamesTheTowersSession(t *testing.T) {
 	_, ok = New(mirrorCfg(errMirror{})).Current("tw-1")
 	require.False(t, ok)
 }
+
+// THE STALE SWEEP MUST KNOW WHEN IT DOES NOT KNOW. LastSeenChecked reports a mirror read
+// failure instead of answering from whatever this instance happens to hold.
+func TestLastSeenCheckedReportsAMirrorFailure(t *testing.T) {
+	_, _, err := New(mirrorCfg(errMirror{})).LastSeenChecked("tw-1")
+	require.Error(t, err)
+
+	s := New(mirrorCfg(NewMemMirror()))
+	openOn(t, s, "tw-1", "")
+	seen, ok, err := s.LastSeenChecked("tw-1")
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.WithinDuration(t, time.Now(), seen, time.Second)
+
+	_, ok, err = New(mirrorCfg(nil)).LastSeenChecked("tw-1")
+	require.NoError(t, err)
+	require.False(t, ok)
+}

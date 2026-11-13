@@ -5,6 +5,8 @@
 # scenario need re-approval.
 # BUILD STATUS: BUILT. internal/towercore/admit/events.go (the record), cmd/rogerai-broker/towergov.go
 # (what writes it), tested in admit/events_test.go and cmd/rogerai-broker/towergov*_test.go.
+# The four scenarios in the section "added 2026-11-13 from the pre-push audit" are PROPOSED:
+# built (they close audit findings), but not yet confirmed by the founder.
 # Founder request: "we need to make sure we have proper governance over parts of this at
 # least for log/audit purposes ... find what we are missing and close the gap."
 #

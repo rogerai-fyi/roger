@@ -550,6 +550,7 @@ func (b *broker) towerStationPromote(w http.ResponseWriter, r *http.Request) {
 	}
 	var req struct {
 		StationID string `json:"station_id"`
+		Reason    string `json:"reason"`
 	}
 	if err := json.Unmarshal(readTowerBody(r), &req); err != nil {
 		jsonErr(w, http.StatusBadRequest, "invalid JSON body")
@@ -563,7 +564,7 @@ func (b *broker) towerStationPromote(w http.ResponseWriter, r *http.Request) {
 	if cur, found, ferr := ts.stations.Station(req.StationID); ferr == nil && found &&
 		cur.State == attach.StateQuarantine && cur.Origin.TowerID != "" {
 		if rerr := ts.registry.Record(admit.Event{TowerID: cur.Origin.TowerID, Kind: evStationPromoted,
-			Actor: actor, Instance: b.instanceID, Detail: map[string]any{"station": req.StationID}}); rerr != nil {
+			Actor: actor, Reason: req.Reason, Instance: b.instanceID, Detail: map[string]any{"station": req.StationID}}); rerr != nil {
 			b.towerGovUnavailable(rerr)
 			jsonErr(w, http.StatusServiceUnavailable, "the promotion was not made: Core could not record it - retry shortly")
 			return
@@ -830,6 +831,14 @@ func (b *broker) towerSelfLifecycle(w http.ResponseWriter, r *http.Request) {
 				"is an administrator's decision", before.State, req.State))
 		return
 	}
+	// THE LOOP STOPS HERE, with the change itself refused, so the record stays transactional:
+	// an operator flipping drain and resume cannot grow the never-reaped record without
+	// bound. Counted in the shared store, across instances.
+	if n, cerr := ts.registry.CountEvents(req.TowerID, evLifecycle, "", time.Now().Add(-time.Hour)); cerr == nil && n >= towerEventBudget {
+		w.Header().Set("Retry-After", "3600")
+		jsonErr(w, http.StatusTooManyRequests, "this Tower has changed state too often in the last hour - try again later")
+		return
+	}
 	if !b.transitionRecorded(w, ts, before, to, actor, "") {
 		return
 	}
@@ -887,7 +896,6 @@ func (b *broker) towerInviteSweepOnce(now time.Time) {
 	if b.tower == nil || b.tower.stationStore == nil {
 		return
 	}
-	b.towerGovSweepOnce(now)
 	n, err := b.tower.stationStore.Reap(now, inviteRetryHorizon)
 	if err != nil {
 		log.Printf("station invites: sweep failed: %v", err)
