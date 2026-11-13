@@ -2,7 +2,9 @@
 # operators do NOT see the record yet ("Admin only for now"), so the operator-view scenario
 # was removed before approval took effect. Next slice (also ruled 2026-11-13): the signed,
 # hash-chained TowerLifecycleEventV1 from public_enrollment.feature. Changes to an approved
-# scenario need re-approval. BUILD STATUS: in progress.
+# scenario need re-approval.
+# BUILD STATUS: BUILT. internal/towercore/admit/events.go (the record), cmd/rogerai-broker/towergov.go
+# (what writes it), tested in admit/events_test.go and cmd/rogerai-broker/towergov*_test.go.
 # Founder request: "we need to make sure we have proper governance over parts of this at
 # least for log/audit purposes ... find what we are missing and close the gap."
 #
