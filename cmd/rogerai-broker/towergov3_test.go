@@ -113,7 +113,7 @@ func TestARefusalRecordedByAnotherInstanceIsNotRecordedAgain(t *testing.T) {
 
 	code, _ := lt.call(t, srv, "/tower/session", jsonOf(t, helloFor(lt)), nil)
 	require.Equal(t, http.StatusForbidden, code)
-	n, err := b.tower.registry.CountEvents(lt.id, evRequestRefused, "state_suspended", time.Now().Add(-time.Hour))
+	n, err := b.tower.registry.CountEvents(lt.id, evRequestRefused, "state_suspended", "", time.Now().Add(-time.Hour))
 	require.NoError(t, err)
 	require.Equal(t, 1, n)
 }

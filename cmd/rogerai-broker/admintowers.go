@@ -232,6 +232,17 @@ func towerConnectionView(ts *towerSubsystem, id string) map[string]any {
 	if stale, ok, err := ts.registry.FindEvent(id, []string{evSessionStale}, false); err == nil && ok {
 		stamp("last_stale", stale.At)
 	}
+	// WHEN IT WAS APPROVED AND BY WHOM, read from the whole record rather than the newest-50
+	// list, which churn can push the approval out of.
+	if evs, err := ts.registry.Events(id, 10000); err == nil {
+		for _, ev := range evs { // newest first
+			if ev.Kind == evLifecycle && ev.To == admit.StateActive {
+				stamp("approved_at", ev.At)
+				out["approved_by"] = ev.Actor
+				break
+			}
+		}
+	}
 	latest, known, err := ts.registry.FindEvent(id, towerLinkKinds, false)
 	seen, seenOK := ts.link.LastSeen(id)
 	if !seenOK && err == nil && known {

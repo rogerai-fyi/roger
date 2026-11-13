@@ -516,31 +516,35 @@ func (s *Sessions) Close(sessionID, towerID string) bool {
 	if s.cfg.Mirror == nil {
 		return ended
 	}
+	// WITH A SHARED VIEW, ONLY THE SHARED VIEW SAYS WHAT WAS CURRENT. This instance's map
+	// can still hold a session another instance has since superseded, so its answer above
+	// is discarded: the close ended the Tower's session only if the shared record named it.
+	//
 	// The close may land on an instance that never held the session - at two instances,
 	// half of them do. The mirror's compare-and-delete is what makes the close reach
 	// every instance while a superseded session id still buys nothing: it only removes a
 	// row that names EXACTLY this session, which only the authenticated Tower was told.
-	if rec, there, err := s.cfg.Mirror.Get(towerID); err == nil && there && rec.SessionID == sessionID {
-		ended = true
-	}
+	rec, there, err := s.cfg.Mirror.Get(towerID)
+	ended = err == nil && there && rec.SessionID == sessionID
 	_ = s.cfg.Mirror.Del(towerID, sessionID)
 	return ended
 }
 
 // Current names the Tower's current session, here or in the shared record.
+// With a shared view configured, the shared view is the authority (a local copy may be one
+// another instance superseded or closed); an unreadable shared view answers "none".
 func (s *Sessions) Current(towerID string) (string, bool) {
-	s.mu.RLock()
-	id, ok := s.byTower[towerID]
-	s.mu.RUnlock()
-	if ok {
-		return id, true
-	}
 	if s.cfg.Mirror != nil {
-		if rec, there, err := s.cfg.Mirror.Get(towerID); err == nil && there && rec.SessionID != "" {
-			return rec.SessionID, true
+		rec, there, err := s.cfg.Mirror.Get(towerID)
+		if err != nil || !there || rec.SessionID == "" {
+			return "", false
 		}
+		return rec.SessionID, true
 	}
-	return "", false
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	id, ok := s.byTower[towerID]
+	return id, ok
 }
 
 // Live answers the question routing asks on every request. A map read and nothing else:

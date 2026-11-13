@@ -97,6 +97,8 @@ CREATE TABLE IF NOT EXISTS rogerai.tower_events (
     detail     JSONB
 );
 CREATE INDEX IF NOT EXISTS tower_events_tower_at_idx ON rogerai.tower_events (tower_id, at DESC, id DESC);
+-- The admin list reads the link kinds across every Tower at once (LinkSummaries).
+CREATE INDEX IF NOT EXISTS tower_events_kind_tower_at_idx ON rogerai.tower_events (kind, tower_id, at);
 
 CREATE OR REPLACE FUNCTION rogerai.tower_events_append_only() RETURNS trigger
     LANGUAGE plpgsql AS $fn$
@@ -647,11 +649,11 @@ func (p *PGStore) AppendEventIfLast(ev Event, kinds []string, lastID int64) (boo
 	return true, nil
 }
 
-func (p *PGStore) CountEvents(towerID, kind, reason string, since time.Time) (int, error) {
+func (p *PGStore) CountEvents(towerID, kind, reason, actor string, since time.Time) (int, error) {
 	var n int
 	err := p.db.QueryRow(`SELECT count(*) FROM rogerai.tower_events
-	      WHERE tower_id = $1 AND kind = $2 AND at >= $3 AND ($4 = '' OR reason = $4)`,
-		towerID, kind, since.UTC(), reason).Scan(&n)
+	      WHERE tower_id = $1 AND kind = $2 AND at >= $3 AND ($4 = '' OR reason = $4) AND ($5 = '' OR actor = $5)`,
+		towerID, kind, since.UTC(), reason, actor).Scan(&n)
 	if err != nil {
 		return 0, wrap("count events", err)
 	}

@@ -111,3 +111,30 @@ func TestLastSeenCheckedReportsAMirrorFailure(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, ok)
 }
+
+// WITH A SHARED VIEW, THE SHARED VIEW DECIDES. A Tower opens s-1 on one instance and s-2 on
+// another; the first instance still holds s-1 locally. A close of s-1 there must not read as
+// ending the Tower's session, or s-2 is never recorded as gone quiet.
+func TestACloseOfASessionSupersededOnAnotherInstanceEndsNothing(t *testing.T) {
+	m := NewMemMirror()
+	a, b := New(mirrorCfg(m)), New(mirrorCfg(m))
+	s1 := openOn(t, a, "tw-1", "")
+	s2 := openOn(t, b, "tw-1", "")
+
+	require.False(t, a.Close(s1, "tw-1"), "s-1 was superseded on the other instance")
+	cur, ok := a.Current("tw-1")
+	require.True(t, ok)
+	require.Equal(t, s2, cur, "the shared view names the current session, not a stale local copy")
+	require.True(t, a.Close(s2, "tw-1"), "closing the current session through any instance ends it")
+	_, ok = b.Current("tw-1")
+	require.False(t, ok, "and no instance still calls it open")
+}
+
+func TestCurrentReadsTheSharedViewOverALocalCopy(t *testing.T) {
+	m := NewMemMirror()
+	a := New(mirrorCfg(m))
+	s1 := openOn(t, a, "tw-1", "")
+	require.NoError(t, m.Del("tw-1", s1)) // closed elsewhere
+	_, ok := a.Current("tw-1")
+	require.False(t, ok, "a local copy of a closed session is not open")
+}

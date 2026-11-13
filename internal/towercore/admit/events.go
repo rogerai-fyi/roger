@@ -135,14 +135,21 @@ func (r *Registry) Events(towerID string, limit int) ([]Event, error) {
 // is taken from the record, never from the caller. A refusal records nothing: the caller
 // knows who asked and records the refusal itself.
 func (r *Registry) TransitionAs(id string, to State, ev Event) error {
+	_, err := r.TransitionRecorded(id, to, ev)
+	return err
+}
+
+// TransitionRecorded is TransitionAs returning the event exactly as it was written, so a
+// caller's log line says what the record says (its From is the state re-read here).
+func (r *Registry) TransitionRecorded(id string, to State, ev Event) (Event, error) {
 	ev.TowerID = id
 	ev = ev.normalized()
 	if err := ev.valid(); err != nil {
-		return err
+		return Event{}, err
 	}
 	tw, err := r.transitionTarget(id, to)
 	if err != nil {
-		return err
+		return Event{}, err
 	}
 	ev.From, ev.To = tw.State, to
 	if to == StateQuarantine {
@@ -151,12 +158,12 @@ func (r *Registry) TransitionAs(id string, to State, ev Event) error {
 	tw.State = to
 	won, err := r.store.CASTowerEvent(tw, ev)
 	if err != nil {
-		return unavailable(err)
+		return Event{}, unavailable(err)
 	}
 	if !won {
-		return errors.New("this Tower changed state concurrently; re-read it and retry")
+		return Event{}, errors.New("this Tower changed state concurrently; re-read it and retry")
 	}
-	return nil
+	return ev, nil
 }
 
 // transitionTarget reads the Tower and checks the move, classifying a refusal.
@@ -230,8 +237,8 @@ func (r *Registry) ExpireLeaseAs(id string, ev Event) error {
 }
 
 // CountEvents counts a Tower's events of one kind (and reason, when given) since a time.
-func (r *Registry) CountEvents(towerID, kind, reason string, since time.Time) (int, error) {
-	n, err := r.store.CountEvents(towerID, kind, reason, since)
+func (r *Registry) CountEvents(towerID, kind, reason, actor string, since time.Time) (int, error) {
+	n, err := r.store.CountEvents(towerID, kind, reason, actor, since)
 	if err != nil {
 		return 0, unavailable(err)
 	}

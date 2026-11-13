@@ -129,8 +129,10 @@ func (b *broker) towerRenew(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// Recorded here, not handed to whoever is probing.
-		b.logTowerEvent(admit.Event{TowerID: req.TowerID, Kind: "cert_renew_refused", Actor: admit.ActorTower,
-			Reason: err.Error()})
+		if b.towerLogPace.allow("cert_renew_refused|" + req.TowerID) {
+			b.logTowerEvent(admit.Event{TowerID: req.TowerID, Kind: "cert_renew_refused", Actor: admit.ActorTower,
+				Reason: err.Error()})
+		}
 		jsonErr(w, http.StatusBadRequest, "that renewal is not valid")
 		return
 	}

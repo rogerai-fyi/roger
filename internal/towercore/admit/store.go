@@ -117,8 +117,9 @@ type Store interface {
 	// the caller saw (0 for none), so two instances acting on one read cannot both write.
 	AppendEventIfLast(ev Event, kinds []string, lastID int64) (bool, error)
 	// CountEvents counts a Tower's events of one kind at or after since; a non-empty reason
-	// narrows it to that reason. It is what paces how fast one Tower can add to the record.
-	CountEvents(towerID, kind, reason string, since time.Time) (int, error)
+	// or actor narrows it to that reason or that exact actor. It is what paces how fast one
+	// Tower, or one operator, can add to the record.
+	CountEvents(towerID, kind, reason, actor string, since time.Time) (int, error)
 	// LinkSummaries reads, for every Tower with any event of the kinds, the first and
 	// newest of each kind and the newest overall, in one pass.
 	LinkSummaries(kinds []string) (map[string]LinkSummary, error)
@@ -401,12 +402,13 @@ func (m *memStore) AppendEventIfLast(ev Event, kinds []string, lastID int64) (bo
 	return true, nil
 }
 
-func (m *memStore) CountEvents(towerID, kind, reason string, since time.Time) (int, error) {
+func (m *memStore) CountEvents(towerID, kind, reason, actor string, since time.Time) (int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	n := 0
 	for _, ev := range m.events {
-		if ev.TowerID == towerID && ev.Kind == kind && !ev.At.Before(since) && (reason == "" || ev.Reason == reason) {
+		if ev.TowerID == towerID && ev.Kind == kind && !ev.At.Before(since) &&
+			(reason == "" || ev.Reason == reason) && (actor == "" || ev.Actor == actor) {
 			n++
 		}
 	}

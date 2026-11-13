@@ -463,15 +463,20 @@ func TestCountEventsCountsAKindAndReasonSinceATime(t *testing.T) {
 		require.NoError(t, r.Record(Event{TowerID: "tw-1", At: now.Add(-2 * time.Hour), Kind: "request_refused", Actor: ActorTower, Reason: "a"}))
 		require.NoError(t, r.Record(Event{TowerID: "tw-2", At: now, Kind: "request_refused", Actor: ActorTower, Reason: "a"}))
 
-		n, err := r.CountEvents("tw-1", "request_refused", "", now.Add(-time.Hour))
+		n, err := r.CountEvents("tw-1", "request_refused", "", "", now.Add(-time.Hour))
 		require.NoError(t, err)
 		require.Equal(t, 3, n, "any reason, inside the hour, this Tower only")
-		n, err = r.CountEvents("tw-1", "request_refused", "a", now.Add(-time.Hour))
+		n, err = r.CountEvents("tw-1", "request_refused", "a", "", now.Add(-time.Hour))
 		require.NoError(t, err)
 		require.Equal(t, 2, n)
-		n, err = r.CountEvents("tw-1", "session_opened", "", now.Add(-time.Hour))
+		n, err = r.CountEvents("tw-1", "session_opened", "", "", now.Add(-time.Hour))
 		require.NoError(t, err)
 		require.Zero(t, n)
+		require.NoError(t, r.Record(Event{TowerID: "tw-1", At: now, Kind: "station_attached", Actor: "operator:a"}))
+		require.NoError(t, r.Record(Event{TowerID: "tw-1", At: now, Kind: "station_attached", Actor: "operator:b"}))
+		n, err = r.CountEvents("tw-1", "station_attached", "", "operator:a", now.Add(-time.Hour))
+		require.NoError(t, err)
+		require.Equal(t, 1, n, "one actor's events, not everyone's")
 	})
 }
 
@@ -525,4 +530,15 @@ func clearEventsForTest(t *testing.T, db *sql.DB) {
 	_, err = tx.Exec(`TRUNCATE rogerai.tower_events`)
 	require.NoError(t, err)
 	require.NoError(t, tx.Commit())
+}
+
+func TestTransitionRecordedReturnsTheEventAsWritten(t *testing.T) {
+	r := NewWithStore(Config{}, NewMemStore())
+	tw := enrolled(t, r, "acct-1", "key-1")
+	ev, err := r.TransitionRecorded(tw.ID, StateActive, Event{Kind: "lifecycle", Actor: ActorSystem, Reason: "a\nb"})
+	require.NoError(t, err)
+	require.Equal(t, StateQuarantine, ev.From)
+	require.Equal(t, StateActive, ev.To)
+	require.Equal(t, "a b", ev.Reason)
+	require.Equal(t, tw.ID, ev.TowerID)
 }

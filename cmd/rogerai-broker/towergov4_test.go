@@ -84,7 +84,13 @@ func TestAnOperatorLoopingLifecycleChangesIsRefused(t *testing.T) {
 		require.Equal(t, http.StatusOK, code)
 	}
 	require.True(t, refused, "the loop is stopped")
-	require.LessOrEqual(t, len(towerEventsOf(t, b, lt.id, "lifecycle")), towerEventBudget)
+	var mine int
+	for _, ev := range towerEventsOf(t, b, lt.id, "lifecycle") {
+		if ev.Actor == "operator:octocat" {
+			mine++
+		}
+	}
+	require.LessOrEqual(t, mine, towerEventBudget)
 }
 
 func TestRefusedUnsignedAttachesArePacedInTheLog(t *testing.T) {
@@ -149,7 +155,7 @@ func TestAFlushDefersToARefusalAlreadyRecordedThisHour(t *testing.T) {
 	require.NoError(t, b.tower.registry.Record(admit.Event{TowerID: lt.id, Kind: evRequestRefused, Actor: admit.ActorTower,
 		Reason: "state_suspended", Instance: "peer", At: now.Add(-time.Minute)}))
 	b.towerGovSweepOnce(now)
-	n, err := b.tower.registry.CountEvents(lt.id, evRequestRefused, "state_suspended", now.Add(-2*time.Hour))
+	n, err := b.tower.registry.CountEvents(lt.id, evRequestRefused, "state_suspended", "", now.Add(-2*time.Hour))
 	require.NoError(t, err)
 	require.Equal(t, 2, n, "the first one here and the peer's; the flush waits")
 }

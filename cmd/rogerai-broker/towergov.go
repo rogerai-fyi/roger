@@ -55,6 +55,10 @@ const (
 	evCanary           = "canary"
 )
 
+// actorUnauthenticated is a request that named a Tower but was not the Tower's own signed
+// request: anyone could have sent it, so the record must not say the Tower tried.
+const actorUnauthenticated = "unauthenticated"
+
 // towerLinkKinds are the events that say where a Tower's link stands.
 var towerLinkKinds = []string{evSessionOpened, evSessionResumed, evSessionClosed, evSessionStale}
 
@@ -124,8 +128,8 @@ const towerEventBudget = 20
 // What Core or an administrator decides is never capped.
 func pacedKind(kind string) bool {
 	switch kind {
-	case evSessionOpened, evSessionClosed, evSessionRefused, evLifecycleRefused,
-		evStationAttached, evStationRevoked, evCertRenewed:
+	case evSessionOpened, evSessionClosed, evSessionRefused, evSessionResumed, evLifecycleRefused,
+		evStationAttached, evStationRevoked, evCertRenewed, evCanary:
 		return true
 	}
 	return false
@@ -134,8 +138,38 @@ func pacedKind(kind string) bool {
 // pacedEvent reports whether an event counts against the budget: a paced kind, driven by
 // the Tower itself or an operator. The same kind written by Core or an administrator is
 // never capped, so an operator cannot crowd those records out.
+//
+// A canary result is the one exception to the actor rule: Core writes it, but the Tower
+// decides it (a Tower can pass and fail probes at will), so it is capped whoever records it.
 func pacedEvent(ev admit.Event) bool {
+	if ev.Kind == evCanary {
+		return true
+	}
 	return pacedKind(ev.Kind) && (ev.Actor == admit.ActorTower || strings.HasPrefix(ev.Actor, "operator:"))
+}
+
+// overBudget reports whether ev's actor has used its hourly budget for ev's kind on ev's
+// Tower, and logs that once a minute when it has. Counted per actor in the shared store, so
+// one account cannot use up another's room. The count and the insert are not one
+// transaction: two instances racing can overshoot by their concurrency, which is bounded.
+func (b *broker) overBudget(ev admit.Event) bool {
+	actor := ev.Actor
+	if ev.Kind == evCanary {
+		actor = "" // see pacedEvent: capped per Tower, whoever records it
+	}
+	n, err := b.tower.registry.CountEvents(ev.TowerID, ev.Kind, "", actor, time.Now().Add(-time.Hour))
+	if err != nil {
+		b.towerGovUnavailable(err)
+		return true
+	}
+	if n < towerEventBudget {
+		return false
+	}
+	if b.towerLogPace.allow("budget|" + ev.TowerID + "|" + ev.Kind + "|" + actor) {
+		log.Printf("tower-event: %s budget reached for tower %s by %s (%d an hour); further events are logged, not recorded",
+			ev.Kind, logValue(ev.TowerID), logValue(ev.Actor), towerEventBudget)
+	}
+	return true
 }
 
 // towerEvent prints the line and records the event, best effort. A paced event over its
@@ -149,19 +183,8 @@ func (b *broker) towerEvent(ev admit.Event) {
 	if b.tower == nil {
 		return
 	}
-	if pacedEvent(ev) {
-		n, err := b.tower.registry.CountEvents(ev.TowerID, ev.Kind, "", time.Now().Add(-time.Hour))
-		if err != nil {
-			b.towerGovUnavailable(err)
-			return
-		}
-		if n >= towerEventBudget {
-			if b.towerLogPace.allow("budget|" + ev.TowerID + "|" + ev.Kind) {
-				log.Printf("tower-event: %s budget reached for tower %s (%d an hour); further events are logged, not recorded",
-					ev.Kind, logValue(ev.TowerID), towerEventBudget)
-			}
-			return
-		}
+	if pacedEvent(ev) && b.overBudget(ev) {
+		return
 	}
 	if err := b.tower.registry.Record(ev); err != nil {
 		b.towerGovUnavailable(err)
@@ -364,9 +387,20 @@ func (b *broker) flushRefusals() {
 			b.towerRefusals.carry(key, n) // another instance wrote this hour's; try again next hour
 			continue
 		}
-		b.towerEvent(admit.Event{TowerID: towerID, Kind: evRequestRefused, Actor: admit.ActorTower, Reason: reason,
+		b.towerEvent(admit.Event{TowerID: towerID, Kind: evRequestRefused, Actor: refusalActor(reason), Reason: reason,
 			Detail: map[string]any{"count": n, "flushed": true}})
 	}
+}
+
+// refusalActor names who a refusal is attributed to. Only a request the Tower itself signed
+// (its admitted key, so the refusal is about its standing) is the Tower; an unsigned or
+// wrongly signed request could have come from anyone.
+func refusalActor(reason string) string {
+	switch reason {
+	case "unsigned", "key_mismatch", "no_tower_id", "unavailable":
+		return actorUnauthenticated
+	}
+	return admit.ActorTower
 }
 
 // noteTowerRefusal logs and records a refused Tower request. The Tower's answer is the
@@ -393,7 +427,7 @@ func (b *broker) noteTowerRefusal(towerID, reason, route string) {
 		// Anyone can name any id, so these are paced as one stream, not per id, and never
 		// recorded: a record per invented id would be a table anyone can fill.
 		if b.towerLogPace.allow("unknown_tower") {
-			b.logTowerEvent(admit.Event{TowerID: towerID, Kind: evRequestRefused, Actor: admit.ActorTower,
+			b.logTowerEvent(admit.Event{TowerID: towerID, Kind: evRequestRefused, Actor: actorUnauthenticated,
 				Reason: "unknown_tower", Detail: map[string]any{"route": route}})
 		}
 		return
@@ -401,7 +435,7 @@ func (b *broker) noteTowerRefusal(towerID, reason, route string) {
 	// From here the Tower is admitted: either towerCallerWhy found it in the registry, or the
 	// admitted set did. Its refusals are counted for it.
 	logIt, record, count, now := b.towerRefusals.note(towerID + "|" + reason)
-	ev := admit.Event{TowerID: towerID, Kind: evRequestRefused, Actor: admit.ActorTower, Reason: reason,
+	ev := admit.Event{TowerID: towerID, Kind: evRequestRefused, Actor: refusalActor(reason), Reason: reason,
 		Detail: map[string]any{"route": route}}
 	if record {
 		if b.refusalRecordedElsewhere(towerID, reason, now) {
@@ -423,7 +457,7 @@ func (b *broker) noteTowerRefusal(towerID, reason, route string) {
 // A store that cannot answer is treated as "recorded": the line is still logged, and the
 // pending count waits for the sweep.
 func (b *broker) refusalRecordedElsewhere(towerID, reason string, now time.Time) bool {
-	n, err := b.tower.registry.CountEvents(towerID, evRequestRefused, reason, now.Add(-time.Hour))
+	n, err := b.tower.registry.CountEvents(towerID, evRequestRefused, reason, "", now.Add(-time.Hour))
 	return err != nil || n > 0
 }
 
@@ -620,12 +654,11 @@ func (b *broker) sweepLease(tw admitTower, now time.Time) {
 // record cannot be written does not happen.
 func (b *broker) transitionRecorded(w http.ResponseWriter, ts *towerSubsystem, before admitTower,
 	to admit.State, actor, reason string) bool {
-	err := ts.registry.TransitionAs(before.ID, to, admit.Event{Kind: evLifecycle, Actor: actor,
+	written, err := ts.registry.TransitionRecorded(before.ID, to, admit.Event{Kind: evLifecycle, Actor: actor,
 		Reason: reason, Instance: b.instanceID})
 	switch {
 	case err == nil:
-		b.logTowerEvent(admit.Event{TowerID: before.ID, Kind: evLifecycle, Actor: actor,
-			From: before.State, To: to, Reason: reason})
+		b.logTowerEvent(written) // the line says what the record says
 		return true
 	case errors.Is(err, admit.ErrAlreadyInState), errors.Is(err, admit.ErrIllegalTransition):
 		class := "illegal_transition"
@@ -646,6 +679,14 @@ func (b *broker) transitionRecorded(w http.ResponseWriter, ts *towerSubsystem, b
 	return false
 }
 
+// recordEnrolled writes a Tower's enrollment once. Enroll is idempotent per transaction, so
+// a replay succeeds again; it must not append a second "enrolled" (with the state the Tower
+// is in now). One per Tower, across instances.
+func (b *broker) recordEnrolled(towerID, owner string, state admit.State, serial, lifecycleHash string) {
+	b.towerRecordIfLast(admit.Event{TowerID: towerID, Kind: evEnrolled, Actor: "operator:" + owner, To: state,
+		Detail: map[string]any{"serial": serial, "lifecycle_hash": lifecycleHash}}, []string{evEnrolled}, 0)
+}
+
 // sweptIDs lists a sweep's Station ids for its log line.
 func sweptIDs(s []attach.Swept) string {
 	ids := make([]string, len(s))
@@ -655,15 +696,33 @@ func sweptIDs(s []attach.Swept) string {
 	return strings.Join(ids, ",")
 }
 
-// recordStationsSwept writes one station_retired event per Station a sweep ended, on the
-// Tower it was behind. A direct-origin Station has no Tower record to land on.
+// maxNamedStations caps how many Station ids one station_retired event names.
+const maxNamedStations = 20
+
+// recordStationsSwept writes ONE station_retired event per Tower per sweep, with the count
+// and the first Station ids (all of them are in the log line). One per Station would let an
+// account's attach/revoke churn become an uncapped stream of system events at reap time. A
+// direct-origin Station has no Tower record to land on.
 func (b *broker) recordStationsSwept(s []attach.Swept, why string) {
+	byTower := map[string][]string{}
+	var order []string
 	for _, x := range s {
 		if x.TowerID == "" {
 			continue
 		}
-		b.towerEvent(admit.Event{TowerID: x.TowerID, Kind: evStationRetired, Actor: admit.ActorSystem,
-			Reason: why, Detail: map[string]any{"station": x.StationID}})
+		if _, seen := byTower[x.TowerID]; !seen {
+			order = append(order, x.TowerID)
+		}
+		byTower[x.TowerID] = append(byTower[x.TowerID], x.StationID)
+	}
+	for _, towerID := range order {
+		ids := byTower[towerID]
+		named := ids
+		if len(named) > maxNamedStations {
+			named = named[:maxNamedStations]
+		}
+		b.towerEvent(admit.Event{TowerID: towerID, Kind: evStationRetired, Actor: admit.ActorSystem,
+			Reason: why, Detail: map[string]any{"count": len(ids), "stations": named}})
 	}
 }
 
@@ -718,8 +777,11 @@ func (b *broker) recordCanaryChange(towerID, stationID, result, reason, cause st
 	if cause != "" {
 		detail["cause"] = admit.CleanReason(cause)
 	}
-	b.towerRecordIfLast(admit.Event{TowerID: towerID, Kind: evCanary, Actor: admit.ActorSystem, Reason: reason,
-		Detail: detail}, []string{evCanary}, lastID)
+	ev := admit.Event{TowerID: towerID, Kind: evCanary, Actor: admit.ActorSystem, Reason: reason, Detail: detail}
+	if b.overBudget(ev) {
+		return // a Tower flipping its own probe results cannot grow the record without bound
+	}
+	b.towerRecordIfLast(ev, []string{evCanary}, lastID)
 }
 
 // statusCapture remembers the status and the start of the body a handler wrote, so a

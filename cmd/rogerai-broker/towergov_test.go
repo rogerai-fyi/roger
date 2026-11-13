@@ -251,7 +251,7 @@ func TestARefusedTowerRequestIsLoggedAndRecordedWithItsReason(t *testing.T) {
 			require.Contains(t, raw, "this link requires a registered Tower's own signed request",
 				"the Tower's answer is unchanged and discloses no reason")
 			require.NotContains(t, raw, tc.reason)
-			require.Contains(t, buf.String(), "tower-event kind=request_refused tower="+lt.id+" actor=tower reason="+tc.reason)
+			require.Contains(t, buf.String(), "tower-event kind=request_refused tower="+lt.id+" actor="+refusalActor(tc.reason)+" reason="+tc.reason)
 			evs := towerEventsOf(t, b, lt.id, "request_refused")
 			require.Len(t, evs, 1)
 			require.Equal(t, tc.reason, evs[0].Reason)
@@ -329,7 +329,7 @@ func TestARequestNamingAnUnknownTowerIsLoggedButNotRecorded(t *testing.T) {
 		require.Equal(t, http.StatusForbidden, code)
 	}
 	restore()
-	require.Equal(t, 1, strings.Count(buf.String(), "tower-event kind=request_refused tower=tw-nope actor=tower reason=unknown_tower"))
+	require.Equal(t, 1, strings.Count(buf.String(), "tower-event kind=request_refused tower=tw-nope actor=unauthenticated reason=unknown_tower"))
 	require.Empty(t, towerEventsOf(t, b, "tw-nope"), "no record is created for a Tower Core never admitted")
 }
 

@@ -3074,8 +3074,11 @@ func (b *broker) autoSuspend(towerID string, tower, fleet reputation.Tally) {
 		"fleet_total": fleet.Total, "fleet_canary_pass": fleet.CanaryPass, "fleet_canary_fail": fleet.CanaryFail,
 		"fleet_audit_mismatch": fleet.AuditMismatch,
 	}
-	err := ts.registry.TransitionAs(towerID, admit.StateSuspended, admit.Event{Kind: evLifecycle,
+	written, err := ts.registry.TransitionRecorded(towerID, admit.StateSuspended, admit.Event{Kind: evLifecycle,
 		Actor: admit.ActorSystem, Reason: "reputation", Instance: b.instanceID, Detail: detail})
+	if errors.Is(err, admit.ErrAlreadyInState) || errors.Is(err, admit.ErrIllegalTransition) {
+		return // a peer suspended (or ended) it first: nothing failed
+	}
 	if err != nil {
 		class := "concurrent_change"
 		if errors.Is(err, admit.ErrUnavailable) {
@@ -3085,8 +3088,7 @@ func (b *broker) autoSuspend(towerID string, tower, fleet reputation.Tally) {
 			From: before.State, To: admit.StateSuspended, Reason: class, Detail: map[string]any{"error": err.Error()}})
 		return
 	}
-	b.logTowerEvent(admit.Event{TowerID: towerID, Kind: evLifecycle, Actor: admit.ActorSystem,
-		From: before.State, To: admit.StateSuspended, Reason: "reputation", Detail: detail})
+	b.logTowerEvent(written)
 	b.forgetRoutable(towerID)
 }
 

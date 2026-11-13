@@ -5,8 +5,10 @@
 # scenario need re-approval.
 # BUILD STATUS: BUILT. internal/towercore/admit/events.go (the record), cmd/rogerai-broker/towergov.go
 # (what writes it), tested in admit/events_test.go and cmd/rogerai-broker/towergov*_test.go.
-# The four scenarios in the section "added 2026-11-13 from the pre-push audit" are PROPOSED:
-# built (they close audit findings), but not yet confirmed by the founder.
+# The scenarios in the section "added 2026-11-13 from the pre-push audit" are PROPOSED: built
+# (they close audit and review findings), but not yet confirmed by the founder. Two of them
+# refine approved scenarios: refusals anyone could cause get actor "unauthenticated", and a
+# sweep writes one station_retired per Tower (naming up to 20) rather than one per Station.
 # Founder request: "we need to make sure we have proper governance over parts of this at
 # least for log/audit purposes ... find what we are missing and close the gap."
 #
@@ -342,10 +344,37 @@ Feature: Every governance event about a Tower leaves an attributed, durable reco
     And "s-2" can still be recorded as gone quiet
 
   Scenario: One Tower cannot grow its record without bound
-    Given an event kind a Tower or operator drives (session opened, closed or refused, a refused lifecycle request, a Station attached or revoked, a certificate renewed)
-    When one Tower produces more than 20 of that kind within an hour, across all instances
+    Given an event kind a Tower or operator drives (session opened, closed, resumed or refused, a refused lifecycle request, a Station attached or revoked, a certificate renewed)
+    When one actor produces more than 20 of that kind on one Tower within an hour, across all instances
     Then the rest are logged and not recorded, and the log says the budget was reached once a minute
+    And one account's events never use up another account's room
     And events Core or an administrator decides are never capped
+    But canary result changes are capped per Tower whoever records them, because the Tower decides the result
+
+  Scenario: An operator cannot loop their own Tower's state
+    Given an operator has made 20 lifecycle changes to "tw-1" within the hour
+    When they ask for another
+    Then it is refused with 429 and nothing changes, so the record stays transactional
+
+  Scenario: A refusal anyone could have caused is not attributed to the Tower
+    Given a request names "tw-1" but is unsigned or signed with a key that is not "tw-1"'s
+    When it is refused
+    Then the event's actor is "unauthenticated", not "tower"
+    And a refusal of "tw-1"'s own signed request (suspended, lease lapsed, certificate revoked) still names "tower"
+
+  Scenario: A sweep writes one retirement event per Tower
+    When a sweep retires or reaps Stations behind "tw-1"
+    Then one "station_retired" event records the count and names up to 20 of them
+    And the log line names them all
+
+  Scenario: An enrollment replay is recorded once
+    When a committed enrollment is replayed with the same transaction
+    Then no second "enrolled" event is written
+
+  Scenario: The detail says when the Tower was approved and by whom from the whole record
+    Given churn has pushed the approval out of the newest 50 events
+    When an administrator opens "tw-1"'s detail
+    Then it still shows the approval time and the approving actor
 
   Scenario: A recorded promotion that did not land is recorded as failed
     Given a "station_promoted" event was written before the promotion

@@ -303,7 +303,7 @@ func TestSweepsThatRetireStationsNameThem(t *testing.T) {
 	evs := towerEventsOf(t, b, lt.id, "station_retired")
 	require.Len(t, evs, 1)
 	require.Equal(t, admit.ActorSystem, evs[0].Actor)
-	require.Equal(t, "st-old", evs[0].Detail["station"])
+	require.Equal(t, []any{"st-old"}, toAnySlice(evs[0].Detail["stations"]))
 }
 
 // --- probes ------------------------------------------------------------------------------------
@@ -359,4 +359,20 @@ func (c *casLosingStore) CASTowerEvent(tw admit.Tower, ev admit.Event) (bool, er
 		return false, nil
 	}
 	return c.Store.CASTowerEvent(tw, ev)
+}
+
+// toAnySlice normalises a detail list read from either store ([]string in memory, []any
+// from JSON).
+func toAnySlice(v any) []any {
+	switch x := v.(type) {
+	case []any:
+		return x
+	case []string:
+		out := make([]any, len(x))
+		for i, s := range x {
+			out[i] = s
+		}
+		return out
+	}
+	return nil
 }
