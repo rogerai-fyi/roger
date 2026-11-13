@@ -228,3 +228,21 @@ func (r *Registry) ExpireLeaseAs(id string, ev Event) error {
 	}
 	return nil
 }
+
+// CountEvents counts a Tower's events of one kind (and reason, when given) since a time.
+func (r *Registry) CountEvents(towerID, kind, reason string, since time.Time) (int, error) {
+	n, err := r.store.CountEvents(towerID, kind, reason, since)
+	if err != nil {
+		return 0, unavailable(err)
+	}
+	return n, nil
+}
+
+// LinkSummaries reads every Tower's link history at once, for the admin list.
+func (r *Registry) LinkSummaries(kinds []string) (map[string]LinkSummary, error) {
+	out, err := r.store.LinkSummaries(kinds)
+	if err != nil {
+		return nil, unavailable(err)
+	}
+	return out, nil
+}

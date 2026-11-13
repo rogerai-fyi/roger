@@ -15,6 +15,7 @@ package main
 // blocking a Tower, and a store failure is logged once a minute.
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -113,7 +114,25 @@ func (b *broker) logTowerEvent(ev admit.Event) {
 	log.Print(formatTowerEvent(ev))
 }
 
-// towerEvent prints the line and records the event, best effort.
+// towerEventBudget caps how many events of one Tower- or operator-driven kind one Tower may
+// add to its record per hour, counted in the shared store so it holds across instances. The
+// record is append-only and never reaped, so without a cap an enrolled Tower reconnecting in
+// a loop could grow it without bound. Twenty an hour is far above any honest pattern.
+const towerEventBudget = 20
+
+// pacedKind reports whether a kind is driven by a Tower or an operator, and so capped.
+// What Core or an administrator decides is never capped.
+func pacedKind(kind string) bool {
+	switch kind {
+	case evSessionOpened, evSessionClosed, evSessionRefused, evLifecycleRefused,
+		evStationAttached, evStationRevoked, evCertRenewed:
+		return true
+	}
+	return false
+}
+
+// towerEvent prints the line and records the event, best effort. A paced kind over its
+// hourly budget is logged and not recorded, and the log says so once a minute.
 func (b *broker) towerEvent(ev admit.Event) {
 	if ev.Instance == "" {
 		ev.Instance = b.instanceID
@@ -122,6 +141,20 @@ func (b *broker) towerEvent(ev admit.Event) {
 	log.Print(formatTowerEvent(ev))
 	if b.tower == nil {
 		return
+	}
+	if pacedKind(ev.Kind) {
+		n, err := b.tower.registry.CountEvents(ev.TowerID, ev.Kind, "", time.Now().Add(-time.Hour))
+		if err != nil {
+			b.towerGovUnavailable(err)
+			return
+		}
+		if n >= towerEventBudget {
+			if logIt, _, _, _ := b.towerRefusals.note("budget|" + ev.TowerID + "|" + ev.Kind); logIt {
+				log.Printf("tower-event: %s budget reached for tower %s (%d an hour); further events are logged, not recorded",
+					ev.Kind, logValue(ev.TowerID), towerEventBudget)
+			}
+			return
+		}
 	}
 	if err := b.tower.registry.Record(ev); err != nil {
 		b.towerGovUnavailable(err)
@@ -209,6 +242,44 @@ func (l *refusalLimiter) note(key string) (logIt, record bool, count int, now ti
 	return logIt, record, count, now
 }
 
+// carry returns a count to the pending pile when its record was not written.
+func (l *refusalLimiter) carry(key string, n int) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.counts[key] += n
+}
+
+// due hands back every key with refusals pending whose last record is an hour old or more,
+// and resets them: what the sweep writes so a burst that stopped is not lost.
+func (l *refusalLimiter) due() map[string]int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	now := l.now()
+	out := map[string]int{}
+	for key, n := range l.counts {
+		if n == 0 || strings.HasPrefix(key, "budget|") || key == "unknown_tower" {
+			continue
+		}
+		if now.Sub(l.recorded[key]) >= time.Hour {
+			out[key] = n
+			l.counts[key], l.recorded[key] = 0, now
+		}
+	}
+	return out
+}
+
+// flushRefusals writes the refusal counts that are pending, one event per Tower and reason.
+func (b *broker) flushRefusals() {
+	for key, n := range b.towerRefusals.due() {
+		towerID, reason, ok := strings.Cut(key, "|")
+		if !ok {
+			continue
+		}
+		b.towerEvent(admit.Event{TowerID: towerID, Kind: evRequestRefused, Actor: admit.ActorTower, Reason: reason,
+			Detail: map[string]any{"count": n, "flushed": true}})
+	}
+}
+
 // noteTowerRefusal logs and records a refused Tower request. The Tower's answer is the
 // caller's and is unchanged: no reason is ever disclosed to whoever is asking.
 func (b *broker) noteTowerRefusal(towerID, reason, route string) {
@@ -227,23 +298,28 @@ func (b *broker) noteTowerRefusal(towerID, reason, route string) {
 	logIt, record, count, now := b.towerRefusals.note(towerID + "|" + reason)
 	ev := admit.Event{TowerID: towerID, Kind: evRequestRefused, Actor: admit.ActorTower, Reason: reason,
 		Detail: map[string]any{"route": route}}
-	if record && !b.refusalRecordedElsewhere(towerID, reason, now) {
-		ev.At = now
-		ev.Detail["count"] = count
-		b.towerEvent(ev)
-		return
+	if record {
+		if b.refusalRecordedElsewhere(towerID, reason, now) {
+			b.towerRefusals.carry(towerID+"|"+reason, count) // not lost: the sweep writes it later
+		} else {
+			ev.At = now
+			ev.Detail["count"] = count
+			b.towerEvent(ev)
+			return
+		}
 	}
 	if logIt {
 		b.logTowerEvent(ev)
 	}
 }
 
-// refusalRecordedElsewhere reports whether another instance already recorded this reason
-// for this Tower within the hour, so two instances do not both write one.
+// refusalRecordedElsewhere reports whether this reason is already on the Tower's record
+// within the hour, whoever wrote it, so two instances or a restart do not write a second.
+// A store that cannot answer is treated as "recorded": the line is still logged, and the
+// pending count waits for the sweep.
 func (b *broker) refusalRecordedElsewhere(towerID, reason string, now time.Time) bool {
-	last, ok, err := b.tower.registry.FindEvent(towerID, []string{evRequestRefused}, false)
-	return err == nil && ok && last.Reason == reason && last.Instance != b.instanceID &&
-		now.Sub(last.At) < time.Hour
+	n, err := b.tower.registry.CountEvents(towerID, evRequestRefused, reason, now.Add(-time.Hour))
+	return err != nil || n > 0
 }
 
 // --- the link ----------------------------------------------------------------------------
@@ -285,11 +361,12 @@ func sessionPrefix(id string) string {
 }
 
 // recordSessionOpened records a successful session open.
-func (b *broker) recordSessionOpened(towerID, sessionID string, version int, fullInventory, replaced bool) {
+func (b *broker) recordSessionOpened(towerID, sessionID string, version int, fullInventory bool, replaced string) {
 	ts := b.tower
 	detail := map[string]any{"session": sessionPrefix(sessionID), "version": version, "full_inventory": fullInventory}
-	if replaced {
+	if replaced != "" && replaced != sessionID {
 		detail["replaced"] = true
+		detail["replaced_session"] = sessionPrefix(replaced)
 	}
 	if _, ever, err := ts.registry.FindEvent(towerID, []string{evSessionOpened}, true); err == nil && !ever {
 		detail["first"] = true
@@ -356,6 +433,7 @@ func (b *broker) towerGovSweepOnce(now time.Time) {
 		b.sweepLink(tw.ID, now)
 		b.sweepLease(tw, now)
 	}
+	b.flushRefusals()
 }
 
 func (b *broker) sweepLink(towerID string, now time.Time) {
@@ -495,4 +573,48 @@ func (b *broker) recordCanaryChange(towerID, stationID, result, reason string) {
 	}
 	b.towerRecordIfLast(admit.Event{TowerID: towerID, Kind: evCanary, Actor: admit.ActorSystem, Reason: reason,
 		Detail: map[string]any{"result": result, "station": stationID}}, []string{evCanary}, lastID)
+}
+
+// statusCapture remembers the status and the start of the body a handler wrote, so a
+// refusal can be logged with the handler's own reason.
+type statusCapture struct {
+	http.ResponseWriter
+	code int
+	head []byte
+}
+
+func (c *statusCapture) WriteHeader(code int) {
+	if c.code == 0 {
+		c.code = code
+	}
+	c.ResponseWriter.WriteHeader(code)
+}
+
+func (c *statusCapture) Write(p []byte) (int, error) {
+	if c.code == 0 {
+		c.code = http.StatusOK
+	}
+	if room := 512 - len(c.head); room > 0 {
+		c.head = append(c.head, p[:min(room, len(p))]...)
+	}
+	return c.ResponseWriter.Write(p)
+}
+
+// logAttachRefused logs a refused self-attach with the message the handler answered. No
+// Tower is named: a refused attach was never placed on one.
+func (b *broker) logAttachRefused(c *statusCapture, who string) {
+	if c.code < 400 {
+		return
+	}
+	var env struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	reason := http.StatusText(c.code)
+	if json.Unmarshal(c.head, &env) == nil && env.Error.Message != "" {
+		reason = env.Error.Message
+	}
+	b.logTowerEvent(admit.Event{TowerID: "-", Kind: "station_attach_refused", Actor: who, Reason: reason,
+		Detail: map[string]any{"status": c.code}})
 }

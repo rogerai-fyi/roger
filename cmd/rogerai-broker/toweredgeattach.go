@@ -81,10 +81,19 @@ func (b *broker) towerEdgeAttach(w http.ResponseWriter, r *http.Request) {
 	}
 	corsCreds(w, r)
 	body := readTowerBody(r)
+	// Every refusal below is logged with its reason class (governance_record.feature): the
+	// answer is captured on the way out rather than threaded through each branch.
+	cw := &statusCapture{ResponseWriter: w}
+	w = cw
+	who := "unsigned"
+	defer func() { b.logAttachRefused(cw, who) }()
 
 	// The signed-in account. Same resolution as every tower operator surface: the request's
 	// signature must verify and its pubkey must be bound to a non-anonymized account.
 	owner, ok := b.towerOperator(r, body)
+	if ok {
+		who = "operator:" + owner
+	}
 	if !ok {
 		// THE TIGHT PER-IP BUCKET, ON THE WAY OUT - the same treatment /tower/edge/authorize
 		// got when it was found bare, on the same condition and for the same reason. An

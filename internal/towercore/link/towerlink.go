@@ -498,25 +498,49 @@ func (s *Sessions) fresh(seen time.Time) bool {
 }
 
 // Close ends a session deliberately. An operator who drains on purpose leaves routing at
-// once rather than waiting out the freshness window.
-func (s *Sessions) Close(sessionID, towerID string) {
+// once rather than waiting out the freshness window. It reports whether it ended the
+// Tower's CURRENT session, here or through the shared record: a close naming a superseded
+// or unknown session ends nothing, and the governance record must not say otherwise.
+func (s *Sessions) Close(sessionID, towerID string) bool {
 	s.mu.Lock()
+	ended := false
 	sess, held := s.byID[sessionID]
 	if held && sess.towerID == towerID {
 		delete(s.byID, sessionID)
 		if s.byTower[towerID] == sessionID {
 			delete(s.byTower, towerID)
+			ended = true
 		}
 	}
 	s.mu.Unlock()
 	if s.cfg.Mirror == nil {
-		return
+		return ended
 	}
 	// The close may land on an instance that never held the session - at two instances,
 	// half of them do. The mirror's compare-and-delete is what makes the close reach
 	// every instance while a superseded session id still buys nothing: it only removes a
 	// row that names EXACTLY this session, which only the authenticated Tower was told.
+	if rec, there, err := s.cfg.Mirror.Get(towerID); err == nil && there && rec.SessionID == sessionID {
+		ended = true
+	}
 	_ = s.cfg.Mirror.Del(towerID, sessionID)
+	return ended
+}
+
+// Current names the Tower's current session, here or in the shared record.
+func (s *Sessions) Current(towerID string) (string, bool) {
+	s.mu.RLock()
+	id, ok := s.byTower[towerID]
+	s.mu.RUnlock()
+	if ok {
+		return id, true
+	}
+	if s.cfg.Mirror != nil {
+		if rec, there, err := s.cfg.Mirror.Get(towerID); err == nil && there && rec.SessionID != "" {
+			return rec.SessionID, true
+		}
+	}
+	return "", false
 }
 
 // Live answers the question routing asks on every request. A map read and nothing else:

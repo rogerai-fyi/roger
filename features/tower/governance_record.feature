@@ -331,6 +331,30 @@ Feature: Every governance event about a Tower leaves an attributed, durable reco
     When an administrator opens "tw-1"'s detail
     Then it says "never connected" and when it was approved and by whom
 
+  # --- added 2026-11-13 from the pre-push audit; awaiting founder confirmation ------------
+
+  Scenario: A close that ended nothing is not recorded as a close
+    Given "tw-1" has replaced session "s-1" with a live session "s-2"
+    When "tw-1" closes "s-1"
+    Then no "session_closed" event is recorded, and the line is logged as not the current session
+    And "s-2" can still be recorded as gone quiet
+
+  Scenario: One Tower cannot grow its record without bound
+    Given an event kind a Tower or operator drives (session opened, closed or refused, a refused lifecycle request, a Station attached or revoked, a certificate renewed)
+    When one Tower produces more than 20 of that kind within an hour, across all instances
+    Then the rest are logged and not recorded, and the log says the budget was reached once a minute
+    And events Core or an administrator decides are never capped
+
+  Scenario: A recorded promotion that did not land is recorded as failed
+    Given a "station_promoted" event was written before the promotion
+    When the promotion fails
+    Then a "station_promote_failed" event names the Station
+
+  Scenario: Suppressed refusals are written when the retries stop
+    Given refusals of one reason were suppressed within the hour
+    When the next sweep runs after the hour
+    Then one "request_refused" event carries the suppressed count
+
   # --- failure handling ------------------------------------------------------------------
 
   Scenario: Link events never block a Tower

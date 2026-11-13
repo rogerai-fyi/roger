@@ -188,7 +188,10 @@ func (b *broker) towerSessionOpen(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	wasLive := ts.link.Live(tw.ID)
+	var replaced string
+	if ts.link.Live(tw.ID) {
+		replaced, _ = ts.link.Current(tw.ID)
+	}
 	acc, err := ts.link.Open(hello, tw.ID)
 	if err != nil {
 		// A negotiation failure is the Tower's to fix and says so; it is not a server fault.
@@ -249,7 +252,7 @@ func (b *broker) towerSessionOpen(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	acc.State = string(tw.State)
-	b.recordSessionOpened(tw.ID, acc.SessionID, acc.Version, acc.NeedFullInventory, wasLive)
+	b.recordSessionOpened(tw.ID, acc.SessionID, acc.Version, acc.NeedFullInventory, replaced)
 	writeJSON(w, http.StatusOK, acc)
 }
 
@@ -309,8 +312,14 @@ func (b *broker) towerSessionClose(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	lastSeen, _ := ts.link.LastSeen(tw.ID)
-	ts.link.Close(f.SessionID, tw.ID)
-	b.recordSessionClosed(tw.ID, f.SessionID, lastSeen)
+	// Recorded only when it ended the Tower's CURRENT session: a close naming a superseded
+	// session ends nothing, and recording it would hide the live one from the stale sweep.
+	if ts.link.Close(f.SessionID, tw.ID) {
+		b.recordSessionClosed(tw.ID, f.SessionID, lastSeen)
+	} else {
+		b.logTowerEvent(admit.Event{TowerID: tw.ID, Kind: evSessionClosed, Actor: admit.ActorTower,
+			Reason: "not_current_session", Detail: map[string]any{"session": sessionPrefix(f.SessionID)}})
+	}
 	// An orderly drain drops the inventory immediately. The expiry would get there on its
 	// own, but leaving leaves routable after the operator SAID they were going is the
 	// "immortal inventory" failure the design calls out by name.
@@ -550,6 +559,7 @@ func (b *broker) towerStationPromote(w http.ResponseWriter, r *http.Request) {
 	// On the Tower's governance record BEFORE the promotion, as with a certificate revocation:
 	// the attachment lives in another store, and an action Core cannot record is not taken.
 	// Only a Station that can actually be promoted is recorded; the no-op answer below is not.
+	var recordedOn string
 	if cur, found, ferr := ts.stations.Station(req.StationID); ferr == nil && found &&
 		cur.State == attach.StateQuarantine && cur.Origin.TowerID != "" {
 		if rerr := ts.registry.Record(admit.Event{TowerID: cur.Origin.TowerID, Kind: evStationPromoted,
@@ -558,8 +568,16 @@ func (b *broker) towerStationPromote(w http.ResponseWriter, r *http.Request) {
 			jsonErr(w, http.StatusServiceUnavailable, "the promotion was not made: Core could not record it - retry shortly")
 			return
 		}
+		recordedOn = cur.Origin.TowerID
 	}
 	promoted, err := ts.stations.Promote(req.StationID)
+	if err != nil || !promoted {
+		// The record above said a promotion was taken; say plainly that it did not land.
+		if recordedOn != "" {
+			b.towerEvent(admit.Event{TowerID: recordedOn, Kind: "station_promote_failed", Actor: actor,
+				Detail: map[string]any{"station": req.StationID}})
+		}
+	}
 	if err != nil {
 		jsonErr(w, http.StatusServiceUnavailable, "could not promote - try again in a moment")
 		return
@@ -1003,6 +1021,10 @@ func (b *broker) towerLeaseExpire(w http.ResponseWriter, r *http.Request) {
 		Reason: req.Reason, Instance: b.instanceID}); err != nil {
 		if errors.Is(err, admit.ErrUnavailable) {
 			jsonErr(w, http.StatusServiceUnavailable, "the lease was not ended: Core could not record it - retry shortly")
+			return
+		}
+		if _, found := ts.registry.Get(req.TowerID); found {
+			jsonErr(w, http.StatusConflict, err.Error())
 			return
 		}
 		jsonErr(w, http.StatusNotFound, "no such Tower")

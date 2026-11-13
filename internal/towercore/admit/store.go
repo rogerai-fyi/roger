@@ -116,6 +116,20 @@ type Store interface {
 	// AppendEventIfLast appends ev only if the newest event of those kinds still has the id
 	// the caller saw (0 for none), so two instances acting on one read cannot both write.
 	AppendEventIfLast(ev Event, kinds []string, lastID int64) (bool, error)
+	// CountEvents counts a Tower's events of one kind at or after since; a non-empty reason
+	// narrows it to that reason. It is what paces how fast one Tower can add to the record.
+	CountEvents(towerID, kind, reason string, since time.Time) (int, error)
+	// LinkSummaries reads, for every Tower with any event of the kinds, the first and
+	// newest of each kind and the newest overall, in one pass.
+	LinkSummaries(kinds []string) (map[string]LinkSummary, error)
+}
+
+// LinkSummary is one Tower's link history at a glance: the first event of the kinds, the
+// newest of each, and the newest overall.
+type LinkSummary struct {
+	First  Event
+	Latest Event
+	LastOf map[string]Event
 }
 
 // --- the in-process implementation ----------------------------------------
@@ -314,12 +328,15 @@ func (m *memStore) Events(towerID string, limit int) ([]Event, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	var out []Event
-	for i := len(m.events) - 1; i >= 0 && len(out) < limit; i-- {
-		if m.events[i].TowerID == towerID {
-			out = append(out, m.events[i])
+	for _, ev := range m.events {
+		if ev.TowerID == towerID {
+			out = append(out, ev)
 		}
 	}
 	sort.SliceStable(out, func(i, j int) bool { return laterEvent(out[i], out[j]) })
+	if len(out) > limit {
+		out = out[:limit]
+	}
 	return out, nil
 }
 
@@ -382,4 +399,46 @@ func (m *memStore) AppendEventIfLast(ev Event, kinds []string, lastID int64) (bo
 	}
 	m.appendEventLocked(ev)
 	return true, nil
+}
+
+func (m *memStore) CountEvents(towerID, kind, reason string, since time.Time) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	n := 0
+	for _, ev := range m.events {
+		if ev.TowerID == towerID && ev.Kind == kind && !ev.At.Before(since) && (reason == "" || ev.Reason == reason) {
+			n++
+		}
+	}
+	return n, nil
+}
+
+func (m *memStore) LinkSummaries(kinds []string) (map[string]LinkSummary, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := map[string]LinkSummary{}
+	for _, ev := range m.events {
+		if slices.Contains(kinds, ev.Kind) {
+			out[ev.TowerID] = foldSummary(out[ev.TowerID], ev)
+		}
+	}
+	return out, nil
+}
+
+// foldSummary adds one event to a summary. Both stores build summaries through it, so they
+// cannot disagree about what "first" and "newest" mean.
+func foldSummary(s LinkSummary, ev Event) LinkSummary {
+	if s.LastOf == nil {
+		s.LastOf = map[string]Event{}
+	}
+	if s.First.Kind == "" || laterEvent(s.First, ev) {
+		s.First = ev
+	}
+	if s.Latest.Kind == "" || laterEvent(ev, s.Latest) {
+		s.Latest = ev
+	}
+	if cur, ok := s.LastOf[ev.Kind]; !ok || laterEvent(ev, cur) {
+		s.LastOf[ev.Kind] = ev
+	}
+	return s
 }

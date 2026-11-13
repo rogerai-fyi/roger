@@ -43,9 +43,13 @@ func (b *broker) adminTowers(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("admin read: towers list by admin:%s", b.adminActor(r))
 	towers := ts.registry.All()
+	// ONE read of every Tower's link history, not a handful of queries per row.
+	sums, serr := ts.registry.LinkSummaries(towerLinkKinds)
 	out := make([]admitTowerRow, 0, len(towers))
 	for _, tw := range towers {
-		out = append(out, adminTowerRowOf(ts, tw))
+		row := adminTowerRowOf(ts, tw)
+		row.Connection, row.LastSeen = connectionFromSummary(ts, tw.ID, sums[tw.ID], serr)
+		out = append(out, row)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"towers": out})
 }
@@ -168,10 +172,43 @@ func adminTowerRowOf(ts *towerSubsystem, tw admitTower) admitTowerRow {
 	if p, has := ts.link.RelayPlane(tw.ID); has {
 		row.Endpoint = p.Endpoint
 	}
-	conn := towerConnectionView(ts, tw.ID)
-	row.Connection, _ = conn["status"].(string)
-	row.LastSeen, _ = conn["last_seen"].(string)
 	return row
+}
+
+// connectionFromSummary is the list view's status and last-seen time, from one Tower's link
+// summary and the link itself. It agrees with towerConnectionView by construction: both
+// read the same newest link event.
+func connectionFromSummary(ts *towerSubsystem, id string, sum admit.LinkSummary, err error) (string, string) {
+	seen, seenOK := ts.link.LastSeen(id)
+	if !seenOK && err == nil && sum.Latest.Kind != "" {
+		seen = eventLastSeen(sum.Latest)
+	}
+	stamp := ""
+	if !seen.IsZero() {
+		stamp = seen.UTC().Format(time.RFC3339)
+	}
+	switch {
+	case ts.link.Live(id):
+		return "connected", stamp
+	case err != nil:
+		return "unknown", stamp
+	case sum.Latest.Kind == "":
+		return "never connected", stamp
+	case sum.Latest.Kind == evSessionClosed:
+		return "closed", stamp
+	}
+	return "stale", stamp
+}
+
+// eventLastSeen is when a link event says Core last heard from the Tower: its last_seen
+// detail when it carries one, else the event's own time.
+func eventLastSeen(ev admit.Event) time.Time {
+	if s, ok := ev.Detail["last_seen"].(string); ok {
+		if at, perr := time.Parse(time.RFC3339, s); perr == nil {
+			return at
+		}
+	}
+	return ev.At
 }
 
 // towerConnectionView answers "is it connected, and if not, was it ever" from the link and
@@ -198,12 +235,7 @@ func towerConnectionView(ts *towerSubsystem, id string) map[string]any {
 	latest, known, err := ts.registry.FindEvent(id, towerLinkKinds, false)
 	seen, seenOK := ts.link.LastSeen(id)
 	if !seenOK && err == nil && known {
-		seen = latest.At
-		if s, ok := latest.Detail["last_seen"].(string); ok {
-			if at, perr := time.Parse(time.RFC3339, s); perr == nil {
-				seen = at
-			}
-		}
+		seen = eventLastSeen(latest)
 	}
 	stamp("last_seen", seen)
 	switch {

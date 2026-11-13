@@ -24,8 +24,7 @@ func eachStore(t *testing.T, body func(t *testing.T, s Store)) {
 	t.Run("mem", func(t *testing.T) { body(t, NewMemStore()) })
 	t.Run("pg", func(t *testing.T) {
 		s := pgStore(t)
-		_, err := s.(*PGStore).db.Exec(`TRUNCATE rogerai.tower_events`)
-		require.NoError(t, err)
+		clearEventsForTest(t, s.(*PGStore).db)
 		body(t, s)
 	})
 }
@@ -190,8 +189,7 @@ func TestTransitionAsRefusesToOverwriteAConcurrentDecision(t *testing.T) {
 func TestTheDurableRecordSurvivesARestartAndCannotBeEdited(t *testing.T) {
 	s := pgStore(t)
 	db := s.(*PGStore).db
-	_, err := db.Exec(`TRUNCATE rogerai.tower_events`)
-	require.NoError(t, err)
+	clearEventsForTest(t, db)
 	require.NoError(t, NewWithStore(Config{}, s).Record(Event{TowerID: "tw-1", Kind: "enrolled", Actor: "operator:acct-1"}))
 
 	evs, err := NewWithStore(Config{}, s).Events("tw-1", 10)
@@ -427,16 +425,104 @@ func TestEveryEventPathReportsAnOutage(t *testing.T) {
 // changed: that is the whole point of one transaction.
 func TestTheDurableTransitionRollsBackWhenItsEventCannotBeWritten(t *testing.T) {
 	s := pgStore(t)
-	db := s.(*PGStore).db
-	_, err := db.Exec(`TRUNCATE rogerai.tower_events`)
-	require.NoError(t, err)
+	clearEventsForTest(t, s.(*PGStore).db)
 	r := NewWithStore(Config{}, s)
 	tw := enrolled(t, r, "acct-1", "key-1")
 
 	// Detail that cannot be encoded as JSON fails the insert inside the transaction.
-	err = r.TransitionAs(tw.ID, StateActive, Event{Kind: "lifecycle", Actor: ActorSystem,
+	err := r.TransitionAs(tw.ID, StateActive, Event{Kind: "lifecycle", Actor: ActorSystem,
 		Detail: map[string]any{"bad": make(chan int)}})
 	require.Error(t, err)
 	got, _ := r.Get(tw.ID)
 	require.Equal(t, StateQuarantine, got.State, "the row change rolled back with the event")
+}
+
+// THE LIMIT APPLIES AFTER ORDERING, in both stores: events written out of time order must
+// still come back as the newest N.
+func TestEventsLimitTheNewestEvenWhenWrittenOutOfOrder(t *testing.T) {
+	eachStore(t, func(t *testing.T, s Store) {
+		r := NewWithStore(Config{}, s)
+		base := time.Now().UTC().Truncate(time.Microsecond)
+		require.NoError(t, r.Record(Event{TowerID: "tw-1", At: base.Add(time.Hour), Kind: "newest", Actor: ActorSystem}))
+		require.NoError(t, r.Record(Event{TowerID: "tw-1", At: base, Kind: "oldest", Actor: ActorSystem}))
+		require.NoError(t, r.Record(Event{TowerID: "tw-1", At: base.Add(time.Minute), Kind: "middle", Actor: ActorSystem}))
+		evs, err := r.Events("tw-1", 2)
+		require.NoError(t, err)
+		require.Equal(t, []string{"newest", "middle"}, []string{evs[0].Kind, evs[1].Kind})
+	})
+}
+
+func TestCountEventsCountsAKindAndReasonSinceATime(t *testing.T) {
+	eachStore(t, func(t *testing.T, s Store) {
+		r := NewWithStore(Config{}, s)
+		now := time.Now().UTC().Truncate(time.Microsecond)
+		for i, reason := range []string{"a", "a", "b"} {
+			require.NoError(t, r.Record(Event{TowerID: "tw-1", At: now.Add(-time.Duration(i) * time.Minute),
+				Kind: "request_refused", Actor: ActorTower, Reason: reason}))
+		}
+		require.NoError(t, r.Record(Event{TowerID: "tw-1", At: now.Add(-2 * time.Hour), Kind: "request_refused", Actor: ActorTower, Reason: "a"}))
+		require.NoError(t, r.Record(Event{TowerID: "tw-2", At: now, Kind: "request_refused", Actor: ActorTower, Reason: "a"}))
+
+		n, err := r.CountEvents("tw-1", "request_refused", "", now.Add(-time.Hour))
+		require.NoError(t, err)
+		require.Equal(t, 3, n, "any reason, inside the hour, this Tower only")
+		n, err = r.CountEvents("tw-1", "request_refused", "a", now.Add(-time.Hour))
+		require.NoError(t, err)
+		require.Equal(t, 2, n)
+		n, err = r.CountEvents("tw-1", "session_opened", "", now.Add(-time.Hour))
+		require.NoError(t, err)
+		require.Zero(t, n)
+	})
+}
+
+// ONE READ FOR THE WHOLE LIST: the admin Towers list must not run a handful of queries per
+// Tower.
+func TestLinkSummariesReadEveryTowersLinkHistoryAtOnce(t *testing.T) {
+	eachStore(t, func(t *testing.T, s Store) {
+		r := NewWithStore(Config{}, s)
+		base := time.Now().Add(-time.Hour).UTC().Truncate(time.Microsecond)
+		rec := func(tw, kind string, min int) {
+			require.NoError(t, r.Record(Event{TowerID: tw, At: base.Add(time.Duration(min) * time.Minute), Kind: kind,
+				Actor: ActorTower, Detail: map[string]any{"last_seen": "x"}}))
+		}
+		rec("tw-1", "session_opened", 0)
+		rec("tw-1", "session_closed", 5)
+		rec("tw-1", "session_opened", 10)
+		rec("tw-1", "session_stale", 20)
+		rec("tw-1", "canary", 25) // not a link event
+		rec("tw-2", "session_opened", 3)
+
+		sums, err := r.LinkSummaries([]string{"session_opened", "session_resumed", "session_closed", "session_stale"})
+		require.NoError(t, err)
+		one := sums["tw-1"]
+		require.Equal(t, base, one.First.At.UTC(), "the first session_opened")
+		require.Equal(t, "session_stale", one.Latest.Kind)
+		require.Equal(t, base.Add(10*time.Minute), one.LastOf["session_opened"].At.UTC())
+		require.Equal(t, base.Add(5*time.Minute), one.LastOf["session_closed"].At.UTC())
+		require.Equal(t, "x", one.Latest.Detail["last_seen"])
+		require.Equal(t, "session_opened", sums["tw-2"].Latest.Kind)
+		_, has := sums["tw-3"]
+		require.False(t, has)
+	})
+}
+
+func TestTheDurableRecordCannotBeTruncatedByTheApp(t *testing.T) {
+	s := pgStore(t)
+	db := s.(*PGStore).db
+	_, err := db.Exec(`TRUNCATE rogerai.tower_events`)
+	require.Error(t, err, "TRUNCATE skips row triggers, so it has its own guard")
+}
+
+// clearEventsForTest empties the record between tests. The table refuses TRUNCATE by
+// trigger, so a test (as the database superuser) suspends triggers for one transaction.
+func clearEventsForTest(t *testing.T, db *sql.DB) {
+	t.Helper()
+	tx, err := db.Begin()
+	require.NoError(t, err)
+	defer tx.Rollback() //nolint:errcheck
+	_, err = tx.Exec(`SET LOCAL session_replication_role = replica`)
+	require.NoError(t, err)
+	_, err = tx.Exec(`TRUNCATE rogerai.tower_events`)
+	require.NoError(t, err)
+	require.NoError(t, tx.Commit())
 }

@@ -112,6 +112,12 @@ BEGIN
         CREATE TRIGGER tower_events_no_edit BEFORE UPDATE OR DELETE ON rogerai.tower_events
             FOR EACH ROW EXECUTE FUNCTION rogerai.tower_events_append_only();
     END IF;
+    -- TRUNCATE fires no row trigger, so it gets a statement trigger of its own.
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'tower_events_no_truncate'
+                   AND tgrelid = 'rogerai.tower_events'::regclass) THEN
+        CREATE TRIGGER tower_events_no_truncate BEFORE TRUNCATE ON rogerai.tower_events
+            FOR EACH STATEMENT EXECUTE FUNCTION rogerai.tower_events_append_only();
+    END IF;
 END
 $do$;
 -- The mint path checks how many live tokens an account already holds on every call, so that
@@ -639,4 +645,41 @@ func (p *PGStore) AppendEventIfLast(ev Event, kinds []string, lastID int64) (boo
 		return false, wrap("append event if last", err)
 	}
 	return true, nil
+}
+
+func (p *PGStore) CountEvents(towerID, kind, reason string, since time.Time) (int, error) {
+	var n int
+	err := p.db.QueryRow(`SELECT count(*) FROM rogerai.tower_events
+	      WHERE tower_id = $1 AND kind = $2 AND at >= $3 AND ($4 = '' OR reason = $4)`,
+		towerID, kind, since.UTC(), reason).Scan(&n)
+	if err != nil {
+		return 0, wrap("count events", err)
+	}
+	return n, nil
+}
+
+// LinkSummaries reads the first and newest event of each kind per Tower in one query: the
+// window functions pick the rows, and foldSummary assembles them as the in-process store does.
+func (p *PGStore) LinkSummaries(kinds []string) (map[string]LinkSummary, error) {
+	rows, err := p.db.Query(`SELECT `+eventCols+` FROM (
+	        SELECT *, row_number() OVER (PARTITION BY tower_id, kind ORDER BY at DESC, id DESC) AS newest,
+	                  row_number() OVER (PARTITION BY tower_id ORDER BY at ASC, id ASC) AS oldest
+	          FROM rogerai.tower_events WHERE kind = ANY($1)) e
+	      WHERE newest = 1 OR oldest = 1`, kinds)
+	if err != nil {
+		return nil, wrap("link summaries", err)
+	}
+	defer rows.Close()
+	out := map[string]LinkSummary{}
+	for rows.Next() {
+		ev, err := scanEvent(rows)
+		if err != nil {
+			return nil, wrap("link summaries", err)
+		}
+		out[ev.TowerID] = foldSummary(out[ev.TowerID], ev)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, wrap("link summaries", err)
+	}
+	return out, nil
 }
