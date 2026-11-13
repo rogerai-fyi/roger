@@ -839,7 +839,8 @@ func (b *broker) towerSelfLifecycle(w http.ResponseWriter, r *http.Request) {
 	// THE LOOP STOPS HERE, with the change itself refused, so the record stays transactional:
 	// an operator flipping drain and resume cannot grow the never-reaped record without
 	// bound. Counted in the shared store, across instances.
-	if n, cerr := ts.registry.CountEvents(req.TowerID, evLifecycle, "", actor, time.Now().Add(-time.Hour)); cerr == nil && n >= towerEventBudget {
+	// Retiring is terminal and cannot loop, so the budget never blocks it.
+	if n, cerr := ts.registry.CountEvents(req.TowerID, evLifecycle, "", actor, time.Now().Add(-time.Hour)); cerr == nil && n >= towerEventBudget && to != admit.StateRevoked {
 		w.Header().Set("Retry-After", "3600")
 		jsonErr(w, http.StatusTooManyRequests, "this Tower has changed state too often in the last hour - try again later")
 		return
