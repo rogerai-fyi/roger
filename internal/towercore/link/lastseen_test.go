@@ -138,3 +138,11 @@ func TestCurrentReadsTheSharedViewOverALocalCopy(t *testing.T) {
 	_, ok := a.Current("tw-1")
 	require.False(t, ok, "a local copy of a closed session is not open")
 }
+
+// A close whose shared view cannot be read falls back to this instance's answer, so a real
+// close of a session held here is still recorded.
+func TestACloseFallsBackToTheLocalAnswerWhenTheSharedViewFails(t *testing.T) {
+	s := New(mirrorCfg(errMirror{}))
+	cur := openOn(t, s, "tw-1", "")
+	require.True(t, s.Close(cur, "tw-1"))
+}

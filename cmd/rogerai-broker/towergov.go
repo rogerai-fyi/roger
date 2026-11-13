@@ -597,9 +597,12 @@ func (b *broker) sweepLink(towerID string, now time.Time) {
 		b.towerGovUnavailable(err)
 		return
 	}
-	if !ok || (last.Kind != evSessionOpened && last.Kind != evSessionResumed) {
-		return // never connected, closed in order, or already recorded as quiet
+	if !ok || last.Kind == evSessionStale {
+		return // never connected, or already recorded as quiet
 	}
+	// A newest "closed" is not the last word when the link holds an open session: the open
+	// that followed may have been logged but not recorded (over the budget). The link, which
+	// the Current check below consults, decides.
 	// UNKNOWN IS NOT GONE. The last-seen time comes from this instance's session or the
 	// shared view, whichever is newer; an instance that cannot read the shared view skips the
 	// Tower this round rather than write a permanent "went quiet" for one heartbeating to a

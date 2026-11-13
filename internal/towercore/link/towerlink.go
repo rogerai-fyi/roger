@@ -524,8 +524,11 @@ func (s *Sessions) Close(sessionID, towerID string) bool {
 	// half of them do. The mirror's compare-and-delete is what makes the close reach
 	// every instance while a superseded session id still buys nothing: it only removes a
 	// row that names EXACTLY this session, which only the authenticated Tower was told.
-	rec, there, err := s.cfg.Mirror.Get(towerID)
-	ended = err == nil && there && rec.SessionID == sessionID
+	// An unreadable shared view falls back to this instance's answer, so a real close of a
+	// session held here is still recorded rather than logged as ending nothing.
+	if rec, there, err := s.cfg.Mirror.Get(towerID); err == nil {
+		ended = there && rec.SessionID == sessionID
+	}
 	_ = s.cfg.Mirror.Del(towerID, sessionID)
 	return ended
 }

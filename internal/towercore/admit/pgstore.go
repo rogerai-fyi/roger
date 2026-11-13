@@ -578,8 +578,11 @@ func (p *PGStore) CASTowerEvent(tw Tower, ev Event) (bool, error) {
 	}
 	defer tx.Rollback() //nolint:errcheck // no-op once committed
 	won, err := casTower(tx, tw)
-	if err != nil || !won {
-		return false, err
+	if err != nil {
+		return false, wrap("cas tower event", err)
+	}
+	if !won {
+		return false, nil
 	}
 	if err := insertEvent(tx, ev); err != nil {
 		return false, wrap("cas tower event", err)
@@ -684,4 +687,17 @@ func (p *PGStore) LinkSummaries(kinds []string) (map[string]LinkSummary, error) 
 		return nil, wrap("link summaries", err)
 	}
 	return out, nil
+}
+
+func (p *PGStore) FindTransition(towerID string, from, to State) (Event, bool, error) {
+	ev, err := scanEvent(p.db.QueryRow(`SELECT `+eventCols+` FROM rogerai.tower_events
+	      WHERE tower_id = $1 AND from_state = $2 AND to_state = $3 ORDER BY at DESC, id DESC LIMIT 1`,
+		towerID, string(from), string(to)))
+	if errors.Is(err, sql.ErrNoRows) {
+		return Event{}, false, nil
+	}
+	if err != nil {
+		return Event{}, false, wrap("find transition", err)
+	}
+	return ev, true, nil
 }

@@ -253,3 +253,12 @@ func (r *Registry) LinkSummaries(kinds []string) (map[string]LinkSummary, error)
 	}
 	return out, nil
 }
+
+// FindTransition returns a Tower's newest move from one state to another.
+func (r *Registry) FindTransition(towerID string, from, to State) (Event, bool, error) {
+	ev, ok, err := r.store.FindTransition(towerID, from, to)
+	if err != nil {
+		return Event{}, false, unavailable(err)
+	}
+	return ev, ok, nil
+}

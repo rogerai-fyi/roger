@@ -542,3 +542,23 @@ func TestTransitionRecordedReturnsTheEventAsWritten(t *testing.T) {
 	require.Equal(t, "a b", ev.Reason)
 	require.Equal(t, tw.ID, ev.TowerID)
 }
+
+// AN APPROVAL IS A MOVE FROM QUARANTINE TO ACTIVE, found by one query however much the
+// record has grown since - not the newest move to active, which an operator's resume is too.
+func TestFindTransitionFindsTheNewestMoveBetweenTwoStates(t *testing.T) {
+	eachStore(t, func(t *testing.T, s Store) {
+		r := NewWithStore(Config{}, s)
+		tw := enrolled(t, r, "acct-1", "key-1")
+		require.NoError(t, r.TransitionAs(tw.ID, StateActive, Event{Kind: "lifecycle", Actor: "admin:gh:luis"}))
+		require.NoError(t, r.TransitionAs(tw.ID, StateDraining, Event{Kind: "lifecycle", Actor: "operator:acct-1"}))
+		require.NoError(t, r.TransitionAs(tw.ID, StateActive, Event{Kind: "lifecycle", Actor: "operator:acct-1"}))
+
+		ev, ok, err := r.FindTransition(tw.ID, StateQuarantine, StateActive)
+		require.NoError(t, err)
+		require.True(t, ok)
+		require.Equal(t, "admin:gh:luis", ev.Actor, "the resume is not the approval")
+		_, ok, err = r.FindTransition(tw.ID, StateSuspended, StateQuarantine)
+		require.NoError(t, err)
+		require.False(t, ok)
+	})
+}

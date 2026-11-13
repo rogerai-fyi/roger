@@ -231,3 +231,35 @@ func (s *suspendRacingStore) TowerByID(id string) (admit.Tower, bool, error) {
 	}
 	return tw, ok, err
 }
+
+func TestAnOperatorResumeIsNotShownAsTheApproval(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	b.adminKey = "admin-secret"
+	op := signedInOperator(t, b, "octocat")
+	lt := enrolledTower(t, b, op.login)
+	_, _ = adminTowerPost(t, srv, "/tower/lifecycle", `{"tower_id":"`+lt.id+`","state":"active"}`)
+	for _, to := range []string{"draining", "active"} {
+		code, raw := op.call(t, srv, http.MethodPost, "/tower/self/lifecycle", map[string]string{"tower_id": lt.id, "state": to}, nil)
+		require.Equal(t, http.StatusOK, code, raw)
+	}
+	conn := adminTowerDetailOf(t, srv, lt.id)["connection"].(map[string]any)
+	require.Equal(t, "admin:broker-key", conn["approved_by"])
+}
+
+// A Tower whose open was not recorded (over the budget) but whose close was, and which then
+// opens again and goes quiet, is still recorded as quiet: the link, not only the record,
+// says whether a session is open.
+func TestAQuietTowerIsCaughtEvenWhenItsOpenWasNotRecorded(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	op := signedInOperator(t, b, "octocat")
+	lt := enrolledTower(t, b, op.login)
+	call := func(p string, body []byte, out any) (int, string) { return lt.call(t, srv, p, body, out) }
+	require.NoError(t, b.tower.registry.Record(admit.Event{TowerID: lt.id, Kind: evSessionClosed, Actor: admit.ActorTower,
+		At: time.Now().Add(-time.Hour)}))
+	// A session opens, but its record is lost (as when over the budget).
+	_, err := b.tower.link.Open(helloFor(lt), lt.id)
+	require.NoError(t, err)
+	_ = call
+	b.towerGovSweepOnce(time.Now().Add(towerFreshnessWindow + time.Minute))
+	require.Len(t, towerEventsOf(t, b, lt.id, "session_stale"), 1)
+}

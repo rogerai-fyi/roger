@@ -120,6 +120,9 @@ type Store interface {
 	// or actor narrows it to that reason or that exact actor. It is what paces how fast one
 	// Tower, or one operator, can add to the record.
 	CountEvents(towerID, kind, reason, actor string, since time.Time) (int, error)
+	// FindTransition returns a Tower's newest event that moved it from one state to another,
+	// whatever its kind, in one read however large the record has grown.
+	FindTransition(towerID string, from, to State) (Event, bool, error)
 	// LinkSummaries reads, for every Tower with any event of the kinds, the first and
 	// newest of each kind and the newest overall, in one pass.
 	LinkSummaries(kinds []string) (map[string]LinkSummary, error)
@@ -443,4 +446,17 @@ func foldSummary(s LinkSummary, ev Event) LinkSummary {
 		s.LastOf[ev.Kind] = ev
 	}
 	return s
+}
+
+func (m *memStore) FindTransition(towerID string, from, to State) (Event, bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var best Event
+	found := false
+	for _, ev := range m.events {
+		if ev.TowerID == towerID && ev.From == from && ev.To == to && (!found || laterEvent(ev, best)) {
+			best, found = ev, true
+		}
+	}
+	return best, found, nil
 }
