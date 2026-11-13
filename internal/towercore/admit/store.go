@@ -20,6 +20,8 @@ package admit
 
 import (
 	"errors"
+	"slices"
+	"sort"
 	"sync"
 	"time"
 )
@@ -101,6 +103,19 @@ type Store interface {
 	// in a loop and grow the table without limit for a whole TTL window - a
 	// database-filling vector behind nothing but a free registration.
 	LiveTokens(owner string, now time.Time) ([]string, error)
+
+	// AppendEvent adds one entry to a Tower's governance record. There is deliberately no
+	// method that edits or removes one.
+	AppendEvent(ev Event) error
+	// Events lists a Tower's governance record, newest first, at most limit entries.
+	Events(towerID string, limit int) ([]Event, error)
+	// CASTowerEvent is CASTower and AppendEvent in ONE write: both happen or neither does.
+	CASTowerEvent(tw Tower, ev Event) (bool, error)
+	// FindEvent returns the newest (or, with oldest, the first) event of any of the kinds.
+	FindEvent(towerID string, kinds []string, oldest bool) (Event, bool, error)
+	// AppendEventIfLast appends ev only if the newest event of those kinds still has the id
+	// the caller saw (0 for none), so two instances acting on one read cannot both write.
+	AppendEventIfLast(ev Event, kinds []string, lastID int64) (bool, error)
 }
 
 // --- the in-process implementation ----------------------------------------
@@ -114,6 +129,8 @@ type memStore struct {
 	towers  map[string]Tower
 	byKey   map[string]string // identity key hash -> tower id
 	nextRev int64
+	events  []Event
+	nextEv  int64
 }
 
 // NewMemStore builds the in-process store.
@@ -275,4 +292,94 @@ func (m *memStore) ReapTokens(now time.Time) error {
 		}
 	}
 	return nil
+}
+
+func (m *memStore) AppendEvent(ev Event) error {
+	if err := ev.valid(); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.appendEventLocked(ev)
+	return nil
+}
+
+func (m *memStore) appendEventLocked(ev Event) {
+	m.nextEv++
+	ev.ID = m.nextEv
+	m.events = append(m.events, ev)
+}
+
+func (m *memStore) Events(towerID string, limit int) ([]Event, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []Event
+	for i := len(m.events) - 1; i >= 0 && len(out) < limit; i-- {
+		if m.events[i].TowerID == towerID {
+			out = append(out, m.events[i])
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return laterEvent(out[i], out[j]) })
+	return out, nil
+}
+
+func (m *memStore) CASTowerEvent(tw Tower, ev Event) (bool, error) {
+	if err := ev.valid(); err != nil {
+		return false, err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cur, ok := m.towers[tw.ID]
+	if !ok || cur.Rev != tw.Rev {
+		return false, nil
+	}
+	m.nextRev++
+	tw.Rev = m.nextRev
+	m.towers[tw.ID] = tw
+	m.byKey[tw.KeyHash] = tw.ID
+	m.appendEventLocked(ev)
+	return true, nil
+}
+
+// laterEvent orders events the way every reader does: by time, then by id.
+func laterEvent(a, b Event) bool {
+	if !a.At.Equal(b.At) {
+		return a.At.After(b.At)
+	}
+	return a.ID > b.ID
+}
+
+func (m *memStore) findLocked(towerID string, kinds []string, oldest bool) (Event, bool) {
+	var best Event
+	found := false
+	for _, ev := range m.events {
+		if ev.TowerID != towerID || !slices.Contains(kinds, ev.Kind) {
+			continue
+		}
+		if !found || laterEvent(ev, best) != oldest {
+			best, found = ev, true
+		}
+	}
+	return best, found
+}
+
+func (m *memStore) FindEvent(towerID string, kinds []string, oldest bool) (Event, bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	ev, ok := m.findLocked(towerID, kinds, oldest)
+	return ev, ok, nil
+}
+
+func (m *memStore) AppendEventIfLast(ev Event, kinds []string, lastID int64) (bool, error) {
+	if err := ev.valid(); err != nil {
+		return false, err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cur, ok := m.findLocked(ev.TowerID, kinds, false)
+	if (ok && cur.ID != lastID) || (!ok && lastID != 0) {
+		return false, nil
+	}
+	m.appendEventLocked(ev)
+	return true, nil
 }

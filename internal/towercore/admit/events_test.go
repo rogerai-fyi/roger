@@ -1,0 +1,312 @@
+package admit
+
+// The Tower governance record: an append-only list of attributed events per Tower.
+//
+// Contract: features/tower/governance_record.feature (approved 2026-11-13). Every
+// assertion runs against BOTH stores, because two implementations of one interface are only
+// interchangeable if the same assertions hold against both.
+
+import (
+	"database/sql"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
+	"rogerai.fm/roger/v7/internal/pgtest"
+)
+
+// eachStore runs body against the in-process store and, when a test database is configured,
+// the durable one.
+func eachStore(t *testing.T, body func(t *testing.T, s Store)) {
+	t.Run("mem", func(t *testing.T) { body(t, NewMemStore()) })
+	t.Run("pg", func(t *testing.T) {
+		s := pgStore(t)
+		_, err := s.(*PGStore).db.Exec(`TRUNCATE rogerai.tower_events`)
+		require.NoError(t, err)
+		body(t, s)
+	})
+}
+
+func enrolled(t *testing.T, r *Registry, owner, key string) Tower {
+	t.Helper()
+	tok, err := r.IssueToken(owner)
+	require.NoError(t, err)
+	tw, err := r.Enroll(tok, key)
+	require.NoError(t, err)
+	return tw
+}
+
+func TestEventsAreReadBackNewestFirstAndPerTower(t *testing.T) {
+	eachStore(t, func(t *testing.T, s Store) {
+		r := NewWithStore(Config{}, s)
+		base := time.Now().Add(-time.Hour).UTC().Truncate(time.Microsecond)
+		for i, kind := range []string{"session_opened", "session_closed", "session_opened"} {
+			require.NoError(t, r.Record(Event{TowerID: "tw-1", At: base.Add(time.Duration(i) * time.Minute),
+				Kind: kind, Actor: ActorTower, Instance: "web.1"}))
+		}
+		require.NoError(t, r.Record(Event{TowerID: "tw-2", Kind: "session_opened", Actor: ActorTower}))
+
+		got, err := r.Events("tw-1", 10)
+		require.NoError(t, err)
+		require.Len(t, got, 3, "another Tower's events are not this Tower's")
+		require.Equal(t, base.Add(2*time.Minute), got[0].At.UTC(), "newest first")
+		require.Equal(t, "session_closed", got[1].Kind)
+		require.Equal(t, "web.1", got[2].Instance)
+
+		limited, err := r.Events("tw-1", 2)
+		require.NoError(t, err)
+		require.Len(t, limited, 2)
+
+		none, err := r.Events("tw-nope", 10)
+		require.NoError(t, err)
+		require.Empty(t, none)
+	})
+}
+
+func TestARecordedEventKeepsEveryField(t *testing.T) {
+	eachStore(t, func(t *testing.T, s Store) {
+		r := NewWithStore(Config{}, s)
+		require.NoError(t, r.Record(Event{TowerID: "tw-1", Kind: "lifecycle", Actor: "admin:gh:luis",
+			From: StateQuarantine, To: StateActive, Reason: "checked with operator", Instance: "web.2",
+			Detail: map[string]any{"refusals": float64(3)}}))
+		got, err := r.Events("tw-1", 1)
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+		ev := got[0]
+		require.Equal(t, "admin:gh:luis", ev.Actor)
+		require.Equal(t, StateQuarantine, ev.From)
+		require.Equal(t, StateActive, ev.To)
+		require.Equal(t, "checked with operator", ev.Reason)
+		require.Equal(t, "web.2", ev.Instance)
+		require.Equal(t, float64(3), ev.Detail["refusals"])
+		require.False(t, ev.At.IsZero(), "Core stamps the time when the caller did not")
+		require.WithinDuration(t, time.Now(), ev.At, time.Minute)
+	})
+}
+
+func TestAnEventWithoutATowerKindOrActorIsRefused(t *testing.T) {
+	eachStore(t, func(t *testing.T, s Store) {
+		r := NewWithStore(Config{}, s)
+		require.Error(t, r.Record(Event{Kind: "x", Actor: ActorSystem}))
+		require.Error(t, r.Record(Event{TowerID: "tw-1", Actor: ActorSystem}))
+		require.Error(t, r.Record(Event{TowerID: "tw-1", Kind: "x"}))
+	})
+}
+
+func TestTheReasonIsCleanedBeforeItIsStored(t *testing.T) {
+	eachStore(t, func(t *testing.T, s Store) {
+		r := NewWithStore(Config{}, s)
+		require.NoError(t, r.Record(Event{TowerID: "tw-1", Kind: "lifecycle", Actor: ActorSystem,
+			Reason: "line one\nline two\x1b[31m"}))
+		got, err := r.Events("tw-1", 1)
+		require.NoError(t, err)
+		require.Equal(t, "line one line two [31m", got[0].Reason)
+	})
+}
+
+func TestCleanReason(t *testing.T) {
+	long := strings.Repeat("a", 300)
+	for _, tc := range []struct{ in, want string }{
+		{"approved after email with operator", "approved after email with operator"},
+		{"line one\nline two", "line one line two"},
+		{long, long[:280]},
+		{"", ""},
+		{"   ", ""},
+		{"tab\tand\x1bescape", "tab and escape"},
+		{"  padded  ", "padded"},
+		{"a\r\n\r\nb", "a b"},
+		{strings.Repeat("é", 300), strings.Repeat("é", 280)},
+	} {
+		require.Equal(t, tc.want, CleanReason(tc.in), "%q", tc.in)
+	}
+}
+
+// THE LIFECYCLE CHANGE AND ITS RECORD COMMIT TOGETHER, or neither does.
+func TestTransitionAsRecordsTheChangeWithItsActor(t *testing.T) {
+	eachStore(t, func(t *testing.T, s Store) {
+		r := NewWithStore(Config{}, s)
+		tw := enrolled(t, r, "acct-1", "key-1")
+
+		require.NoError(t, r.TransitionAs(tw.ID, StateActive,
+			Event{Kind: "lifecycle", Actor: "admin:broker-key", Reason: "ok", Instance: "web.1"}))
+
+		got, _ := r.Get(tw.ID)
+		require.Equal(t, StateActive, got.State)
+		evs, err := r.Events(tw.ID, 10)
+		require.NoError(t, err)
+		require.Len(t, evs, 1)
+		require.Equal(t, StateQuarantine, evs[0].From, "the prior state comes from the record, not the caller")
+		require.Equal(t, StateActive, evs[0].To)
+		require.Equal(t, "admin:broker-key", evs[0].Actor)
+		require.Equal(t, tw.ID, evs[0].TowerID)
+	})
+}
+
+func TestARefusedTransitionAsChangesNothingAndRecordsNothing(t *testing.T) {
+	eachStore(t, func(t *testing.T, s Store) {
+		r := NewWithStore(Config{}, s)
+		tw := enrolled(t, r, "acct-1", "key-1")
+
+		err := r.TransitionAs(tw.ID, StateQuarantine, Event{Kind: "lifecycle", Actor: ActorSystem})
+		require.ErrorIs(t, err, ErrAlreadyInState, "a same-state request is named as such")
+		err = r.TransitionAs(tw.ID, StateDraining, Event{Kind: "lifecycle", Actor: ActorSystem})
+		require.ErrorIs(t, err, ErrIllegalTransition)
+		require.Error(t, r.TransitionAs("tw-nope", StateActive, Event{Kind: "lifecycle", Actor: ActorSystem}))
+
+		evs, err := r.Events(tw.ID, 10)
+		require.NoError(t, err)
+		require.Empty(t, evs, "the caller records refusals; the registry records only what happened")
+	})
+}
+
+func TestATransitionWhoseRecordCannotBeWrittenDoesNotHappen(t *testing.T) {
+	eachStore(t, func(t *testing.T, s Store) {
+		r := NewWithStore(Config{}, s)
+		tw := enrolled(t, r, "acct-1", "key-1")
+
+		// No actor: the record is refused, so the change must be too.
+		require.Error(t, r.TransitionAs(tw.ID, StateActive, Event{Kind: "lifecycle"}))
+		got, _ := r.Get(tw.ID)
+		require.Equal(t, StateQuarantine, got.State, "a change Core cannot record is a change Core did not make")
+	})
+}
+
+func TestTransitionAsRefusesToOverwriteAConcurrentDecision(t *testing.T) {
+	inner := NewMemStore()
+	r := NewWithStore(Config{}, inner)
+	tw := enrolled(t, r, "acct-1", "key-1")
+	r2 := NewWithStore(Config{}, &interposingStore{Store: inner, after: func() {
+		moveTowerBehindTheCaller(t, inner, tw.ID, StateRevoked)
+	}})
+	require.Error(t, r2.TransitionAs(tw.ID, StateActive, Event{Kind: "lifecycle", Actor: ActorSystem}))
+	evs, err := r.Events(tw.ID, 10)
+	require.NoError(t, err)
+	require.Empty(t, evs, "the losing write records nothing")
+}
+
+func TestTheDurableRecordSurvivesARestartAndCannotBeEdited(t *testing.T) {
+	s := pgStore(t)
+	db := s.(*PGStore).db
+	_, err := db.Exec(`TRUNCATE rogerai.tower_events`)
+	require.NoError(t, err)
+	require.NoError(t, NewWithStore(Config{}, s).Record(Event{TowerID: "tw-1", Kind: "enrolled", Actor: "operator:acct-1"}))
+
+	evs, err := NewWithStore(Config{}, s).Events("tw-1", 10)
+	require.NoError(t, err)
+	require.Len(t, evs, 1, "a redeploy does not forget the record")
+
+	_, err = db.Exec(`UPDATE rogerai.tower_events SET actor = 'someone else'`)
+	require.Error(t, err, "the record is append-only in the database, not only in the code")
+	_, err = db.Exec(`DELETE FROM rogerai.tower_events`)
+	require.Error(t, err)
+}
+
+func TestTheDurableRecordReportsAnOutage(t *testing.T) {
+	dsn := pgtest.DSN(t)
+	if dsn == "" {
+		t.Skip("ROGERAI_TEST_DATABASE_URL not set")
+	}
+	db, err := sql.Open("pgx", dsn)
+	require.NoError(t, err)
+	s, err := NewPGStore(db)
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+	r := NewWithStore(Config{}, s)
+	require.ErrorIs(t, r.Record(Event{TowerID: "tw-1", Kind: "x", Actor: ActorSystem}), ErrUnavailable)
+	_, err = r.Events("tw-1", 1)
+	require.ErrorIs(t, err, ErrUnavailable)
+}
+
+func TestFindEventReturnsTheNewestOrOldestOfTheGivenKinds(t *testing.T) {
+	eachStore(t, func(t *testing.T, s Store) {
+		r := NewWithStore(Config{}, s)
+		base := time.Now().Add(-time.Hour).UTC().Truncate(time.Microsecond)
+		for i, kind := range []string{"session_opened", "canary", "session_closed", "session_opened", "canary"} {
+			require.NoError(t, r.Record(Event{TowerID: "tw-1", At: base.Add(time.Duration(i) * time.Minute),
+				Kind: kind, Actor: ActorTower}))
+		}
+		link := []string{"session_opened", "session_closed", "session_stale", "session_resumed"}
+
+		newest, ok, err := r.FindEvent("tw-1", link, false)
+		require.NoError(t, err)
+		require.True(t, ok)
+		require.Equal(t, "session_opened", newest.Kind)
+		require.Equal(t, base.Add(3*time.Minute), newest.At.UTC())
+
+		oldest, ok, err := r.FindEvent("tw-1", []string{"session_opened"}, true)
+		require.NoError(t, err)
+		require.True(t, ok)
+		require.Equal(t, base, oldest.At.UTC(), "the first connection is the oldest session_opened")
+
+		_, ok, err = r.FindEvent("tw-1", []string{"lease_lapsed"}, false)
+		require.NoError(t, err)
+		require.False(t, ok)
+		_, ok, err = r.FindEvent("tw-2", link, false)
+		require.NoError(t, err)
+		require.False(t, ok)
+	})
+}
+
+// ONE "went quiet" EVENT ACROSS INSTANCES. Both brokers sweep; only the one whose view of the
+// latest event is still current may write.
+func TestRecordIfLastWritesOnlyWhenTheLatestEventIsTheOneTheCallerSaw(t *testing.T) {
+	eachStore(t, func(t *testing.T, s Store) {
+		r := NewWithStore(Config{}, s)
+		link := []string{"session_opened", "session_stale"}
+		require.NoError(t, r.Record(Event{TowerID: "tw-1", Kind: "session_opened", Actor: ActorTower}))
+		seen, ok, err := r.FindEvent("tw-1", link, false)
+		require.NoError(t, err)
+		require.True(t, ok)
+
+		stale := Event{TowerID: "tw-1", Kind: "session_stale", Actor: ActorSystem}
+		won, err := r.RecordIfLast(stale, link, seen.ID)
+		require.NoError(t, err)
+		require.True(t, won)
+
+		won, err = r.RecordIfLast(stale, link, seen.ID)
+		require.NoError(t, err)
+		require.False(t, won, "the second instance saw a latest event that is no longer the latest")
+
+		evs, err := r.Events("tw-1", 10)
+		require.NoError(t, err)
+		require.Len(t, evs, 2)
+
+		// No prior event of those kinds is expressed as 0.
+		won, err = r.RecordIfLast(Event{TowerID: "tw-2", Kind: "lease_lapsed", Actor: ActorSystem},
+			[]string{"lease_lapsed"}, 0)
+		require.NoError(t, err)
+		require.True(t, won)
+		require.Error(t, func() error {
+			_, err := r.RecordIfLast(Event{TowerID: "tw-2", Kind: "lease_lapsed"}, []string{"lease_lapsed"}, 0)
+			return err
+		}(), "an unattributed event is refused here too")
+	})
+}
+
+func TestRecordIfLastHoldsUnderConcurrentSweeps(t *testing.T) {
+	eachStore(t, func(t *testing.T, s Store) {
+		r := NewWithStore(Config{}, s)
+		link := []string{"session_opened", "session_stale"}
+		require.NoError(t, r.Record(Event{TowerID: "tw-1", Kind: "session_opened", Actor: ActorTower}))
+		seen, _, err := r.FindEvent("tw-1", link, false)
+		require.NoError(t, err)
+
+		var wins atomic.Int64
+		var wg sync.WaitGroup
+		for i := 0; i < 8; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				won, err := r.RecordIfLast(Event{TowerID: "tw-1", Kind: "session_stale", Actor: ActorSystem}, link, seen.ID)
+				if err == nil && won {
+					wins.Add(1)
+				}
+			}()
+		}
+		wg.Wait()
+		require.Equal(t, int64(1), wins.Load(), "exactly one instance records it")
+	})
+}

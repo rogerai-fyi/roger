@@ -387,18 +387,9 @@ func (r *Registry) ByOwner(owner string) []Tower {
 // Transition moves a Tower's state. Roger Core is the only caller: nothing here accepts a
 // state asserted by the Tower itself.
 func (r *Registry) Transition(id string, to State) error {
-	tw, ok, err := r.store.TowerByID(id)
+	tw, err := r.transitionTarget(id, to)
 	if err != nil {
-		return unavailable(err)
-	}
-	if !ok {
-		return errors.New("no such Tower")
-	}
-	if !Valid(to) {
-		return fmt.Errorf("%q is not a Tower state", to)
-	}
-	if !CanTransition(tw.State, to) {
-		return fmt.Errorf("a %s Tower cannot become %s", tw.State, to)
+		return err
 	}
 	// Re-admission restarts the lease. Without this, a Tower cleared back into quarantine
 	// would be lapsed the instant it returned and could never be promoted.
@@ -418,6 +409,8 @@ func (r *Registry) Transition(id string, to State) error {
 	}
 	return nil
 }
+
+func errInvalidState(to State) error { return fmt.Errorf("%q is not a Tower state", to) }
 
 // RecordClaim notes that a Tower asserted a state. It never applies it - the claim is
 // evidence about the Tower, not information about the network.
