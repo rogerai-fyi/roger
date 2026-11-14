@@ -1099,6 +1099,9 @@ func (b *broker) registerTowerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/admin/towers", b.adminTowers)                // admin: the approval queue the dashboard reads
 	mux.HandleFunc("/admin/tower", b.adminTowerDetail)            // admin: one Tower's full detail (identity, quality, traffic, origin, fleet)
 	mux.HandleFunc("/tower/lifecycle", b.towerLifecycle)          // admin: the Tower quarantine gate
+	mux.HandleFunc("/tower/excuse", b.towerExcuse)                // admin: excuse one recorded event (trust ramp)
+	mux.HandleFunc("/tower/incident", b.towerIncident)            // admin: record an incident (trust ramp)
+	mux.HandleFunc("/tower/stage-ceiling", b.towerStageCeiling)   // admin: hold a Tower's trust stage
 	mux.HandleFunc("/tower/self/lifecycle", b.towerSelfLifecycle) // operator: drain/resume/retire my own
 
 	// DISPATCH KEY. Public so a node can pin what a real grant is signed by. (The Topology-1

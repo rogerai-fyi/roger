@@ -94,6 +94,44 @@ func edgeCoin(requestID string, directCap, towerCap int) bool {
 	return seededRand(requestID).Float64()*float64(directCap+towerCap) < float64(towerCap)
 }
 
+// edgeCoinWeighted is edgeCoin with the Tower side's capacity scaled by weight, the trust
+// ramp's edge weight (towerstage.go, features/tower/tower_trust_ramp.feature): a "new" Tower's
+// side counts a quarter. Weight 1 is exactly edgeCoin.
+func edgeCoinWeighted(requestID string, directCap, towerCap int, weight float64) bool {
+	if weight >= 1 {
+		return edgeCoin(requestID, directCap, towerCap)
+	}
+	if directCap < 1 {
+		directCap = 1
+	}
+	if towerCap < 1 {
+		towerCap = 1
+	}
+	t := float64(towerCap) * weight
+	return seededRand(requestID).Float64()*(float64(directCap)+t) < t
+}
+
+// edgeSideWeight is the Tower side's weight: each row's Tower's weight, averaged by the
+// capacity of the station behind it. No rows means no weighting.
+func edgeSideWeight(rows []attemptCand, rowCap func(node string) int, towerWeight func(towerID string) float64) float64 {
+	var sum, total float64
+	for _, c := range rows {
+		if c.edge == nil {
+			continue
+		}
+		cp := float64(rowCap(c.edge.row.NodeID))
+		if cp < 1 {
+			cp = 1
+		}
+		sum += cp * towerWeight(c.edge.row.TowerID)
+		total += cp
+	}
+	if total == 0 {
+		return 1.0
+	}
+	return sum / total
+}
+
 // edgeSideCapacity is the eligible capacity on each side of the coin: the direct pool's nodes
 // and the placed Tower rows, each station counted individually and ONCE - a node reachable both
 // directly and behind a placed row counts on the Tower side.

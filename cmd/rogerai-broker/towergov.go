@@ -138,7 +138,9 @@ func pacedKind(kind string) bool {
 
 // towerDecided reports kinds Core writes but the Tower decides (it can pass and fail Core's
 // probes at will), which are capped per Tower whoever records them.
-func towerDecided(kind string) bool { return kind == evCanary || kind == evHubCheckFailed }
+func towerDecided(kind string) bool {
+	return kind == evCanary || kind == evHubCheckFailed || kind == evHealthFailing
+}
 
 // pacedEvent reports whether an event counts against the budget: a paced kind, driven by
 // the Tower itself or an operator. The same kind written by Core or an administrator is
@@ -599,6 +601,7 @@ func (b *broker) towerGovSweepOnce(now time.Time) {
 		b.sweepLink(tw.ID, now)
 		b.sweepLease(tw, now)
 		b.remeasureTowerLocality(tw.ID)
+		b.sweepStage(tw, now)
 	}
 	b.towerAdmitted.refresh(ids)
 	b.flushRefusals()

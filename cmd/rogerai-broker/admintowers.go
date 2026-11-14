@@ -142,6 +142,7 @@ func (b *broker) adminTowerDetail(w http.ResponseWriter, r *http.Request) {
 		"connection": towerConnectionView(ts, id),
 		"events":     towerEventsView(ts, id),
 		"locality":   towerLocalityView(ts, id),
+		"trust":      b.adminStageReport(id),
 	})
 }
 

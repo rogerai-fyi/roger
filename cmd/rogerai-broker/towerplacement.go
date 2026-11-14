@@ -73,7 +73,7 @@ type towerFacts struct {
 	cand              placement.Candidate
 	plane             link.RelayPlane
 	owner             string
-	stage             trustStage
+	stage             placement.Stage
 	live, house, comm int
 }
 

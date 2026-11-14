@@ -805,6 +805,9 @@ func (b *broker) towerStatus(w http.ResponseWriter, r *http.Request) {
 			"link_live":     ts.link.Live(tw.ID),
 			"routable":      stations,
 		}
+		if trust := operatorStageView(b.stageReport(tw, time.Now())); trust != nil {
+			entry["trust"] = trust
+		}
 		if haveChain {
 			entry["inventory_revision"] = rev
 			entry["inventory_hash"] = hash

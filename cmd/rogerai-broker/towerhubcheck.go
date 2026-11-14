@@ -77,5 +77,9 @@ func (b *broker) recordTowerHealth(towerID string, outcome reputation.Outcome) {
 func (b *broker) recordHealthResult(towerID string, ok bool, at time.Time) {
 	if err := b.tower.health.Record(towerID, ok, at); err != nil {
 		b.towerGovUnavailable(err)
+		return
+	}
+	if !ok {
+		b.noteHealthStreak(towerID)
 	}
 }
