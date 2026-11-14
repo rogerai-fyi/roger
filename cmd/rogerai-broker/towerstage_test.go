@@ -556,7 +556,6 @@ func TestConcurrentStageReadsCollapseIntoOne(t *testing.T) {
 	require.Equal(t, 1, fs.calls, "collapsed into one read")
 }
 
-
 // AUDIT FINDING: a write landing while a stage read is in flight was lost - the stale read
 // cached the old stage for the cache's lifetime.
 type blockingStageReads struct {
