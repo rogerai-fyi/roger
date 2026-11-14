@@ -165,6 +165,9 @@ type session struct {
 	// SetLocality once Core has resolved the hub; localityKnown says it has been.
 	locality      placement.Locality
 	localityKnown bool
+	// linkContinent is the continent of the address the link connected from, kept so every
+	// later measurement of the hub is cross-checked against it.
+	linkContinent string
 }
 
 type head struct {
@@ -375,6 +378,43 @@ func (s *Sessions) SetLocality(towerID, sessionID string, l placement.Locality) 
 	return true
 }
 
+// SetLinkContinent records the continent the link connected from, for the session it came
+// from; an answer for a replaced session is dropped.
+func (s *Sessions) SetLinkContinent(towerID, sessionID, continent string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.byTower[towerID] != sessionID {
+		return false
+	}
+	sess, ok := s.byID[sessionID]
+	if !ok {
+		return false
+	}
+	sess.linkContinent = continent
+	s.mirrorPutLocked(towerID, sessionID)
+	return true
+}
+
+// LinkContinent is the continent the Tower's current link connected from ("" = unknown).
+func (s *Sessions) LinkContinent(towerID string) string {
+	s.mu.RLock()
+	if id, ok := s.byTower[towerID]; ok {
+		if sess, ok := s.byID[id]; ok {
+			s.mu.RUnlock()
+			return sess.linkContinent
+		}
+	}
+	s.mu.RUnlock()
+	if s.cfg.Mirror == nil {
+		return ""
+	}
+	rec, there, err := s.cfg.Mirror.Get(towerID)
+	if err != nil || !there {
+		return ""
+	}
+	return rec.LinkContinent
+}
+
 // HoldsLocally reports whether THIS instance holds a fresh session for the Tower: the one
 // instance that should run per-Tower work such as the hub check, so it is done once.
 func (s *Sessions) HoldsLocally(towerID string) bool {
@@ -517,7 +557,8 @@ func (s *Sessions) adoptLocked(sessionID, towerID string) (*session, bool) {
 		return nil, false
 	}
 	sess := &session{towerID: towerID, version: rec.Version, opened: rec.LastSeen,
-		lastSeen: s.now(), relay: rec.Relay, locality: rec.Locality, localityKnown: rec.LocalityKnown}
+		lastSeen: s.now(), relay: rec.Relay, locality: rec.Locality, localityKnown: rec.LocalityKnown,
+		linkContinent: rec.LinkContinent}
 	if prev, exists := s.byTower[towerID]; exists {
 		delete(s.byID, prev)
 	}
@@ -539,7 +580,7 @@ func (s *Sessions) mirrorPutLocked(towerID, sessionID string) {
 	}
 	_ = s.cfg.Mirror.Put(towerID, Record{
 		SessionID: sessionID, Version: sess.version, LastSeen: s.now(), Relay: sess.relay,
-		Locality: sess.locality, LocalityKnown: sess.localityKnown,
+		Locality: sess.locality, LocalityKnown: sess.localityKnown, LinkContinent: sess.linkContinent,
 	})
 }
 

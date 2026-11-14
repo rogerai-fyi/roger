@@ -58,12 +58,41 @@ func (b *broker) measureTowerLocality(towerID, sessionID, endpoint, linkAddr str
 		}
 	}
 	linkCont := b.addrLocality(linkAddr).Continent
+	if linkAddr != "" {
+		ts.link.SetLinkContinent(towerID, sessionID, linkCont)
+	} else {
+		linkCont = ts.link.LinkContinent(towerID) // a retry keeps the session's cross-check
+	}
 	loc, conflict := placement.FromAddrs(addrs, linkCont, coarseNetBucket, b.netTable.continentOf)
 	if conflict {
 		hub, _ := placement.FromAddrs(addrs, "", coarseNetBucket, b.netTable.continentOf)
 		log.Printf("tower-locality conflict tower=%s hub=%s link=%s", towerID, hub.Continent, linkCont)
 	}
 	ts.link.SetLocality(towerID, sessionID, loc)
+}
+
+// relocateFromProof re-measures a Tower's hub from the address a passing hub check reached,
+// cross-checked against the link continent, and records it when it differs.
+func (b *broker) relocateFromProof(towerID, remote string) {
+	ts := b.tower
+	sid, ok := ts.link.Current(towerID)
+	if !ok {
+		return
+	}
+	host, _, err := net.SplitHostPort(remote)
+	if err != nil {
+		return
+	}
+	linkCont := ts.link.LinkContinent(towerID)
+	loc, conflict := placement.FromAddrs([]string{host}, linkCont, coarseNetBucket, b.netTable.continentOf)
+	if conflict {
+		hub := b.addrLocality(host)
+		log.Printf("tower-locality conflict tower=%s hub=%s link=%s", towerID, hub.Continent, linkCont)
+	}
+	if prev, known := ts.link.Locality(towerID); known && prev == loc {
+		return
+	}
+	ts.link.SetLocality(towerID, sid, loc)
 }
 
 // remeasureTowerLocality is the sweep's retry: one lookup per live Tower whose hub has not

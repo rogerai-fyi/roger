@@ -44,6 +44,7 @@ type Record struct {
 	// Locality is the hub's measured locality; LocalityKnown says it has been measured.
 	Locality      placement.Locality
 	LocalityKnown bool
+	LinkContinent string
 }
 
 // ErrMirrorDown is a mirror that cannot answer. Callers fall back to what they can

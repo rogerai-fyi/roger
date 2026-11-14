@@ -53,15 +53,23 @@ func (b *broker) towerHubCheckOnce(now time.Time) {
 }
 
 func (b *broker) hubCheck(tw admit.Tower, endpoint, pin string, now time.Time) {
-	reason := "unreachable"
+	reason, remote := "unreachable", ""
 	base, hc, err := towerhub.ReachVetted(endpoint, pin, b.canaryVet)
 	if err == nil {
 		hc.Timeout = hubCheckTimeout
 		ctx, cancel := context.WithTimeout(context.Background(), hubCheckTimeout)
-		_, reason = towerhub.CheckHub(ctx, hc, base, tw.ID, tw.KeyHash)
+		_, remote, reason = towerhub.CheckHub(ctx, hc, base, tw.ID, tw.KeyHash)
 		cancel()
+		if tr, ok := hc.Transport.(interface{ CloseIdleConnections() }); ok {
+			tr.CloseIdleConnections()
+		}
 	}
 	b.recordHealthResult(tw.ID, reason == "", now)
+	if reason == "" && remote != "" {
+		// Where the hub is, from the address that just proved the Tower's identity - not from
+		// what a name resolved to once, which a Tower controls (placement_locality.feature).
+		b.relocateFromProof(tw.ID, remote)
+	}
 	if reason != "" {
 		b.towerEvent(admit.Event{TowerID: tw.ID, Kind: evHubCheckFailed, Actor: admit.ActorSystem, Reason: reason})
 	}

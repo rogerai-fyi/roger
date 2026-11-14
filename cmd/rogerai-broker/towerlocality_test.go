@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"net"
 	"net/http"
 	"strings"
 	"sync/atomic"
@@ -206,4 +207,62 @@ func TestTheAdminDetailShowsTheContinentButNeverTheBucket(t *testing.T) {
 func waitMeasured(t *testing.T, b *broker, towerID string) {
 	t.Helper()
 	require.Eventually(t, func() bool { _, ok := b.tower.link.Locality(towerID); return ok }, 2*time.Second, time.Millisecond)
+}
+
+// REVIEW FINDING: locality measured once from DNS, which the Tower controls. A passing hub
+// check re-measures from the address that actually proved the Tower's identity.
+func TestAPassingHubCheckRelocatesTheHubToTheAddressThatProvedIt(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	b.netTable = testNetTable(t)
+	op := signedInOperator(t, b, "octocat")
+	lt := enrolledTower(t, b, op.login)
+	withHubResolver(t, staticResolver("203.0.113.7")) // DNS told Core: NA
+	openWithHub(t, b, srv, lt, "hub.example:"+portOf(t, realHubFor(t, lt)))
+	waitMeasured(t, b, lt.id)
+	got, _ := b.tower.link.Locality(lt.id)
+	require.Equal(t, "NA", got.Continent)
+	// The real hub answers on loopback; once it proves itself there, that is where it is.
+	b.tower.link.SetLocality(lt.id, mustCurrent(t, b, lt.id), got) // unchanged so far
+	b.relocateFromProof(lt.id, "192.0.2.10:7443")
+	got, _ = b.tower.link.Locality(lt.id)
+	require.Equal(t, placement.Locality{Bucket: "192.0.2.0/24", Continent: "AF"}, got)
+}
+
+func TestAHubCheckFeedsTheProvenAddressBack(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	op := signedInOperator(t, b, "octocat")
+	lt := enrolledTower(t, b, op.login)
+	openWithHub(t, b, srv, lt, realHubFor(t, lt))
+	waitMeasured(t, b, lt.id)
+	b.towerHubCheckOnce(time.Now())
+	got, ok := b.tower.link.Locality(lt.id)
+	require.True(t, ok)
+	require.Equal(t, placement.Locality{}, got, "a loopback hub proves itself but says nothing about place")
+}
+
+// REVIEW FINDING: the sweep's retry skipped the link cross-check.
+func TestARetryStillCrossChecksTheLinkContinent(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	b.netTable = testNetTable(t)
+	op := signedInOperator(t, b, "octocat")
+	lt := enrolledTower(t, b, op.login)
+	call := func(p string, body []byte, out any) (int, string) { return lt.call(t, srv, p, body, out) }
+	acc := openSessionOf(t, srv.URL, lt, call)
+	waitMeasured(t, b, lt.id)
+	// The first lookup "failed" but the link's continent was recorded with the session.
+	require.True(t, b.tower.link.SetLinkContinent(lt.id, acc.SessionID, "EU"))
+	withHubResolver(t, staticResolver("203.0.113.7")) // NA
+	var buf bytes.Buffer
+	defer captureLog(&buf)()
+	b.measureTowerLocality(lt.id, acc.SessionID, "hub.example:7443", "") // the retry's call
+	got, _ := b.tower.link.Locality(lt.id)
+	require.Equal(t, placement.Locality{}, got)
+	require.Contains(t, buf.String(), "tower-locality conflict tower="+lt.id+" hub=NA link=EU")
+}
+
+func portOf(t *testing.T, hostport string) string {
+	t.Helper()
+	_, p, err := net.SplitHostPort(hostport)
+	require.NoError(t, err)
+	return p
 }

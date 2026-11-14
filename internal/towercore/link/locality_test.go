@@ -127,3 +127,34 @@ func TestLiveTowersCheckedReportsAMirrorFailure(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, got)
 }
+
+// The continent a link connected from is kept with the session, so a later re-measurement can
+// still cross-check the hub against it (review finding: a retry skipped the check).
+func TestTheLinkContinentIsKeptWithTheSession(t *testing.T) {
+	m := NewMemMirror()
+	a, b := New(mirrorCfg(m)), New(mirrorCfg(m))
+	sess := openOn(t, a, "tw-1", "hub.example:7443")
+	require.Equal(t, "", a.LinkContinent("tw-1"))
+	require.True(t, a.SetLinkContinent("tw-1", sess, "EU"))
+	require.Equal(t, "EU", a.LinkContinent("tw-1"))
+	require.Equal(t, "EU", b.LinkContinent("tw-1"), "a peer reads it from the mirror")
+	require.True(t, a.SetLocality("tw-1", sess, placement.Locality{Continent: "EU"}))
+	require.Equal(t, "EU", b.LinkContinent("tw-1"), "a later locality write keeps it")
+	openOn(t, a, "tw-1", "hub.example:7443")
+	require.Equal(t, "", a.LinkContinent("tw-1"), "a new session starts without it")
+	require.False(t, a.SetLinkContinent("tw-1", sess, "EU"), "not for a replaced session")
+	require.Equal(t, "", New(mirrorCfg(nil)).LinkContinent("tw-x"))
+}
+
+func TestPGMirrorRoundTripsTheLinkContinent(t *testing.T) {
+	m := pgMirror(t)
+	a := New(mirrorCfg(m))
+	sess := openOn(t, a, "tw-1", "hub.example:7443")
+	require.True(t, a.SetLinkContinent("tw-1", sess, "AF"))
+	rec, _, err := m.Get("tw-1")
+	require.NoError(t, err)
+	require.Equal(t, "AF", rec.LinkContinent)
+	all, err := m.All()
+	require.NoError(t, err)
+	require.Equal(t, "AF", all["tw-1"].LinkContinent)
+}
