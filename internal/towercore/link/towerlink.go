@@ -28,6 +28,7 @@ import (
 	"sync"
 	"time"
 
+	"rogerai.fm/roger/v7/internal/towercore/placement"
 	"rogerai.fm/roger/v7/internal/towerhub"
 )
 
@@ -160,6 +161,13 @@ type session struct {
 	// relay is the data plane the Tower advertised in its Hello - address and hub certificate
 	// pin - kept so the fleet projection can stamp both onto routable rows.
 	relay RelayPlane
+	// locality is where Core measured the hub to be (placement_locality.feature), set by
+	// SetLocality once Core has resolved the hub; localityKnown says it has been.
+	locality      placement.Locality
+	localityKnown bool
+	// linkContinent is the continent of the address the link connected from, kept so every
+	// later measurement of the hub is cross-checked against it.
+	linkContinent string
 }
 
 type head struct {
@@ -352,6 +360,98 @@ func (s *Sessions) RelayPlane(towerID string) (RelayPlane, bool) {
 	return rec.Relay, true
 }
 
+// SetLocality records where Core measured a Tower's hub to be, for the session it measured.
+// An answer for a session that has since been replaced is dropped (false): a new session
+// recomputes from scratch, and no value from an old one survives.
+func (s *Sessions) SetLocality(towerID, sessionID string, l placement.Locality) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.byTower[towerID] != sessionID {
+		return false
+	}
+	sess, ok := s.byID[sessionID]
+	if !ok {
+		return false
+	}
+	sess.locality, sess.localityKnown = l, true
+	s.mirrorPutLocked(towerID, sessionID)
+	return true
+}
+
+// SetLinkContinent records the continent the link connected from, for the session it came
+// from; an answer for a replaced session is dropped.
+func (s *Sessions) SetLinkContinent(towerID, sessionID, continent string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.byTower[towerID] != sessionID {
+		return false
+	}
+	sess, ok := s.byID[sessionID]
+	if !ok {
+		return false
+	}
+	sess.linkContinent = continent
+	s.mirrorPutLocked(towerID, sessionID)
+	return true
+}
+
+// LinkContinent is the continent the Tower's current link connected from ("" = unknown).
+func (s *Sessions) LinkContinent(towerID string) string {
+	s.mu.RLock()
+	if id, ok := s.byTower[towerID]; ok {
+		if sess, ok := s.byID[id]; ok {
+			s.mu.RUnlock()
+			return sess.linkContinent
+		}
+	}
+	s.mu.RUnlock()
+	if s.cfg.Mirror == nil {
+		return ""
+	}
+	rec, there, err := s.cfg.Mirror.Get(towerID)
+	if err != nil || !there {
+		return ""
+	}
+	return rec.LinkContinent
+}
+
+// Freshness is how long a session survives without a heartbeat - the link's own window.
+func (s *Sessions) Freshness() time.Duration { return s.cfg.Freshness }
+
+// HoldsLocally reports whether THIS instance holds a fresh session for the Tower: the one
+// instance that should run per-Tower work such as the hub check, so it is done once.
+func (s *Sessions) HoldsLocally(towerID string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	id, ok := s.byTower[towerID]
+	if !ok {
+		return false
+	}
+	sess, ok := s.byID[id]
+	return ok && s.freshLocked(sess.lastSeen)
+}
+
+// Locality is a Tower's measured locality and whether it has been measured, from this
+// instance's session or else the mirror.
+func (s *Sessions) Locality(towerID string) (placement.Locality, bool) {
+	s.mu.RLock()
+	if id, ok := s.byTower[towerID]; ok {
+		if sess, ok := s.byID[id]; ok && sess.localityKnown {
+			s.mu.RUnlock()
+			return sess.locality, true
+		}
+	}
+	s.mu.RUnlock()
+	if s.cfg.Mirror == nil {
+		return placement.Locality{}, false
+	}
+	rec, there, err := s.cfg.Mirror.Get(towerID)
+	if err != nil || !there || !rec.LocalityKnown {
+		return placement.Locality{}, false
+	}
+	return rec.Locality, true
+}
+
 // Adopt reports whether a session id may be claimed. It exists so a replayed session id is
 // refused explicitly rather than by accident.
 func (s *Sessions) Adopt(sessionID, towerID string) error {
@@ -460,7 +560,8 @@ func (s *Sessions) adoptLocked(sessionID, towerID string) (*session, bool) {
 		return nil, false
 	}
 	sess := &session{towerID: towerID, version: rec.Version, opened: rec.LastSeen,
-		lastSeen: s.now(), relay: rec.Relay}
+		lastSeen: s.now(), relay: rec.Relay, locality: rec.Locality, localityKnown: rec.LocalityKnown,
+		linkContinent: rec.LinkContinent}
 	if prev, exists := s.byTower[towerID]; exists {
 		delete(s.byID, prev)
 	}
@@ -482,6 +583,7 @@ func (s *Sessions) mirrorPutLocked(towerID, sessionID string) {
 	}
 	_ = s.cfg.Mirror.Put(towerID, Record{
 		SessionID: sessionID, Version: sess.version, LastSeen: s.now(), Relay: sess.relay,
+		Locality: sess.locality, LocalityKnown: sess.localityKnown, LinkContinent: sess.linkContinent,
 	})
 }
 
@@ -583,6 +685,13 @@ func (s *Sessions) Live(towerID string) bool {
 
 // LiveTowers lists every Tower currently eligible to receive work.
 func (s *Sessions) LiveTowers() []string {
+	out, _ := s.LiveTowersChecked()
+	return out
+}
+
+// LiveTowersChecked is LiveTowers plus whether the fleet-wide half could be read: on a mirror
+// error the list is only what this instance holds, and the error says so.
+func (s *Sessions) LiveTowersChecked() ([]string, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	seen := map[string]bool{}
@@ -595,16 +704,19 @@ func (s *Sessions) LiveTowers() []string {
 	}
 	// Plus every fresh record a peer instance holds. A mirror error leaves the local set:
 	// what this instance can actually see.
-	if s.cfg.Mirror != nil {
-		if all, err := s.cfg.Mirror.All(); err == nil {
-			for towerID, rec := range all {
-				if !seen[towerID] && s.freshLocked(rec.LastSeen) {
-					out = append(out, towerID)
-				}
-			}
+	if s.cfg.Mirror == nil {
+		return out, nil
+	}
+	all, err := s.cfg.Mirror.All()
+	if err != nil {
+		return out, err
+	}
+	for towerID, rec := range all {
+		if !seen[towerID] && s.freshLocked(rec.LastSeen) {
+			out = append(out, towerID)
 		}
 	}
-	return out
+	return out, nil
 }
 
 // Count is how many sessions are held, live or not. Used by the reaper and by tests.

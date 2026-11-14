@@ -1832,9 +1832,17 @@ func (b *broker) towerEdgeSettle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if at.Origin.TowerID != req.TowerID {
-		// A Tower settling for a Station behind somebody else's origin.
-		jsonErr(w, http.StatusForbidden, "that Station is not attached to this Tower")
-		return
+		// A Tower settling for a Station behind somebody else's origin - with ONE exception that
+		// is not a stranger: the Tower this attempt was GRANTED to, whose Station has since moved
+		// to another Tower (station_mobility.feature). It falls through to the epoch fence below,
+		// which answers 410 and logs the move, writing nothing and paying nobody, so the cost of
+		// mobility stays countable. Every other mismatch is refused here as before.
+		movedAway := rec.TowerID == req.TowerID && rec.State == dispatch.StateIssued &&
+			stationEpochFence(rec.StationEpoch, at.Epoch) == epochFenceMoved
+		if !movedAway {
+			jsonErr(w, http.StatusForbidden, "that Station is not attached to this Tower")
+			return
+		}
 	}
 	// THE STATION-EPOCH FENCE, WHICH WAS CARRIED FOR ITS WHOLE LIFE AND NEVER COMPARED.
 	//

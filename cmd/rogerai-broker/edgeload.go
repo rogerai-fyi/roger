@@ -407,7 +407,8 @@ func peerLoadFreshness() time.Duration { return 2 * syncTickInterval }
 // (§6.10 item 5), and the Station-epoch fence (§6.6b) refuses to settle a grant minted under a
 // superseded placement. This function narrows the window; it is not the safety property.
 //
-// NO PRODUCTION CALLER YET, deliberately. The move itself is §6.3c and is recorded, not built.
+// Its caller is the mobility pass (towermobility.go), which moves a Station only when this says
+// idle - except off a Tower that is gone, where work cannot complete anyway.
 func (b *broker) stationQuiescent(nodeID string) (bool, string) {
 	if nodeID == "" {
 		return false, "no station id"

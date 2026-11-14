@@ -191,6 +191,31 @@ type broker struct {
 	// totalLat is each node's total-latency EWMA in ms (totallatency.go), guarded by metricsMu;
 	// merged from the shared store on the sync loop when one is wired.
 	totalLat map[string]float64
+	// moveStreaks and towerObsAt are the mobility pass's in-memory state (towermobility.go):
+	// each Station's run of fresh observations and the last health sample counted per Tower,
+	// under moveMu. Held by the instance that owns the Tower's link, never shared.
+	// houseOwners caches whether a Tower owner's login is a house account (towerplacement.go).
+	houseMu     sync.Mutex
+	houseOwners map[string]houseOwnerEntry
+	// stageCache is each Tower's trust stage for stageCacheTTL (towerstage.go), under stageMu.
+	stageMu     sync.Mutex
+	stageFlight singleflight.Group
+	stageGen    map[string]uint64 // bumped by every write that can change a stage
+	stageCache  map[string]cachedStage
+	// absentSince is when each Tower's absence from the live set began, as this instance knows
+	// it (towermobility.go), under moveMu.
+	absentSince   map[string]time.Time
+	mobilitySince time.Time // when this process's mobility pass first ran
+	moveMu        sync.Mutex
+	moveStreaks   map[string]moveStreak
+	towerObsAt    map[string]time.Time
+	// hubCheckAt is when this instance last hub-checked each Tower (towerhubcheck.go), under
+	// hubCheckMu.
+	// sweepSlot is the health slot of the canary sweep running now (0 = none), so its hub
+	// checks and canaries count as one round (towerhubcheck.go).
+	sweepSlot  atomic.Int64
+	hubCheckMu sync.Mutex
+	hubCheckAt map[string]time.Time
 	// netTable is the operator's network-to-continent table (netcontinent.go); nil = none.
 	// netTableErr is why a configured table was refused ("" = none).
 	netTable    *netTable
@@ -713,6 +738,7 @@ func runServe(ln net.Listener, fee, seed float64, lock time.Duration, stop <-cha
 		go b.reportRetentionSweep(stop)                 // bound rogerai.reports: an UNAUTHENTICATED public write endpoint onto durable storage that nothing ever deleted from
 		go b.towerInviteSweep(stop)                     // delete expired unredeemed Station invitations (consumed ones answer retries)
 		go b.towerGovSweep(stop, towerGovSweepInterval) // governance record: Towers gone quiet, lapsed leases, pending refusal counts
+		go b.towerMobility(stop, towerMobilityInterval) // move idle Stations to better Towers (station_mobility.feature)
 		go b.towerCanarySweep(stop)                     // probe each Tower with a data plane; a Tower serving nothing is caught here
 		go b.reversalRetrySweep(stop)                   // re-attempt failed Stripe transfer-reversals (silent-money-leak guard)
 		go b.pruneStaleNodesSweep(stop)                 // remove long-dead node registrations (old hostname ids that never re-register)

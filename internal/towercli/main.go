@@ -440,6 +440,12 @@ func printCoreStatus(st *tower.State, out io.Writer) error {
 			fmt.Fprintf(out, "  routable:      %s %s (%s, capacity %d)\n",
 				s.StationID, s.Model, s.Modality, s.Capacity)
 		}
+		if tr := tw.Trust; tr != nil && tr.Stage != "" {
+			fmt.Fprintf(out, "  trust stage:   %s (%s)\n", tr.Stage, stageAllows(tr.CommunityStations, tr.HouseStations))
+			if tr.Next != "" {
+				fmt.Fprintf(out, "  next stage:    %s\n", tr.Next)
+			}
+		}
 		if tw.State == "quarantine" {
 			// The most common state, and the most commonly misread. Nothing is broken.
 			fmt.Fprint(out, "\nQuarantine is the state a Tower is admitted INTO. It is not a fault:\n"+
@@ -452,6 +458,20 @@ func printCoreStatus(st *tower.State, out io.Writer) error {
 		}
 	}
 	return nil
+}
+
+// stageAllows says, in plain words, what a trust stage lets a Tower hold. "RogerAI Stations"
+// are the platform's own, which reach a community Tower only as failover.
+func stageAllows(community, house int) string {
+	c := fmt.Sprintf("up to %d community Stations", community)
+	if community < 0 {
+		c = "community Stations up to capacity"
+	}
+	h := "no RogerAI Stations"
+	if house > 0 {
+		h = fmt.Sprintf("up to %d RogerAI Stations as failover", house)
+	}
+	return c + ", " + h
 }
 
 // cmdInvite mints the one-time bootstrap code that turns the first local client into

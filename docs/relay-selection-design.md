@@ -1959,6 +1959,14 @@ anything new yet, which is §6.10's instruction channel.
 
 ### 6.3c The mobility gate: when Core may move an idle Station, recorded, NOT built
 
+> **BUILT 2026-11-13** (features/tower/station_mobility.feature, with placement_locality.feature,
+> placement_ranking.feature and tower_trust_ramp.feature). Founder rulings that day: Core starts
+> moves and tells the owner; 2 observations for a failing relay, 3 for a better one; "strictly
+> better class" (health tier, locality class, or group) in place of the 25%/30 ms bar, because
+> there is no Station-to-relay round trip to measure 30 ms against. The nudge rides the node's
+> cancel long-poll and names no relay. Placement is now ranked, not first-fit, so trigger 3 below
+> is served. The text that follows is the reasoning as recorded before the build.
+
 Written 2026-08-20, immediately after the cross-instance edge-load work landed in the same
 session, at the coordinator's request and while the constraints were fresh. **Nothing in this section is
 implemented.** §6.3b decided the model; §6.6b built the backstop; this is the shape of the thing

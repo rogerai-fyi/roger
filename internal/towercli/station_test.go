@@ -332,3 +332,38 @@ func TestInitLabelsAJoinedTowersIDAsLocal(t *testing.T) {
 	require.Contains(t, out, "roger tower register")
 	require.Contains(t, out, "roger tower status")
 }
+
+// The trust stage and what is left, in plain words (features/tower/tower_trust_ramp.feature,
+// "The operator sees their own stage and what is left").
+func TestStatusShowsTheTrustStageAndWhatIsLeft(t *testing.T) {
+	core := newCoreStub(t)
+	dir := joinedRegisteredTower(t)
+	core.reply["/tower/status"] = func(w http.ResponseWriter, _ int) bool {
+		_, _ = w.Write([]byte(`{"towers":[{"tower_id":"tw-1","state":"active","carries_traffic":true,
+			"trust":{"stage":"new","community_stations":10,"house_stations":0,
+			"next":"5 more days, 40 more passed health checks"}}]}`))
+		return true
+	}
+	out, err := runCLI(t, "status", "--dir", dir)
+	require.NoError(t, err)
+	require.Contains(t, out, "trust stage:   new (up to 10 community Stations, no RogerAI Stations)")
+	require.Contains(t, out, "next stage:    5 more days, 40 more passed health checks")
+
+	core.reply["/tower/status"] = func(w http.ResponseWriter, _ int) bool {
+		_, _ = w.Write([]byte(`{"towers":[{"tower_id":"tw-1","state":"active","carries_traffic":true,
+			"trust":{"stage":"established","community_stations":-1,"house_stations":25,"next":""}}]}`))
+		return true
+	}
+	out, err = runCLI(t, "status", "--dir", dir)
+	require.NoError(t, err)
+	require.Contains(t, out, "trust stage:   established (community Stations up to capacity, up to 25 RogerAI Stations as failover)")
+	require.NotContains(t, out, "next stage:")
+
+	core.reply["/tower/status"] = func(w http.ResponseWriter, _ int) bool {
+		_, _ = w.Write([]byte(`{"towers":[{"tower_id":"tw-1","state":"active"}]}`))
+		return true
+	}
+	out, err = runCLI(t, "status", "--dir", dir)
+	require.NoError(t, err)
+	require.NotContains(t, out, "trust stage:", "an older Core sends no stage, and nothing is invented")
+}

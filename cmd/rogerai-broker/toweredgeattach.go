@@ -178,6 +178,11 @@ func (b *broker) towerEdgeAttach(w http.ResponseWriter, r *http.Request) {
 		// (byte tariff / free). Band-checked below - the same public band every offer obeys.
 		PriceInMicros  int64 `json:"price_in_micros"`
 		PriceOutMicros int64 `json:"price_out_micros"`
+		// Nudge declares that this node understands the re-attach nudge on its cancel
+		// long-poll, so Core may move it to a better Tower while it is idle
+		// (station_mobility.feature). An older node does not send it and is moved only when its
+		// Tower is gone or failing.
+		Nudge bool `json:"nudge"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		jsonErr(w, http.StatusBadRequest, "invalid JSON body")
@@ -424,6 +429,9 @@ func (b *broker) towerEdgeAttach(w http.ResponseWriter, r *http.Request) {
 		// and it needs a settle-time fence that does not exist yet. What is owed here is an
 		// honest, retryable answer, which is what this is: the node's re-attach loop backs off
 		// and asks again, and the operator is told once rather than never.
+		// Where it attaches from, and whether it can hear a nudge, are refreshed on every
+		// attach, this one included (placement_locality.feature).
+		b.recordStationFacts(prior.StationID, b.addrLocality(clientIP(r)), req.Nudge)
 		plane, has := ts.link.RelayPlane(prior.Origin.TowerID)
 		if !has {
 			jsonErr(w, http.StatusServiceUnavailable,
@@ -450,24 +458,29 @@ func (b *broker) towerEdgeAttach(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// CORE ASSIGNS THE TOWER: the first live, admitted tower advertising a data-plane
-	// endpoint. (LiveTowers reflects this instance's link sessions - the instance holding the
-	// links is the one that can answer; matchmaking beyond first-fit is a later refinement.)
-	var towerID string
-	var plane link.RelayPlane
-	for _, tw := range ts.link.LiveTowers() {
-		if !ts.registry.MayTakeWork(tw) {
-			continue
-		}
-		if p, has := ts.link.RelayPlane(tw); has && p.Endpoint != "" {
-			towerID, plane = tw, p
-			break
-		}
+	// CORE ASSIGNS THE TOWER: the best eligible Tower in the fleet, ranked by health, then
+	// locality, then load, with house Stations on house Towers (towerplacement.go,
+	// features/tower/placement_ranking.feature). The Station's locality is the address this
+	// request came from, never what the node says about itself.
+	stationLoc := b.addrLocality(clientIP(r))
+	// A Station in the middle of a move goes to the Tower the move chose, if it is still
+	// eligible, and never back to the one it is leaving unless that is the only one left.
+	mv, moving, exclude := b.moveOnReattach(derivedStationID, time.Now())
+	choice, placedOK := b.placeStationPrefer(ownerPubkey, stationLoc, exclude, mv.To)
+	if !placedOK && moving {
+		delete(exclude, mv.From)
+		choice, placedOK = b.placeStationPrefer(ownerPubkey, stationLoc, exclude, "")
 	}
-	if towerID == "" {
+	if !placedOK && len(exclude) > 0 {
+		// A skip keeps a Station off one Tower for an hour, but never leaves it with none: when
+		// nothing else can take it, the skipped Tower may.
+		choice, placedOK = b.placeStationPrefer(ownerPubkey, stationLoc, nil, "")
+	}
+	if !placedOK {
 		jsonErr(w, http.StatusServiceUnavailable, "no tower can host this node right now - try again shortly")
 		return
 	}
+	towerID, plane := choice.towerID, choice.plane
 
 	// The internal invitation: minted and redeemed in this one call. The secret exists only
 	// on this stack; the cap and one-use guarantees are the store's, unchanged.
@@ -539,6 +552,12 @@ func (b *broker) towerEdgeAttach(w http.ResponseWriter, r *http.Request) {
 
 	b.towerEvent(admit.Event{TowerID: towerID, Kind: evStationAttached, Actor: "operator:" + owner,
 		Detail: map[string]any{"station": at.StationID, "quarantine": at.State == attach.StateQuarantine}})
+	choice.detail["station"] = at.StationID
+	b.towerEvent(admit.Event{TowerID: towerID, Kind: evStationPlaced, Actor: admit.ActorSystem, Detail: choice.detail})
+	b.recordStationFacts(at.StationID, stationLoc, req.Nudge)
+	if moving {
+		b.finishMoveOnReattach(mv, at.StationID, towerID, at.Epoch)
+	}
 
 	// The node is routable NOW: publish its row (merged with the tower's leaf rows) so
 	// edgeTargetFor can find it at its listed price.

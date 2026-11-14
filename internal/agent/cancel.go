@@ -112,6 +112,8 @@ func cancelLoop(cfg Config, sess *Session) {
 		}
 		var out struct {
 			IDs []string `json:"ids"`
+			// Reattach is a move's nudge (tower_move.go), not a cancel.
+			Reattach string `json:"reattach"`
 		}
 		if resp.StatusCode == http.StatusOK {
 			_ = json.NewDecoder(resp.Body).Decode(&out)
@@ -122,6 +124,9 @@ func cancelLoop(cfg Config, sess *Session) {
 			retry = cancelRetry
 			for _, id := range out.IDs {
 				sess.inflight.cancel(id)
+			}
+			if out.Reattach != "" {
+				deliverNudge(cfg.NodeID, out.Reattach)
 			}
 		case http.StatusNoContent:
 			retry = cancelRetry

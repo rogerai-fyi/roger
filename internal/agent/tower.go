@@ -664,6 +664,9 @@ func AttachTower(cfg Config, priv ed25519.PrivateKey, dir string) (*station.Stat
 		"modality":         modality,
 		"price_in_micros":  microsPerDollarPer1M(cfg.PriceIn),
 		"price_out_micros": microsPerDollarPer1M(cfg.PriceOut),
+		// This node understands the re-attach nudge on its cancel poll (tower_move.go), so
+		// Core may move it to a better relay while it is idle.
+		"nudge": true,
 	})
 	if err != nil {
 		return nil, TowerAttachment{}, err
@@ -847,6 +850,7 @@ func ServeTower(ctx context.Context, cfg Config, priv ed25519.PrivateKey, dir st
 		consecutive         int
 		firstTries          int
 		gen                 int
+		movedFrom, movedWhy string
 	)
 	for {
 		if ctx.Err() != nil {
@@ -924,11 +928,24 @@ func ServeTower(ctx context.Context, cfg Config, priv ed25519.PrivateKey, dir st
 				Transcripts: station.NewTranscripts(0, 0),
 			}
 		}
+		if movedFrom != "" {
+			notice.notify(errors.New(movedNotice(movedFrom, at.TowerID, movedWhy)))
+			movedFrom, movedWhy = "", ""
+		}
 		started := time.Now()
 		terr := serveTowerTenancy(ctx, cfg, at, exec, coreEnvKey, out, notice)
 		switch {
 		case ctx.Err() != nil:
 			return nil
+		case errors.Is(terr, errMoved):
+			// Core asked: attach again now, with no backoff - this is a placement, not a failure.
+			// The operator is told where it landed once the attach answers.
+			var me movedError
+			errors.As(terr, &me)
+			movedFrom, movedWhy = at.TowerID, me.reason
+			consecutive = 0
+			gen++
+			continue
 		case errors.Is(terr, errHubStanding):
 			// terr ITSELF, not errors.Unwrap(terr). A `fmt.Errorf("%w: %w", ...)` has an
 			// `Unwrap() []error`, not an `Unwrap() error`, so errors.Unwrap returns NIL on it and
@@ -1101,10 +1118,32 @@ func serveTowerTenancy(ctx context.Context, cfg Config, at TowerAttachment,
 	if workers <= 0 {
 		workers = 2
 	}
+	// A move: Core's nudge ends this tenancy once the work in flight has finished, so the
+	// node attaches again and is placed where Core chose.
+	gate := gateFor(cfg.NodeID)
+	moved := make(chan string, 1)
+	go func() {
+		for {
+			select {
+			case <-tctx.Done():
+				return
+			case n := <-nudgeChan(cfg.NodeID):
+				if !n.fresh(time.Now()) || !gate.allow() || !gate.waitIdle(tctx, nudgeExpiry-time.Since(n.at)) {
+					continue
+				}
+				select {
+				case moved <- n.reason:
+					cancel()
+				default:
+				}
+				return
+			}
+		}
+	}()
 	done := make(chan error, workers)
 	for i := 0; i < workers; i++ {
 		go func() {
-			done <- towerhub.ServeLoop(tctx, client, at.StationID, sealedExec{exec}, func(err error) {
+			done <- towerhub.ServeLoop(tctx, client, at.StationID, gatedExec{sealedExec{exec}, gate}, func(err error) {
 				// EVERY worker error is weighed for whether this relay is finished, BEFORE it is
 				// classified for the operator - because the two questions have different answers.
 				// A pin mismatch is both loud and terminal; a dial that is refused is neither loud
@@ -1175,6 +1214,11 @@ func serveTowerTenancy(ctx context.Context, cfg Config, at TowerAttachment,
 	select {
 	case serr := <-standing:
 		return fmt.Errorf("%w: %w", errHubStanding, serr)
+	default:
+	}
+	select {
+	case reason := <-moved:
+		return movedError{reason: reason}
 	default:
 	}
 	if errors.Is(first, context.Canceled) {

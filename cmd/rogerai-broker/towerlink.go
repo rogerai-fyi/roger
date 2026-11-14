@@ -199,6 +199,9 @@ func (b *broker) towerSessionOpen(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	// Where the hub is (placement_locality.feature): measured off the request path, so a
+	// slow lookup never delays the session.
+	go b.measureTowerLocality(tw.ID, acc.SessionID, hello.RelayEndpoint, clientIP(r))
 
 	// THE DURABLE HEAD DETECTS; IT DOES NOT RESUME. This is the correction the audit forced,
 	// and it matters because the wrong version was worse than useless.
@@ -941,6 +944,13 @@ func (b *broker) towerInviteSweepOnce(now time.Time) {
 	} else if len(tn) > 0 {
 		log.Printf("station attachments: reaped %d terminal attachment(s): %s", len(tn), sweptIDs(tn))
 		b.recordStationsSwept(tn, "terminal_reaped")
+		ids := make([]string, len(tn))
+		for i, x := range tn {
+			ids[i] = x.StationID
+		}
+		if ferr := b.tower.mobility.Forget(ids); ferr != nil {
+			log.Printf("station facts: forget failed: %v", ferr)
+		}
 	}
 	// Refresh the routable projection for the towers whose links THIS instance holds. Leaf
 	// rows are republished on every inventory push, but self-attached nodes' rows carry a
@@ -954,6 +964,12 @@ func (b *broker) towerInviteSweepOnce(now time.Time) {
 	// Reputation evidence ages out of the window it is judged in, so a table that kept every
 	// outcome forever would grow without bound while nothing older than the window is ever
 	// read. Reap past the window, on the same sweep - one fewer ticker to keep alive.
+	// Health-check evidence is counted over at most 30 days by the trust ramp; keep 90.
+	if b.tower.health != nil {
+		if herr := b.tower.health.Reap(now.Add(-healthRetention)); herr != nil {
+			log.Printf("tower health: sweep failed: %v", herr)
+		}
+	}
 	if b.tower.outcomes != nil {
 		if r, rerr := b.tower.outcomes.Reap(now.Add(-reputationWindow)); rerr != nil {
 			log.Printf("tower outcomes: sweep failed: %v", rerr)
@@ -1096,6 +1112,9 @@ func (b *broker) registerTowerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/admin/towers", b.adminTowers)                // admin: the approval queue the dashboard reads
 	mux.HandleFunc("/admin/tower", b.adminTowerDetail)            // admin: one Tower's full detail (identity, quality, traffic, origin, fleet)
 	mux.HandleFunc("/tower/lifecycle", b.towerLifecycle)          // admin: the Tower quarantine gate
+	mux.HandleFunc("/tower/excuse", b.towerExcuse)                // admin: excuse one recorded event (trust ramp)
+	mux.HandleFunc("/tower/incident", b.towerIncident)            // admin: record an incident (trust ramp)
+	mux.HandleFunc("/tower/stage-ceiling", b.towerStageCeiling)   // admin: hold a Tower's trust stage
 	mux.HandleFunc("/tower/self/lifecycle", b.towerSelfLifecycle) // operator: drain/resume/retire my own
 
 	// DISPATCH KEY. Public so a node can pin what a real grant is signed by. (The Topology-1

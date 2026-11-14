@@ -592,6 +592,31 @@ func (p *PGStore) SetState(stationID, state string) (bool, error) {
 	return n > 0, nil
 }
 
+func (p *PGStore) DormantForMove(stationID, towerID string, epoch int64) (bool, error) {
+	res, err := p.db.Exec(`UPDATE rogerai.station_attachments SET state='dormant'
+	                        WHERE station_id=$1 AND origin_tower=$2 AND epoch=$3
+	                          AND state IN ('quarantine','active')`, stationID, towerID, epoch)
+	if err != nil {
+		return false, pgwrap("dormant for move", err)
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
+func (p *PGStore) UndoMove(stationID, towerID string, epoch int64, state string) (bool, error) {
+	if state != StateQuarantine && state != StateActive {
+		return false, reject(errors.New("a move is undone into a serving state only"))
+	}
+	res, err := p.db.Exec(`UPDATE rogerai.station_attachments SET state=$4
+	                        WHERE station_id=$1 AND origin_tower=$2 AND epoch=$3 AND state='dormant'`,
+		stationID, towerID, epoch, state)
+	if err != nil {
+		return false, pgwrap("undo move", err)
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
 // CountLiveAttachments counts an owner's attached Stations in the states that carry work.
 func (p *PGStore) CountLiveAttachments(owner string) (int, error) {
 	var n int

@@ -435,6 +435,14 @@ type Store interface {
 	ByAssertionKey(key string) (Attachment, bool, error)
 	// SetState moves an attachment through its lifecycle.
 	SetState(stationID, state string) (bool, error)
+	// DormantForMove sets a LIVE Station dormant so it can be re-placed
+	// (station_mobility.feature), only if it is still on towerID at epoch: a concurrent change
+	// wins and nothing is written. It writes the state alone - Admit's revival writes the new
+	// origin and the next epoch when the node re-attaches.
+	DormantForMove(stationID, towerID string, epoch int64) (bool, error)
+	// UndoMove puts a Station a move left dormant back into a serving state, only if it is
+	// still dormant on towerID at epoch. It never writes an epoch.
+	UndoMove(stationID, towerID string, epoch int64, state string) (bool, error)
 	// ReapTerminal deletes revoked/detached attachments attached before the horizon. DORMANT IS
 	// NOT TERMINAL and is never reaped here - RetireDormant is what makes a dormant row
 	// terminal, and only then does this delete it. Terminal
