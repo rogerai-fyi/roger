@@ -82,17 +82,15 @@ func (b *broker) hubCheck(tw admit.Tower, endpoint, pin string, now time.Time) {
 
 // recordTowerHealth files a Station canary's verdict as a health check of the Tower that
 // carried it. A Station's own fault, or an aborted probe, says nothing about the Tower.
+//
+// A canary counts toward the pass rate but not toward the fail streak (health.Store): the hub
+// check, one per Tower per interval, is the streak.
 func (b *broker) recordTowerHealth(towerID string, outcome reputation.Outcome) {
 	switch outcome {
-	case reputation.CanaryPass:
-		b.recordHealthResult(towerID, true, time.Now())
-	case reputation.CanaryFail:
-		b.recordHealthResult(towerID, false, time.Now())
+	case reputation.CanaryPass, reputation.CanaryFail:
+		b.recordHealthCheck(towerID, health.Check{OK: outcome == reputation.CanaryPass, At: time.Now(),
+			Source: health.SourceCanary})
 	}
-}
-
-func (b *broker) recordHealthResult(towerID string, ok bool, at time.Time) {
-	b.recordHealthCheck(towerID, health.Check{OK: ok, At: at, Source: health.SourceCanary})
 }
 
 // recordHealthCheck files one health check with its source and round trip.

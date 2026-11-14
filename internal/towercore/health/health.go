@@ -49,8 +49,8 @@ func (s Summary) BothLastFailed() bool { return s.FailStreak >= 2 }
 
 // Store records results and answers summaries; every instance shares the PG one.
 type Store interface {
-	// Record files a Station canary's result; RecordCheck files any check with its source and
-	// round trip.
+	// Record files a hub check's result with no round trip; RecordCheck files any check with
+	// its source and round trip.
 	Record(towerID string, ok bool, at time.Time) error
 	RecordCheck(towerID string, c Check) error
 	Summary(towerID string, since time.Time) (Summary, error)
@@ -78,6 +78,9 @@ func (l latest) advance(c Check) latest {
 		return l
 	}
 	l.at, l.source, l.rtt = at, c.Source, c.RTT
+	if c.Source != SourceHubCheck {
+		return l // the streak is hub checks only: one per Tower per interval, never doubled
+	}
 	switch {
 	case ok:
 		l.streak, l.since = 0, time.Time{}
@@ -101,7 +104,7 @@ func NewMemStore() *MemStore {
 }
 
 func (m *MemStore) Record(towerID string, ok bool, at time.Time) error {
-	return m.RecordCheck(towerID, Check{OK: ok, At: at, Source: SourceCanary})
+	return m.RecordCheck(towerID, Check{OK: ok, At: at, Source: SourceHubCheck})
 }
 
 func (m *MemStore) RecordCheck(towerID string, c Check) error {
@@ -179,7 +182,7 @@ func NewPGStore(db *sql.DB) (*PGStore, error) {
 }
 
 func (p *PGStore) Record(towerID string, ok bool, at time.Time) error {
-	return p.RecordCheck(towerID, Check{OK: ok, At: at, Source: SourceCanary})
+	return p.RecordCheck(towerID, Check{OK: ok, At: at, Source: SourceHubCheck})
 }
 
 func (p *PGStore) RecordCheck(towerID string, c Check) error {
@@ -200,12 +203,15 @@ func (p *PGStore) RecordCheck(towerID string, c Check) error {
 	// recording at once cannot interleave a read and a write.
 	_, err := p.db.Exec(`
         INSERT INTO rogerai.tower_health (tower_id, last_at, fail_streak, streak_since, last_source, last_rtt_ms)
-        VALUES ($1, $3::timestamptz, CASE WHEN $2::boolean THEN 0 ELSE 1 END,
-                CASE WHEN $2::boolean THEN NULL ELSE $3::timestamptz END, $4, $5)
+        VALUES ($1, $3::timestamptz,
+                CASE WHEN $2::boolean OR $4 <> 'hub_check' THEN 0 ELSE 1 END,
+                CASE WHEN $2::boolean OR $4 <> 'hub_check' THEN NULL ELSE $3::timestamptz END, $4, $5)
         ON CONFLICT (tower_id) DO UPDATE
           SET last_at = EXCLUDED.last_at, last_source = EXCLUDED.last_source, last_rtt_ms = EXCLUDED.last_rtt_ms,
-              fail_streak = CASE WHEN $2::boolean THEN 0 ELSE tower_health.fail_streak + 1 END,
-              streak_since = CASE WHEN $2::boolean THEN NULL
+              fail_streak = CASE WHEN $4 <> 'hub_check' THEN tower_health.fail_streak
+                                 WHEN $2::boolean THEN 0 ELSE tower_health.fail_streak + 1 END,
+              streak_since = CASE WHEN $4 <> 'hub_check' THEN tower_health.streak_since
+                                  WHEN $2::boolean THEN NULL
                                   WHEN tower_health.fail_streak = 0 THEN EXCLUDED.last_at
                                   ELSE tower_health.streak_since END
           WHERE tower_health.last_at <= EXCLUDED.last_at`,

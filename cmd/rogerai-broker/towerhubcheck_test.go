@@ -134,3 +134,20 @@ func TestAHubCheckIsStampedWhenItFinishes(t *testing.T) {
 	sum, _ := b.tower.health.Summary(lt.id, start.Add(-time.Hour))
 	require.True(t, sum.LastAt.After(start), "stamped after the pass began")
 }
+
+// recordHealthResult files one hub-check result, as the hub check does - the tests' way of
+// saying "a health check of this Tower passed or failed at this time".
+func (b *broker) recordHealthResult(towerID string, ok bool, at time.Time) {
+	b.recordHealthCheck(towerID, health.Check{OK: ok, At: at, Source: health.SourceHubCheck})
+}
+
+// A Station canary counts toward the rate but never doubles a fail streak (audit finding).
+func TestACanaryInTheSameSweepDoesNotDoubleAFailure(t *testing.T) {
+	b, _ := towerTestBroker(t)
+	b.recordHealthResult("tw-1", false, time.Now()) // the hub check
+	b.recordTowerHealth("tw-1", "canary_fail")      // a canary right after it
+	sum, _ := b.tower.health.Summary("tw-1", time.Now().Add(-time.Hour))
+	require.Equal(t, 1, sum.FailStreak)
+	require.Equal(t, 2, sum.Failed)
+	require.Empty(t, towerEventsOf(t, b, "tw-1", evHealthFailing), "one outage is not health_failing")
+}

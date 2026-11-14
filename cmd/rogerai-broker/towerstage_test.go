@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -540,4 +541,17 @@ func TestADisqualifierBetweenAPromotionsReadAndWriteCounts(t *testing.T) {
 		Reason: "racing", At: readAt.Add(time.Second)}))
 	b.dropStageCache(admit.Event{TowerID: lt.id, Kind: evIncident})
 	require.Equal(t, placement.StageNew, b.towerStage(lt.id))
+}
+
+// AUDIT FINDING: on cache expiry every concurrent request re-read the stage.
+func TestConcurrentStageReadsCollapseIntoOne(t *testing.T) {
+	fs := &stageReadFailing{Store: admit.NewMemStore()}
+	b, _ := towerTestBrokerWithAdmitStore(t, fs)
+	var wg sync.WaitGroup
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go func() { defer wg.Done(); b.towerStage("tw-x") }()
+	}
+	wg.Wait()
+	require.LessOrEqual(t, fs.calls, 2, "collapsed, not 50 reads")
 }

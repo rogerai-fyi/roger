@@ -42,6 +42,8 @@ type Store interface {
 	// any pause.
 	FinishMove(stationID, skipTower string, skipUntil time.Time) error
 	Skip(stationID string) (string, time.Time, error)
+	// ReleaseMove clears a claimed move and leaves the Station's skip as it is.
+	ReleaseMove(stationID string) error
 	Pending() ([]Move, error)
 	// Forget drops everything kept about Stations whose attachments were reaped.
 	Forget(stationIDs []string) error
@@ -118,6 +120,13 @@ func (m *MemStore) FinishMove(id, tower string, until time.Time) error {
 	} else {
 		m.skips[id] = skip{tower, until.UTC()}
 	}
+	return nil
+}
+
+func (m *MemStore) ReleaseMove(id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.moves, id)
 	return nil
 }
 
@@ -295,5 +304,10 @@ func (p *PGStore) Forget(ids []string) error {
 		return err
 	}
 	_, err := p.db.Exec(`DELETE FROM rogerai.station_moves WHERE station_id = ANY($1)`, ids)
+	return err
+}
+
+func (p *PGStore) ReleaseMove(id string) error {
+	_, err := p.db.Exec(`UPDATE rogerai.station_moves SET started_at=NULL, nudges=0, last_nudge=NULL WHERE station_id=$1`, id)
 	return err
 }

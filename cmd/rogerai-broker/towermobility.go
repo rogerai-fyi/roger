@@ -369,8 +369,8 @@ func (b *broker) startMove(at attach.Attachment, target, trigger string, now tim
 	}
 	ok, err := ts.stationStore.DormantForMove(at.StationID, at.Origin.TowerID, at.Epoch)
 	if err != nil || !ok {
-		_ = ts.mobility.FinishMove(at.StationID, "", time.Time{})
-		return false // a concurrent change won: nothing written, nothing said
+		_ = ts.mobility.ReleaseMove(at.StationID) // the claim only: any skip stands
+		return false                              // a concurrent change won: nothing written, nothing said
 	}
 	b.moveMu.Lock()
 	delete(b.moveStreaks, at.StationID)
@@ -448,7 +448,7 @@ func (b *broker) mobilityPending(now time.Time) {
 			// It moved, or ended - or the row was claimed a moment ago and its dormant write has
 			// not landed yet, which is why a fresh row is left alone.
 			if now.Sub(mv.Started) >= moveNudgeEvery {
-				_ = ts.mobility.FinishMove(mv.StationID, "", time.Time{})
+				_ = ts.mobility.ReleaseMove(mv.StationID) // the claim only: a skip set on landing stands
 			}
 			continue
 		}

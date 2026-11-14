@@ -286,25 +286,29 @@ func (b *broker) towerStage(towerID string) placement.Stage {
 		return c.stage
 	}
 	b.stageMu.Unlock()
-	st, at := stageNew, now
-	if v, err := b.readStage(towerID, now); err == nil {
-		st = v.stage
-		if len(v.disq) > 0 {
-			st = stageNew
+	// One read per Tower however many requests miss the cache at once.
+	v, _, _ := b.stageFlight.Do(towerID, func() (any, error) {
+		st, at := stageNew, now
+		if v, err := b.readStage(towerID, now); err == nil {
+			st = v.stage
+			if len(v.disq) > 0 {
+				st = stageNew
+			}
+			st = placement.MinStage(st, v.ceiling)
+		} else {
+			// A store that cannot answer is answered "new" for a short while rather than asked
+			// again by every request.
+			at = now.Add(stageFailCacheTTL - stageCacheTTL)
 		}
-		st = placement.MinStage(st, v.ceiling)
-	} else {
-		// A store that cannot answer is answered "new" for a short while rather than asked
-		// again by every request.
-		at = now.Add(stageFailCacheTTL - stageCacheTTL)
-	}
-	b.stageMu.Lock()
-	if b.stageCache == nil {
-		b.stageCache = map[string]cachedStage{}
-	}
-	b.stageCache[towerID] = cachedStage{stage: st, at: at}
-	b.stageMu.Unlock()
-	return st
+		b.stageMu.Lock()
+		if b.stageCache == nil {
+			b.stageCache = map[string]cachedStage{}
+		}
+		b.stageCache[towerID] = cachedStage{stage: st, at: at}
+		b.stageMu.Unlock()
+		return st, nil
+	})
+	return v.(placement.Stage)
 }
 
 // towerEdgeWeight is the weight a Tower's side carries on the per-request coin: 1.0 for a

@@ -134,10 +134,29 @@ func TestTheLatestCheckKeepsItsSourceAndRoundTrip(t *testing.T) {
 		require.Equal(t, 42*time.Millisecond, sum.LastRTT)
 		require.Equal(t, 1, sum.Passed)
 
-		require.NoError(t, s.Record("tw-1", false, day0.Add(time.Minute)))
+		require.NoError(t, s.RecordCheck("tw-1", Check{OK: false, At: day0.Add(time.Minute), Source: SourceCanary}))
 		sum, _ = s.Summary("tw-1", day0)
 		require.Equal(t, SourceCanary, sum.LastSource)
 		require.Zero(t, sum.LastRTT)
 		require.Equal(t, 1, sum.Failed)
+	})
+}
+
+// The fail streak (two in a row demote a Tower and move its Stations) counts hub checks only:
+// a hub check and a Station canary running back to back in one sweep are one outage, not two.
+// Canaries still count toward the pass rate.
+func TestOnlyHubChecksAdvanceTheStreak(t *testing.T) {
+	eachStore(t, func(t *testing.T, s Store) {
+		require.NoError(t, s.RecordCheck("tw-1", Check{OK: false, At: day0, Source: SourceHubCheck}))
+		require.NoError(t, s.RecordCheck("tw-1", Check{OK: false, At: day0.Add(time.Second), Source: SourceCanary})) // a canary in the same sweep
+		sum, _ := s.Summary("tw-1", day0)
+		require.Equal(t, 1, sum.FailStreak, "one outage")
+		require.Equal(t, 2, sum.Failed, "both count toward the rate")
+		require.NoError(t, s.RecordCheck("tw-1", Check{OK: true, At: day0.Add(2 * time.Second), Source: SourceCanary}))
+		sum, _ = s.Summary("tw-1", day0)
+		require.Equal(t, 1, sum.FailStreak, "a passing canary does not reset a hub-check streak either")
+		require.NoError(t, s.RecordCheck("tw-1", Check{OK: false, At: day0.Add(5 * time.Minute), Source: SourceHubCheck}))
+		sum, _ = s.Summary("tw-1", day0)
+		require.Equal(t, 2, sum.FailStreak)
 	})
 }

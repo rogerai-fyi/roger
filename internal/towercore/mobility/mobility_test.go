@@ -135,3 +135,21 @@ func TestForgetDropsEverythingAboutReapedStations(t *testing.T) {
 		require.NoError(t, s.Forget(nil))
 	})
 }
+
+// Releasing a claimed move leaves a Station's skip alone (audit finding: cleanup paths erased
+// the hour a returned or undone move had just set).
+func TestReleaseClearsTheClaimButNotTheSkip(t *testing.T) {
+	eachStore(t, func(t *testing.T, s Store) {
+		_, _ = s.StartMove(Move{StationID: "st-1", From: "a", Trigger: "t", Epoch: 1, PriorState: "active", Started: t0})
+		require.NoError(t, s.FinishMove("st-1", "tw-b", t0.Add(time.Hour)))
+		ok, _ := s.StartMove(Move{StationID: "st-1", From: "a", Trigger: "t", Epoch: 2, PriorState: "active", Started: t0})
+		require.True(t, ok)
+		require.NoError(t, s.ReleaseMove("st-1"))
+		_, moving, _ := s.Move("st-1")
+		require.False(t, moving)
+		tower, until, _ := s.Skip("st-1")
+		require.Equal(t, "tw-b", tower)
+		require.True(t, until.Equal(t0.Add(time.Hour)))
+		require.NoError(t, s.ReleaseMove("st-none"))
+	})
+}
