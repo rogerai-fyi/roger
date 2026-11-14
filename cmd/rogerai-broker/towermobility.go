@@ -108,6 +108,19 @@ func (b *broker) mobilityPassOnce(now time.Time) {
 	for _, id := range liveList {
 		live[id] = true
 	}
+	window := ts.link.Freshness()
+	b.moveMu.Lock()
+	if b.absentSince == nil {
+		b.absentSince = map[string]time.Time{}
+	}
+	if liveErr == nil {
+		for id := range b.absentSince {
+			if live[id] {
+				delete(b.absentSince, id)
+			}
+		}
+	}
+	b.moveMu.Unlock()
 	snap := b.placementSnapshot()
 	pace := &movePace{from: map[string]int{}, into: map[string]int{}}
 	seen := map[string]bool{}
@@ -132,8 +145,27 @@ func (b *broker) mobilityPassOnce(now time.Time) {
 			continue
 		}
 		if !live[tw.ID] || tw.State == admit.StateRevoked {
-			if !lease || liveErr != nil {
-				continue // not this instance's pass, or the live set could not be read
+			if liveErr != nil {
+				continue // the live set could not be read: nothing is known to be gone
+			}
+			// GONE means absent for longer than the link freshness window - an orderly restart or
+			// a short outage is not a Tower that has left. Absence counts from when the Tower was
+			// last heard, when the link still knows (a Tower that went silent), and otherwise from
+			// this instance's first sight of it missing (an orderly close forgets the session). A
+			// revoked Tower is gone at once.
+			b.moveMu.Lock()
+			first, seen := b.absentSince[tw.ID]
+			if !seen {
+				first = now
+				if last, ok := ts.link.LastSeen(tw.ID); ok && last.Before(now) {
+					first = last
+				}
+				b.absentSince[tw.ID] = first
+			}
+			b.moveMu.Unlock()
+			gone := tw.State == admit.StateRevoked || now.Sub(first) >= window
+			if !lease || !gone {
+				continue
 			}
 			// Gone: no observation count and no idle gate - work through a Tower that is gone
 			// cannot complete.
@@ -204,6 +236,13 @@ func (b *broker) mobilityTower(tw admit.Tower, live []attach.Attachment, snap []
 		}
 		if (trigger == triggerBetter || trigger == triggerCap) && !b.nudgeable(at) {
 			continue // an old node is moved only when its Tower is gone or failing
+		}
+		if trigger == triggerFailing || trigger == triggerCap {
+			// A move with nowhere to go would only take the Station dark and bring it back.
+			f, _, _ := ts.mobility.Facts(at.StationID)
+			if _, ok := b.chooseFrom(snap, at.Owner, f.Locality, map[string]bool{tw.ID: true}, "", nil); !ok {
+				continue
+			}
 		}
 		if ok, _ := b.stationQuiescent(at.NodeID); !ok {
 			continue // still due; checked again next pass
@@ -444,12 +483,15 @@ func (b *broker) moveOnReattach(stationID string, now time.Time) (mobility.Move,
 
 // finishMoveOnReattach records where a moving Station landed and ends the move.
 func (b *broker) finishMoveOnReattach(mv mobility.Move, stationID, towerID string, epoch int64) {
-	_ = b.tower.mobility.FinishMove(stationID, "", time.Time{})
 	if towerID == mv.From {
+		// Landed back where it was: pause further moves of this Station for the skip hour, so a
+		// Tower that stays failing or over its cap does not cycle it dark and back every pass.
+		_ = b.tower.mobility.FinishMove(stationID, "", time.Now().Add(moveSkipFor))
 		b.towerEvent(admit.Event{TowerID: towerID, Kind: evStationMoveReturned, Actor: admit.ActorSystem,
 			Reason: mv.Trigger, Detail: map[string]any{"station": stationID, "epoch": epoch}})
 		return
 	}
+	_ = b.tower.mobility.FinishMove(stationID, "", time.Time{})
 	detail := map[string]any{"station": stationID, "from": mv.From, "epoch": epoch, "intended": mv.To}
 	if mv.To != "" && mv.To != towerID {
 		detail["intended_unavailable"] = true // the intended Tower was no longer eligible

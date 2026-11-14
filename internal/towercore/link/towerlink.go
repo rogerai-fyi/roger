@@ -415,6 +415,9 @@ func (s *Sessions) LinkContinent(towerID string) string {
 	return rec.LinkContinent
 }
 
+// Freshness is how long a session survives without a heartbeat - the link's own window.
+func (s *Sessions) Freshness() time.Duration { return s.cfg.Freshness }
+
 // HoldsLocally reports whether THIS instance holds a fresh session for the Tower: the one
 // instance that should run per-Tower work such as the hub check, so it is done once.
 func (s *Sessions) HoldsLocally(towerID string) bool {

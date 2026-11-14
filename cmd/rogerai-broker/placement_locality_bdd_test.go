@@ -1679,6 +1679,8 @@ func (s *plcState) movedOffByTrigger(trigger string) error {
 	lt := s.towers["T"]
 	later := s.stash["now"].(time.Time).Add(canaryInterval)
 	s.b.towerHubCheckOnce(later)
+	// Somewhere for them to go: a move with no destination is never started.
+	liveEdgeTower(s.t, s.b, s.srv, "plc-elsewhere-"+randHex(3), "203.0.113.202:8443")
 	s.b.mobilityPassOnce(later)
 	moved := map[string]string{}
 	for _, ev := range towerEventsOf(s.t, s.b, lt.id, evStationMoveStarted) {

@@ -421,3 +421,68 @@ func TestHealthFailingIsWrittenOncePerRunEvenIfTheCountSkips(t *testing.T) {
 	b.noteHealthStreak("tw-1")
 	require.Len(t, towerEventsOf(t, b, "tw-1", evHealthFailing), 2)
 }
+
+// AUDIT FINDING: an operator's own drain/resume events could fill the bounded read and hide a
+// later suspension.
+func TestDrainResumeTogglingCannotHideASuspension(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	lt := approvedTower(t, b, srv, "nora", time.Now().Add(-100*24*time.Hour))
+	setStageAt(t, b, lt.id, placement.StageEstablished, time.Now().Add(-90*24*time.Hour))
+	base := time.Now().Add(-80 * 24 * time.Hour)
+	for i := 0; i < stageScanLimit+50; i++ {
+		to := admit.StateDraining
+		if i%2 == 1 {
+			to = admit.StateActive
+		}
+		require.NoError(t, b.tower.registry.Record(admit.Event{TowerID: lt.id, Kind: evLifecycle,
+			Actor: "operator:nora", To: to, At: base.Add(time.Duration(i) * time.Minute)}))
+	}
+	require.NoError(t, b.tower.registry.Record(admit.Event{TowerID: lt.id, Kind: evLifecycle,
+		Actor: admit.ActorSystem, To: admit.StateSuspended, Reason: "reputation"}))
+	b.dropStageCache(admit.Event{TowerID: lt.id, Kind: evLifecycle})
+	require.Equal(t, placement.StageNew, b.towerStage(lt.id))
+}
+
+// AUDIT FINDING: a disqualifier landing between the sweep's read and its demotion write was
+// left out of the causes, so excusing the listed ones restored the stage.
+func TestADisqualifierAfterTheLatestListedCauseStillCounts(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	b.adminKey = "admin-secret"
+	lt := approvedTower(t, b, srv, "nora", time.Now().Add(-20*24*time.Hour))
+	setStageAt(t, b, lt.id, placement.StageProving, time.Now().Add(-10*24*time.Hour))
+	require.NoError(t, b.tower.registry.Record(admit.Event{TowerID: lt.id, Kind: evIncident, Actor: "admin:broker-key",
+		Reason: "listed", At: time.Now().Add(-2 * time.Hour)}))
+	b.towerGovSweepOnce(time.Now())
+	listed := towerEventsOf(t, b, lt.id, evIncident)[0]
+	// The racing one: after the listed cause, before the demotion's write time.
+	require.NoError(t, b.tower.registry.Record(admit.Event{TowerID: lt.id, Kind: evIncident, Actor: "admin:broker-key",
+		Reason: "racing", At: time.Now().Add(-time.Hour)}))
+	code, raw := adminTowerPost(t, srv, "/tower/excuse", `{"tower_id":"`+lt.id+`","event_id":`+strconv.FormatInt(listed.ID, 10)+`,"reason":"ours"}`)
+	require.Equal(t, http.StatusOK, code, raw)
+	b.towerGovSweepOnce(time.Now())
+	require.Equal(t, placement.StageNew, b.towerStage(lt.id), "the unlisted cause still stands")
+}
+
+type stageReadFailing struct {
+	admit.Store
+	calls int
+}
+
+func (s *stageReadFailing) FindEvent(string, []string, bool) (admit.Event, bool, error) {
+	s.calls++
+	return admit.Event{}, false, admit.ErrUnavailable
+}
+
+// AUDIT FINDING: a failed read was not cached, so every request repeated it during an outage.
+func TestAnUnreadableStageIsRememberedBriefly(t *testing.T) {
+	fs := &stageReadFailing{Store: admit.NewMemStore()}
+	b, _ := towerTestBrokerWithAdmitStore(t, fs)
+	for i := 0; i < 10; i++ {
+		require.Equal(t, placement.StageNew, b.towerStage("tw-x"))
+	}
+	require.Equal(t, 1, fs.calls, "asked once, not per request")
+	b.stageMu.Lock()
+	c := b.stageCache["tw-x"]
+	b.stageMu.Unlock()
+	require.WithinDuration(t, time.Now().Add(stageFailCacheTTL-stageCacheTTL), c.at, time.Second, "remembered for the short failure window only")
+}

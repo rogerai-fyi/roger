@@ -264,6 +264,15 @@ func (r *Registry) EventsOfKinds(towerID string, kinds []string, since time.Time
 	return evs, nil
 }
 
+// EventsMovingTo reads a Tower's events of one kind that moved it into one of the states.
+func (r *Registry) EventsMovingTo(towerID, kind string, to []State, since time.Time, limit int) ([]Event, error) {
+	evs, err := r.store.EventsMovingTo(towerID, kind, to, since, limit)
+	if err != nil {
+		return nil, unavailable(err)
+	}
+	return evs, nil
+}
+
 func (r *Registry) FindTransition(towerID string, from, to State) (Event, bool, error) {
 	ev, ok, err := r.store.FindTransition(towerID, from, to)
 	if err != nil {

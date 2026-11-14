@@ -491,6 +491,12 @@ func (s *mobState) towerAbsent() error {
 func (s *mobState) briefDropout() error {
 	start := time.Now()
 	s.r.closeSession(s.r.a, s.r.aSess)
+	// A pass runs WHILE A is away (audit finding: without one, this scenario could not catch a
+	// mover that treats any absence as gone).
+	s.r.b.mobilityPassOnce(time.Now())
+	if len(s.startedFor(s.r.a.id, s.r.station)) != 0 {
+		return fmt.Errorf("a pass during a brief absence started a move")
+	}
 	s.r.aSess = s.r.openSession(s.r.a, s.r.srv, mobEndpointA, "")
 	if el := time.Since(start); el >= towerFreshnessWindow {
 		return fmt.Errorf("the new session took %v, not within the window %v", el, towerFreshnessWindow)
@@ -947,8 +953,18 @@ func (s *mobState) staysDue() error {
 	return s.dueWith(triggerFailing)
 }
 
-func (s *mobState) goneWithLoad() error {
+// closeAndOutlast takes Tower A off the link cleanly and lets its absence outlast the link
+// freshness window: one pass sees it missing, and the scenario's clock moves past the window,
+// so the scenario's own pass is the one that finds it gone (an orderly close is not "gone"
+// until then - station_mobility.feature, "A Tower that drops out briefly is not gone").
+func (s *mobState) closeAndOutlast() {
 	s.r.closeSession(s.r.a, s.r.aSess)
+	s.r.b.mobilityPassOnce(s.at)
+	s.at = s.at.Add(s.r.b.tower.link.Freshness() + time.Second)
+}
+
+func (s *mobState) goneWithLoad() error {
+	s.closeAndOutlast()
 	s.r.b.metricsMu.Lock()
 	s.r.b.inflight[s.r.nodeID] = 1
 	s.r.b.metricsMu.Unlock()
@@ -1410,8 +1426,10 @@ func (s *mobState) failingAndGoneMoveSilently() error {
 	if code != http.StatusOK || out["tower_id"] != r.bt.id {
 		return fmt.Errorf("the node's own re-attach answered %d %s", code, raw)
 	}
-	// tower_gone: S's Tower B goes away.
+	// tower_gone: S's Tower B goes away, and stays away past the freshness window.
 	r.closeSession(r.bt, r.bSess)
+	s.pass()
+	s.at = s.at.Add(r.b.tower.link.Freshness() + time.Second)
 	s.pass()
 	evs := s.startedFor(r.bt.id, r.station)
 	if len(evs) != 1 || evs[0].Reason != triggerGone || r.attachment().State != attach.StateDormant {
@@ -1516,7 +1534,7 @@ func (s *mobState) skipBForAnHour() error {
 
 func (s *mobState) dormantGoneNoReattach() error {
 	r := s.r
-	r.closeSession(r.a, r.aSess)
+	s.closeAndOutlast()
 	s.pass()
 	if err := s.dueWith(triggerGone); err != nil {
 		return err
@@ -1636,7 +1654,7 @@ func (s *mobState) moveWithLoad() error {
 		r.b.edgeEnterInflight(fmt.Sprintf("att-mob-load-%d", i), r.nodeID, "acct-mob", time.Now().Add(time.Hour))
 	}
 	// A loaded Station is moved only off a Tower that is gone.
-	r.closeSession(r.a, r.aSess)
+	s.closeAndOutlast()
 	s.pass()
 	return s.dueWith(triggerGone)
 }
@@ -1752,7 +1770,7 @@ func (s *mobState) gonePacedSame() error {
 			goneBefore++
 		}
 	}
-	s.r.closeSession(s.r.a, s.r.aSess)
+	s.closeAndOutlast()
 	s.pass()
 	gone := -goneBefore
 	for _, ev := range s.started(s.r.a.id) {

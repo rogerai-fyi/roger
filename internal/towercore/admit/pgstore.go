@@ -635,6 +635,32 @@ func (p *PGStore) EventsOfKinds(towerID string, kinds []string, since time.Time,
 	return out, nil
 }
 
+func (p *PGStore) EventsMovingTo(towerID, kind string, to []State, since time.Time, limit int) ([]Event, error) {
+	states := make([]string, len(to))
+	for i, st := range to {
+		states[i] = string(st)
+	}
+	rows, err := p.db.Query(`SELECT `+eventCols+` FROM rogerai.tower_events
+	      WHERE tower_id = $1 AND kind = $2 AND to_state = ANY($3) AND at > $4 ORDER BY at ASC, id ASC LIMIT $5`,
+		towerID, kind, states, since.UTC(), limit)
+	if err != nil {
+		return nil, wrap("events moving to", err)
+	}
+	defer rows.Close()
+	var out []Event
+	for rows.Next() {
+		ev, err := scanEvent(rows)
+		if err != nil {
+			return nil, wrap("events moving to", err)
+		}
+		out = append(out, ev)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, wrap("events moving to", err)
+	}
+	return out, nil
+}
+
 func (p *PGStore) FindEvent(towerID string, kinds []string, oldest bool) (Event, bool, error) {
 	ev, ok, err := findEvent(p.db, towerID, kinds, oldest)
 	if err != nil {

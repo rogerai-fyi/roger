@@ -941,6 +941,8 @@ func (s *rampState) stageEventNamesCause() error {
 }
 
 func (s *rampState) overCapDueStageCap() error {
+	// Somewhere for them to go: a move with no destination is never started.
+	liveEdgeTower(s.t, s.b, s.srv, "ramp-elsewhere-"+randHex(3), "203.0.113.201:8443")
 	s.b.mobilityPassOnce(s.passAt)
 	started := towerEventsOf(s.t, s.b, s.tw.id, evStationMoveStarted)
 	if len(started) != 12-stageCaps[stageNew].community {

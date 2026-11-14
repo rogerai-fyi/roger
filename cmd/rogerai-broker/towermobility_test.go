@@ -82,6 +82,15 @@ func (r *movingRig) reattach(t *testing.T) (int, string, string) {
 	return code, out.TowerID, raw
 }
 
+// passGone runs the mobility pass once to see a closed Tower missing and again once its absence
+// has outlasted the link freshness window - the only way a Tower becomes "gone".
+func passGone(b *broker, now time.Time) time.Time {
+	b.mobilityPassOnce(now)
+	later := now.Add(b.tower.link.Freshness() + time.Second)
+	b.mobilityPassOnce(later)
+	return later
+}
+
 func reattachNudges(b *broker, node string) int {
 	b.cancels.mu.Lock()
 	defer b.cancels.mu.Unlock()
@@ -173,6 +182,8 @@ func TestAGoneTowerMovesItsStationsWithoutObservationsAndEvenWithLoad(t *testing
 	r.b.metricsMu.Unlock()
 	r.b.tower.link.Close(mustCurrent(t, r.b, r.a.id), r.a.id)
 	r.b.mobilityPassOnce(time.Now())
+	require.True(t, r.attachment(t).Live(), "a Tower that just closed is not gone yet")
+	passGone(r.b, time.Now())
 	require.Equal(t, attach.StateDormant, r.attachment(t).State)
 	require.Equal(t, "tower_gone", towerEventsOf(t, r.b, r.a.id, evStationMoveStarted)[0].Reason)
 	require.Zero(t, reattachNudges(r.b, r.nodeID), "an old node gets no nudge")
@@ -261,8 +272,7 @@ func TestAnUndoneMoveKeepsTheStationOffItsIntendedTowerForAnHour(t *testing.T) {
 func TestAMoveOffAGoneTowerIsNeverUndoneBackOntoIt(t *testing.T) {
 	r := newMovingRig(t, true)
 	r.b.tower.link.Close(mustCurrent(t, r.b, r.a.id), r.a.id)
-	now := time.Now()
-	r.b.mobilityPassOnce(now)
+	now := passGone(r.b, time.Now())
 	require.Equal(t, attach.StateDormant, r.attachment(t).State)
 	for i := 1; i <= 4; i++ {
 		r.b.mobilityPassOnce(now.Add(time.Duration(i) * 31 * time.Second))
@@ -308,9 +318,9 @@ func TestMovesArePacedPerTowerAndFleetWide(t *testing.T) {
 	}
 	liveEdgeTower(t, b, srv, "op-b", "198.51.100.9:8443")
 	b.tower.link.Close(mustCurrent(t, b, a.id), a.id)
-	b.mobilityPassOnce(time.Now())
+	later := passGone(b, time.Now())
 	require.Len(t, towerEventsOf(t, b, a.id, evStationMoveStarted), movesPerTowerPerPass)
-	b.mobilityPassOnce(time.Now().Add(time.Minute))
+	b.mobilityPassOnce(later.Add(time.Minute))
 	require.Len(t, towerEventsOf(t, b, a.id, evStationMoveStarted), 8)
 }
 
@@ -450,7 +460,7 @@ func TestTheGoneHalfRunsOnlyUnderTheLease(t *testing.T) {
 	r.b.multiInstance, r.b.shared, r.b.instanceID = true, vs, "i-1"
 	require.True(t, r.b.holdsMobilityLease()) // another pass holds it now
 	r.b.tower.link.Close(mustCurrent(t, r.b, r.a.id), r.a.id)
-	r.b.mobilityPassOnce(time.Now())
+	passGone(r.b, time.Now())
 	require.True(t, r.attachment(t).Live(), "without the lease this instance starts no gone moves")
 }
 
@@ -518,4 +528,47 @@ func TestHouseFailoverAboveTheOwnersCapIsMovedOff(t *testing.T) {
 		n += len(towerEventsOf(t, b, id, evStationMoveStarted))
 	}
 	require.Equal(t, 3, n, "8 house Stations, owner cap 5: the 3 newest move")
+}
+
+// AUDIT FINDING: an orderly restart deletes the session at once, and the Tower was treated as
+// gone on the next pass.
+func TestATowerThatRestartsWithinTheWindowIsNotGone(t *testing.T) {
+	r := newMovingRig(t, true)
+	now := time.Now()
+	r.b.tower.link.Close(mustCurrent(t, r.b, r.a.id), r.a.id)
+	r.b.mobilityPassOnce(now)
+	r.b.mobilityPassOnce(now.Add(r.b.tower.link.Freshness() / 2))
+	require.True(t, r.attachment(t).Live())
+	// It reconnects inside the window: the absence clock is forgotten.
+	code, raw := r.a.call(t, r.srv, "/tower/session", jsonOf(t, link.Hello{Network: link.PublicNetwork,
+		Versions: []int{1}, TowerID: r.a.id, Capabilities: mandatoryCaps(), RelayEndpoint: "192.0.2.9:8443"}), nil)
+	require.Equal(t, http.StatusOK, code, raw)
+	r.b.mobilityPassOnce(now.Add(2 * r.b.tower.link.Freshness()))
+	require.True(t, r.attachment(t).Live(), "a Tower back inside the window was never gone")
+	require.Empty(t, towerEventsOf(t, r.b, r.a.id, evStationMoveStarted))
+}
+
+// AUDIT FINDING: a move that landed back on its own Tower cleared the pause, so a Tower that
+// stayed failing cycled the Station dark and back every pass.
+func TestAReturnedMovePausesTheStation(t *testing.T) {
+	r := newMovingRig(t, true)
+	now := time.Now()
+	require.True(t, r.b.startMove(r.attachment(t), "", triggerFailing, now))
+	r.b.tower.link.Close(mustCurrent(t, r.b, r.bTower.id), r.bTower.id)
+	code, tower, raw := r.reattach(t)
+	require.Equal(t, http.StatusOK, code, raw)
+	require.Equal(t, r.a.id, tower)
+	_, until, _ := r.b.tower.mobility.Skip(r.station)
+	require.WithinDuration(t, time.Now().Add(moveSkipFor), until, 5*time.Second)
+}
+
+// AUDIT FINDING: a failing or over-cap move with nowhere to go only took the Station dark.
+func TestAFailingTowerWithNoAlternativeKeepsItsStation(t *testing.T) {
+	r := newMovingRig(t, true)
+	r.b.tower.link.Close(mustCurrent(t, r.b, r.bTower.id), r.bTower.id) // B gone: nowhere to go
+	now := time.Now()
+	r.observe(t, false, now)
+	r.observe(t, false, now.Add(5*time.Minute))
+	require.True(t, r.attachment(t).Live())
+	require.Empty(t, towerEventsOf(t, r.b, r.a.id, evStationMoveStarted))
 }

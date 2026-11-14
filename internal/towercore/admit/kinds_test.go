@@ -37,3 +37,24 @@ func TestEventsOfKindsReadsByKindAndTimeNotByWindow(t *testing.T) {
 		require.Len(t, evs, 5, "limit applies")
 	})
 }
+
+// Only lifecycle moves INTO given states are read, so a Tower's own drain/resume toggling can
+// never fill a bounded read and hide a suspension (review finding).
+func TestEventsMovingToReadsOnlyThoseStates(t *testing.T) {
+	eachStore(t, func(t *testing.T, s Store) {
+		r := NewWithStore(Config{}, s)
+		base := time.Now().Add(-time.Hour).UTC().Truncate(time.Microsecond)
+		for i := 0; i < 50; i++ {
+			to := StateDraining
+			if i%2 == 1 {
+				to = StateActive
+			}
+			require.NoError(t, r.Record(Event{TowerID: "tw-1", At: base.Add(time.Duration(i) * time.Second), Kind: "lifecycle", Actor: "operator:o", To: to}))
+		}
+		require.NoError(t, r.Record(Event{TowerID: "tw-1", At: base.Add(time.Minute * 10), Kind: "lifecycle", Actor: ActorSystem, To: StateSuspended}))
+		evs, err := r.EventsMovingTo("tw-1", "lifecycle", []State{StateSuspended, StateRevoked}, time.Time{}, 5)
+		require.NoError(t, err)
+		require.Len(t, evs, 1)
+		require.Equal(t, StateSuspended, evs[0].To)
+	})
+}

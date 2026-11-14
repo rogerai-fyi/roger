@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"time"
 
 	"rogerai.fm/roger/v7/internal/towercore/admit"
@@ -58,8 +59,13 @@ const leaseLapseGrace = time.Hour
 // a runaway query.
 const stageScanLimit = 1000
 
-// disqualifierKinds are the kinds that can count against "clean".
-var disqualifierKinds = []string{evIncident, evHealthFailing, evLifecycle, evLeaseLapsed}
+// disqualifierKinds are the kinds that can count against "clean" by themselves; a lifecycle
+// event counts only when it moved the Tower to suspended or revoked, and is read by that state
+// so a Tower's own drain/resume toggling can never fill a bounded read.
+var (
+	disqualifierKinds  = []string{evIncident, evHealthFailing, evLeaseLapsed}
+	disqualifierStates = []admit.State{admit.StateSuspended, admit.StateRevoked}
+)
 
 // stageView is a Tower's stage as the record says, and the facts it was computed from.
 type stageView struct {
@@ -143,6 +149,7 @@ func (b *broker) readStage(towerID string, now time.Time) (stageView, error) {
 		}
 	}
 	since, sinceID := v.approved, int64(0)
+	listed := map[int64]bool{} // causes a demotion already names
 	if v.hasLast {
 		if placement.ValidStage(placement.Stage(v.last.To)) {
 			v.stage = placement.Stage(v.last.To)
@@ -152,19 +159,39 @@ func (b *broker) readStage(towerID string, now time.Time) (stageView, error) {
 			v.entered = t
 		}
 		since, sinceID = v.last.At, v.last.ID
+		// A demotion counts from its latest cause, not from when it was written, so a
+		// disqualifier that landed between the sweep's read and its write is still seen.
+		if causes := eventIDs(v.last.Detail["cause_events"]); len(causes) > 0 {
+			for _, c := range causes {
+				listed[c] = true
+			}
+			since, sinceID = v.entered, 0
+		}
 	}
 	if !v.hasLast && !v.hasAppr {
 		return v, nil
 	}
-	cands, err := reg.EventsOfKinds(towerID, disqualifierKinds, since.Add(-time.Nanosecond), stageScanLimit)
+	from := since.Add(-time.Nanosecond)
+	cands, err := reg.EventsOfKinds(towerID, disqualifierKinds, from, stageScanLimit)
 	if err != nil {
 		return v, err
 	}
+	moved, err := reg.EventsMovingTo(towerID, evLifecycle, disqualifierStates, from, stageScanLimit)
+	if err != nil {
+		return v, err
+	}
+	cands = append(cands, moved...)
+	sort.SliceStable(cands, func(i, j int) bool {
+		if !cands[i].At.Equal(cands[j].At) {
+			return cands[i].At.Before(cands[j].At)
+		}
+		return cands[i].ID < cands[j].ID
+	})
 	for _, ev := range cands {
 		// After the stage was entered: later in time, or at the same instant but later in the
-		// record.
+		// record, and never a cause the demotion already names.
 		after := ev.At.After(since) || (ev.At.Equal(since) && ev.ID > sinceID)
-		if !after || v.excused[ev.ID] {
+		if !after || v.excused[ev.ID] || listed[ev.ID] {
 			continue
 		}
 		dq, err := b.disqualifies(towerID, ev, now)
@@ -217,6 +244,9 @@ func disqualifyReason(ev admit.Event) string {
 // within the TTL.
 const stageCacheTTL = 15 * time.Second
 
+// stageFailCacheTTL is how long an unreadable stage is remembered as "new".
+const stageFailCacheTTL = 5 * time.Second
+
 type cachedStage struct {
 	stage placement.Stage
 	at    time.Time
@@ -247,20 +277,24 @@ func (b *broker) towerStage(towerID string) placement.Stage {
 		return c.stage
 	}
 	b.stageMu.Unlock()
-	st := stageNew
+	st, at := stageNew, now
 	if v, err := b.readStage(towerID, now); err == nil {
 		st = v.stage
 		if len(v.disq) > 0 {
 			st = stageNew
 		}
 		st = placement.MinStage(st, v.ceiling)
-		b.stageMu.Lock()
-		if b.stageCache == nil {
-			b.stageCache = map[string]cachedStage{}
-		}
-		b.stageCache[towerID] = cachedStage{stage: st, at: now}
-		b.stageMu.Unlock()
+	} else {
+		// A store that cannot answer is answered "new" for a short while rather than asked
+		// again by every request.
+		at = now.Add(stageFailCacheTTL - stageCacheTTL)
 	}
+	b.stageMu.Lock()
+	if b.stageCache == nil {
+		b.stageCache = map[string]cachedStage{}
+	}
+	b.stageCache[towerID] = cachedStage{stage: st, at: at}
+	b.stageMu.Unlock()
 	return st
 }
 
@@ -426,6 +460,11 @@ func (b *broker) towerExcuse(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	evs, err := b.tower.registry.EventsOfKinds(tw.ID, disqualifierKinds, time.Time{}, stageScanLimit)
+	if err == nil {
+		var moved []admit.Event
+		moved, err = b.tower.registry.EventsMovingTo(tw.ID, evLifecycle, disqualifierStates, time.Time{}, stageScanLimit)
+		evs = append(evs, moved...)
+	}
 	if err != nil {
 		jsonErr(w, http.StatusServiceUnavailable, "the record is unavailable - try again shortly")
 		return

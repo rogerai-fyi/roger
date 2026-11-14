@@ -198,8 +198,11 @@ type broker struct {
 	houseMu     sync.Mutex
 	houseOwners map[string]houseOwnerEntry
 	// stageCache is each Tower's trust stage for stageCacheTTL (towerstage.go), under stageMu.
-	stageMu     sync.Mutex
-	stageCache  map[string]cachedStage
+	stageMu    sync.Mutex
+	stageCache map[string]cachedStage
+	// absentSince is when each Tower's absence from the live set began, as this instance knows
+	// it (towermobility.go), under moveMu.
+	absentSince map[string]time.Time
 	moveMu      sync.Mutex
 	moveStreaks map[string]moveStreak
 	towerObsAt  map[string]time.Time
