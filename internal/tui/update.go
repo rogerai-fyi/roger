@@ -58,6 +58,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// One central call, after every update: a screen change opens or closes the
 		// on-request LAN scan (scan.go), so no key handler has to remember it.
 		mm.syncScans()
+		// AGENT's first-entry auto-tune waits for the operator to settle there (arrownav.go),
+		// and a SHARE scan that landed while they were away shows once they are back.
+		var settle tea.Cmd
+		if mm, settle = mm.settleAgentTune(); settle != nil {
+			cmd = tea.Batch(cmd, settle)
+		}
+		mm = mm.landHeldShareScan()
 		// [3] re-reads its status while it shows (edge_empty_simple.go).
 		if _, isKey := msg.(tea.KeyMsg); isKey {
 			if tick := mm.armEdgeStatusTick(); tick != nil {
@@ -137,6 +144,14 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m.toggleCompact(), nil
 	}
+	// The ←/→ section window: right after an arrow jump, more arrows keep switching
+	// sections even from a text prompt; any other key closes it and falls through.
+	var navM tea.Model
+	var navCmd tea.Cmd
+	var navDone bool
+	if m, navM, navCmd, navDone = m.navKey(k); navDone {
+		return navM, navCmd
+	}
 	switch m.mode {
 	case modeCommand:
 		switch k.String() {
@@ -155,7 +170,10 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case "enter":
-			cmd := strings.TrimSpace(m.cmd.Value())
+			// The palette is opened by `/`, so a pasted `/freq ...`, `//search` or ` / //freq`
+			// means the same as typing the bare verb. Normalize ONCE and hand the same string
+			// to the history scrub and to run, so the scrub always sees the real verb.
+			cmd := normCommand(m.cmd.Value())
 			m.cmd.SetValue("")
 			m.mode = modeBrowse
 			// Recorded WITHOUT its secret. `/freq <code>` carries a band's frequency
@@ -170,6 +188,12 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.cmd.SetValue("")
 			m.mode = modeBrowse
 			return m, nil
+		case "/":
+			// The prompt already shows the `/` that opened it, so a second leading one
+			// (muscle memory: `//search`) is dropped instead of breaking the command.
+			if m.cmd.Value() == "" {
+				return m, nil
+			}
 		}
 		var c tea.Cmd
 		m.cmd, c = m.cmd.Update(k)
@@ -608,6 +632,7 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "/", ":":
 			m.mode = modeCommand
+			m.cmdLead = k.String() // echoed in the prompt, so the `/` you pressed shows
 			m.cmd.Focus()
 			return m, textinput.Blink
 		case "f":
@@ -935,11 +960,18 @@ func (m model) runSession(line string) (tea.Model, tea.Cmd) {
 
 // run handles a slash command.
 func (m model) run(cmd string) (tea.Model, tea.Cmd) {
+	// The palette is opened by `/`, so a typed or pasted `/search` (or `//search`)
+	// means the same as `search`.
+	cmd = normCommand(cmd)
 	fields := strings.Fields(cmd)
 	if len(fields) == 0 {
 		return m, nil
 	}
 	switch fields[0] {
+	case "theme":
+		return m.setThemeLive(fields[1:])
+	case "colorblind", "colourblind", "cb":
+		return m.setColorblindLive(fields[1:])
 	case "search", "s":
 		m.status = "re-scanning the band…"
 		m.scanErr, m.scanned = false, false
@@ -1043,6 +1075,16 @@ func (m model) doShare(args []string) (tea.Model, tea.Cmd) {
 	// keystroke for seconds on a busy host (120+ open ports to probe); now the user
 	// sees the scanning indicator at once and the sharesDetectedMsg lands the rows.
 	m.mode = modeShare
+	// ONE SCAN AT A TIME. A return visit while an earlier scan is still running (a quick
+	// ←/→ walk through SHARE and back) waits for that one instead of starting a second:
+	// two probes race, and the later result would reset whatever the operator had begun
+	// on the earlier one, such as a key half typed into the wizard. A fresh visit also
+	// replaces any result parked while the operator was away.
+	detectCmd := detectSharesCmd(m.shareUp, m.shareKey)
+	if m.shareLoading || m.shareRefreshing {
+		detectCmd = nil
+	}
+	m.shareHeld = nil
 	// RE-ENTRY KEEPS THE TABLE. The rows from the last scan live in the shared controller
 	// and are still perfectly good to look at; only their freshness is in question. So a
 	// return visit renders them at once and re-detects BEHIND them, folding changes in
@@ -1059,7 +1101,7 @@ func (m model) doShare(args []string) (tea.Model, tea.Cmd) {
 			m.sharePending = args[0]
 		}
 		m.status = stDim.Render("refreshing local models…")
-		return m, tea.Batch(detectSharesCmd(m.shareUp, m.shareKey), m.shareModelsCmd())
+		return m, tea.Batch(detectCmd, m.shareModelsCmd())
 	}
 	m.shareLoading = true
 	m.setupOnEmpty = true // the initial open: an empty scan drops into the guided wizard
@@ -1070,7 +1112,7 @@ func (m model) doShare(args []string) (tea.Model, tea.Cmd) {
 		m.sharePending = args[0] // `/share <model>` shortcut: flip it on air after detect
 	}
 	m.status = stDim.Render("scanning the band for local models…")
-	return m, tea.Batch(detectSharesCmd(m.shareUp, m.shareKey), m.shareModelsCmd())
+	return m, tea.Batch(detectCmd, m.shareModelsCmd())
 }
 
 // onSharesDetected folds an async detection result into the provider table: it
@@ -1084,6 +1126,11 @@ func (m model) onSharesDetected(found []detect.Found, needKey []string) (tea.Mod
 	// The fold differs: a quiet result must not move the operator anywhere, must not
 	// reset their cursor, and an empty one must not erase rows that were on screen.
 	quiet := m.shareRefreshing && !m.shareLoading
+	// AWAY: the operator has left SHARE since the scan started (a ←/→ walk passes through
+	// SHARE on its way to EDGE, CONFIG, ...). Loud or quiet, the result must not move them
+	// or write over the screen they are on. Rows are folded in for the next visit, and a
+	// result that would have opened the wizard is parked until they come back.
+	away := !m.inShareSection()
 	m.shareLoading = false
 	m.shareRefreshing = false
 	if quiet && len(found) == 0 {
@@ -1092,31 +1139,25 @@ func (m model) onSharesDetected(found []detect.Found, needKey []string) (tea.Mod
 		// path exists to avoid. Say it quietly; r probes again behind these same rows
 		// (with rows on screen every re-scan is the quiet kind - no loud pose exists to
 		// advertise, so the hint must not promise one).
-		m.status = stDim.Render("re-scan found nothing new - keeping the last scan (r tries again)")
+		if !away {
+			m.status = stDim.Render("re-scan found nothing new - keeping the last scan (r tries again)")
+		}
 		return m, nil
 	}
 	if len(found) == 0 {
+		if m.mode == modeShareSetup && (m.setupAwaitKey || m.setupPaste != "" || m.setupKey != "") {
+			// The wizard is up and the operator has started on it, so this is a late second
+			// result: the URL or key they are typing stays exactly as it is.
+			return m, nil
+		}
+		if away {
+			if m.setupOnEmpty {
+				m.shareHeld = &heldShareScan{needKey: needKey}
+			}
+			return m, nil
+		}
 		if m.setupOnEmpty {
-			// GUIDED FALLBACK: nothing usable detected -> the in-TUI setup wizard (pick a
-			// tool for a one-liner, or paste a URL we verify), not a dead-end status line.
-			// When a server IS there but key-protected (401/403), drop straight onto the
-			// paste row with its URL pre-filled and ask for the key - the most likely fix.
-			nm := m.enterShareSetup()
-			if len(needKey) > 0 {
-				nm.setupCursor = len(setupOptions) - 1 // the "Other - paste a URL" row
-				nm.setupPaste = needKey[0]
-				nm.setupAwaitKey = true
-				nm.status = stDim.Render(needKey[0] + " needs an API key - type it and press enter")
-				return nm, nil
-			}
-			if m.shareRescan {
-				note := m.setupHint
-				if note == "" {
-					note = "still nothing on the defaults / your open ports - give it a moment, or paste the URL below"
-				}
-				nm.setupErr = note
-			}
-			return nm, nil
+			return m.shareSetupLanding(needKey), nil
 		}
 		m.status = stEmber.Render("! still nothing on the defaults / your open ports - press r to re-scan, or start a local LLM")
 		return m, nil
@@ -1166,6 +1207,10 @@ func (m model) onSharesDetected(found []detect.Found, needKey []string) (tea.Mod
 	// QUIET one changes nothing about where they are: they may have hopped to another
 	// screen while it ran, and a background result that teleports them back is a bug
 	// wearing a feature's clothes.
+	if away {
+		// Off SHARE: the table's hint would describe a screen that is not showing.
+		return m, nil
+	}
 	if !quiet {
 		m.mode = modeShare
 	}
@@ -1473,6 +1518,48 @@ func (m *model) onStationRenameKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// heldShareScan is an empty first scan that landed while the operator was off SHARE.
+// The wizard it would have opened (or its key prompt, for a key-protected server)
+// shows once they are back on SHARE, however they got there (esc from EDGE or LOGIN).
+type heldShareScan struct{ needKey []string }
+
+// landHeldShareScan shows a parked scan result as soon as the operator is back on the
+// SHARE table. Called after every update; [2] SHARE itself scans afresh instead.
+func (m model) landHeldShareScan() model {
+	if m.shareHeld == nil || m.mode != modeShare || m.shareLoading || m.shareRefreshing {
+		return m
+	}
+	held := m.shareHeld
+	m.shareHeld = nil
+	if len(m.shareRows) > 0 {
+		return m // a later scan found models; the table is the right screen
+	}
+	return m.shareSetupLanding(held.needKey)
+}
+
+// shareSetupLanding is the GUIDED FALLBACK after an empty first scan: the in-TUI setup
+// wizard (pick a tool for a one-liner, or paste a URL we verify), not a dead-end status
+// line. When a server IS there but key-protected (401/403), it drops straight onto the
+// paste row with its URL pre-filled and asks for the key, which is the most likely fix.
+func (m model) shareSetupLanding(needKey []string) model {
+	nm := m.enterShareSetup()
+	if len(needKey) > 0 {
+		nm.setupCursor = len(setupOptions) - 1 // the "Other - paste a URL" row
+		nm.setupPaste = needKey[0]
+		nm.setupAwaitKey = true
+		nm.status = stDim.Render(needKey[0] + " needs an API key - type it and press enter")
+		return nm
+	}
+	if m.shareRescan {
+		note := m.setupHint
+		if note == "" {
+			note = "still nothing on the defaults / your open ports - give it a moment, or paste the URL below"
+		}
+		nm.setupErr = note
+	}
+	return nm
+}
+
 // enterShareSetup opens the in-TUI guided fallback when no local model was
 // detected: a small wizard to pick a tool (for a start one-liner) or paste an
 // endpoint we verify with detect.ProbeKey. Mirrors the CLI guidedUpstream flow.
@@ -1771,12 +1858,23 @@ func (m model) onLoginKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// keeps running in the background and still lands its loginMsg). No key restarts
 	// the flow, so there is never a surprise second code.
 	switch k.String() {
-	case "esc", "left", "right":
-		// Dismiss: keep the current login state exactly as it is. Arrowing away (the
-		// preset cycle keys) must NOT start a flow or log anyone out - it just leaves.
+	case "esc":
+		// Dismiss: keep the current login state exactly as it is.
 		m.mode = m.loginReturn
 		m.status = stDim.Render("")
 		return m, nil
+	case "left", "right":
+		// Arrowing away moves on to the neighbouring section (HELP / CONFIG) like every
+		// other preset, instead of bouncing back to where LOGIN was opened from. It
+		// never starts a flow or logs anyone out; the login state is kept as it is. The
+		// panel's prompt ("y confirms", "press enter") goes with it: on the next screen
+		// those keys mean something else.
+		m.status = ""
+		dir := +1
+		if k.String() == "left" {
+			dir = -1
+		}
+		return m.stepPreset(dir)
 	}
 	if m.loggedInState() {
 		// LOGGED IN -> a logout confirm. y logs out; everything else keeps the session.
@@ -2593,6 +2691,9 @@ func (m model) onAirPanel(w int) string {
 // as runTUI); the thin Run/RunWith/RunWithNotice/RunWithHooks defaults-only wrappers were
 // removed - a caller passes the explicit values (Hooks{} / "" / nil / NewController).
 func RunWithController(broker, user string, limits *LimitStore, notice string, hooks Hooks, ctrl *node.Controller) error {
+	// The theme is in force before the model draws anything it keeps (launchTUI applies
+	// it again, which is a no-op by then).
+	applyTheme()
 	m := NewWithHooksController(broker, user, limits, hooks, ctrl)
 	m.updateLine = notice
 	// Smart selection owns transcript drags at startup so mouse release can copy and
@@ -2617,6 +2718,9 @@ func RunResumedWithController(
 	ctrl *node.Controller,
 	item session.Snapshot,
 ) error {
+	// The restored transcript is rendered right here, so the theme must already be in
+	// force: otherwise a forced light theme shows the restored lines in the dark arm.
+	applyTheme()
 	m, err := NewResumedWithHooksController(broker, user, limits, hooks, ctrl, item)
 	if err != nil {
 		return err

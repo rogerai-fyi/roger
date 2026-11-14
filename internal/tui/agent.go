@@ -432,15 +432,19 @@ func (m model) enterAgent() (tea.Model, tea.Cmd) {
 			// noted once, when it resolves - never a per-turn "no station" pile-up.
 			m.agentLines = append(m.agentLines,
 				stDim.Render("· ")+stDim.Render("AGENT ready · dj.md persona · local session history"))
-			m.autoTuneBeatLen = len(m.agentLines) // the beat below is swapped for the outcome
-			m.agentLines = append(m.agentLines,
-				agentFindingBandBeat())
 			m.agentLandingLines = len(m.agentLines)
-			m.autoTuning = true
 			m.agentIn.Focus()
 			m.status = stDim.Render("AGENT ready · esc exits")
 			m.localScanning = true
-			return m, tea.Batch(textinput.Blink, operatorScanCmd(), localModelsCmd(), autoTuneCmd(m.broker, m.scanned))
+			if m.navArrive {
+				// Passing through on a ←/→ walk: the auto-tune waits until the operator
+				// settles here (settleAgentTune), so a walk never binds a band.
+				m.agentTuneOwed = true
+				return m, tea.Batch(textinput.Blink, operatorScanCmd(), localModelsCmd())
+			}
+			var tune tea.Cmd
+			m, tune = m.armAutoTune()
+			return m, tea.Batch(textinput.Blink, operatorScanCmd(), localModelsCmd(), tune)
 		} else {
 			// A proxy holder exists but no model resolves (a disconnected / oddly-seeded
 			// session): keep the honest up-front hint - the turn is still allowed and falls
@@ -1236,22 +1240,7 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.status = stDim.Render("turn stopped · ask again, or esc to leave AGENT")
 			return m, nil
 		}
-		m.agentIn.Blur()
-		m.agentNextHint = ""
-		// Clear the DESK focus on the way out, so a re-entry never lands in a dual-focus
-		// state (the ask box focused AND the desk focused). enterAgent re-focuses the ask
-		// box and any fresh scan re-arms the desk from a known-clean base.
-		m.deskFocused = false
-		// Tear down any in-flight silent auto-tune and drop the prompts parked while no band
-		// was tuned: otherwise the async /discover result lands AFTER we left - binding a band
-		// and firing a phantom parked turn outside AGENT (audit finding). Mirror the clean
-		// disarm (clearFindingBeat + flush).
-		m.autoTuning = false
-		m.clearFindingBeat()
-		m.flushPendingPrompts()
-		m.mode = modeBrowse
-		m.status = stDim.Render("left AGENT - the session is kept · [0] returns")
-		return m, nil
+		return m.leaveAgent(), nil
 	case "ctrl+y":
 		// Yank the agent transcript to the clipboard (OSC 52 + local tool), with the same
 		// prominent "✓ Copied to clipboard" toast as the channel. Plain `y` types into the
@@ -3755,4 +3744,25 @@ func (m model) curatedOnly(mdl string) (provider string, only bool) {
 		}
 	}
 	return provider, curated > 0 && human == 0
+}
+
+// leaveAgent is the clean, idle exit from AGENT to BROWSE (esc, or a ←/→ section
+// jump). The session is kept; [0] returns to it.
+func (m model) leaveAgent() model {
+	m.agentIn.Blur()
+	m.agentNextHint = ""
+	// Clear the DESK focus on the way out, so a re-entry never lands in a dual-focus
+	// state (the ask box focused AND the desk focused). enterAgent re-focuses the ask
+	// box and any fresh scan re-arms the desk from a known-clean base.
+	m.deskFocused = false
+	// Tear down any in-flight silent auto-tune and drop the prompts parked while no band
+	// was tuned: otherwise the async /discover result lands AFTER we left - binding a band
+	// and firing a phantom parked turn outside AGENT (audit finding). Mirror the clean
+	// disarm (clearFindingBeat + flush).
+	m.autoTuning = false
+	m.clearFindingBeat()
+	m.flushPendingPrompts()
+	m.mode = modeBrowse
+	m.status = stDim.Render("left AGENT - the session is kept · [0] returns")
+	return m
 }

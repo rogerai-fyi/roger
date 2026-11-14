@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"rogerai.fm/roger/v7/internal/agent"
 	"rogerai.fm/roger/v7/internal/glyphs"
 	"rogerai.fm/roger/v7/internal/node"
@@ -96,6 +97,22 @@ func (m model) presetButtons() []presetKey {
 // the two modes unmistakable. Compact + NO_COLOR-safe: under a narrow width it drops
 // to just key glyphs ([1][2][3][L][?]) so it never overflows.
 func (m model) presetBar(w int) string {
+	bar := m.presetBank()
+	// The ←/→ section countdown rides after the bank while the arrow window is open, when
+	// there is room. When there is not (the full bank is 87 columns, so any terminal
+	// from 73 to 94 wide), presetSpacer puts it on the blank row under the bank instead.
+	if nh := m.navHint(); nh != "" && navHintFits(bar, nh, w) {
+		bar += "  " + nh
+	}
+	// CLIPPED to the terminal. Below ~80 columns the full bank is wider than the screen
+	// and wrapped, which cost a row and - now that the frame is painted on a deck ground
+	// - broke the ground's rectangle where it spilled. Every other row on this screen
+	// already clips; this one was the exception.
+	return truncVisible(bar, w)
+}
+
+// presetBank is the bank's buttons on one row, with its two-column indent, unclipped.
+func (m model) presetBank() string {
 	btns := m.presetButtons()
 	narrow := m.narrow()
 	parts := make([]string, 0, len(btns))
@@ -120,12 +137,23 @@ func (m model) presetBar(w int) string {
 		}
 		parts = append(parts, cell)
 	}
-	bar := strings.Join(parts, stPreset.Render(" "))
-	// CLIPPED to the terminal. Below ~80 columns the full bank is wider than the screen
-	// and wrapped, which cost a row and - now that the frame is painted on a deck ground
-	// - broke the ground's rectangle where it spilled. Every other row on this screen
-	// already clips; this one was the exception.
-	return truncVisible("  "+bar, w)
+	return "  " + strings.Join(parts, stPreset.Render(" "))
+}
+
+func navHintFits(bar, hint string, w int) bool {
+	return lipgloss.Width(bar)+2+lipgloss.Width(hint) <= w
+}
+
+// presetSpacer is the blank row between the preset bank and the brand lockup. While the
+// arrow window is open and its countdown did not fit beside the bank, the countdown
+// sits here, so it shows at every width (an 80-column terminal included) and the frame
+// keeps the same number of rows.
+func (m model) presetSpacer(w int) string {
+	nh := m.navHint()
+	if nh == "" || navHintFits(m.presetBank(), nh, w) {
+		return ""
+	}
+	return truncVisible("  "+nh, w)
 }
 
 func (m model) presetForKey(key string) (tea.Model, tea.Cmd, bool) {
@@ -138,10 +166,14 @@ func (m model) presetForKey(key string) (tea.Model, tea.Cmd, bool) {
 		// / limits-not-editing / help), so left/right inherit that exact guard and never
 		// steal a cursor move in the schedule editor's window sub-fields, the command
 		// palette, chat, the AGENT prompt, the `f` filter, or a numeric field.
-		return m.cyclePreset(+1)
+		// The jump also opens the 2s arrow window (arrownav.go), so the NEXT arrow keeps
+		// moving even when this one lands on AGENT's prompt. EDGE keeps its arrows.
+		nm, cmd := m.stepPreset(+1)
+		return nm, cmd, true
 	case "left":
 		// Previous preset (wraps the other way: 0 -> ? -> L -> 4 -> 3 -> 2 -> 1 -> 0).
-		return m.cyclePreset(-1)
+		nm, cmd := m.stepPreset(-1)
+		return nm, cmd, true
 	case "m":
 		// COMPACT (the "windowshade"): toggle the calm, dense, animation-free view. Lives
 		// alongside the preset jumps so it works in every non-text-entry context (browse /
@@ -158,7 +190,7 @@ func (m model) presetForKey(key string) (tea.Model, tea.Cmd, bool) {
 	case "1":
 		// TUNE IN: leave any SHARE/limits screen, back to the band browser. A live
 		// channel stays open (tab/c returns to it).
-		if m.inShareSection() || m.mode == modeLimits || m.mode == modeEdge {
+		if m.inShareSection() || m.mode == modeLimits || m.mode == modeEdge || m.mode == modeHelp {
 			m.mode = modeBrowse
 			m.status = stDim.Render("TUNE IN - browse the band, enter to tune in")
 		}

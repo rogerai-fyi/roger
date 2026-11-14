@@ -3,6 +3,8 @@ package tui
 import (
 	"strings"
 	"testing"
+
+	"github.com/charmbracelet/lipgloss"
 )
 
 // The screensaver got COLOR (founder: "is it possible to add more color somewhere?"): cool
@@ -44,13 +46,29 @@ func TestWorldHasCoolTones(t *testing.T) {
 // TestToneStyleNeverRed: NO cool tone may resolve to the on-air RED. The one-red law lives at
 // the PALETTE level, not just in the buffer's eye bit — red is the single hot accent, reserved.
 func TestToneStyleNeverRed(t *testing.T) {
+	// Compare color VALUES, not identity: cRed is a paletteSlot, and a tone built from a
+	// copy of its AdaptiveColor (or the same hex) must still count as the red.
+	redL, redD := colorArms(cRed)
+	isRed := func(c lipgloss.TerminalColor) bool {
+		l, d := colorArms(c)
+		if l == "" && d == "" {
+			if hex, ok := c.(lipgloss.Color); ok {
+				l, d = string(hex), string(hex)
+			}
+		}
+		return strings.EqualFold(l, redL) || strings.EqualFold(d, redD)
+	}
 	for tn := toneNone; tn <= toneShip; tn++ {
-		if got := toneStyle(tn, false).GetForeground(); got == cRed {
+		if got := toneStyle(tn, false).GetForeground(); isRed(got) {
 			t.Errorf("tone %d resolves to the reserved on-air RED — breaks one-red", tn)
 		}
-		if got := toneStyle(tn, true).GetForeground(); got == cRed {
+		if got := toneStyle(tn, true).GetForeground(); isRed(got) {
 			t.Errorf("tone %d (bright) resolves to the reserved on-air RED — breaks one-red", tn)
 		}
+	}
+	// The check itself must be able to fail: the red's own value, copied, is caught.
+	if !isRed(*cRed.AdaptiveColor) || !isRed(lipgloss.Color(redD)) {
+		t.Fatal("isRed does not recognize the on-air red by value")
 	}
 }
 

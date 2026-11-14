@@ -119,6 +119,8 @@ type config struct {
 	WebuiOpen       *bool                        `json:"webui_open,omitempty"`        // auto-open the console in a browser at launch: nil/false = no (default; founder respec 2026-07-14 - it hijacked terminal-embedded browsers), true = yes
 	Palette         string                       `json:"palette,omitempty"`           // TUI color layer: ""/"full" = the lamp board (default), "mono" = the mono+red escape hatch. ROGER_PALETTE overrides per-run. (design overhaul increment 0)
 	Deck            string                       `json:"deck,omitempty"`              // the painted deck ground behind the whole TUI: ""/"on" = the RogerAI faceplate (default), "off" = inherit the terminal's own background. ROGER_DECK overrides per-run.
+	Theme           string                       `json:"theme,omitempty"`             // TUI theme: ""/"auto" = follow the terminal background, "light" = light page + dark text, "dark" = dark page. ROGER_THEME overrides per-run.
+	Colorblind      string                       `json:"colorblind,omitempty"`        // TUI color-vision board: ""/"off", "protan", "deutan" (red-green), "tritan" (blue-yellow). ROGER_COLORBLIND overrides per-run.
 	LastSeenVersion string                       `json:"last_seen_version,omitempty"` // the Version last launched; the tube warm-up boot plays only when this differs (first run + after an upgrade). (design overhaul increment 10)
 	// EdgeInstance is the name THIS roger goes by on its node's Edge (features/edge/
 	// instances.feature). Empty = a default derived from the node's name. Set by
@@ -557,6 +559,44 @@ func paletteFromConfig(c config) string {
 	return "full"
 }
 
+// themeFromConfig resolves the TUI theme (one of tui.ThemeModes) from the config, with
+// a valid ROGER_THEME winning for the run. Like ROGER_PALETTE and ROGER_DECK, a value
+// the env var does not recognize is ignored, so a typo never overrides the saved
+// setting. Case does not matter anywhere.
+func themeFromConfig(c config) string {
+	return pickMode(c.Theme, "ROGER_THEME", tui.ParseTheme)
+}
+
+// colorblindFromConfig resolves the TUI color-vision board (one of
+// tui.ColorblindModes) the same way, with ROGER_COLORBLIND.
+func colorblindFromConfig(c config) string {
+	return pickMode(c.Colorblind, "ROGER_COLORBLIND", tui.ParseColorblind)
+}
+
+// pickMode is the config value, or the env var when it holds a valid value; an unknown
+// saved value reads as the default (parse returns it for anything it rejects).
+func pickMode(saved, envVar string, parse func(string) (string, bool)) string {
+	if env, ok := parse(os.Getenv(envVar)); ok {
+		return env
+	}
+	mode, _ := parse(saved)
+	return mode
+}
+
+// setMode stores a `roger config set theme|colorblind` value: the default clears the key,
+// and anything that is not in modes is a usage error listing them.
+func setMode(dst *string, key, value string, modes []string, parse func(string) (string, bool)) error {
+	mode, ok := parse(value)
+	if !ok {
+		return fmt.Errorf("usage: roger config set %s %s", key, strings.Join(modes, "|"))
+	}
+	*dst = mode
+	if mode == modes[0] {
+		*dst = ""
+	}
+	return nil
+}
+
 // configNeedsMerge reports whether the on-disk config carries state the plain struct write
 // would drop: a genuinely-UNKNOWN key (C1), or a field a concurrent writer changed that this
 // process left untouched (C3). When false, the canonical struct marshal is safe - which also
@@ -854,6 +894,19 @@ func tuiHooks(cfg config) tui.Hooks {
 			c.Compact = on
 			_ = saveConfig(c)
 		},
+		// Persist an in-TUI /theme or /colorblind switch ("auto" / "off" clear the key).
+		SaveTheme: func(mode string) {
+			c := loadConfig()
+			if setMode(&c.Theme, "theme", mode, tui.ThemeModes, tui.ParseTheme) == nil {
+				_ = saveConfig(c)
+			}
+		},
+		SaveColorblind: func(mode string) {
+			c := loadConfig()
+			if setMode(&c.Colorblind, "colorblind", mode, tui.ColorblindModes, tui.ParseColorblind) == nil {
+				_ = saveConfig(c)
+			}
+		},
 		SaveSession: sessionStore.Save,
 		// BASE STATION / remote control (v5.0.0): the host bridge + roster/stream closures,
 		// wrapping the internal/client RC funcs. *client.RCBridge satisfies tui.RemoteBridge
@@ -1053,9 +1106,11 @@ func main() {
 // or dispatches a subcommand. It returns an error instead of calling os.Exit so a test
 // can drive every branch; main() owns turning that error into a stderr line + exit 1.
 func run(argv []string, cfg config) error {
-	tui.SetVersion(buildinfo.Version)      // help/about surfaces match `roger version`
-	tui.SetPalette(paletteFromConfig(cfg)) // point the lamp/mono color switch from config+ROGER_PALETTE
-	tui.SetDeck(deckFromConfig(cfg))       // and the painted deck ground from config+ROGER_DECK
+	tui.SetVersion(buildinfo.Version)            // help/about surfaces match `roger version`
+	tui.SetPalette(paletteFromConfig(cfg))       // point the lamp/mono color switch from config+ROGER_PALETTE
+	tui.SetDeck(deckFromConfig(cfg))             // and the painted deck ground from config+ROGER_DECK
+	tui.SetTheme(themeFromConfig(cfg))           // auto/light/dark (applied when a TUI launches)
+	tui.SetColorblind(colorblindFromConfig(cfg)) // color-vision board from config+ROGER_COLORBLIND
 	// Sweep a leftover binary from a prior Windows self-update (the locked .old that
 	// couldn't be deleted while the old process was still running). No-op elsewhere.
 	update.CleanupOld()
@@ -2584,8 +2639,8 @@ func cmdConfig(args []string) error {
 		if deckFromConfig(c) {
 			deck = "on"
 		}
-		fmt.Printf("broker = %s\nuser   = %s\nwebui-open = %v\npalette = %s\ndeck   = %s\nagent-timeout = %s\n",
-			c.Broker, c.User, c.webuiOpenEnabled(), paletteFromConfig(c), deck, formatAgentTimeout(c.AgentTimeoutSeconds))
+		fmt.Printf("broker = %s\nuser   = %s\nwebui-open = %v\npalette = %s\ndeck   = %s\ntheme = %s\ncolorblind = %s\nagent-timeout = %s\n",
+			c.Broker, c.User, c.webuiOpenEnabled(), paletteFromConfig(c), deck, themeFromConfig(c), colorblindFromConfig(c), formatAgentTimeout(c.AgentTimeoutSeconds))
 		printLimits(c)
 		fmt.Printf("(%s)\n", configPath())
 		return nil
@@ -2637,6 +2692,10 @@ func cmdConfig(args []string) error {
 				fmt.Println(c.webuiOpenEnabled())
 			case "palette":
 				fmt.Println(paletteFromConfig(c))
+			case "theme":
+				fmt.Println(themeFromConfig(c))
+			case "colorblind":
+				fmt.Println(colorblindFromConfig(c))
 			case "agent-timeout":
 				fmt.Println(formatAgentTimeout(c.AgentTimeoutSeconds))
 			}
@@ -2655,7 +2714,7 @@ func cmdConfig(args []string) error {
 		fmt.Println("unset mode (the default mode is back)")
 	case "set":
 		if len(args) < 3 {
-			return fmt.Errorf("usage: roger config set <broker|user|webui-open|palette|agent-timeout|mode> <value>")
+			return fmt.Errorf("usage: roger config set <broker|user|webui-open|palette|deck|theme|colorblind|agent-timeout|mode> <value>")
 		}
 		c := loadConfig()
 		switch args[1] {
@@ -2687,6 +2746,20 @@ func cmdConfig(args []string) error {
 				return fmt.Errorf("usage: roger config set deck on|off")
 			}
 			c.Deck = args[2]
+		case "theme":
+			// The TUI theme: "auto" follows the terminal background (default), "light"
+			// paints a light page with dark text, "dark" a dark page. ROGER_THEME
+			// overrides per-run; /theme switches it live inside the TUI.
+			if err := setMode(&c.Theme, "theme", args[2], tui.ThemeModes, tui.ParseTheme); err != nil {
+				return err
+			}
+		case "colorblind":
+			// Color-blind safe colors: "protan" / "deutan" (red-green: the red accent
+			// turns blue) or "tritan" (blue-yellow: the blue info color turns magenta).
+			// "off" restores the full board. ROGER_COLORBLIND overrides per-run.
+			if err := setMode(&c.Colorblind, "colorblind", args[2], tui.ColorblindModes, tui.ParseColorblind); err != nil {
+				return err
+			}
 		case "agent-timeout":
 			seconds, err := parseAgentTimeout(args[2])
 			if err != nil {

@@ -299,6 +299,11 @@ type Hooks struct {
 	// SaveCompact persists the compact toggle when the user presses [m], so the calm
 	// view is remembered next launch (nil = session-only; no disk I/O in the TUI).
 	SaveCompact func(bool)
+	// SaveTheme / SaveColorblind persist an in-TUI /theme or /colorblind switch so it
+	// sticks next launch (nil = session-only; the host owns the config write). The
+	// launch values come from the host via SetTheme / SetColorblind.
+	SaveTheme      func(string)
+	SaveColorblind func(string)
 	// SaveSession atomically persists a completed AGENT conversation. The host owns the
 	// private session directory; nil keeps the historical session-only behavior.
 	SaveSession func(session.Snapshot) error
@@ -1124,6 +1129,26 @@ type model struct {
 	// flight - an explicit prefers-reduced-motion within the app. Persisted via the
 	// host SaveCompact hook (nil = session-only).
 	compact bool
+	// The arrow-key section window (navWindow): after a ←/→ preset jump, further ←/→
+	// keep switching sections for navWindow, even when the section just reached is a
+	// text prompt (AGENT) or the LOGIN panel. EDGE keeps its arrows and ends a walk.
+	// Any other key closes the window and is handled normally, so typing starts at once.
+	// navMode pins the window to the section it opened on; navSeq retires stale ticks.
+	navUntil time.Time
+	navMode  mode
+	navSeq   int
+	// navArrive is set only while a ←/→ step runs the destination's jump, so AGENT can
+	// tell a walk passing through from an operator arriving to stay.
+	navArrive bool
+	// agentTuneOwed: AGENT's first entry was a walk passing through, so its one silent
+	// auto-tune has not run yet. settleAgentTune runs it once the operator settles there.
+	agentTuneOwed bool
+	// shareHeld is a first SHARE scan that came back empty while the operator was off
+	// SHARE; the wizard it would have opened shows when they return (landHeldShareScan).
+	shareHeld *heldShareScan
+	// cmdLead is the key that opened the command palette (`/` or `:`), echoed in
+	// front of the input so the prompt shows what was pressed.
+	cmdLead string
 	// chat session state (CHANNEL mode)
 	sysPrompt     string  // /system prompt prepended to each turn
 	sessCost      float64 // running session cost in dollars (sum of per-reply costs)
@@ -2493,6 +2518,8 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.status = stDim.Render("AGENT ready - ask it to do something")
 		return m, fetchBalance(m.broker, m.user)
+	case navTickMsg:
+		return m.onNavTick(msg)
 	case tea.KeyMsg:
 		// Escape during (or after) a smart-mode drag clears the transient
 		// highlight and copies nothing - it cancels the selection, not the view.
@@ -3488,6 +3515,11 @@ func (m model) cyclePreset(dir int) (tea.Model, tea.Cmd, bool) {
 	}
 	n := len(btns)
 	next := ((cur+dir)%n + n) % n
+	if m.mode == modeAgent {
+		// Arrowing out of AGENT takes the same clean exit as esc (blur, drop the desk
+		// focus, tear down a silent auto-tune) before the destination's jump runs.
+		m = m.leaveAgent()
+	}
 	return m.presetForKey(btns[next].key)
 }
 
@@ -5677,6 +5709,10 @@ func wrapStatus(status string, w int) string {
 // case so the next one is a single line and cannot be forgotten.
 var secretArgCommands = map[string]bool{"freq": true, "f": true}
 
+// normCommand is a palette line as run and as recorded: leading blanks and slashes in
+// any mix (` / //freq`) are dropped, so `/x`, `//x` and `x` are the same command.
+func normCommand(s string) string { return strings.TrimSpace(strings.TrimLeft(s, " \t/")) }
+
 // scrubSecretArgs strips the argument from a command that carries a secret, leaving the
 // verb. History is for "what did I run", and for these the answer is the verb - the
 // argument is a thing the product promised never to store.
@@ -5685,7 +5721,7 @@ func scrubSecretArgs(cmd string) string {
 	if len(fields) < 2 {
 		return cmd
 	}
-	verb := strings.ToLower(strings.TrimPrefix(fields[0], "/"))
+	verb := strings.ToLower(strings.TrimLeft(fields[0], "/"))
 	if !secretArgCommands[verb] {
 		return cmd
 	}
