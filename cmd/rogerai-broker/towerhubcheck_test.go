@@ -204,3 +204,22 @@ func TestARunGoesStaleAfterTwoCanaryIntervals(t *testing.T) {
 	require.Equal(t, 2*canaryInterval, health.RunStaleAfter)
 	require.Equal(t, observationStaleAfter, health.RunStaleAfter)
 }
+
+// AUDIT FINDING: after a quiet spell, a new outage resumed the old run and was taken as already
+// recorded. It starts over, and its health_failing is written when it reaches two.
+func TestANewOutageAfterAQuietSpellIsRecordedAgain(t *testing.T) {
+	b, _ := towerTestBroker(t)
+	base := time.Now().Add(-30 * time.Minute) // checks carry real times, as in production
+	rec := func(at time.Time) {
+		b.recordHealthCheck("tw-1", health.Check{OK: false, At: at, Source: health.SourceCanary, Slot: healthSlot(at), MinGap: healthMinGap})
+	}
+	rec(base)
+	rec(base.Add(canaryInterval))
+	require.Len(t, towerEventsOf(t, b, "tw-1", evHealthFailing), 1)
+	back := time.Now().Add(time.Minute) // after the first event, and after a quiet spell
+	rec(back)
+	sum, _ := b.tower.health.Summary("tw-1", base.Add(-time.Hour))
+	require.Equal(t, 1, sum.FailStreak, "one blip after a quiet spell")
+	rec(back.Add(canaryInterval))
+	require.Len(t, towerEventsOf(t, b, "tw-1", evHealthFailing), 2, "the new outage is recorded")
+}

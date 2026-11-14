@@ -255,3 +255,23 @@ func TestAPassResetsTheGapClock(t *testing.T) {
 		require.Equal(t, 1, sum.FailStreak)
 	})
 }
+
+// AUDIT FINDING: a run that went stale kept its old count, so the next failure of that kind
+// resumed it (3 after one blip) with the old start. A result arriving after its kind has been
+// quiet longer than RunStaleAfter starts the run over.
+func TestAStaleRunStartsOver(t *testing.T) {
+	eachStore(t, func(t *testing.T, s Store) {
+		for i := int64(0); i < 2; i++ {
+			require.NoError(t, s.RecordCheck("tw-1", Check{OK: false, At: day0.Add(time.Duration(i) * 5 * time.Minute), Source: SourceCanary, Slot: i}))
+		}
+		back := day0.Add(5*time.Minute + RunStaleAfter + time.Minute)
+		require.NoError(t, s.RecordCheck("tw-1", Check{OK: false, At: back, Source: SourceCanary, Slot: 50}))
+		sum, _ := s.Summary("tw-1", day0)
+		require.Equal(t, 1, sum.FailStreak, "one blip after a quiet spell is one")
+		require.True(t, sum.StreakSince.Equal(back), "with a new start")
+		require.NoError(t, s.RecordCheck("tw-1", Check{OK: false, At: back.Add(5 * time.Minute), Source: SourceCanary, Slot: 51}))
+		sum, _ = s.Summary("tw-1", day0)
+		require.Equal(t, 2, sum.FailStreak)
+		require.True(t, sum.StreakSince.Equal(back))
+	})
+}

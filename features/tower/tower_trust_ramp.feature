@@ -9,6 +9,9 @@
 # Each kind of check's run stops counting once that kind has gone unrefreshed for two canary
 # intervals (so a Tower whose Stations were moved off recovers on its hub checks). Streak values
 # from before 2026-11-14 were not carried over (the table had existed for a few hours).
+# A run that went quiet starts over on its next result. Failures closer than half a canary
+# interval count once, so a real failure landing that soon after a late one in the previous sweep
+# is counted one interval later.
 #
 # Founder request 2026-11-13: idea 4, "earned trust. New Towers carry a small, capped share of
 # traffic and grow as their canary and audit records stay clean", and "draft another message to

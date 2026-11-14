@@ -96,6 +96,11 @@ type run struct {
 // it, a pass resets it, and a failure counts once per slot and never closer than MinGap to the
 // last counted one.
 func (r run) advance(c Check) run {
+	if r.seen && c.At.Sub(r.lastAt) > RunStaleAfter {
+		// This kind went quiet longer than the window: what it said before no longer speaks
+		// for the Tower, so the run starts over from this result.
+		r = run{}
+	}
 	if c.At.After(r.lastAt) {
 		r.lastAt = c.At
 	}
@@ -274,12 +279,14 @@ func (p *PGStore) RecordCheck(towerID string, c Check) error {
         ON CONFLICT (tower_id, source) DO UPDATE SET
           last_at = GREATEST(COALESCE(r.last_at, $4::timestamptz), $4::timestamptz),
           fail_streak = CASE
+            WHEN (r.last_at IS NOT NULL AND $4::timestamptz - r.last_at > make_interval(secs => $7)) THEN CASE WHEN $3::boolean THEN 0 ELSE 1 END
             WHEN $5 < r.last_slot THEN r.fail_streak
             WHEN $3::boolean THEN 0
             WHEN $5 = r.last_slot AND r.slot_failed THEN r.fail_streak
             WHEN r.last_fail_at IS NOT NULL AND $4::timestamptz - r.last_fail_at < make_interval(secs => $6) THEN r.fail_streak
             ELSE r.fail_streak + 1 END,
           streak_since = CASE
+            WHEN (r.last_at IS NOT NULL AND $4::timestamptz - r.last_at > make_interval(secs => $7)) THEN CASE WHEN $3::boolean THEN NULL ELSE $4::timestamptz END
             WHEN $5 < r.last_slot THEN r.streak_since
             WHEN $3::boolean THEN NULL
             WHEN $5 = r.last_slot AND r.slot_failed THEN r.streak_since
@@ -287,20 +294,22 @@ func (p *PGStore) RecordCheck(towerID string, c Check) error {
             WHEN r.fail_streak = 0 THEN $4::timestamptz
             ELSE r.streak_since END,
           last_fail_at = CASE
+            WHEN (r.last_at IS NOT NULL AND $4::timestamptz - r.last_at > make_interval(secs => $7)) THEN CASE WHEN $3::boolean THEN NULL ELSE $4::timestamptz END
             WHEN $5 < r.last_slot THEN r.last_fail_at
             WHEN $3::boolean THEN NULL
             WHEN $5 = r.last_slot AND r.slot_failed THEN r.last_fail_at
             WHEN r.last_fail_at IS NOT NULL AND $4::timestamptz - r.last_fail_at < make_interval(secs => $6) THEN r.last_fail_at
             ELSE $4::timestamptz END,
           slot_failed = CASE
+            WHEN (r.last_at IS NOT NULL AND $4::timestamptz - r.last_at > make_interval(secs => $7)) THEN NOT $3::boolean
             WHEN $5 < r.last_slot THEN r.slot_failed
             WHEN $3::boolean THEN false
             WHEN $5 = r.last_slot AND r.slot_failed THEN true
             WHEN r.last_fail_at IS NOT NULL AND $4::timestamptz - r.last_fail_at < make_interval(secs => $6)
               THEN CASE WHEN $5 > r.last_slot THEN false ELSE r.slot_failed END
             ELSE true END,
-          last_slot = GREATEST(r.last_slot, $5)`,
-		towerID, c.Source, ok, at.UTC(), c.Slot, c.MinGap.Seconds())
+          last_slot = CASE WHEN (r.last_at IS NOT NULL AND $4::timestamptz - r.last_at > make_interval(secs => $7)) THEN $5 ELSE GREATEST(r.last_slot, $5) END`,
+		towerID, c.Source, ok, at.UTC(), c.Slot, c.MinGap.Seconds(), RunStaleAfter.Seconds())
 	return err
 }
 
