@@ -6,8 +6,9 @@
 # BUILD STATUS: BUILT. internal/towercore/admit/events.go (the record), cmd/rogerai-broker/towergov.go
 # (what writes it), tested in admit/events_test.go and cmd/rogerai-broker/towergov*_test.go.
 # The scenarios in the section "added 2026-11-13 from the pre-push audit" were confirmed by the
-# founder on 2026-11-13 ("Confirm all"). Two of them refine approved scenarios: refusals anyone could cause get actor "unauthenticated", and a
-# sweep writes one station_retired per Tower (naming up to 20) rather than one per Station.
+# founder on 2026-11-13 ("Confirm all"). Two of them refine approved scenarios: refusals anyone
+# could cause get actor "unauthenticated", and a sweep writes one station_retired per Tower
+# (naming up to 20) rather than one per Station.
 # Founder request: "we need to make sure we have proper governance over parts of this at
 # least for log/audit purposes ... find what we are missing and close the gap."
 #
