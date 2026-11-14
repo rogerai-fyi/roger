@@ -119,6 +119,8 @@ Feature: Roger Core routes transparently to Stations behind a joined Tower
     And joined-to-joined movement alone may use the signed fenced StationRehomeLeaseV1 flow
     And direct-to-joined or joined-to-direct movement is forbidden in v1 because origin kind is immutable for one Station ID; it requires terminal revocation of the old Station identity and fresh attachment under a new Station ID
 
+  # Superseded in part 2026-11-13 by station_mobility.feature (founder re-approval "Core moves,
+  # owner is told"): Core starts moves on its own and the owner is told. The fence below stands.
   Scenario: Rehoming a Station fences its prior origin
     Given a Station is active behind Tower A
     When its owner and Roger Core approve a move to Tower B with a newer Station origin epoch

@@ -1,5 +1,5 @@
-# PROPOSED SPEC - written 2026-11-13, NOT YET APPROVED. Nothing here is built until the
-# founder approves it; changes after approval need re-approval.
+# APPROVED SPEC - written and founder approved 2026-11-13 ("Approve as written"), with the
+# proposed numbers accepted as written. Changes to an approved scenario need re-approval.
 # BUILD STATUS: NOT BUILT.
 #
 # Founder request 2026-11-13: idea 4, "earned trust. New Towers carry a small, capped share of
