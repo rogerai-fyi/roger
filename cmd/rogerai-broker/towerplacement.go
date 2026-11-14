@@ -224,6 +224,14 @@ func (b *broker) chooseFrom(snap []towerFacts, owner string, loc placement.Local
 		cands = append(cands, c)
 		byID[c.TowerID] = f
 	}
+	// The count recorded is of Towers that could actually take this Station: for a house
+	// Station, a community Tower its stage keeps closed is a candidate the draw can never pick.
+	eligible := 0
+	for _, c := range cands {
+		if !houseStation || c.House || c.HouseAllowed {
+			eligible++
+		}
+	}
 	choice, reason, ok := placement.Choose(cands, houseStation, rng)
 	if pf, has := byID[prefer]; has && (!houseStation || pf.cand.House || pf.cand.HouseAllowed) {
 		choice, reason, ok = pf.cand, "move", true
@@ -242,7 +250,7 @@ func (b *broker) chooseFrom(snap []towerFacts, owner string, loc placement.Local
 	}
 	return placed{towerID: choice.TowerID, plane: f.plane, cand: choice, detail: map[string]any{
 		"class": choice.Class.String(), "tier": tier, "group": group, "reason": string(reason),
-		"candidates": len(cands),
+		"candidates": eligible,
 	}}, true
 }
 

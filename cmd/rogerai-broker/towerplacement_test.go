@@ -253,3 +253,17 @@ func TestAHouseTowerWinsACommunityStationOnlyWhenNearer(t *testing.T) {
 	got, _ = b.placeStation("someone", placement.Locality{Continent: "AF", Bucket: "192.0.2.0/24"}, nil)
 	require.Equal(t, nora.id, got.towerID)
 }
+
+// REVIEW FINDING (godog run): a house Station's placement counted community Towers its stage
+// keeps closed as candidates.
+func TestTheRecordedCandidateCountIsOfTowersThatCouldTakeTheStation(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	nora := liveEdgeTower(t, b, srv, "nora", "198.51.100.9:8443")
+	setStage(t, b, nora.id, stageNew) // allows no house Stations
+	houseTower(t, b, srv, "roger-house", "203.0.113.9:8443")
+	signedInOperator(t, b, "house-or")
+	makeHouse(t, b, "house-or")
+	got, ok := b.placeStation(ownerPubkeyOf(t, b, "house-or"), placement.Locality{}, nil)
+	require.True(t, ok)
+	require.EqualValues(t, 1, got.detail["candidates"])
+}
