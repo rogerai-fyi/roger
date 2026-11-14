@@ -5,9 +5,8 @@
 # scenario need re-approval.
 # BUILD STATUS: BUILT. internal/towercore/admit/events.go (the record), cmd/rogerai-broker/towergov.go
 # (what writes it), tested in admit/events_test.go and cmd/rogerai-broker/towergov*_test.go.
-# The scenarios in the section "added 2026-11-13 from the pre-push audit" are PROPOSED: built
-# (they close audit and review findings), but not yet confirmed by the founder. Two of them
-# refine approved scenarios: refusals anyone could cause get actor "unauthenticated", and a
+# The scenarios in the section "added 2026-11-13 from the pre-push audit" were confirmed by the
+# founder on 2026-11-13 ("Confirm all"). Two of them refine approved scenarios: refusals anyone could cause get actor "unauthenticated", and a
 # sweep writes one station_retired per Tower (naming up to 20) rather than one per Station.
 # Founder request: "we need to make sure we have proper governance over parts of this at
 # least for log/audit purposes ... find what we are missing and close the gap."
@@ -335,7 +334,7 @@ Feature: Every governance event about a Tower leaves an attributed, durable reco
     When an administrator opens "tw-1"'s detail
     Then it says "never connected" and when it was approved and by whom
 
-  # --- added 2026-11-13 from the pre-push audit; awaiting founder confirmation ------------
+  # --- added 2026-11-13 from the pre-push audit; founder confirmed 2026-11-13 --------------
 
   Scenario: A close that ended nothing is not recorded as a close
     Given "tw-1" has replaced session "s-1" with a live session "s-2"
