@@ -67,6 +67,7 @@ type placed struct {
 	towerID string
 	plane   link.RelayPlane
 	detail  map[string]any
+	cand    placement.Candidate
 }
 
 type towerFacts struct {
@@ -80,6 +81,12 @@ type towerFacts struct {
 // placeStation chooses the Tower for a Station owned by owner, observed at loc. exclude names
 // Towers that may not be chosen (the one a move is leaving, or a failed move's target).
 func (b *broker) placeStation(owner string, loc placement.Locality, exclude map[string]bool) (placed, bool) {
+	return b.placeStationPrefer(owner, loc, exclude, "")
+}
+
+// placeStationPrefer is placeStation with a preferred Tower - a move's intended target - taken
+// whenever it is still an eligible candidate.
+func (b *broker) placeStationPrefer(owner string, loc placement.Locality, exclude map[string]bool, prefer string) (placed, bool) {
 	ts := b.tower
 	now := time.Now()
 	towers, err := ts.link.LiveTowersChecked()
@@ -150,6 +157,9 @@ func (b *broker) placeStation(owner string, loc placement.Locality, exclude map[
 		byID[f.cand.TowerID] = f
 	}
 	choice, reason, ok := placement.Choose(cands, houseStation, placementRand())
+	if pf, has := byID[prefer]; has && (!houseStation || pf.cand.House || pf.cand.HouseAllowed) {
+		choice, reason, ok = pf.cand, "move", true
+	}
 	if !ok {
 		return placed{}, false
 	}
@@ -162,7 +172,7 @@ func (b *broker) placeStation(owner string, loc placement.Locality, exclude map[
 	if choice.Tier == placement.TierB {
 		tier = "B"
 	}
-	return placed{towerID: choice.TowerID, plane: f.plane, detail: map[string]any{
+	return placed{towerID: choice.TowerID, plane: f.plane, cand: choice, detail: map[string]any{
 		"class": choice.Class.String(), "tier": tier, "group": group, "reason": string(reason),
 		"candidates": len(cands),
 	}}, true
@@ -174,4 +184,16 @@ func placementRand() *mrand.Rand {
 	var seed [8]byte
 	_, _ = rand.Read(seed[:])
 	return mrand.New(mrand.NewSource(int64(binary.LittleEndian.Uint64(seed[:]))))
+}
+
+// towerCandidate is how placement sees one Tower for a Station at loc - the comparison a move
+// is judged against.
+func (b *broker) towerCandidate(towerID string, loc placement.Locality) placement.Candidate {
+	c := placement.Candidate{TowerID: towerID, Tier: b.towerTier(towerID, time.Now())}
+	if tw, ok := b.tower.registry.Get(towerID); ok {
+		c.House = b.isHouseOwner(tw.Owner)
+	}
+	tloc, _ := b.tower.link.Locality(towerID)
+	c.Class = placement.ClassOf(loc, tloc)
+	return c
 }

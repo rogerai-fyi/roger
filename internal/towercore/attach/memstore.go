@@ -1,6 +1,7 @@
 package attach
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"sync"
@@ -382,6 +383,33 @@ func (m *memStore) MarkAuditProven(stationID string, at time.Time) (bool, error)
 	}
 	rec.AuditProvenAt = at
 	m.byID[stationID] = rec
+	return true, nil
+}
+
+func (m *memStore) DormantForMove(stationID, towerID string, epoch int64) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	at, ok := m.byID[stationID]
+	if !ok || !at.Live() || at.Origin.TowerID != towerID || at.Epoch != epoch {
+		return false, nil
+	}
+	at.State = StateDormant
+	m.byID[stationID] = at
+	return true, nil
+}
+
+func (m *memStore) UndoMove(stationID, towerID string, epoch int64, state string) (bool, error) {
+	if state != StateQuarantine && state != StateActive {
+		return false, reject(errors.New("a move is undone into a serving state only"))
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	at, ok := m.byID[stationID]
+	if !ok || at.State != StateDormant || at.Origin.TowerID != towerID || at.Epoch != epoch {
+		return false, nil
+	}
+	at.State = state
+	m.byID[stationID] = at
 	return true, nil
 }
 

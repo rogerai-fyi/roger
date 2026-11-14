@@ -191,6 +191,12 @@ type broker struct {
 	// totalLat is each node's total-latency EWMA in ms (totallatency.go), guarded by metricsMu;
 	// merged from the shared store on the sync loop when one is wired.
 	totalLat map[string]float64
+	// moveStreaks and towerObsAt are the mobility pass's in-memory state (towermobility.go):
+	// each Station's run of fresh observations and the last health sample counted per Tower,
+	// under moveMu. Held by the instance that owns the Tower's link, never shared.
+	moveMu      sync.Mutex
+	moveStreaks map[string]moveStreak
+	towerObsAt  map[string]time.Time
 	// hubCheckAt is when this instance last hub-checked each Tower (towerhubcheck.go), under
 	// hubCheckMu.
 	hubCheckMu sync.Mutex
@@ -717,6 +723,7 @@ func runServe(ln net.Listener, fee, seed float64, lock time.Duration, stop <-cha
 		go b.reportRetentionSweep(stop)                 // bound rogerai.reports: an UNAUTHENTICATED public write endpoint onto durable storage that nothing ever deleted from
 		go b.towerInviteSweep(stop)                     // delete expired unredeemed Station invitations (consumed ones answer retries)
 		go b.towerGovSweep(stop, towerGovSweepInterval) // governance record: Towers gone quiet, lapsed leases, pending refusal counts
+		go b.towerMobility(stop, towerMobilityInterval) // move idle Stations to better Towers (station_mobility.feature)
 		go b.towerCanarySweep(stop)                     // probe each Tower with a data plane; a Tower serving nothing is caught here
 		go b.reversalRetrySweep(stop)                   // re-attempt failed Stripe transfer-reversals (silent-money-leak guard)
 		go b.pruneStaleNodesSweep(stop)                 // remove long-dead node registrations (old hostname ids that never re-register)

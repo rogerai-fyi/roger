@@ -35,6 +35,41 @@ var cancelPollHold = 25 * time.Second
 type cancelEntry struct {
 	Job string `json:"job"`
 	Exp int64  `json:"exp"` // unix ms
+	// Reattach, when set, is not a cancel: it is a re-attach nudge (towermobility.go), carrying
+	// the move's trigger in plain words. It names no Tower.
+	Reattach string `json:"reattach,omitempty"`
+}
+
+// cancelBatch is what one cancel poll answers: jobs to stop, and a re-attach nudge if any.
+type cancelBatch struct {
+	ids      []string
+	reattach string
+}
+
+func (c *cancelBatch) add(e cancelEntry, now int64) {
+	if e.Exp <= now {
+		return
+	}
+	if e.Reattach != "" {
+		c.reattach = e.Reattach
+		return
+	}
+	if e.Job != "" {
+		c.ids = append(c.ids, e.Job)
+	}
+}
+
+func (c cancelBatch) empty() bool { return len(c.ids) == 0 && c.reattach == "" }
+
+func liveBatch(raws [][]byte, now int64) cancelBatch {
+	var c cancelBatch
+	for _, raw := range raws {
+		var e cancelEntry
+		if json.Unmarshal(raw, &e) == nil {
+			c.add(e, now)
+		}
+	}
+	return c
 }
 
 // cancelLocal is the single-instance (no shared store) fallback.
@@ -107,32 +142,18 @@ func (b *broker) sendCancel(node, job string) {
 	b.stats.cancelsSent.Add(1)
 }
 
-// liveIDs keeps the unexpired job ids of raw entries.
-func liveIDs(raws [][]byte, now int64) []string {
-	var ids []string
-	for _, raw := range raws {
-		var e cancelEntry
-		if json.Unmarshal(raw, &e) == nil && e.Job != "" && e.Exp > now {
-			ids = append(ids, e.Job)
-		}
-	}
-	return ids
-}
-
 // takeLocal drains the local buffer for node (unexpired entries only).
-func (b *broker) takeLocal(node string) []string {
+func (b *broker) takeLocal(node string) cancelBatch {
 	b.cancels.mu.Lock()
 	defer b.cancels.mu.Unlock()
 	b.cancels.init()
 	now := time.Now().UnixMilli()
-	var ids []string
+	var c cancelBatch
 	for _, e := range b.cancels.buf[node] {
-		if e.Exp > now {
-			ids = append(ids, e.Job)
-		}
+		c.add(e, now)
 	}
 	delete(b.cancels.buf, node)
-	return ids
+	return c
 }
 
 // agentCancels is GET /agent/cancels?node=<id> (Bearer BridgeToken): the node's long-poll for
@@ -151,19 +172,26 @@ func (b *broker) agentCancels(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
-	answer := func(ids []string) {
-		if len(ids) == 0 {
+	answer := func(c cancelBatch) {
+		if c.empty() {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string][]string{"ids": ids})
+		out := map[string]any{"ids": c.ids}
+		if c.ids == nil {
+			out["ids"] = []string{}
+		}
+		if c.reattach != "" {
+			out["reattach"] = c.reattach
+		}
+		writeJSON(w, http.StatusOK, out)
 	}
 	hold := time.NewTimer(cancelPollHold)
 	defer hold.Stop()
 	if b.shared == nil {
 		for {
-			if ids := b.takeLocal(node); len(ids) > 0 {
-				answer(ids)
+			if c := b.takeLocal(node); !c.empty() {
+				answer(c)
 				return
 			}
 			b.cancels.mu.Lock()
@@ -173,7 +201,7 @@ func (b *broker) agentCancels(w http.ResponseWriter, r *http.Request) {
 			select {
 			case <-ch:
 			case <-hold.C:
-				answer(nil)
+				answer(cancelBatch{})
 				return
 			case <-r.Context().Done():
 				return
@@ -192,8 +220,8 @@ func (b *broker) agentCancels(w http.ResponseWriter, r *http.Request) {
 	defer unsub()
 	now := time.Now().UnixMilli()
 	if raws, derr := b.shared.cancelDrain(node); derr == nil {
-		if ids := liveIDs(raws, now); len(ids) > 0 {
-			answer(ids)
+		if c := liveBatch(raws, now); !c.empty() {
+			answer(c)
 			return
 		}
 	}
@@ -202,19 +230,19 @@ func (b *broker) agentCancels(w http.ResponseWriter, r *http.Request) {
 		select {
 		case _, ok := <-msgs:
 			if !ok {
-				answer(nil)
+				answer(cancelBatch{})
 				return
 			}
 			raws, derr := b.shared.cancelDrain(node)
 			if derr != nil {
 				continue // the buffer keeps them for the next wake or poll
 			}
-			if ids := liveIDs(raws, time.Now().UnixMilli()); len(ids) > 0 {
-				answer(ids)
+			if c := liveBatch(raws, time.Now().UnixMilli()); !c.empty() {
+				answer(c)
 				return
 			}
 		case <-hold.C:
-			answer(nil)
+			answer(cancelBatch{})
 			return
 		case <-r.Context().Done():
 			return
