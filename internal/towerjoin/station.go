@@ -57,7 +57,7 @@ type TowerStatus struct {
 		HouseStations     int    `json:"house_stations"`
 		Next              string `json:"next"`
 	} `json:"trust,omitempty"`
-	Routable       []struct {
+	Routable []struct {
 		StationID string `json:"station_id"`
 		OfferID   string `json:"offer_id"`
 		Model     string `json:"model"`

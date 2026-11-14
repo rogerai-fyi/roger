@@ -12,7 +12,7 @@ package main
 // epoch fence. A move whose node never comes back is undone, never left dark.
 
 import (
-		"sort"
+	"sort"
 	"time"
 
 	"rogerai.fm/roger/v7/internal/towercore/admit"
