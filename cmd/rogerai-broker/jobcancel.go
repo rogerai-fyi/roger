@@ -126,11 +126,15 @@ func (b *broker) sendCancel(node, job string) {
 	if node == "" || job == "" || !b.cancelCapable(node) {
 		return
 	}
-	e := cancelEntry{Job: job, Exp: time.Now().Add(cancelBufTTL).UnixMilli()}
+	b.enqueueCancel(node, cancelEntry{Job: job, Exp: time.Now().Add(cancelBufTTL).UnixMilli()})
+	b.stats.cancelsSent.Add(1)
+}
+
+// enqueueCancel puts one entry on the node's cancel long-poll, on whichever instance holds it.
+func (b *broker) enqueueCancel(node string, e cancelEntry) {
 	if b.shared != nil {
 		raw, _ := json.Marshal(e)
 		_ = b.shared.cancelPush(node, raw, cancelBufTTL)
-		b.stats.cancelsSent.Add(1)
 		return
 	}
 	b.cancels.mu.Lock()
@@ -139,7 +143,6 @@ func (b *broker) sendCancel(node, job string) {
 	close(b.cancels.wakeCh(node))
 	delete(b.cancels.wake, node)
 	b.cancels.mu.Unlock()
-	b.stats.cancelsSent.Add(1)
 }
 
 // takeLocal drains the local buffer for node (unexpired entries only).

@@ -142,7 +142,7 @@ func pacedKind(kind string) bool {
 // failing or vanished Tower can cause in bulk (station_mobility.feature).
 func towerDecided(kind string) bool {
 	switch kind {
-	case evCanary, evHubCheckFailed, evHealthFailing,
+	case evCanary, evHubCheckFailed,
 		evStationMoveStarted, evStationMoved, evStationMovedAway, evStationMoveReturned, evStationMoveAbandoned:
 		return true
 	}

@@ -400,3 +400,24 @@ func TestAStageIsCachedOnTheRequestPath(t *testing.T) {
 	b.stageMu.Unlock()
 	require.Equal(t, placement.StageEstablished, b.towerStage(lt.id))
 }
+
+// REVIEW FINDING: health_failing fired only at exactly two, so a count that skipped (two
+// instances recording at once) lost it; and its pacing could drop a demotion cause.
+func TestHealthFailingIsWrittenOncePerRunEvenIfTheCountSkips(t *testing.T) {
+	b, _ := towerTestBroker(t)
+	now := time.Now()
+	for i := 0; i < 3; i++ {
+		require.NoError(t, b.tower.health.Record("tw-1", false, now.Add(time.Duration(i)*time.Second)))
+	}
+	b.noteHealthStreak("tw-1") // first seen at three
+	b.noteHealthStreak("tw-1")
+	require.Len(t, towerEventsOf(t, b, "tw-1", evHealthFailing), 1)
+	require.False(t, pacedEvent(admit.Event{Kind: evHealthFailing, Actor: admit.ActorSystem}), "a demotion cause is never dropped by the budget")
+
+	// A pass ends the run; the next run is a new event.
+	require.NoError(t, b.tower.health.Record("tw-1", true, now.Add(10*time.Second)))
+	require.NoError(t, b.tower.health.Record("tw-1", false, now.Add(20*time.Second)))
+	require.NoError(t, b.tower.health.Record("tw-1", false, now.Add(30*time.Second)))
+	b.noteHealthStreak("tw-1")
+	require.Len(t, towerEventsOf(t, b, "tw-1", evHealthFailing), 2)
+}

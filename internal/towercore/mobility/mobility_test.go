@@ -119,3 +119,19 @@ func TestFinishingAMoveKeepsOnlyItsSkip(t *testing.T) {
 		require.Zero(t, n)
 	})
 }
+
+func TestForgetDropsEverythingAboutReapedStations(t *testing.T) {
+	eachStore(t, func(t *testing.T, s Store) {
+		require.NoError(t, s.PutFacts("st-1", Facts{Nudge: true}))
+		_, _ = s.StartMove(Move{StationID: "st-1", From: "a", Trigger: "t", Epoch: 1, PriorState: "active", Started: t0})
+		require.NoError(t, s.PutFacts("st-2", Facts{Nudge: true}))
+		require.NoError(t, s.Forget([]string{"st-1", "st-none"}))
+		_, ok, _ := s.Facts("st-1")
+		require.False(t, ok)
+		_, ok, _ = s.Move("st-1")
+		require.False(t, ok)
+		_, ok, _ = s.Facts("st-2")
+		require.True(t, ok, "others are kept")
+		require.NoError(t, s.Forget(nil))
+	})
+}

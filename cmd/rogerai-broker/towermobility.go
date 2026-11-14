@@ -12,8 +12,7 @@ package main
 // epoch fence. A move whose node never comes back is undone, never left dark.
 
 import (
-	"encoding/json"
-	"sort"
+		"sort"
 	"time"
 
 	"rogerai.fm/roger/v7/internal/towercore/admit"
@@ -464,18 +463,7 @@ func (b *broker) finishMoveOnReattach(mv mobility.Move, stationID, towerID strin
 // sendReattach queues a re-attach nudge on the node's cancel long-poll. It names no Tower: the
 // node's only action is to attach to Core again over its pinned address.
 func (b *broker) sendReattach(node, reason string) {
-	e := cancelEntry{Reattach: reason, Exp: time.Now().Add(cancelBufTTL).UnixMilli()}
-	if b.shared != nil {
-		raw, _ := json.Marshal(e)
-		_ = b.shared.cancelPush(node, raw, cancelBufTTL)
-		return
-	}
-	b.cancels.mu.Lock()
-	b.cancels.init()
-	b.cancels.buf[node] = append(b.cancels.buf[node], e)
-	close(b.cancels.wakeCh(node))
-	delete(b.cancels.wake, node)
-	b.cancels.mu.Unlock()
+	b.enqueueCancel(node, cancelEntry{Reattach: reason, Exp: time.Now().Add(cancelBufTTL).UnixMilli()})
 }
 
 // recordStationFacts writes where a Station attached from and whether its node can hear the

@@ -944,6 +944,13 @@ func (b *broker) towerInviteSweepOnce(now time.Time) {
 	} else if len(tn) > 0 {
 		log.Printf("station attachments: reaped %d terminal attachment(s): %s", len(tn), sweptIDs(tn))
 		b.recordStationsSwept(tn, "terminal_reaped")
+		ids := make([]string, len(tn))
+		for i, x := range tn {
+			ids[i] = x.StationID
+		}
+		if ferr := b.tower.mobility.Forget(ids); ferr != nil {
+			log.Printf("station facts: forget failed: %v", ferr)
+		}
 	}
 	// Refresh the routable projection for the towers whose links THIS instance holds. Leaf
 	// rows are republished on every inventory push, but self-attached nodes' rows carry a

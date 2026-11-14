@@ -43,6 +43,8 @@ type Store interface {
 	FinishMove(stationID, skipTower string, skipUntil time.Time) error
 	Skip(stationID string) (string, time.Time, error)
 	Pending() ([]Move, error)
+	// Forget drops everything kept about Stations whose attachments were reaped.
+	Forget(stationIDs []string) error
 }
 
 type skip struct {
@@ -134,6 +136,17 @@ func (m *MemStore) Pending() ([]Move, error) {
 		out = append(out, mv)
 	}
 	return out, nil
+}
+
+func (m *MemStore) Forget(ids []string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, id := range ids {
+		delete(m.facts, id)
+		delete(m.moves, id)
+		delete(m.skips, id)
+	}
+	return nil
 }
 
 // PGStore is the shared Store.
@@ -272,4 +285,15 @@ func (p *PGStore) Pending() ([]Move, error) {
 		out = append(out, m)
 	}
 	return out, rows.Err()
+}
+
+func (p *PGStore) Forget(ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	if _, err := p.db.Exec(`DELETE FROM rogerai.station_facts WHERE station_id = ANY($1)`, ids); err != nil {
+		return err
+	}
+	_, err := p.db.Exec(`DELETE FROM rogerai.station_moves WHERE station_id = ANY($1)`, ids)
+	return err
 }

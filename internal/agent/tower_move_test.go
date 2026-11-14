@@ -53,8 +53,8 @@ func TestTheCancelPollHandsTheNudgeToTheRelayLoop(t *testing.T) {
 	go cancelLoop(Config{Broker: srv.URL, NodeID: "n-move"}, sess)
 	defer close(sess.stop)
 	select {
-	case reason := <-nudgeChan("n-move"):
-		require.Equal(t, "better_tower", reason)
+	case n := <-nudgeChan("n-move"):
+		require.Equal(t, "better_tower", n.reason)
 	case <-time.After(2 * time.Second):
 		t.Fatal("the nudge never reached the relay loop")
 	}
@@ -143,4 +143,23 @@ func TestANudgedNodeMovesToTheRelayCoreChoseAndSaysSo(t *testing.T) {
 	require.Equal(t, seen[0].StationID, seen[1].StationID, "it went back as itself")
 	cancel()
 	<-done
+}
+
+// REVIEW FINDING: the once-a-minute gate was rebuilt for every tenancy, so a nudge waiting in
+// the slot was acted on again the moment the new tenancy started.
+func TestTheNudgePaceHoldsAcrossTenancies(t *testing.T) {
+	g1 := gateFor("n-pace")
+	require.True(t, g1.allow())
+	g2 := gateFor("n-pace") // the next tenancy's gate
+	require.Same(t, g1, g2)
+	require.False(t, g2.allow())
+}
+
+// REVIEW FINDING: a nudge buffered while nothing listened was acted on much later.
+func TestAStaleNudgeIsDropped(t *testing.T) {
+	ch := nudgeChan("n-stale")
+	deliverNudge("n-stale", "better_tower")
+	n := <-ch
+	require.True(t, n.fresh(time.Now()))
+	require.False(t, n.fresh(time.Now().Add(nudgeExpiry+time.Second)))
 }

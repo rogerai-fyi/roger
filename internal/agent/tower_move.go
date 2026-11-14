@@ -24,26 +24,46 @@ const nudgeEvery = time.Minute
 // keeps a nudge for the same two minutes.
 var nudgeExpiry = 2 * time.Minute
 
-var nudges sync.Map // node id -> chan string
+// nudge is one re-attach request as the node received it.
+type nudge struct {
+	reason string
+	at     time.Time
+}
+
+// fresh reports whether the nudge can still be acted on: one older than nudgeExpiry is stale,
+// whatever happened to it in between.
+func (n nudge) fresh(now time.Time) bool { return now.Sub(n.at) <= nudgeExpiry }
+
+var (
+	nudges sync.Map // node id -> chan nudge
+	gates  sync.Map // node id -> *moveGate
+)
 
 // nudgeChan is the one-slot channel the cancel poll hands a node's nudges to and its relay
 // loop listens on. One slot: a nudge waiting already says everything a second one would.
-func nudgeChan(nodeID string) chan string {
-	ch, _ := nudges.LoadOrStore(nodeID, make(chan string, 1))
-	return ch.(chan string)
+func nudgeChan(nodeID string) chan nudge {
+	ch, _ := nudges.LoadOrStore(nodeID, make(chan nudge, 1))
+	return ch.(chan nudge)
+}
+
+// gateFor is the node's move gate. It belongs to the node, not to one tenancy, so the
+// one-a-minute pace holds across re-attaches.
+func gateFor(nodeID string) *moveGate {
+	g, _ := gates.LoadOrStore(nodeID, &moveGate{})
+	return g.(*moveGate)
 }
 
 // deliverNudge hands a nudge to the relay loop without ever blocking the cancel poll.
 func deliverNudge(nodeID, reason string) {
 	select {
-	case nudgeChan(nodeID) <- reason:
+	case nudgeChan(nodeID) <- nudge{reason: reason, at: time.Now()}:
 	default:
 	}
 }
 
 // moveGate counts the relay work in flight and paces nudges.
 type moveGate struct {
-	inflight atomic.Int64
+	inflight atomic.Int64 // relay work in flight on the current tenancy
 	mu       sync.Mutex
 	last     time.Time
 	now      func() time.Time

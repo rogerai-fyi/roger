@@ -351,15 +351,28 @@ func (b *broker) sweepStage(tw admit.Tower, now time.Time) {
 		"days": int(now.Sub(v.entered).Hours() / 24)})
 }
 
-// noteHealthStreak records health_failing once per streak, when a Tower's health checks have
-// just failed twice in a row.
+// noteHealthStreak records health_failing once per run of failures, as soon as the run reaches
+// two. Keyed on when the run began rather than on its length, so two instances recording at
+// once (the count may skip from one to three) still write it, and write it once.
 func (b *broker) noteHealthStreak(towerID string) {
 	sum, err := b.tower.health.Summary(towerID, time.Now())
-	if err != nil || sum.FailStreak != 2 {
+	if err != nil || sum.FailStreak < 2 || sum.StreakSince.IsZero() {
 		return
 	}
-	b.towerEvent(admit.Event{TowerID: towerID, Kind: evHealthFailing, Actor: admit.ActorSystem,
-		Reason: "two health checks failed in a row"})
+	last, found, err := b.tower.registry.FindEvent(towerID, []string{evHealthFailing}, false)
+	if err != nil {
+		b.towerGovUnavailable(err)
+		return
+	}
+	lastID := int64(0)
+	if found {
+		if !last.At.Before(sum.StreakSince) {
+			return // this run is already recorded
+		}
+		lastID = last.ID
+	}
+	b.towerRecordIfLast(admit.Event{TowerID: towerID, Kind: evHealthFailing, Actor: admit.ActorSystem,
+		Reason: "two health checks failed in a row"}, []string{evHealthFailing}, lastID)
 }
 
 // adminStageRequest is the body of the three admin stage routes.

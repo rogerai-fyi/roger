@@ -46,8 +46,6 @@ func TestHealthChecksAreCountedPerTowerPerDay(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, 9, sum.Passed)
 		require.Equal(t, 1, sum.Failed)
-		require.True(t, sum.LastOK)
-		require.True(t, sum.PrevOK)
 		require.Equal(t, 0, sum.FailStreak)
 		require.True(t, sum.LastAt.Equal(day0.Add(9*12*time.Hour)))
 
@@ -61,7 +59,7 @@ func TestHealthChecksAreCountedPerTowerPerDay(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, 0, other.Passed)
 		require.Equal(t, 1, other.Failed)
-		require.False(t, other.LastOK)
+		require.Equal(t, 1, other.FailStreak)
 	})
 }
 
@@ -71,18 +69,19 @@ func TestTheFailStreakAndTheLastTwo(t *testing.T) {
 		require.NoError(t, s.Record("tw-1", false, day0.Add(time.Minute)))
 		sum, _ := s.Summary("tw-1", day0)
 		require.Equal(t, 1, sum.FailStreak)
-		require.False(t, sum.LastOK)
-		require.True(t, sum.PrevOK)
+		require.True(t, sum.StreakSince.Equal(day0.Add(time.Minute)), "the run began at its first failure")
 		require.False(t, sum.BothLastFailed())
 
 		require.NoError(t, s.Record("tw-1", false, day0.Add(2*time.Minute)))
 		sum, _ = s.Summary("tw-1", day0)
 		require.Equal(t, 2, sum.FailStreak)
 		require.True(t, sum.BothLastFailed())
+		require.True(t, sum.StreakSince.Equal(day0.Add(time.Minute)), "and keeps its start")
 
 		require.NoError(t, s.Record("tw-1", true, day0.Add(3*time.Minute)))
 		sum, _ = s.Summary("tw-1", day0)
 		require.Equal(t, 0, sum.FailStreak, "a pass resets the streak")
+		require.True(t, sum.StreakSince.IsZero())
 		require.False(t, sum.BothLastFailed())
 	})
 }
@@ -109,7 +108,7 @@ func TestOldDaysAreReaped(t *testing.T) {
 		require.NoError(t, s.Reap(day0.Add(90*24*time.Hour)))
 		sum, _ := s.Summary("tw-1", day0)
 		require.Equal(t, 1, sum.Passed, "the 100-day-old row is gone")
-		require.True(t, sum.LastOK, "the latest result is kept")
+		require.False(t, sum.LastAt.IsZero(), "the latest result is kept")
 	})
 }
 
@@ -118,7 +117,7 @@ func TestAnOutOfOrderRecordDoesNotRewriteTheLatest(t *testing.T) {
 		require.NoError(t, s.Record("tw-1", true, day0.Add(time.Hour)))
 		require.NoError(t, s.Record("tw-1", false, day0)) // older, arriving late
 		sum, _ := s.Summary("tw-1", day0)
-		require.True(t, sum.LastOK, "the newer result stays the latest")
+		require.True(t, sum.LastAt.Equal(day0.Add(time.Hour)), "the newer result stays the latest")
 		require.Equal(t, 1, sum.Failed, "but it is still counted")
 		require.Equal(t, 0, sum.FailStreak)
 	})

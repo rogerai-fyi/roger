@@ -1120,19 +1120,19 @@ func serveTowerTenancy(ctx context.Context, cfg Config, at TowerAttachment,
 	}
 	// A move: Core's nudge ends this tenancy once the work in flight has finished, so the
 	// node attaches again and is placed where Core chose.
-	gate := &moveGate{}
+	gate := gateFor(cfg.NodeID)
 	moved := make(chan string, 1)
 	go func() {
 		for {
 			select {
 			case <-tctx.Done():
 				return
-			case reason := <-nudgeChan(cfg.NodeID):
-				if !gate.allow() || !gate.waitIdle(tctx, nudgeExpiry) {
+			case n := <-nudgeChan(cfg.NodeID):
+				if !n.fresh(time.Now()) || !gate.allow() || !gate.waitIdle(tctx, nudgeExpiry-time.Since(n.at)) {
 					continue
 				}
 				select {
-				case moved <- reason:
+				case moved <- n.reason:
 					cancel()
 				default:
 				}

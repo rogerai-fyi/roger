@@ -12,10 +12,11 @@ import (
 // Summary is a Tower's health evidence since a day.
 type Summary struct {
 	Passed, Failed int
-	// The latest result and the one before it, and how many failures in a row end the record.
-	LastOK, PrevOK bool
-	LastAt         time.Time
-	FailStreak     int
+	// When the latest result was taken, how many failures in a row end the record, and when
+	// that run of failures began (zero with no failures).
+	LastAt      time.Time
+	FailStreak  int
+	StreakSince time.Time
 }
 
 // Rate is the pass rate, 0 with no evidence.
@@ -42,9 +43,9 @@ func dayOf(t time.Time) time.Time {
 }
 
 type latest struct {
-	ok, prevOK bool
-	at         time.Time
-	streak     int
+	at     time.Time
+	streak int
+	since  time.Time
 }
 
 // advance folds one result into the latest fields; a result older than the latest is counted
@@ -53,10 +54,13 @@ func (l latest) advance(ok bool, at time.Time) latest {
 	if !l.at.IsZero() && at.Before(l.at) {
 		return l
 	}
-	l.prevOK, l.ok, l.at = l.ok, ok, at
-	if ok {
-		l.streak = 0
-	} else {
+	l.at = at
+	switch {
+	case ok:
+		l.streak, l.since = 0, time.Time{}
+	case l.streak == 0:
+		l.streak, l.since = 1, at
+	default:
 		l.streak++
 	}
 	return l
@@ -101,7 +105,7 @@ func (m *MemStore) Summary(towerID string, since time.Time) (Summary, error) {
 		}
 	}
 	h := m.heads[towerID]
-	s.LastOK, s.PrevOK, s.LastAt, s.FailStreak = h.ok, h.prevOK, h.at, h.streak
+	s.LastAt, s.FailStreak, s.StreakSince = h.at, h.streak, h.since
 	return s, nil
 }
 
@@ -130,11 +134,10 @@ CREATE TABLE IF NOT EXISTS rogerai.tower_health_daily (
     PRIMARY KEY (tower_id, day)
 );
 CREATE TABLE IF NOT EXISTS rogerai.tower_health (
-    tower_id    TEXT PRIMARY KEY,
-    last_ok     BOOLEAN NOT NULL,
-    prev_ok     BOOLEAN NOT NULL DEFAULT false,
-    last_at     TIMESTAMPTZ NOT NULL,
-    fail_streak INT NOT NULL DEFAULT 0
+    tower_id     TEXT PRIMARY KEY,
+    last_at      TIMESTAMPTZ NOT NULL,
+    fail_streak  INT NOT NULL DEFAULT 0,
+    streak_since TIMESTAMPTZ
 )`
 
 func NewPGStore(db *sql.DB) (*PGStore, error) {
@@ -160,11 +163,15 @@ func (p *PGStore) Record(towerID string, ok bool, at time.Time) error {
 	// The latest result moves only forward in time, in one statement, so two instances
 	// recording at once cannot interleave a read and a write.
 	_, err := p.db.Exec(`
-        INSERT INTO rogerai.tower_health (tower_id, last_ok, prev_ok, last_at, fail_streak)
-        VALUES ($1, $2, false, $3, CASE WHEN $2 THEN 0 ELSE 1 END)
+        INSERT INTO rogerai.tower_health (tower_id, last_at, fail_streak, streak_since)
+        VALUES ($1, $3::timestamptz, CASE WHEN $2::boolean THEN 0 ELSE 1 END,
+                CASE WHEN $2::boolean THEN NULL ELSE $3::timestamptz END)
         ON CONFLICT (tower_id) DO UPDATE
-          SET prev_ok = tower_health.last_ok, last_ok = EXCLUDED.last_ok, last_at = EXCLUDED.last_at,
-              fail_streak = CASE WHEN EXCLUDED.last_ok THEN 0 ELSE tower_health.fail_streak + 1 END
+          SET last_at = EXCLUDED.last_at,
+              fail_streak = CASE WHEN $2::boolean THEN 0 ELSE tower_health.fail_streak + 1 END,
+              streak_since = CASE WHEN $2::boolean THEN NULL
+                                  WHEN tower_health.fail_streak = 0 THEN EXCLUDED.last_at
+                                  ELSE tower_health.streak_since END
           WHERE tower_health.last_at <= EXCLUDED.last_at`,
 		towerID, ok, at.UTC())
 	return err
@@ -177,10 +184,14 @@ func (p *PGStore) Summary(towerID string, since time.Time) (Summary, error) {
 		Scan(&s.Passed, &s.Failed); err != nil {
 		return Summary{}, err
 	}
-	err := p.db.QueryRow(`SELECT last_ok, prev_ok, last_at, fail_streak FROM rogerai.tower_health WHERE tower_id = $1`,
-		towerID).Scan(&s.LastOK, &s.PrevOK, &s.LastAt, &s.FailStreak)
+	var began sql.NullTime
+	err := p.db.QueryRow(`SELECT last_at, fail_streak, streak_since FROM rogerai.tower_health WHERE tower_id = $1`,
+		towerID).Scan(&s.LastAt, &s.FailStreak, &began)
 	if err == sql.ErrNoRows {
 		return s, nil
+	}
+	if began.Valid {
+		s.StreakSince = began.Time
 	}
 	return s, err
 }
