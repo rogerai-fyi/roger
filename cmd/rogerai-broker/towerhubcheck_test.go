@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"rogerai.fm/roger/v7/internal/towercore/health"
 	"rogerai.fm/roger/v7/internal/towerhub"
 )
 
@@ -46,6 +47,8 @@ func TestEveryLiveTowerWithAHubIsCheckedWithoutStations(t *testing.T) {
 	require.Equal(t, 1, sum.Passed)
 	require.Equal(t, 0, sum.Failed)
 	require.Zero(t, sum.FailStreak)
+	require.Equal(t, health.SourceHubCheck, sum.LastSource, "recorded as a hub check")
+	require.Greater(t, sum.LastRTT, time.Duration(0), "with its round trip")
 	require.Empty(t, towerEventsOf(t, b, lt.id, evHubCheckFailed), "a pass writes no event")
 }
 

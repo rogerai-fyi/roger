@@ -122,3 +122,22 @@ func TestAnOutOfOrderRecordDoesNotRewriteTheLatest(t *testing.T) {
 		require.Equal(t, 0, sum.FailStreak)
 	})
 }
+
+// A hub check is recorded as one, with its round-trip time (tower_trust_ramp.feature, "Every
+// live Tower with a hub is checked"); a Station canary is recorded as a canary.
+func TestTheLatestCheckKeepsItsSourceAndRoundTrip(t *testing.T) {
+	eachStore(t, func(t *testing.T, s Store) {
+		require.NoError(t, s.RecordCheck("tw-1", Check{OK: true, At: day0, Source: SourceHubCheck, RTT: 42 * time.Millisecond}))
+		sum, err := s.Summary("tw-1", day0)
+		require.NoError(t, err)
+		require.Equal(t, SourceHubCheck, sum.LastSource)
+		require.Equal(t, 42*time.Millisecond, sum.LastRTT)
+		require.Equal(t, 1, sum.Passed)
+
+		require.NoError(t, s.Record("tw-1", false, day0.Add(time.Minute)))
+		sum, _ = s.Summary("tw-1", day0)
+		require.Equal(t, SourceCanary, sum.LastSource)
+		require.Zero(t, sum.LastRTT)
+		require.Equal(t, 1, sum.Failed)
+	})
+}

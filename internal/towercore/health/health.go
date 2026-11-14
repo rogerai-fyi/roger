@@ -17,6 +17,23 @@ type Summary struct {
 	LastAt      time.Time
 	FailStreak  int
 	StreakSince time.Time
+	// The latest check's source (a hub check or a Station canary) and its round trip.
+	LastSource string
+	LastRTT    time.Duration
+}
+
+// Sources of a health check.
+const (
+	SourceHubCheck = "hub_check"
+	SourceCanary   = "canary"
+)
+
+// Check is one health-check result.
+type Check struct {
+	OK     bool
+	At     time.Time
+	Source string
+	RTT    time.Duration
 }
 
 // Rate is the pass rate, 0 with no evidence.
@@ -32,7 +49,10 @@ func (s Summary) BothLastFailed() bool { return s.FailStreak >= 2 }
 
 // Store records results and answers summaries; every instance shares the PG one.
 type Store interface {
+	// Record files a Station canary's result; RecordCheck files any check with its source and
+	// round trip.
 	Record(towerID string, ok bool, at time.Time) error
+	RecordCheck(towerID string, c Check) error
 	Summary(towerID string, since time.Time) (Summary, error)
 	Reap(before time.Time) error
 }
@@ -46,15 +66,18 @@ type latest struct {
 	at     time.Time
 	streak int
 	since  time.Time
+	source string
+	rtt    time.Duration
 }
 
 // advance folds one result into the latest fields; a result older than the latest is counted
 // per day but does not rewrite them.
-func (l latest) advance(ok bool, at time.Time) latest {
+func (l latest) advance(c Check) latest {
+	ok, at := c.OK, c.At
 	if !l.at.IsZero() && at.Before(l.at) {
 		return l
 	}
-	l.at = at
+	l.at, l.source, l.rtt = at, c.Source, c.RTT
 	switch {
 	case ok:
 		l.streak, l.since = 0, time.Time{}
@@ -78,19 +101,25 @@ func NewMemStore() *MemStore {
 }
 
 func (m *MemStore) Record(towerID string, ok bool, at time.Time) error {
+	return m.RecordCheck(towerID, Check{OK: ok, At: at, Source: SourceCanary})
+}
+
+func (m *MemStore) RecordCheck(towerID string, c Check) error {
+	ok, at := c.OK, c.At
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.days[towerID] == nil {
 		m.days[towerID] = map[time.Time][2]int{}
 	}
-	c := m.days[towerID][dayOf(at)]
+	n := m.days[towerID][dayOf(at)]
 	if ok {
-		c[0]++
+		n[0]++
 	} else {
-		c[1]++
+		n[1]++
 	}
-	m.days[towerID][dayOf(at)] = c
-	m.heads[towerID] = m.heads[towerID].advance(ok, at.UTC())
+	m.days[towerID][dayOf(at)] = n
+	c.At = at.UTC()
+	m.heads[towerID] = m.heads[towerID].advance(c)
 	return nil
 }
 
@@ -105,7 +134,7 @@ func (m *MemStore) Summary(towerID string, since time.Time) (Summary, error) {
 		}
 	}
 	h := m.heads[towerID]
-	s.LastAt, s.FailStreak, s.StreakSince = h.at, h.streak, h.since
+	s.LastAt, s.FailStreak, s.StreakSince, s.LastSource, s.LastRTT = h.at, h.streak, h.since, h.source, h.rtt
 	return s, nil
 }
 
@@ -137,7 +166,9 @@ CREATE TABLE IF NOT EXISTS rogerai.tower_health (
     tower_id     TEXT PRIMARY KEY,
     last_at      TIMESTAMPTZ NOT NULL,
     fail_streak  INT NOT NULL DEFAULT 0,
-    streak_since TIMESTAMPTZ
+    streak_since TIMESTAMPTZ,
+    last_source  TEXT NOT NULL DEFAULT '',
+    last_rtt_ms  BIGINT NOT NULL DEFAULT 0
 )`
 
 func NewPGStore(db *sql.DB) (*PGStore, error) {
@@ -148,6 +179,11 @@ func NewPGStore(db *sql.DB) (*PGStore, error) {
 }
 
 func (p *PGStore) Record(towerID string, ok bool, at time.Time) error {
+	return p.RecordCheck(towerID, Check{OK: ok, At: at, Source: SourceCanary})
+}
+
+func (p *PGStore) RecordCheck(towerID string, c Check) error {
+	ok, at := c.OK, c.At
 	pass, fail := 0, 1
 	if ok {
 		pass, fail = 1, 0
@@ -163,17 +199,17 @@ func (p *PGStore) Record(towerID string, ok bool, at time.Time) error {
 	// The latest result moves only forward in time, in one statement, so two instances
 	// recording at once cannot interleave a read and a write.
 	_, err := p.db.Exec(`
-        INSERT INTO rogerai.tower_health (tower_id, last_at, fail_streak, streak_since)
+        INSERT INTO rogerai.tower_health (tower_id, last_at, fail_streak, streak_since, last_source, last_rtt_ms)
         VALUES ($1, $3::timestamptz, CASE WHEN $2::boolean THEN 0 ELSE 1 END,
-                CASE WHEN $2::boolean THEN NULL ELSE $3::timestamptz END)
+                CASE WHEN $2::boolean THEN NULL ELSE $3::timestamptz END, $4, $5)
         ON CONFLICT (tower_id) DO UPDATE
-          SET last_at = EXCLUDED.last_at,
+          SET last_at = EXCLUDED.last_at, last_source = EXCLUDED.last_source, last_rtt_ms = EXCLUDED.last_rtt_ms,
               fail_streak = CASE WHEN $2::boolean THEN 0 ELSE tower_health.fail_streak + 1 END,
               streak_since = CASE WHEN $2::boolean THEN NULL
                                   WHEN tower_health.fail_streak = 0 THEN EXCLUDED.last_at
                                   ELSE tower_health.streak_since END
           WHERE tower_health.last_at <= EXCLUDED.last_at`,
-		towerID, ok, at.UTC())
+		towerID, ok, at.UTC(), c.Source, c.RTT.Milliseconds())
 	return err
 }
 
@@ -185,8 +221,10 @@ func (p *PGStore) Summary(towerID string, since time.Time) (Summary, error) {
 		return Summary{}, err
 	}
 	var began sql.NullTime
-	err := p.db.QueryRow(`SELECT last_at, fail_streak, streak_since FROM rogerai.tower_health WHERE tower_id = $1`,
-		towerID).Scan(&s.LastAt, &s.FailStreak, &began)
+	var rttMs int64
+	err := p.db.QueryRow(`SELECT last_at, fail_streak, streak_since, last_source, last_rtt_ms FROM rogerai.tower_health WHERE tower_id = $1`,
+		towerID).Scan(&s.LastAt, &s.FailStreak, &began, &s.LastSource, &rttMs)
+	s.LastRTT = time.Duration(rttMs) * time.Millisecond
 	if err == sql.ErrNoRows {
 		return s, nil
 	}

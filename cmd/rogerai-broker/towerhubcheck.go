@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"rogerai.fm/roger/v7/internal/towercore/admit"
+	"rogerai.fm/roger/v7/internal/towercore/health"
 	"rogerai.fm/roger/v7/internal/towercore/reputation"
 	"rogerai.fm/roger/v7/internal/towerhub"
 )
@@ -53,18 +54,18 @@ func (b *broker) towerHubCheckOnce(now time.Time) {
 }
 
 func (b *broker) hubCheck(tw admit.Tower, endpoint, pin string, now time.Time) {
-	reason, remote := "unreachable", ""
+	reason, remote, rtt := "unreachable", "", time.Duration(0)
 	base, hc, err := towerhub.ReachVetted(endpoint, pin, b.canaryVet)
 	if err == nil {
 		hc.Timeout = hubCheckTimeout
 		ctx, cancel := context.WithTimeout(context.Background(), hubCheckTimeout)
-		_, remote, reason = towerhub.CheckHub(ctx, hc, base, tw.ID, tw.KeyHash)
+		rtt, remote, reason = towerhub.CheckHub(ctx, hc, base, tw.ID, tw.KeyHash)
 		cancel()
 		if tr, ok := hc.Transport.(interface{ CloseIdleConnections() }); ok {
 			tr.CloseIdleConnections()
 		}
 	}
-	b.recordHealthResult(tw.ID, reason == "", now)
+	b.recordHealthCheck(tw.ID, health.Check{OK: reason == "", At: now, Source: health.SourceHubCheck, RTT: rtt})
 	if reason == "" && remote != "" {
 		// Where the hub is, from the address that just proved the Tower's identity - not from
 		// what a name resolved to once, which a Tower controls (placement_locality.feature).
@@ -87,11 +88,16 @@ func (b *broker) recordTowerHealth(towerID string, outcome reputation.Outcome) {
 }
 
 func (b *broker) recordHealthResult(towerID string, ok bool, at time.Time) {
-	if err := b.tower.health.Record(towerID, ok, at); err != nil {
+	b.recordHealthCheck(towerID, health.Check{OK: ok, At: at, Source: health.SourceCanary})
+}
+
+// recordHealthCheck files one health check with its source and round trip.
+func (b *broker) recordHealthCheck(towerID string, c health.Check) {
+	if err := b.tower.health.RecordCheck(towerID, c); err != nil {
 		b.towerGovUnavailable(err)
 		return
 	}
-	if !ok {
+	if !c.OK {
 		b.noteHealthStreak(towerID)
 	}
 }
