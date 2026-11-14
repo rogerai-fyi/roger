@@ -197,3 +197,10 @@ func TestTwoInstancesRecordingOneBlipCountItOnce(t *testing.T) {
 	sum, _ := b.tower.health.Summary("tw-1", boundary.Add(-time.Hour))
 	require.Equal(t, 1, sum.FailStreak)
 }
+
+// The health store's staleness window is two canary intervals, the same rule the mobility pass
+// applies to observations.
+func TestARunGoesStaleAfterTwoCanaryIntervals(t *testing.T) {
+	require.Equal(t, 2*canaryInterval, health.RunStaleAfter)
+	require.Equal(t, observationStaleAfter, health.RunStaleAfter)
+}

@@ -222,3 +222,36 @@ func TestFailuresCloserThanTheGapCountOnce(t *testing.T) {
 		require.Equal(t, 2, sum.FailStreak, "a real next interval counts")
 	})
 }
+
+// AUDIT FINDING: when no canary can run any more (its Stations moved off), the canary run must
+// not hold the Tower failing forever. A run its kind has not refreshed within RunStaleAfter of
+// the Tower's latest result stops counting.
+func TestARunNobodyRefreshesStopsCounting(t *testing.T) {
+	eachStore(t, func(t *testing.T, s Store) {
+		for i := int64(0); i < 2; i++ {
+			at := day0.Add(time.Duration(i) * 5 * time.Minute)
+			require.NoError(t, s.RecordCheck("tw-1", Check{OK: false, At: at, Source: SourceCanary, Slot: i}))
+		}
+		sum, _ := s.Summary("tw-1", day0)
+		require.Equal(t, 2, sum.FailStreak)
+		// Only hub checks from now on, passing, for longer than RunStaleAfter.
+		later := day0.Add(5*time.Minute + RunStaleAfter + time.Second)
+		require.NoError(t, s.RecordCheck("tw-1", Check{OK: true, At: later, Source: SourceHubCheck, Slot: 9}))
+		sum, _ = s.Summary("tw-1", day0)
+		require.Zero(t, sum.FailStreak, "a canary run nobody refreshes no longer counts")
+	})
+}
+
+// AUDIT FINDING: a pass did not reset the last counted failure, so fail, pass, fail inside the
+// gap ended on a streak of zero with a failing latest result.
+func TestAPassResetsTheGapClock(t *testing.T) {
+	eachStore(t, func(t *testing.T, s Store) {
+		gap := 150 * time.Second
+		for i, ok := range []bool{false, true, false} {
+			require.NoError(t, s.RecordCheck("tw-1", Check{OK: ok, At: day0.Add(time.Duration(i) * time.Second),
+				Source: SourceCanary, Slot: 5 + int64(i), MinGap: gap}))
+		}
+		sum, _ := s.Summary("tw-1", day0)
+		require.Equal(t, 1, sum.FailStreak)
+	})
+}

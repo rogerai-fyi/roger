@@ -351,6 +351,10 @@ func (b *broker) sweepStage(tw admit.Tower, now time.Time) {
 	if !v.hasLast && !v.hasAppr {
 		// Approved before the governance record existed (founder ruling 2026-11-14): an active
 		// Tower with no approval on record starts at "new" from the sweep that first sees it.
+		// Every approval today writes its record in the same step as the state change, so the
+		// only race is a sweep reading just before an approval lands: that Tower then starts at
+		// "new" within one sweep of its approval, labelled by this reason - the same stage at
+		// almost the same time, which is why no further guard is kept for it.
 		if tw.State == admit.StateActive {
 			b.towerRecordIfLast(admit.Event{TowerID: tw.ID, Kind: evTrustStage, Actor: admit.ActorSystem,
 				To: admit.State(stageNew), Reason: "no approval on record",

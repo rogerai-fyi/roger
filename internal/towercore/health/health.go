@@ -21,6 +21,13 @@ type Summary struct {
 	LastRTT    time.Duration
 }
 
+// RunStaleAfter is how long a kind of check may go unrefreshed, counting back from the Tower's
+// latest result of any kind, before its run stops counting toward the Tower's streak: two
+// canary intervals, the staleness rule station_mobility.feature uses for observations. It is
+// what lets a Tower whose Stations were moved off - so no canary can run - recover on its hub
+// checks.
+const RunStaleAfter = 10 * time.Minute
+
 // Sources of a health check.
 const (
 	SourceHubCheck = "hub_check"
@@ -81,6 +88,7 @@ type run struct {
 	slot       int64 // the latest slot this run has seen
 	slotFailed bool  // a failure in that slot is already counted
 	lastFail   time.Time
+	lastAt     time.Time // the latest result of this kind
 	seen       bool
 }
 
@@ -88,6 +96,9 @@ type run struct {
 // it, a pass resets it, and a failure counts once per slot and never closer than MinGap to the
 // last counted one.
 func (r run) advance(c Check) run {
+	if c.At.After(r.lastAt) {
+		r.lastAt = c.At
+	}
 	if r.seen && c.Slot < r.slot {
 		return r
 	}
@@ -96,7 +107,7 @@ func (r run) advance(c Check) run {
 	}
 	switch {
 	case c.OK:
-		r.streak, r.since, r.slotFailed = 0, time.Time{}, false
+		r.streak, r.since, r.slotFailed, r.lastFail = 0, time.Time{}, false, time.Time{}
 	case r.slotFailed:
 		// already counted in this slot
 	case !r.lastFail.IsZero() && c.At.Sub(r.lastFail) < c.MinGap:
@@ -160,6 +171,9 @@ func (m *MemStore) Summary(towerID string, since time.Time) (Summary, error) {
 	h := m.heads[towerID]
 	s.LastAt, s.LastSource, s.LastRTT = h.at, h.source, h.rtt
 	for _, r := range m.runs[towerID] {
+		if r.lastAt.Before(h.at.Add(-RunStaleAfter)) {
+			continue // this kind has gone quiet: its run no longer speaks for the Tower
+		}
 		if r.streak > s.FailStreak || (r.streak == s.FailStreak && r.streak > 0 && r.since.Before(s.StreakSince)) {
 			s.FailStreak, s.StreakSince = r.streak, r.since
 		}
@@ -213,8 +227,10 @@ CREATE TABLE IF NOT EXISTS rogerai.tower_health_runs (
     last_slot    BIGINT NOT NULL,
     slot_failed  BOOLEAN NOT NULL DEFAULT false,
     last_fail_at TIMESTAMPTZ,
+    last_at      TIMESTAMPTZ,
     PRIMARY KEY (tower_id, source)
-)`
+);
+ALTER TABLE rogerai.tower_health_runs ADD COLUMN IF NOT EXISTS last_at TIMESTAMPTZ`
 
 func NewPGStore(db *sql.DB) (*PGStore, error) {
 	if _, err := db.Exec(schema); err != nil {
@@ -252,10 +268,11 @@ func (p *PGStore) RecordCheck(towerID string, c Check) error {
 	// interleave a read and a write. "counts" is a failure in a new or not-yet-failed slot that
 	// is at least MinGap after the run's last counted failure.
 	_, err := p.db.Exec(`
-        INSERT INTO rogerai.tower_health_runs AS r (tower_id, source, fail_streak, streak_since, last_slot, slot_failed, last_fail_at)
+        INSERT INTO rogerai.tower_health_runs AS r (tower_id, source, fail_streak, streak_since, last_slot, slot_failed, last_fail_at, last_at)
         VALUES ($1, $2, CASE WHEN $3::boolean THEN 0 ELSE 1 END, CASE WHEN $3::boolean THEN NULL ELSE $4::timestamptz END,
-                $5, NOT $3::boolean, CASE WHEN $3::boolean THEN NULL ELSE $4::timestamptz END)
+                $5, NOT $3::boolean, CASE WHEN $3::boolean THEN NULL ELSE $4::timestamptz END, $4::timestamptz)
         ON CONFLICT (tower_id, source) DO UPDATE SET
+          last_at = GREATEST(COALESCE(r.last_at, $4::timestamptz), $4::timestamptz),
           fail_streak = CASE
             WHEN $5 < r.last_slot THEN r.fail_streak
             WHEN $3::boolean THEN 0
@@ -270,7 +287,8 @@ func (p *PGStore) RecordCheck(towerID string, c Check) error {
             WHEN r.fail_streak = 0 THEN $4::timestamptz
             ELSE r.streak_since END,
           last_fail_at = CASE
-            WHEN $5 < r.last_slot OR $3::boolean THEN r.last_fail_at
+            WHEN $5 < r.last_slot THEN r.last_fail_at
+            WHEN $3::boolean THEN NULL
             WHEN $5 = r.last_slot AND r.slot_failed THEN r.last_fail_at
             WHEN r.last_fail_at IS NOT NULL AND $4::timestamptz - r.last_fail_at < make_interval(secs => $6) THEN r.last_fail_at
             ELSE $4::timestamptz END,
@@ -306,8 +324,9 @@ func (p *PGStore) Summary(towerID string, since time.Time) (Summary, error) {
 	// The Tower's streak is its longer run; on a tie, the one that began first.
 	var began sql.NullTime
 	err = p.db.QueryRow(`SELECT fail_streak, streak_since FROM rogerai.tower_health_runs
-          WHERE tower_id = $1 AND fail_streak > 0 ORDER BY fail_streak DESC, streak_since ASC LIMIT 1`,
-		towerID).Scan(&s.FailStreak, &began)
+          WHERE tower_id = $1 AND fail_streak > 0 AND COALESCE(last_at, '-infinity') >= $2::timestamptz
+          ORDER BY fail_streak DESC, streak_since ASC LIMIT 1`,
+		towerID, s.LastAt.Add(-RunStaleAfter)).Scan(&s.FailStreak, &began)
 	if err == sql.ErrNoRows {
 		return s, nil
 	}

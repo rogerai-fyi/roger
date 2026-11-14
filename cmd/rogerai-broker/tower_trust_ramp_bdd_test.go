@@ -2009,7 +2009,8 @@ func (s *rampState) streakIsFromCanaries(n int) error {
 
 func (s *rampState) passesClearOnlyTheirOwnKind() error {
 	id := s.rampStreakTower()
-	at := time.Now().Add(-30 * time.Minute)
+	// The next interval, while the canaries are still current (within health.RunStaleAfter).
+	at := s.firstCanary.Add(2 * canaryInterval)
 	s.b.recordHealthCheck(id, health.Check{OK: true, At: at, Source: health.SourceHubCheck, Slot: healthSlot(at), MinGap: healthMinGap})
 	if sum, _ := s.b.tower.health.Summary(id, at.Add(-24*time.Hour)); sum.FailStreak != 2 {
 		return fmt.Errorf("a hub pass cleared canary failures: streak %d", sum.FailStreak)

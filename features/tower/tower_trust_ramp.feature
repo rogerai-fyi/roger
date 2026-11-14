@@ -6,6 +6,9 @@
 # sortband.go (the stage edge weight on the coin). Health checks are counted by whole UTC day, so a
 # day a stage is entered counts in full. A stage is cached for 15 seconds on the request path; a
 # write on the same instance drops the entry at once.
+# Each kind of check's run stops counting once that kind has gone unrefreshed for two canary
+# intervals (so a Tower whose Stations were moved off recovers on its hub checks). Streak values
+# from before 2026-11-14 were not carried over (the table had existed for a few hours).
 #
 # Founder request 2026-11-13: idea 4, "earned trust. New Towers carry a small, capped share of
 # traffic and grow as their canary and audit records stay clean", and "draft another message to
