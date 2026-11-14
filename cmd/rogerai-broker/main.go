@@ -200,6 +200,7 @@ type broker struct {
 	// stageCache is each Tower's trust stage for stageCacheTTL (towerstage.go), under stageMu.
 	stageMu     sync.Mutex
 	stageFlight singleflight.Group
+	stageGen    map[string]uint64 // bumped by every write that can change a stage
 	stageCache  map[string]cachedStage
 	// absentSince is when each Tower's absence from the live set began, as this instance knows
 	// it (towermobility.go), under moveMu.

@@ -204,6 +204,7 @@ func (b *broker) towerEvent(ev admit.Event) {
 	if err := b.tower.registry.Record(ev); err != nil {
 		b.towerGovUnavailable(err)
 	}
+	b.dropStageCache(ev) // again once it is recorded: a read between the two saw the old record
 }
 
 // towerRecordIfLast is towerEvent for the events that must be written once across
@@ -214,6 +215,7 @@ func (b *broker) towerRecordIfLast(ev admit.Event, kinds []string, lastID int64)
 	}
 	b.dropStageCache(ev)
 	won, err := b.tower.registry.RecordIfLast(ev, kinds, lastID)
+	b.dropStageCache(ev) // again once it is recorded: a read between the two saw the old record
 	if err != nil {
 		b.towerGovUnavailable(err)
 		return false

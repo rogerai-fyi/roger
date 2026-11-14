@@ -175,7 +175,10 @@ CREATE TABLE IF NOT EXISTS rogerai.tower_health (
     last_source  TEXT NOT NULL DEFAULT '',
     last_rtt_ms  BIGINT NOT NULL DEFAULT 0,
     last_hub_at  TIMESTAMPTZ
-)`
+);
+ALTER TABLE rogerai.tower_health ADD COLUMN IF NOT EXISTS last_source TEXT NOT NULL DEFAULT '';
+ALTER TABLE rogerai.tower_health ADD COLUMN IF NOT EXISTS last_rtt_ms BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE rogerai.tower_health ADD COLUMN IF NOT EXISTS last_hub_at TIMESTAMPTZ`
 
 func NewPGStore(db *sql.DB) (*PGStore, error) {
 	if _, err := db.Exec(schema); err != nil {

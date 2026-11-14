@@ -557,13 +557,32 @@ func TestConcurrentStageReadsCollapseIntoOne(t *testing.T) {
 }
 
 
-// AUDIT FINDING: a write during an in-flight read was lost to the stale flight.
+// AUDIT FINDING: a write landing while a stage read is in flight was lost - the stale read
+// cached the old stage for the cache's lifetime.
+type blockingStageReads struct {
+	admit.Store
+	block, entered chan struct{}
+	once           sync.Once
+}
+
+func (s *blockingStageReads) FindEvent(towerID string, kinds []string, oldest bool) (admit.Event, bool, error) {
+	if len(kinds) == 1 && kinds[0] == evTrustStage {
+		s.once.Do(func() { close(s.entered); <-s.block })
+	}
+	return s.Store.FindEvent(towerID, kinds, oldest)
+}
+
 func TestAWriteDuringAReadIsNotLostToTheFlight(t *testing.T) {
-	b, srv := towerTestBroker(t)
+	bs := &blockingStageReads{Store: admit.NewMemStore(), block: make(chan struct{}), entered: make(chan struct{})}
+	b, srv := towerTestBrokerWithAdmitStore(t, bs)
 	lt := approvedTower(t, b, srv, "nora", time.Now().Add(-time.Hour))
-	setStage(t, b, lt.id, placement.StageProving)
-	ev := admit.Event{TowerID: lt.id, Kind: evIncident, Actor: "admin:broker-key", Reason: "x"}
-	require.NoError(t, b.tower.registry.Record(ev))
-	b.dropStageCache(ev) // also forgets any flight that started before the write
-	require.Equal(t, placement.StageNew, b.towerStage(lt.id))
+	require.NoError(t, b.tower.registry.Record(admit.Event{TowerID: lt.id, Kind: evTrustStage, Actor: admit.ActorSystem, To: "proving"}))
+
+	done := make(chan placement.Stage)
+	go func() { done <- b.towerStage(lt.id) }() // a read that stalls inside the store
+	<-bs.entered
+	b.towerEvent(admit.Event{TowerID: lt.id, Kind: evIncident, Actor: "admin:broker-key", Reason: "x"}) // lands mid-read
+	close(bs.block)
+	<-done // the stale read finishes...
+	require.Equal(t, placement.StageNew, b.towerStage(lt.id), "...and did not cache the old stage")
 }

@@ -272,9 +272,11 @@ func (b *broker) dropStageCache(ev admit.Event) {
 	}
 	b.stageMu.Lock()
 	delete(b.stageCache, ev.TowerID)
+	if b.stageGen == nil {
+		b.stageGen = map[string]uint64{}
+	}
+	b.stageGen[ev.TowerID]++ // a read in flight from before this write may not cache its answer
 	b.stageMu.Unlock()
-	// A read already in flight may have started before this write: later callers start a new
-	// one rather than joining it.
 	b.stageFlight.Forget(ev.TowerID)
 }
 
@@ -297,6 +299,7 @@ func (b *broker) towerStage(towerID string) placement.Stage {
 			b.stageMu.Unlock()
 			return c.stage, nil
 		}
+		gen := b.stageGen[towerID]
 		b.stageMu.Unlock()
 		st, at := stageNew, now
 		if v, err := b.readStage(towerID, now); err == nil {
@@ -314,7 +317,9 @@ func (b *broker) towerStage(towerID string) placement.Stage {
 		if b.stageCache == nil {
 			b.stageCache = map[string]cachedStage{}
 		}
-		b.stageCache[towerID] = cachedStage{stage: st, at: at}
+		if b.stageGen[towerID] == gen { // nothing that could change the stage was written meanwhile
+			b.stageCache[towerID] = cachedStage{stage: st, at: at}
+		}
 		b.stageMu.Unlock()
 		return st, nil
 	})
