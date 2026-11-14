@@ -15,11 +15,9 @@ package main
 // where it went in `roger share`) lives in unexported internal/agent code, so the three scenarios
 // about it run from internal/agent/station_mobility_bdd_test.go instead.
 //
-// NOT EXECUTED HERE: "An attempt caught by a move is void" (line 242). Its steps are written
-// against the real settle handler, but the handler refuses Tower A's receipt with 403 "that
-// Station is not attached to this Tower" (the origin check runs before the epoch fence), so the
-// spec's 410 and "edge fence MOVED" line never happen when the move went to a DIFFERENT Tower.
-// That is a spec/code disagreement to settle, not something to paper over here.
+// "An attempt caught by a move is void" (line 242) runs against the real settle handler. It was
+// held out at first because the handler refused Tower A's receipt with a 403 before the epoch
+// fence could answer; the handler now lets the Tower the attempt was granted to reach the fence.
 //
 // TWO LINES OF THE APPROVED FILE ARE NOT GHERKIN. "Because work through a Tower that is gone
 // cannot complete" (line 151) and "So that moves which raced live work can be counted against
@@ -1588,7 +1586,7 @@ func (s *mobState) placedAfresh() error {
 	return nil
 }
 
-// --- the fence (line 242; not executed, see the file comment) ------------------------
+// --- the fence (line 242) ------------------------
 
 func (s *mobState) attemptAtEpoch(epoch int) error {
 	s.attemptID = "att-mob-" + randHex(4)
@@ -1631,7 +1629,7 @@ func (s *mobState) nobodyPaid() error {
 		return fmt.Errorf("someone is owed: %+v %v", owed, err)
 	}
 	tally, err := s.r.b.tower.outcomes.Tally(s.r.a.id, time.Time{})
-	if err != nil || !reflect.ValueOf(tally).IsZero() {
+	if err != nil || tally.Total != 0 {
 		return fmt.Errorf("reputation was written: %+v %v", tally, err)
 	}
 	return nil
@@ -2136,9 +2134,9 @@ func (s *mobState) directKeepsServing() error {
 }
 
 // mobBrokerLines are the scenarios this runner executes: every scenario in the file except the
-// three about the node's own code (internal/agent runner) and the fence scenario at line 242.
+// three about the node's own code (internal/agent runner).
 var mobBrokerLines = []int{47, 53, 58, 63, 68, 73, 90, 98, 104, 109, 114, 119, 127, 132, 147, 155, 163, 169,
-	175, 184, 191, 197, 203, 222, 227, 234, 250, 257, 265, 277, 282, 288, 293, 298}
+	175, 184, 191, 197, 203, 222, 227, 234, 242, 250, 257, 265, 277, 282, 288, 293, 298}
 
 func mobSteps(sc *godog.ScenarioContext, s *mobState) {
 	sc.Step(`^a Station "S" live on Tower "A" at epoch (\d+)$`, s.background)
