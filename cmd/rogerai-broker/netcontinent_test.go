@@ -4,6 +4,9 @@ package main
 // contradiction rule built on it (contract §14.B7 #21, founder ruling 2026-10-05).
 
 import (
+	"time"
+	"strings"
+	"fmt"
 	"crypto/ed25519"
 	"encoding/hex"
 	"os"
@@ -126,4 +129,31 @@ func TestRegionTableStatus(t *testing.T) {
 	require.Equal(t, map[string]any{"configured": true, "ranges": 3}, b.regionTableStatus())
 	b.netTableErr = "line 2: want \"CIDR CONTINENT\""
 	require.Equal(t, "line 2: want \"CIDR CONTINENT\"", b.regionTableStatus()["error"])
+}
+
+// A real table is built from the registries' data: about 170,000 ranges. A lookup runs on every
+// registration, attach and hub check, so it must not scan them all - and must still pick the
+// LONGEST matching prefix.
+func TestALargeTableLooksUpByPrefixNotByScan(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("10.0.0.0/8 EU\n2001:db8::/32 OC\n")
+	for i := 0; i < 200000; i++ {
+		fmt.Fprintf(&b, "%d.%d.%d.0/24 AS\n", 11+i/65536, (i/256)%256, i%256)
+	}
+	b.WriteString("10.1.2.0/24 AF\n2001:db8:1::/48 SA\n")
+	nt, err := parseNetTable([]byte(b.String()))
+	require.NoError(t, err)
+	require.Equal(t, "AF", nt.continentOf("10.1.2.3"), "longest prefix wins")
+	require.Equal(t, "EU", nt.continentOf("10.9.9.9"))
+	require.Equal(t, "AS", nt.continentOf("12.3.4.5"))
+	require.Equal(t, "SA", nt.continentOf("2001:db8:1::5"))
+	require.Equal(t, "OC", nt.continentOf("2001:db8:2::5"))
+	require.Equal(t, "", nt.continentOf("9.9.9.9"))
+	require.Equal(t, "AF", nt.continentOf("[::ffff:10.1.2.3]:443"), "a mapped v4 address with a port")
+	start := time.Now()
+	for i := 0; i < 10000; i++ {
+		nt.continentOf("12.3.4.5")
+	}
+	require.Less(t, time.Since(start), 200*time.Millisecond, "10,000 lookups in a 200,000-range table")
+	require.Equal(t, map[string]any{"configured": true, "ranges": 200004}, (&broker{netTable: nt}).regionTableStatus())
 }

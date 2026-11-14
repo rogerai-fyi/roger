@@ -32,8 +32,14 @@ type netRange struct {
 	continent string
 }
 
-// netTable is a parsed table, longest prefix first.
-type netTable struct{ ranges []netRange }
+// netTable is a parsed table. Lookups go by prefix length, longest first: one map read per
+// length present (at most 33 for IPv4 and 129 for IPv6), however many ranges the table holds.
+// A table built from the registries' data has about 170,000 ranges.
+type netTable struct {
+	ranges []netRange
+	byBits map[int]map[netip.Prefix]string
+	bits   []int // the prefix lengths present, longest first
+}
 
 func parseNetTable(raw []byte) (*netTable, error) {
 	t := &netTable{}
@@ -57,6 +63,21 @@ func parseNetTable(raw []byte) (*netTable, error) {
 		t.ranges = append(t.ranges, netRange{prefix: p.Masked(), continent: c})
 	}
 	sort.SliceStable(t.ranges, func(i, j int) bool { return t.ranges[i].prefix.Bits() > t.ranges[j].prefix.Bits() })
+	t.byBits = map[int]map[netip.Prefix]string{}
+	for _, r := range t.ranges {
+		bits := r.prefix.Bits()
+		if r.prefix.Addr().Is4() {
+			bits += 1000 // keep v4 and v6 lengths apart
+		}
+		if t.byBits[bits] == nil {
+			t.byBits[bits] = map[netip.Prefix]string{}
+			t.bits = append(t.bits, bits)
+		}
+		if _, dup := t.byBits[bits][r.prefix]; !dup {
+			t.byBits[bits][r.prefix] = r.continent // the first line for a prefix wins, as the scan did
+		}
+	}
+	sort.Sort(sort.Reverse(sort.IntSlice(t.bits)))
 	return t, nil
 }
 
@@ -123,10 +144,8 @@ func (b *broker) regionMismatches() []string {
 	return out
 }
 
-// continentOf is the continent addr falls in ("" = no table, no match, or not an address).
-// The lookup is a linear scan, longest prefix first: it runs once per registration (never per
-// request), and an operator table of continent ranges is a few thousand lines, so a scan is
-// microseconds where a trie would be code to maintain.
+// continentOf is the continent addr falls in ("" = no table, no match, or not an address):
+// the longest matching prefix, found by one map read per prefix length.
 func (t *netTable) continentOf(addr string) string {
 	if t == nil {
 		return ""
@@ -139,9 +158,20 @@ func (t *netTable) continentOf(addr string) string {
 		return ""
 	}
 	a = a.Unmap()
-	for _, r := range t.ranges {
-		if r.prefix.Contains(a) {
-			return r.continent
+	for _, bits := range t.bits {
+		n := bits
+		if a.Is4() != (bits >= 1000) {
+			continue
+		}
+		if n >= 1000 {
+			n -= 1000
+		}
+		p, err := a.Prefix(n)
+		if err != nil {
+			continue
+		}
+		if c, ok := t.byBits[bits][p]; ok {
+			return c
 		}
 	}
 	return ""
