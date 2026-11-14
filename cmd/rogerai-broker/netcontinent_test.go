@@ -4,14 +4,14 @@ package main
 // contradiction rule built on it (contract §14.B7 #21, founder ruling 2026-10-05).
 
 import (
-	"time"
-	"strings"
-	"fmt"
 	"crypto/ed25519"
 	"encoding/hex"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"rogerai.fm/roger/v7/internal/protocol"
