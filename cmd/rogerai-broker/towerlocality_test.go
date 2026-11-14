@@ -266,3 +266,17 @@ func portOf(t *testing.T, hostport string) string {
 	require.NoError(t, err)
 	return p
 }
+
+// AUDIT FINDING: a failed first lookup returned before the link continent was kept.
+func TestAFailedFirstLookupStillKeepsTheLinkContinent(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	b.netTable = testNetTable(t)
+	op := signedInOperator(t, b, "octocat")
+	lt := enrolledTower(t, b, op.login)
+	call := func(p string, body []byte, out any) (int, string) { return lt.call(t, srv, p, body, out) }
+	acc := openSessionOf(t, srv.URL, lt, call)
+	waitMeasured(t, b, lt.id)
+	withHubResolver(t, func(context.Context, string) ([]string, error) { return nil, errors.New("the Tower made its DNS fail") })
+	b.measureTowerLocality(lt.id, acc.SessionID, "hub.example:7443", "198.51.100.9")
+	require.Equal(t, "EU", b.tower.link.LinkContinent(lt.id))
+}

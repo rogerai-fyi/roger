@@ -38,6 +38,14 @@ func (b *broker) addrLocality(addr string) placement.Locality {
 // cross-check the continent. A failed lookup records nothing, so the sweep tries again.
 func (b *broker) measureTowerLocality(towerID, sessionID, endpoint, linkAddr string) {
 	ts := b.tower
+	// The link's continent is kept FIRST, before anything can return early: a Tower controls
+	// its own DNS, and a lookup it makes fail must not cost the session its cross-check.
+	linkCont := b.addrLocality(linkAddr).Continent
+	if linkAddr != "" {
+		ts.link.SetLinkContinent(towerID, sessionID, linkCont)
+	} else {
+		linkCont = ts.link.LinkContinent(towerID) // a retry keeps the session's cross-check
+	}
 	if endpoint == "" {
 		ts.link.SetLocality(towerID, sessionID, placement.Locality{})
 		return
@@ -56,12 +64,6 @@ func (b *broker) measureTowerLocality(towerID, sessionID, endpoint, linkAddr str
 		if err != nil {
 			return
 		}
-	}
-	linkCont := b.addrLocality(linkAddr).Continent
-	if linkAddr != "" {
-		ts.link.SetLinkContinent(towerID, sessionID, linkCont)
-	} else {
-		linkCont = ts.link.LinkContinent(towerID) // a retry keeps the session's cross-check
 	}
 	loc, conflict := placement.FromAddrs(addrs, linkCont, coarseNetBucket, b.netTable.continentOf)
 	if conflict {

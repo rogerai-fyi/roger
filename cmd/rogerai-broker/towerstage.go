@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strings"
 	"time"
 
 	"rogerai.fm/roger/v7/internal/towercore/admit"
@@ -158,14 +159,12 @@ func (b *broker) readStage(towerID string, now time.Time) (stageView, error) {
 		if t, ok := timeOf(v.last.Detail["entered_at"]); ok {
 			v.entered = t
 		}
-		since, sinceID = v.last.At, v.last.ID
-		// A demotion counts from its latest cause, not from when it was written, so a
-		// disqualifier that landed between the sweep's read and its write is still seen.
-		if causes := eventIDs(v.last.Detail["cause_events"]); len(causes) > 0 {
-			for _, c := range causes {
-				listed[c] = true
-			}
-			since, sinceID = v.entered, 0
+		// Counted from when the stage was ENTERED, not from when its event was written, so a
+		// disqualifier that landed between the sweep's read and its write is still seen. A
+		// demotion's entered_at is its latest cause, and the causes it names are not counted again.
+		since, sinceID = v.entered, 0
+		for _, c := range eventIDs(v.last.Detail["cause_events"]) {
+			listed[c] = true
 		}
 	}
 	if !v.hasLast && !v.hasAppr {
@@ -225,7 +224,13 @@ func (b *broker) disqualifies(towerID string, ev admit.Event, now time.Time) (bo
 			return false, err
 		}
 		for _, o := range after {
-			recovered := o.Kind == evCertRenewed || (o.Kind == evLifecycle && o.To == admit.StateActive)
+			// Only a real restoration of the lease counts: a renewal, or Core re-admitting the
+			// Tower from quarantine or an expired lease. An operator's own resume from a drain
+			// does not touch the lease and recovers nothing.
+			readmitted := o.Kind == evLifecycle && o.To == admit.StateActive &&
+				(o.From == admit.StateQuarantine || o.From == admit.StateExpired) &&
+				!strings.HasPrefix(o.Actor, "operator:")
+			recovered := o.Kind == evCertRenewed || readmitted
 			if recovered && !o.At.After(ev.At.Add(leaseLapseGrace)) {
 				return false, nil
 			}
@@ -386,7 +391,9 @@ func (b *broker) sweepStage(tw admit.Tower, now time.Time) {
 	}
 	write(v.stage, next, "promoted", map[string]any{
 		"passed": sum.Passed, "failed": sum.Failed, "pass_rate": fmt.Sprintf("%.3f", sum.Rate()),
-		"days": int(now.Sub(v.entered).Hours() / 24)})
+		"days": int(now.Sub(v.entered).Hours() / 24),
+		// The new stage starts when the evidence was READ, so anything after that read counts.
+		"entered_at": now.UTC().Format(time.RFC3339Nano)})
 }
 
 // noteHealthStreak records health_failing once per run of failures, as soon as the run reaches

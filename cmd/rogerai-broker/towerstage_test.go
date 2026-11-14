@@ -498,3 +498,46 @@ func TestALapseJustBeforeAPromotionStillCountsIfNeverRenewed(t *testing.T) {
 	b.towerGovSweepOnce(time.Now())
 	require.Equal(t, placement.StageNew, b.towerStage(lt.id), "the unrenewed lapse counts")
 }
+
+// AUDIT FINDING: an operator's own resume from a drain counted as recovering a lapsed lease.
+func TestAnOperatorResumeDoesNotRecoverALapsedLease(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	lt := approvedTower(t, b, srv, "nora", time.Now().Add(-3*time.Hour))
+	setStageAt(t, b, lt.id, placement.StageProving, time.Now().Add(-3*time.Hour))
+	lapse := time.Now().Add(-2 * time.Hour)
+	require.NoError(t, b.tower.registry.Record(admit.Event{TowerID: lt.id, Kind: evLeaseLapsed, Actor: admit.ActorSystem, At: lapse}))
+	require.NoError(t, b.tower.registry.Record(admit.Event{TowerID: lt.id, Kind: evLifecycle, Actor: "operator:nora",
+		From: admit.StateDraining, To: admit.StateActive, At: lapse.Add(10 * time.Minute)}))
+	b.towerGovSweepOnce(time.Now())
+	require.Equal(t, placement.StageNew, b.towerStage(lt.id))
+}
+
+// A re-admission by Core within the hour does recover it.
+func TestCoreReadmittingWithinTheHourRecoversALapse(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	lt := approvedTower(t, b, srv, "nora", time.Now().Add(-3*time.Hour))
+	setStageAt(t, b, lt.id, placement.StageProving, time.Now().Add(-3*time.Hour))
+	lapse := time.Now().Add(-2 * time.Hour)
+	require.NoError(t, b.tower.registry.Record(admit.Event{TowerID: lt.id, Kind: evLeaseLapsed, Actor: admit.ActorSystem, At: lapse}))
+	require.NoError(t, b.tower.registry.Record(admit.Event{TowerID: lt.id, Kind: evLifecycle, Actor: "admin:broker-key",
+		From: admit.StateQuarantine, To: admit.StateActive, At: lapse.Add(30 * time.Minute)}))
+	b.towerGovSweepOnce(time.Now())
+	require.Equal(t, placement.StageProving, b.towerStage(lt.id))
+}
+
+// AUDIT FINDING: a disqualifier between a promotion's read and its write was dropped.
+func TestADisqualifierBetweenAPromotionsReadAndWriteCounts(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	now := time.Now()
+	lt := approvedTower(t, b, srv, "nora", now.Add(-8*24*time.Hour))
+	b.towerGovSweepOnce(now.Add(-8*24*time.Hour + time.Minute))
+	passChecks(t, b, lt.id, 60, now.Add(-7*24*time.Hour))
+	readAt := now.Add(-time.Minute)
+	b.towerGovSweepOnce(readAt) // promotion: entered_at is the read time
+	require.Equal(t, admit.State("proving"), stageEvents(t, b, lt.id)[0].To)
+	// An incident stamped after the read but before the promotion's write time.
+	require.NoError(t, b.tower.registry.Record(admit.Event{TowerID: lt.id, Kind: evIncident, Actor: "admin:broker-key",
+		Reason: "racing", At: readAt.Add(time.Second)}))
+	b.dropStageCache(admit.Event{TowerID: lt.id, Kind: evIncident})
+	require.Equal(t, placement.StageNew, b.towerStage(lt.id))
+}
