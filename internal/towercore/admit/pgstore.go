@@ -78,6 +78,50 @@ CREATE UNIQUE INDEX IF NOT EXISTS tower_admissions_tls_key_uniq
     ON rogerai.tower_admissions (tls_key_hash) WHERE tls_key_hash IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS tower_admissions_owner_idx ON rogerai.tower_admissions (owner);
+
+-- The Tower governance record (features/tower/governance_record.feature). Append-only: the
+-- CHECKs refuse an unattributed event, and the trigger refuses any UPDATE or DELETE, so the
+-- history holds even against code that forgets the rule. No foreign key to tower_admissions:
+-- a refused request can name a Tower id before the row is readable, and the record must
+-- outlive any row it describes.
+CREATE TABLE IF NOT EXISTS rogerai.tower_events (
+    id         BIGSERIAL PRIMARY KEY,
+    tower_id   TEXT        NOT NULL CHECK (tower_id <> ''),
+    at         TIMESTAMPTZ NOT NULL,
+    kind       TEXT        NOT NULL CHECK (kind <> ''),
+    actor      TEXT        NOT NULL CHECK (actor <> ''),
+    from_state TEXT,
+    to_state   TEXT,
+    reason     TEXT,
+    instance   TEXT,
+    detail     JSONB
+);
+CREATE INDEX IF NOT EXISTS tower_events_tower_at_idx ON rogerai.tower_events (tower_id, at DESC, id DESC);
+-- The admin list reads the link kinds across every Tower at once (LinkSummaries).
+CREATE INDEX IF NOT EXISTS tower_events_kind_tower_at_idx ON rogerai.tower_events (kind, tower_id, at);
+
+CREATE OR REPLACE FUNCTION rogerai.tower_events_append_only() RETURNS trigger
+    LANGUAGE plpgsql AS $fn$
+BEGIN
+    RAISE EXCEPTION 'rogerai.tower_events is append-only';
+END
+$fn$;
+
+DO $do$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'tower_events_no_edit'
+                   AND tgrelid = 'rogerai.tower_events'::regclass) THEN
+        CREATE TRIGGER tower_events_no_edit BEFORE UPDATE OR DELETE ON rogerai.tower_events
+            FOR EACH ROW EXECUTE FUNCTION rogerai.tower_events_append_only();
+    END IF;
+    -- TRUNCATE fires no row trigger, so it gets a statement trigger of its own.
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'tower_events_no_truncate'
+                   AND tgrelid = 'rogerai.tower_events'::regclass) THEN
+        CREATE TRIGGER tower_events_no_truncate BEFORE TRUNCATE ON rogerai.tower_events
+            FOR EACH STATEMENT EXECUTE FUNCTION rogerai.tower_events_append_only();
+    END IF;
+END
+$do$;
 -- The mint path checks how many live tokens an account already holds on every call, so that
 -- lookup must not be a table scan.
 CREATE INDEX IF NOT EXISTS tower_enrollment_tokens_owner_idx
@@ -202,8 +246,14 @@ func (p *PGStore) PutTower(tw Tower) error {
 // the renewal tests passed against both by asserting on the returned value rather than
 // re-reading. Any column added to Tower has to be added here too; the contract test now
 // re-reads, so forgetting one fails.
-func (p *PGStore) CASTower(tw Tower) (bool, error) {
-	res, err := p.db.Exec(
+func (p *PGStore) CASTower(tw Tower) (bool, error) { return casTower(p.db, tw) }
+
+type execer interface {
+	Exec(query string, args ...any) (sql.Result, error)
+}
+
+func casTower(ex execer, tw Tower) (bool, error) {
+	res, err := ex.Exec(
 		`UPDATE rogerai.tower_admissions
 		    SET owner=$2, key_hash=$3, state=$4, enrolled_at=$5,
 		        lease_expires=$6, false_claims=$7, rev=rev+1,
@@ -450,4 +500,204 @@ func (p *PGStore) ReapTokens(now time.Time) error {
 		return wrap("reap tokens", err)
 	}
 	return nil
+}
+
+func insertEvent(ex execer, ev Event) error {
+	var detail any
+	if len(ev.Detail) > 0 {
+		raw, err := json.Marshal(ev.Detail)
+		if err != nil {
+			return err
+		}
+		detail = raw
+	}
+	_, err := ex.Exec(`INSERT INTO rogerai.tower_events
+	    (tower_id, at, kind, actor, from_state, to_state, reason, instance, detail)
+	    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+		ev.TowerID, ev.At.UTC(), ev.Kind, ev.Actor, nullString(string(ev.From)), nullString(string(ev.To)),
+		nullString(ev.Reason), nullString(ev.Instance), detail)
+	return err
+}
+
+func (p *PGStore) AppendEvent(ev Event) error {
+	if err := ev.valid(); err != nil {
+		return err
+	}
+	if err := insertEvent(p.db, ev); err != nil {
+		return wrap("append event", err)
+	}
+	return nil
+}
+
+const eventCols = `id, tower_id, at, kind, actor, from_state, to_state, reason, instance, detail`
+
+func scanEvent(row interface{ Scan(...any) error }) (Event, error) {
+	var ev Event
+	var from, to, reason, instance sql.NullString
+	var detail []byte
+	if err := row.Scan(&ev.ID, &ev.TowerID, &ev.At, &ev.Kind, &ev.Actor, &from, &to, &reason, &instance, &detail); err != nil {
+		return Event{}, err
+	}
+	ev.From, ev.To = State(from.String), State(to.String)
+	ev.Reason, ev.Instance = reason.String, instance.String
+	if len(detail) > 0 {
+		_ = json.Unmarshal(detail, &ev.Detail)
+	}
+	return ev, nil
+}
+
+func (p *PGStore) Events(towerID string, limit int) ([]Event, error) {
+	rows, err := p.db.Query(`SELECT `+eventCols+`
+	      FROM rogerai.tower_events WHERE tower_id = $1 ORDER BY at DESC, id DESC LIMIT $2`, towerID, limit)
+	if err != nil {
+		return nil, wrap("events", err)
+	}
+	defer rows.Close()
+	var out []Event
+	for rows.Next() {
+		ev, err := scanEvent(rows)
+		if err != nil {
+			return nil, wrap("events", err)
+		}
+		out = append(out, ev)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, wrap("events", err)
+	}
+	return out, nil
+}
+
+// CASTowerEvent writes the Tower and its event in one transaction.
+func (p *PGStore) CASTowerEvent(tw Tower, ev Event) (bool, error) {
+	if err := ev.valid(); err != nil {
+		return false, err
+	}
+	tx, err := p.db.Begin()
+	if err != nil {
+		return false, wrap("cas tower event", err)
+	}
+	defer tx.Rollback() //nolint:errcheck // no-op once committed
+	won, err := casTower(tx, tw)
+	if err != nil {
+		return false, wrap("cas tower event", err)
+	}
+	if !won {
+		return false, nil
+	}
+	if err := insertEvent(tx, ev); err != nil {
+		return false, wrap("cas tower event", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return false, wrap("cas tower event", err)
+	}
+	return true, nil
+}
+
+type queryRower interface {
+	QueryRow(query string, args ...any) *sql.Row
+}
+
+func findEvent(q queryRower, towerID string, kinds []string, oldest bool) (Event, bool, error) {
+	order := "DESC"
+	if oldest {
+		order = "ASC"
+	}
+	ev, err := scanEvent(q.QueryRow(`SELECT `+eventCols+` FROM rogerai.tower_events
+	      WHERE tower_id = $1 AND kind = ANY($2) ORDER BY at `+order+`, id `+order+` LIMIT 1`, towerID, kinds))
+	if errors.Is(err, sql.ErrNoRows) {
+		return Event{}, false, nil
+	}
+	if err != nil {
+		return Event{}, false, err
+	}
+	return ev, true, nil
+}
+
+func (p *PGStore) FindEvent(towerID string, kinds []string, oldest bool) (Event, bool, error) {
+	ev, ok, err := findEvent(p.db, towerID, kinds, oldest)
+	if err != nil {
+		return Event{}, false, wrap("find event", err)
+	}
+	return ev, ok, nil
+}
+
+// AppendEventIfLast serialises writers PER TOWER with a transaction-scoped advisory lock,
+// then checks and inserts inside it - the same shape as PutTokenCapped, for the same reason:
+// under READ COMMITTED a conditional insert alone lets two transactions both pass the check.
+func (p *PGStore) AppendEventIfLast(ev Event, kinds []string, lastID int64) (bool, error) {
+	if err := ev.valid(); err != nil {
+		return false, err
+	}
+	tx, err := p.db.Begin()
+	if err != nil {
+		return false, wrap("append event if last", err)
+	}
+	defer tx.Rollback() //nolint:errcheck // no-op once committed
+	if _, err := tx.Exec(`SELECT pg_advisory_xact_lock(hashtext($1))`, "tower-events:"+ev.TowerID); err != nil {
+		return false, wrap("append event if last", err)
+	}
+	cur, ok, err := findEvent(tx, ev.TowerID, kinds, false)
+	if err != nil {
+		return false, wrap("append event if last", err)
+	}
+	if (ok && cur.ID != lastID) || (!ok && lastID != 0) {
+		return false, nil
+	}
+	if err := insertEvent(tx, ev); err != nil {
+		return false, wrap("append event if last", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return false, wrap("append event if last", err)
+	}
+	return true, nil
+}
+
+func (p *PGStore) CountEvents(towerID, kind, reason, actor string, since time.Time) (int, error) {
+	var n int
+	err := p.db.QueryRow(`SELECT count(*) FROM rogerai.tower_events
+	      WHERE tower_id = $1 AND kind = $2 AND at >= $3 AND ($4 = '' OR reason = $4) AND ($5 = '' OR actor = $5)`,
+		towerID, kind, since.UTC(), reason, actor).Scan(&n)
+	if err != nil {
+		return 0, wrap("count events", err)
+	}
+	return n, nil
+}
+
+// LinkSummaries reads the first and newest event of each kind per Tower in one query: the
+// window functions pick the rows, and foldSummary assembles them as the in-process store does.
+func (p *PGStore) LinkSummaries(kinds []string) (map[string]LinkSummary, error) {
+	rows, err := p.db.Query(`SELECT `+eventCols+` FROM (
+	        SELECT *, row_number() OVER (PARTITION BY tower_id, kind ORDER BY at DESC, id DESC) AS newest,
+	                  row_number() OVER (PARTITION BY tower_id ORDER BY at ASC, id ASC) AS oldest
+	          FROM rogerai.tower_events WHERE kind = ANY($1)) e
+	      WHERE newest = 1 OR oldest = 1`, kinds)
+	if err != nil {
+		return nil, wrap("link summaries", err)
+	}
+	defer rows.Close()
+	out := map[string]LinkSummary{}
+	for rows.Next() {
+		ev, err := scanEvent(rows)
+		if err != nil {
+			return nil, wrap("link summaries", err)
+		}
+		out[ev.TowerID] = foldSummary(out[ev.TowerID], ev)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, wrap("link summaries", err)
+	}
+	return out, nil
+}
+
+func (p *PGStore) FindTransition(towerID string, from, to State) (Event, bool, error) {
+	ev, err := scanEvent(p.db.QueryRow(`SELECT `+eventCols+` FROM rogerai.tower_events
+	      WHERE tower_id = $1 AND from_state = $2 AND to_state = $3 ORDER BY at DESC, id DESC LIMIT 1`,
+		towerID, string(from), string(to)))
+	if errors.Is(err, sql.ErrNoRows) {
+		return Event{}, false, nil
+	}
+	if err != nil {
+		return Event{}, false, wrap("find transition", err)
+	}
+	return ev, true, nil
 }

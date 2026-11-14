@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"net/http"
 	"sort"
 	"time"
@@ -40,10 +41,15 @@ func (b *broker) adminTowers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	log.Printf("admin read: towers list by admin:%s", b.adminActor(r))
 	towers := ts.registry.All()
+	// ONE read of every Tower's link history, not a handful of queries per row.
+	sums, serr := ts.registry.LinkSummaries(towerLinkKinds)
 	out := make([]admitTowerRow, 0, len(towers))
 	for _, tw := range towers {
-		out = append(out, adminTowerRowOf(ts, tw))
+		row := adminTowerRowOf(ts, tw)
+		row.Connection, row.LastSeen = connectionFromSummary(ts, tw.ID, sums[tw.ID], serr)
+		out = append(out, row)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"towers": out})
 }
@@ -72,6 +78,7 @@ func (b *broker) adminTowerDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	log.Printf("admin read: tower %s by admin:%s", logValue(id), b.adminActor(r))
 	var found *admitTowerRow
 	for _, tw := range ts.registry.All() {
 		if tw.ID == id {
@@ -130,6 +137,10 @@ func (b *broker) adminTowerDetail(w http.ResponseWriter, r *http.Request) {
 		"traffic":   towerTrafficView(traffic),
 		"origin":    towerOriginView(origins),
 		"fleet":     towerFleetView(stations),
+		// The governance record (governance_record.feature): where the link stands and the
+		// newest events, with who did what and why.
+		"connection": towerConnectionView(ts, id),
+		"events":     towerEventsView(ts, id),
 	})
 }
 
@@ -142,6 +153,10 @@ type admitTowerRow struct {
 	Enrolled string `json:"enrolled"`
 	LinkLive bool   `json:"link_live"`
 	Endpoint string `json:"endpoint,omitempty"`
+	// Connection is "connected", "closed", "stale" or "never connected"; LastSeen is when
+	// Core last heard from the Tower, from the link or the governance record.
+	Connection string `json:"connection"`
+	LastSeen   string `json:"last_seen,omitempty"`
 }
 
 // adminTowerRowOf reads one Tower's identity row: who, when, what state, whether the link is
@@ -158,6 +173,120 @@ func adminTowerRowOf(ts *towerSubsystem, tw admitTower) admitTowerRow {
 		row.Endpoint = p.Endpoint
 	}
 	return row
+}
+
+// connectionFromSummary is the list view's status and last-seen time, from one Tower's link
+// summary and the link itself. It agrees with towerConnectionView by construction: both
+// read the same newest link event.
+func connectionFromSummary(ts *towerSubsystem, id string, sum admit.LinkSummary, err error) (string, string) {
+	seen, seenOK := ts.link.LastSeen(id)
+	if !seenOK && err == nil && sum.Latest.Kind != "" {
+		seen = eventLastSeen(sum.Latest)
+	}
+	stamp := ""
+	if !seen.IsZero() {
+		stamp = seen.UTC().Format(time.RFC3339)
+	}
+	switch {
+	case ts.link.Live(id):
+		return "connected", stamp
+	case err != nil:
+		return "unknown", stamp
+	case sum.Latest.Kind == "":
+		return "never connected", stamp
+	case sum.Latest.Kind == evSessionClosed:
+		return "closed", stamp
+	}
+	return "stale", stamp
+}
+
+// eventLastSeen is when a link event says Core last heard from the Tower: its last_seen
+// detail when it carries one, else the event's own time.
+func eventLastSeen(ev admit.Event) time.Time {
+	if s, ok := ev.Detail["last_seen"].(string); ok {
+		if at, perr := time.Parse(time.RFC3339, s); perr == nil {
+			return at
+		}
+	}
+	return ev.At
+}
+
+// towerConnectionView answers "is it connected, and if not, was it ever" from the link and
+// the governance record, so the answer does not need log access.
+func towerConnectionView(ts *towerSubsystem, id string) map[string]any {
+	out := map[string]any{}
+	stamp := func(key string, at time.Time) {
+		if !at.IsZero() {
+			out[key] = at.UTC().Format(time.RFC3339)
+		}
+	}
+	if first, ok, err := ts.registry.FindEvent(id, []string{evSessionOpened}, true); err == nil && ok {
+		stamp("first_connected", first.At)
+	}
+	if last, ok, err := ts.registry.FindEvent(id, []string{evSessionOpened, evSessionResumed}, false); err == nil && ok {
+		stamp("last_connected", last.At)
+	}
+	if closed, ok, err := ts.registry.FindEvent(id, []string{evSessionClosed}, false); err == nil && ok {
+		stamp("last_closed", closed.At)
+	}
+	if stale, ok, err := ts.registry.FindEvent(id, []string{evSessionStale}, false); err == nil && ok {
+		stamp("last_stale", stale.At)
+	}
+	// WHEN IT WAS APPROVED AND BY WHOM: the newest move from quarantine to active, by one
+	// query over the whole record. Not the newest move to active, which an operator's resume
+	// from draining also is.
+	if ev, ok, err := ts.registry.FindTransition(id, admit.StateQuarantine, admit.StateActive); err == nil && ok {
+		stamp("approved_at", ev.At)
+		out["approved_by"] = ev.Actor
+	}
+	latest, known, err := ts.registry.FindEvent(id, towerLinkKinds, false)
+	seen, seenOK := ts.link.LastSeen(id)
+	if !seenOK && err == nil && known {
+		seen = eventLastSeen(latest)
+	}
+	stamp("last_seen", seen)
+	switch {
+	case ts.link.Live(id):
+		out["status"] = "connected"
+	case err != nil:
+		out["status"] = "unknown"
+	case !known:
+		out["status"] = "never connected"
+	case latest.Kind == evSessionClosed:
+		out["status"] = "closed"
+	default:
+		out["status"] = "stale"
+	}
+	return out
+}
+
+// towerEventsView is the newest 50 governance events, newest first.
+func towerEventsView(ts *towerSubsystem, id string) []map[string]any {
+	evs, err := ts.registry.Events(id, 50)
+	out := make([]map[string]any, 0, len(evs))
+	if err != nil {
+		return out
+	}
+	for _, ev := range evs {
+		row := map[string]any{"at": ev.At.UTC().Format(time.RFC3339), "kind": ev.Kind, "actor": ev.Actor}
+		if ev.From != "" {
+			row["from"] = string(ev.From)
+		}
+		if ev.To != "" {
+			row["to"] = string(ev.To)
+		}
+		if ev.Reason != "" {
+			row["reason"] = ev.Reason
+		}
+		if ev.Instance != "" {
+			row["instance"] = ev.Instance
+		}
+		if len(ev.Detail) > 0 {
+			row["detail"] = ev.Detail
+		}
+		out = append(out, row)
+	}
+	return out
 }
 
 // towerQualityView renders the reputation tally alongside the thresholds it is judged

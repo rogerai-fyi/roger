@@ -3044,22 +3044,52 @@ func (b *broker) evaluateTower(towerID string) reputation.Verdict {
 	// most of the fleet.
 	verdict := ts.repPolicy.Evaluate(tower, fleet.Without(tower))
 	if verdict == reputation.Quarantine {
-		// SUSPENDED, not quarantine: quarantine is the post-enrollment holding pen and an
-		// ACTIVE Tower cannot legally move there, while suspend is exactly "stop an active
-		// Tower now, keep its identity, reversible". Both withhold work (EligibilityNone);
-		// suspend is the one the transition table allows from active.
-		//
-		// Best effort: a Tower that cannot be moved right now is re-evaluated on its next
-		// attempt and the evidence does not go away. A Tower already off gets a harmless
-		// no-op refusal.
-		if terr := ts.registry.Transition(towerID, admit.StateSuspended); terr != nil {
-			log.Printf("tower %s: evidence warrants suspension but the move failed: %v", towerID, terr)
-		} else {
-			log.Printf("tower %s: suspended on reputation evidence", towerID)
-			b.forgetRoutable(towerID)
-		}
+		b.autoSuspend(towerID, tower, fleet.Without(tower))
 	}
 	return verdict
+}
+
+// autoSuspend suspends a Tower on reputation evidence and records the move with the tally
+// and the fleet baseline it was judged against, so the reason outlives the outcome rows
+// (reaped at reputationWindow).
+//
+// SUSPENDED, not quarantine: quarantine is the post-enrollment holding pen and an ACTIVE
+// Tower cannot legally move there, while suspend is exactly "stop an active Tower now, keep
+// its identity, reversible". Both withhold work (EligibilityNone); suspend is the one the
+// transition table allows from active.
+//
+// A Tower already off is left alone and says nothing: the evidence keeps arriving after a
+// suspension, and repeating a refused move on every outcome only buried the log. Any other
+// failure is recorded; the Tower is re-evaluated on its next attempt.
+func (b *broker) autoSuspend(towerID string, tower, fleet reputation.Tally) {
+	ts := b.tower
+	before, ok := ts.registry.Get(towerID)
+	if !ok || !admit.CanTransition(before.State, admit.StateSuspended) {
+		return
+	}
+	detail := map[string]any{
+		"total": tower.Total, "canary_pass": tower.CanaryPass, "canary_fail": tower.CanaryFail,
+		"audit_mismatch": tower.AuditMismatch, "uncorroborated": tower.Uncorroborated,
+		"disputed": tower.Disputed, "corroborated": tower.Corroborated,
+		"fleet_total": fleet.Total, "fleet_canary_pass": fleet.CanaryPass, "fleet_canary_fail": fleet.CanaryFail,
+		"fleet_audit_mismatch": fleet.AuditMismatch,
+	}
+	written, err := ts.registry.TransitionRecorded(towerID, admit.StateSuspended, admit.Event{Kind: evLifecycle,
+		Actor: admit.ActorSystem, Reason: "reputation", Instance: b.instanceID, Detail: detail})
+	if errors.Is(err, admit.ErrAlreadyInState) || errors.Is(err, admit.ErrIllegalTransition) {
+		return // a peer suspended (or ended) it first: nothing failed
+	}
+	if err != nil {
+		class := "concurrent_change"
+		if errors.Is(err, admit.ErrUnavailable) {
+			class = "record_unavailable"
+		}
+		b.towerEvent(admit.Event{TowerID: towerID, Kind: evLifecycleRefused, Actor: admit.ActorSystem,
+			From: before.State, To: admit.StateSuspended, Reason: class, Detail: map[string]any{"error": err.Error()}})
+		return
+	}
+	b.logTowerEvent(written)
+	b.forgetRoutable(towerID)
 }
 
 // subtleConstEq compares two keys in constant time and returns 1 on equal. A short-circuit

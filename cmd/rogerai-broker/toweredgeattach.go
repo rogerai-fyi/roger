@@ -39,6 +39,7 @@ import (
 	"time"
 
 	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/towercore/admit"
 	"rogerai.fm/roger/v7/internal/towercore/attach"
 	"rogerai.fm/roger/v7/internal/towercore/link"
 )
@@ -80,10 +81,19 @@ func (b *broker) towerEdgeAttach(w http.ResponseWriter, r *http.Request) {
 	}
 	corsCreds(w, r)
 	body := readTowerBody(r)
+	// Every refusal below is logged with its reason class (governance_record.feature): the
+	// answer is captured on the way out rather than threaded through each branch.
+	cw := &statusCapture{ResponseWriter: w}
+	w = cw
+	who := "unsigned"
+	defer func() { b.logAttachRefused(cw, who) }()
 
 	// The signed-in account. Same resolution as every tower operator surface: the request's
 	// signature must verify and its pubkey must be bound to a non-anonymized account.
 	owner, ok := b.towerOperator(r, body)
+	if ok {
+		who = "operator:" + owner
+	}
 	if !ok {
 		// THE TIGHT PER-IP BUCKET, ON THE WAY OUT - the same treatment /tower/edge/authorize
 		// got when it was found bare, on the same condition and for the same reason. An
@@ -526,6 +536,9 @@ func (b *broker) towerEdgeAttach(w http.ResponseWriter, r *http.Request) {
 	} else {
 		at.State = attach.StateActive
 	}
+
+	b.towerEvent(admit.Event{TowerID: towerID, Kind: evStationAttached, Actor: "operator:" + owner,
+		Detail: map[string]any{"station": at.StationID, "quarantine": at.State == attach.StateQuarantine}})
 
 	// The node is routable NOW: publish its row (merged with the tower's leaf rows) so
 	// edgeTargetFor can find it at its listed price.

@@ -54,29 +54,41 @@ const maxInventoryBody = 8 << 20
 // registered key hash for THAT id must match the key that actually signed, so naming another
 // Tower gets you nothing.
 func (b *broker) towerCaller(r *http.Request, body []byte, claimedID string) (admit.Tower, ed25519.PublicKey, bool) {
-	if claimedID == "" {
+	tw, pub, why := b.towerCallerWhy(r, body, claimedID)
+	if why != "" {
+		// Logged and recorded with the reason, never told to the caller: a Tower that tried
+		// and failed must not look like one that never tried (governance_record.feature).
+		b.noteTowerRefusal(claimedID, why, r.URL.Path)
 		return admit.Tower{}, nil, false
 	}
+	return tw, pub, true
+}
+
+// towerCallerWhy is towerCaller with the refusal reason: "" when the caller is the Tower.
+func (b *broker) towerCallerWhy(r *http.Request, body []byte, claimedID string) (admit.Tower, ed25519.PublicKey, string) {
+	if claimedID == "" {
+		return admit.Tower{}, nil, "no_tower_id"
+	}
 	if _, authed, ok := b.identityOf(r, body); !ok || !authed {
-		return admit.Tower{}, nil, false
+		return admit.Tower{}, nil, "unsigned"
 	}
 	raw, err := hex.DecodeString(r.Header.Get("X-Roger-Pubkey"))
 	if err != nil || len(raw) != ed25519.PublicKeySize {
-		return admit.Tower{}, nil, false
+		return admit.Tower{}, nil, "unsigned"
 	}
 	ts := b.tower
 	if ts == nil {
-		return admit.Tower{}, nil, false
+		return admit.Tower{}, nil, "unavailable"
 	}
 	tw, ok := ts.registry.Get(claimedID)
 	if !ok {
-		return admit.Tower{}, nil, false
+		return admit.Tower{}, nil, "unknown_tower"
 	}
 	sum := sha256.Sum256(raw)
 	// Constant time, like the enrollment path: a key-hash comparison that leaks timing is a
 	// key-hash comparison an attacker can walk.
 	if subtle.ConstantTimeCompare([]byte(hex.EncodeToString(sum[:])), []byte(tw.KeyHash)) != 1 {
-		return admit.Tower{}, nil, false
+		return admit.Tower{}, nil, "key_mismatch"
 	}
 
 	// IDENTITY IS NOT ENTITLEMENT, and two audit passes missed this. Proving you are the
@@ -97,7 +109,10 @@ func (b *broker) towerCaller(r *http.Request, body []byte, claimedID string) (ad
 	// then POST /tower/session/close. Refusing it would leave the fleet to age out over the
 	// freshness window instead, which is the outcome the drain exists to avoid.
 	if !towerMayHoldLink(tw) {
-		return admit.Tower{}, nil, false
+		if time.Now().After(tw.LeaseExpires) {
+			return admit.Tower{}, nil, "lease_lapsed"
+		}
+		return admit.Tower{}, nil, "state_" + string(tw.State)
 	}
 	// CERTIFICATE REVOCATION, enforced here. This deployment authenticates a Tower by its
 	// signed request rather than by a certificate presented at a TLS handshake, so a revoked
@@ -105,7 +120,7 @@ func (b *broker) towerCaller(r *http.Request, body []byte, claimedID string) (ad
 	// bound to the Tower at enrollment, so a revoked serial is a per-Tower kill switch that
 	// takes effect on the Tower's very next request, without waiting for its lease to lapse.
 	if ts.ca != nil && ts.ca.SerialRevoked(tw.CertSerial) {
-		return admit.Tower{}, nil, false
+		return admit.Tower{}, nil, "cert_revoked"
 	}
 	// MUTUAL TLS, the channel-binding half, enforced when the Tower connected over TLS and
 	// presented a client certificate. The signed request above proves possession of the
@@ -120,10 +135,10 @@ func (b *broker) towerCaller(r *http.Request, body []byte, claimedID string) (ad
 	// the object-signature guarantee it always had.
 	if ts.ca != nil && r.TLS != nil && len(r.TLS.PeerCertificates) > 0 {
 		if err := ts.ca.AuthenticateAs(r.TLS.PeerCertificates[0], tw.ID); err != nil {
-			return admit.Tower{}, nil, false
+			return admit.Tower{}, nil, "mtls_mismatch"
 		}
 	}
-	return tw, ed25519.PublicKey(raw), true
+	return tw, ed25519.PublicKey(raw), ""
 }
 
 // towerMayHoldLink reports whether a Tower may hold a session and push inventory.
@@ -173,9 +188,14 @@ func (b *broker) towerSessionOpen(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var replaced string
+	if ts.link.Live(tw.ID) {
+		replaced, _ = ts.link.Current(tw.ID)
+	}
 	acc, err := ts.link.Open(hello, tw.ID)
 	if err != nil {
 		// A negotiation failure is the Tower's to fix and says so; it is not a server fault.
+		b.towerEvent(admit.Event{TowerID: tw.ID, Kind: evSessionRefused, Actor: admit.ActorTower, Reason: err.Error()})
 		jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -232,6 +252,7 @@ func (b *broker) towerSessionOpen(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	acc.State = string(tw.State)
+	b.recordSessionOpened(tw.ID, acc.SessionID, acc.Version, acc.NeedFullInventory, replaced)
 	writeJSON(w, http.StatusOK, acc)
 }
 
@@ -261,6 +282,7 @@ func (b *broker) towerHeartbeat(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusConflict, err.Error())
 		return
 	}
+	b.noteHeartbeat(tw.ID)
 	// The state rides every heartbeat answer, so the operator's terminal can announce an
 	// approval, a suspension, or a drain within one beat instead of waiting for a restart
 	// or a failed push to reveal it.
@@ -289,7 +311,15 @@ func (b *broker) towerSessionClose(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusForbidden, "this link requires a registered Tower's own signed request")
 		return
 	}
-	ts.link.Close(f.SessionID, tw.ID)
+	lastSeen, _ := ts.link.LastSeen(tw.ID)
+	// Recorded only when it ended the Tower's CURRENT session: a close naming a superseded
+	// session ends nothing, and recording it would hide the live one from the stale sweep.
+	if ts.link.Close(f.SessionID, tw.ID) {
+		b.recordSessionClosed(tw.ID, f.SessionID, lastSeen)
+	} else {
+		b.logTowerEvent(admit.Event{TowerID: tw.ID, Kind: evSessionClosed, Actor: admit.ActorTower,
+			Reason: "not_current_session", Detail: map[string]any{"session": sessionPrefix(f.SessionID)}})
+	}
 	// An orderly drain drops the inventory immediately. The expiry would get there on its
 	// own, but leaving leaves routable after the operator SAID they were going is the
 	// "immortal inventory" failure the design calls out by name.
@@ -478,6 +508,10 @@ func (b *broker) towerStationRevoke(w http.ResponseWriter, r *http.Request) {
 	// Tower's fleet must go on being routable from every instance.
 	b.publishRoutable(at.Origin.TowerID)
 	log.Printf("station %s revoked by %s", req.StationID, owner)
+	if at.Origin.TowerID != "" {
+		b.towerEvent(admit.Event{TowerID: at.Origin.TowerID, Kind: evStationRevoked, Actor: "operator:" + owner,
+			Detail: map[string]any{"station": req.StationID}})
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "revoked": true})
 }
 
@@ -516,12 +550,49 @@ func (b *broker) towerStationPromote(w http.ResponseWriter, r *http.Request) {
 	}
 	var req struct {
 		StationID string `json:"station_id"`
+		Reason    string `json:"reason"`
 	}
 	if err := json.Unmarshal(readTowerBody(r), &req); err != nil {
 		jsonErr(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
+	actor := "admin:" + b.adminActor(r)
+	// On the Tower's governance record BEFORE the promotion, as with a certificate revocation:
+	// the attachment lives in another store, and an action Core cannot record is not taken.
+	// Only a Station that can actually be promoted is recorded; the no-op answer below is not.
+	var recordedOn string
+	cur, found, ferr := ts.stations.Station(req.StationID)
+	if ferr != nil {
+		// No promotion without knowing whose record it lands on.
+		jsonErr(w, http.StatusServiceUnavailable, "could not read the Station registry - try again in a moment")
+		return
+	}
+	if found && cur.State == attach.StateQuarantine && cur.Origin.TowerID != "" {
+		if rerr := ts.registry.Record(admit.Event{TowerID: cur.Origin.TowerID, Kind: evStationPromoted,
+			Actor: actor, Reason: req.Reason, Instance: b.instanceID, Detail: map[string]any{"station": req.StationID}}); rerr != nil {
+			b.towerGovUnavailable(rerr)
+			jsonErr(w, http.StatusServiceUnavailable, "the promotion was not made: Core could not record it - retry shortly")
+			return
+		}
+		recordedOn = cur.Origin.TowerID
+		b.logTowerEvent(admit.Event{TowerID: recordedOn, Kind: evStationPromoted, Actor: actor, Reason: req.Reason,
+			Detail: map[string]any{"station": req.StationID}})
+	}
 	promoted, err := ts.stations.Promote(req.StationID)
+	if err != nil || !promoted {
+		// The record above said a promotion was taken; say plainly that it did not land -
+		// unless a concurrent promotion landed it, in which case nothing failed.
+		landed := false
+		if err == nil {
+			if now, ok, rerr := ts.stations.Station(req.StationID); rerr == nil && ok && now.State == attach.StateActive {
+				landed = true
+			}
+		}
+		if recordedOn != "" && !landed {
+			b.towerEvent(admit.Event{TowerID: recordedOn, Kind: "station_promote_failed", Actor: actor,
+				Detail: map[string]any{"station": req.StationID}})
+		}
+	}
 	if err != nil {
 		jsonErr(w, http.StatusServiceUnavailable, "could not promote - try again in a moment")
 		return
@@ -540,7 +611,7 @@ func (b *broker) towerStationPromote(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	log.Printf("station %s promoted out of quarantine by an administrator", req.StationID)
+	log.Printf("station %s promoted out of quarantine by %s", logValue(req.StationID), actor)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "promoted": true, "state": attach.StateActive})
 }
 
@@ -641,6 +712,8 @@ func (b *broker) towerLifecycle(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		TowerID string `json:"tower_id"`
 		State   string `json:"state"`
+		// Reason is optional free text, kept on the governance record (cleaned and capped).
+		Reason string `json:"reason"`
 	}
 	if err := json.Unmarshal(readTowerBody(r), &req); err != nil {
 		jsonErr(w, http.StatusBadRequest, "invalid JSON body")
@@ -650,21 +723,25 @@ func (b *broker) towerLifecycle(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusBadRequest, "tower_id is required")
 		return
 	}
+	actor := "admin:" + b.adminActor(r)
 	to := admit.State(req.State)
 	// Checked HERE as well as inside Transition so an unknown state is a 400 (the caller
 	// sent nonsense) and a refused edge is a 409 (the caller sent something real that the
 	// table would not allow). An administrator acts on those two differently.
 	if !admit.Valid(to) {
+		b.logTowerEvent(admit.Event{TowerID: req.TowerID, Kind: evLifecycleRefused, Actor: actor,
+			Reason: "unknown_state", Detail: map[string]any{"requested": req.State}})
 		jsonErr(w, http.StatusBadRequest, fmt.Sprintf("%q is not a Tower state", req.State))
 		return
 	}
 	before, found := ts.registry.Get(req.TowerID)
 	if !found {
+		b.logTowerEvent(admit.Event{TowerID: req.TowerID, Kind: evLifecycleRefused, Actor: actor,
+			Reason: "unknown_tower", To: to})
 		jsonErr(w, http.StatusNotFound, "no such Tower")
 		return
 	}
-	if err := ts.registry.Transition(req.TowerID, to); err != nil {
-		jsonErr(w, http.StatusConflict, err.Error())
+	if !b.transitionRecorded(w, ts, before, to, actor, req.Reason) {
 		return
 	}
 	// Eligibility is cached by the inventory policy, so a Tower that just lost it must stop
@@ -672,7 +749,6 @@ func (b *broker) towerLifecycle(w http.ResponseWriter, r *http.Request) {
 	if ts.policy != nil {
 		ts.policy.Invalidate()
 	}
-	log.Printf("tower %s moved %s -> %s by an administrator", req.TowerID, before.State, to)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok": true, "tower_id": req.TowerID, "was": string(before.State), "state": string(to),
 		"eligibility": string(admit.EligibleFor(to)),
@@ -760,14 +836,25 @@ func (b *broker) towerSelfLifecycle(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusNotFound, "no such Tower on this account")
 		return
 	}
+	actor := "operator:" + owner
 	if !operatorMayMove[before.State][to] {
+		b.towerEvent(admit.Event{TowerID: req.TowerID, Kind: evLifecycleRefused, Actor: actor,
+			From: before.State, To: to, Reason: "not_operator_move"})
 		jsonErr(w, http.StatusForbidden, fmt.Sprintf(
 			"an operator may drain, resume or retire their own Tower; moving it from %s to %q "+
 				"is an administrator's decision", before.State, req.State))
 		return
 	}
-	if err := ts.registry.Transition(req.TowerID, to); err != nil {
-		jsonErr(w, http.StatusConflict, err.Error())
+	// THE LOOP STOPS HERE, with the change itself refused, so the record stays transactional:
+	// an operator flipping drain and resume cannot grow the never-reaped record without
+	// bound. Counted in the shared store, across instances.
+	// Retiring is terminal and cannot loop, so the budget never blocks it.
+	if n, cerr := ts.registry.CountEvents(req.TowerID, evLifecycle, "", actor, time.Now().Add(-time.Hour)); cerr == nil && n >= towerEventBudget && to != admit.StateRevoked {
+		w.Header().Set("Retry-After", "3600")
+		jsonErr(w, http.StatusTooManyRequests, "this Tower has changed state too often in the last hour - try again later")
+		return
+	}
+	if !b.transitionRecorded(w, ts, before, to, actor, "") {
 		return
 	}
 	if ts.policy != nil {
@@ -779,7 +866,6 @@ func (b *broker) towerSelfLifecycle(w http.ResponseWriter, r *http.Request) {
 	if admit.EligibleFor(to) != admit.EligibilityEligible {
 		b.forgetRoutable(req.TowerID)
 	}
-	log.Printf("tower %s moved %s -> %s by its operator %s", req.TowerID, before.State, to, owner)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok": true, "tower_id": req.TowerID, "was": string(before.State), "state": string(to),
 	})
@@ -845,13 +931,16 @@ func (b *broker) towerInviteSweepOnce(now time.Time) {
 	// measured in months.
 	if dn, derr := b.tower.stationStore.RetireDormant(now.Add(-dormantRetireHorizon)); derr != nil {
 		log.Printf("station attachments: dormant retirement failed: %v", derr)
-	} else if dn > 0 {
-		log.Printf("station attachments: retired %d attachment(s) dormant for more than %s", dn, dormantRetireHorizon)
+	} else if len(dn) > 0 {
+		log.Printf("station attachments: retired %d attachment(s) dormant for more than %s: %s",
+			len(dn), dormantRetireHorizon, sweptIDs(dn))
+		b.recordStationsSwept(dn, "dormant")
 	}
 	if tn, terr := b.tower.stationStore.ReapTerminal(now.Add(-terminalAttachmentHorizon)); terr != nil {
 		log.Printf("station attachments: terminal sweep failed: %v", terr)
-	} else if tn > 0 {
-		log.Printf("station attachments: reaped %d terminal attachment(s)", tn)
+	} else if len(tn) > 0 {
+		log.Printf("station attachments: reaped %d terminal attachment(s): %s", len(tn), sweptIDs(tn))
+		b.recordStationsSwept(tn, "terminal_reaped")
 	}
 	// Refresh the routable projection for the towers whose links THIS instance holds. Leaf
 	// rows are republished on every inventory push, but self-attached nodes' rows carry a
@@ -944,12 +1033,23 @@ func (b *broker) towerLeaseExpire(w http.ResponseWriter, r *http.Request) {
 	}
 	var req struct {
 		TowerID string `json:"tower_id"`
+		Reason  string `json:"reason"`
 	}
 	if err := json.Unmarshal(readTowerBody(r), &req); err != nil {
 		jsonErr(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
-	if err := ts.registry.ExpireLease(req.TowerID); err != nil {
+	actor := "admin:" + b.adminActor(r)
+	if err := ts.registry.ExpireLeaseAs(req.TowerID, admit.Event{Kind: evLeaseExpired, Actor: actor,
+		Reason: req.Reason, Instance: b.instanceID}); err != nil {
+		if errors.Is(err, admit.ErrUnavailable) {
+			jsonErr(w, http.StatusServiceUnavailable, "the lease was not ended: Core could not record it - retry shortly")
+			return
+		}
+		if _, found := ts.registry.Get(req.TowerID); found {
+			jsonErr(w, http.StatusConflict, err.Error())
+			return
+		}
 		jsonErr(w, http.StatusNotFound, "no such Tower")
 		return
 	}
@@ -957,7 +1057,7 @@ func (b *broker) towerLeaseExpire(w http.ResponseWriter, r *http.Request) {
 	// is the immortal-inventory failure by another route.
 	ts.inv.Forget(req.TowerID)
 	b.forgetRoutable(req.TowerID)
-	log.Printf("tower %s: lease expired by an administrator", req.TowerID)
+	b.logTowerEvent(admit.Event{TowerID: req.TowerID, Kind: evLeaseExpired, Actor: actor, Reason: req.Reason})
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "expired": true})
 }
 

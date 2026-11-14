@@ -498,25 +498,56 @@ func (s *Sessions) fresh(seen time.Time) bool {
 }
 
 // Close ends a session deliberately. An operator who drains on purpose leaves routing at
-// once rather than waiting out the freshness window.
-func (s *Sessions) Close(sessionID, towerID string) {
+// once rather than waiting out the freshness window. It reports whether it ended the
+// Tower's CURRENT session, here or through the shared record: a close naming a superseded
+// or unknown session ends nothing, and the governance record must not say otherwise.
+func (s *Sessions) Close(sessionID, towerID string) bool {
 	s.mu.Lock()
+	ended := false
 	sess, held := s.byID[sessionID]
 	if held && sess.towerID == towerID {
 		delete(s.byID, sessionID)
 		if s.byTower[towerID] == sessionID {
 			delete(s.byTower, towerID)
+			ended = true
 		}
 	}
 	s.mu.Unlock()
 	if s.cfg.Mirror == nil {
-		return
+		return ended
 	}
+	// WITH A SHARED VIEW, ONLY THE SHARED VIEW SAYS WHAT WAS CURRENT. This instance's map
+	// can still hold a session another instance has since superseded, so its answer above
+	// is discarded: the close ended the Tower's session only if the shared record named it.
+	//
 	// The close may land on an instance that never held the session - at two instances,
 	// half of them do. The mirror's compare-and-delete is what makes the close reach
 	// every instance while a superseded session id still buys nothing: it only removes a
 	// row that names EXACTLY this session, which only the authenticated Tower was told.
+	// An unreadable shared view falls back to this instance's answer, so a real close of a
+	// session held here is still recorded rather than logged as ending nothing.
+	if rec, there, err := s.cfg.Mirror.Get(towerID); err == nil {
+		ended = there && rec.SessionID == sessionID
+	}
 	_ = s.cfg.Mirror.Del(towerID, sessionID)
+	return ended
+}
+
+// Current names the Tower's current session, here or in the shared record.
+// With a shared view configured, the shared view is the authority (a local copy may be one
+// another instance superseded or closed); an unreadable shared view answers "none".
+func (s *Sessions) Current(towerID string) (string, bool) {
+	if s.cfg.Mirror != nil {
+		rec, there, err := s.cfg.Mirror.Get(towerID)
+		if err != nil || !there || rec.SessionID == "" {
+			return "", false
+		}
+		return rec.SessionID, true
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	id, ok := s.byTower[towerID]
+	return id, ok
 }
 
 // Live answers the question routing asks on every request. A map read and nothing else:
@@ -613,4 +644,49 @@ func newSessionID() (string, error) {
 		return "", err
 	}
 	return "sess-" + hex.EncodeToString(raw), nil
+}
+
+// LastSeen reports when Core last heard from a Tower: this instance's session or the shared
+// mirror, whichever is newer. It is for the governance record and the admin view; liveness
+// decisions use Live, which also applies the freshness window.
+func (s *Sessions) LastSeen(towerID string) (time.Time, bool) {
+	var seen time.Time
+	s.mu.Lock()
+	if id, ok := s.byTower[towerID]; ok {
+		if sess, ok := s.byID[id]; ok {
+			seen = sess.lastSeen
+		}
+	}
+	s.mu.Unlock()
+	if s.cfg.Mirror != nil {
+		if rec, there, err := s.cfg.Mirror.Get(towerID); err == nil && there && rec.LastSeen.After(seen) {
+			seen = rec.LastSeen
+		}
+	}
+	return seen, !seen.IsZero()
+}
+
+// LastSeenChecked is LastSeen that reports a mirror read failure instead of answering from
+// this instance alone. Anything that writes a permanent record from the answer - "this
+// Tower went quiet" - must use it: an instance that cannot read the shared view does not
+// know, and unknown is not gone.
+func (s *Sessions) LastSeenChecked(towerID string) (time.Time, bool, error) {
+	var seen time.Time
+	s.mu.Lock()
+	if id, ok := s.byTower[towerID]; ok {
+		if sess, ok := s.byID[id]; ok {
+			seen = sess.lastSeen
+		}
+	}
+	s.mu.Unlock()
+	if s.cfg.Mirror != nil {
+		rec, there, err := s.cfg.Mirror.Get(towerID)
+		if err != nil {
+			return time.Time{}, false, err
+		}
+		if there && rec.LastSeen.After(seen) {
+			seen = rec.LastSeen
+		}
+	}
+	return seen, !seen.IsZero(), nil
 }

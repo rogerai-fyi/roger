@@ -328,10 +328,10 @@ func (m *memStore) ByAssertionKey(key string) (Attachment, bool, error) {
 // RetireDormant is the second, much later horizon: a Station nobody has seen since `before`
 // stops being recoverable and becomes terminal. Measured on the same stamp-or-attach clock as
 // DetachIdle, so the two horizons are two points on one timeline rather than two timers.
-func (m *memStore) RetireDormant(before time.Time) (int64, error) {
+func (m *memStore) RetireDormant(before time.Time) ([]Swept, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	var n int64
+	var out []Swept
 	for id, rec := range m.byID {
 		if rec.State != StateDormant {
 			continue
@@ -345,22 +345,29 @@ func (m *memStore) RetireDormant(before time.Time) (int64, error) {
 		}
 		rec.State = StateDetached
 		m.byID[id] = rec
-		n++
+		out = append(out, Swept{StationID: id, TowerID: rec.Origin.TowerID})
 	}
-	return n, nil
+	sortSwept(out)
+	return out, nil
 }
 
-func (m *memStore) ReapTerminal(before time.Time) (int64, error) {
+func (m *memStore) ReapTerminal(before time.Time) ([]Swept, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	var n int64
+	var out []Swept
 	for id, at := range m.byID {
 		if (at.State == StateRevoked || at.State == StateDetached) && !at.AttachedAt.After(before) {
 			delete(m.byID, id)
-			n++
+			out = append(out, Swept{StationID: id, TowerID: at.Origin.TowerID})
 		}
 	}
-	return n, nil
+	sortSwept(out)
+	return out, nil
+}
+
+// sortSwept orders a sweep's result by Station id, so both stores answer alike.
+func sortSwept(s []Swept) {
+	sort.Slice(s, func(i, j int) bool { return s[i].StationID < s[j].StationID })
 }
 
 // MarkAuditProven stamps the first answered audit. Later answers are no-ops: the proof is

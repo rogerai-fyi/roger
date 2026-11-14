@@ -708,18 +708,24 @@ func (b *broker) towerEnroll(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		if errors.Is(err, enroll.ErrUnavailable) {
+			b.logTowerEvent(admit.Event{TowerID: "-", Kind: evEnrollRefused, Actor: "operator:" + owner,
+				Reason: "store_unavailable"})
 			jsonErr(w, http.StatusServiceUnavailable, "enrollment is temporarily unavailable - retry with the same transaction id")
 			return
 		}
 		// Uniform, and deliberately unspecific: the reason is recorded on our side, not
-		// handed to whoever is probing.
-		log.Printf("tower: enrollment refused for an account: %v", err)
+		// handed to whoever is probing. The enroller's reasons name no token or nonce.
+		if b.towerLogPace.allow("enroll_refused|" + owner) {
+			b.logTowerEvent(admit.Event{TowerID: "-", Kind: evEnrollRefused, Actor: "operator:" + owner,
+				Reason: err.Error()})
+		}
 		jsonErr(w, http.StatusBadRequest, "that enrollment is not valid")
 		return
 	}
 
 	// The admin hears about the arrival. Failure to notify never fails the enrollment:
 	// the email is for the approver's convenience, the registry row is the truth.
+	b.recordEnrolled(res.TowerID, owner, res.Tower.State, res.Tower.CertSerial, res.Tower.LifecycleHash)
 	b.towerPending.enrolled(owner, res.TowerID)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"tower_id":      res.TowerID,

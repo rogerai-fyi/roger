@@ -413,8 +413,8 @@ type Store interface {
 	// self-attached row carries a proved node id (toweredgeattach.go refuses the attach
 	// without one).
 	DetachIdle(towerID string, before time.Time) ([]string, error)
-	// RetireDormant moves long-dormant attachments to the terminal StateDetached, and reports
-	// how many. It is the second half of the soft/terminal split: DetachIdle takes a Station
+	// RetireDormant moves long-dormant attachments to the terminal StateDetached, and names
+	// them, so each retirement lands on its Tower's governance record. It is the second half of the soft/terminal split: DetachIdle takes a Station
 	// out of service on a horizon measured in days, and this takes its IDENTITY on one measured
 	// in months.
 	//
@@ -428,7 +428,7 @@ type Store interface {
 	// Station is judged by never changes underneath it: one horizon takes it out of service and
 	// a much later one takes its name, both counted from the last time anybody saw the machine.
 	// A Station that comes back before the second horizon keeps everything.
-	RetireDormant(before time.Time) (int64, error)
+	RetireDormant(before time.Time) ([]Swept, error)
 	// ByTower lists the LIVE attachments whose origin is the given Tower - what that Tower's
 	// hub must serve (Option C: the tower reads each node's HubToken from here).
 	ByTower(towerID string) ([]Attachment, error)
@@ -441,7 +441,7 @@ type Store interface {
 	// rows are kept a while for forensics, but not forever: without a reap, an attach ->
 	// revoke -> attach loop (frictionless on the self-attach path) grows the table without
 	// bound - the same vector the invitation reap closes one table over.
-	ReapTerminal(before time.Time) (int64, error)
+	ReapTerminal(before time.Time) ([]Swept, error)
 	// MarkAuditProven records that a Station answered a content audit, once. Idempotent:
 	// the FIRST answer is the proof, and re-stamping it would let a node that has since
 	// stopped answering look freshly capable.
@@ -896,4 +896,11 @@ func (r *Registry) Promote(stationID string) (bool, error) {
 		return false, fmt.Errorf("%w: %v", ErrUnavailable, err)
 	}
 	return moved, nil
+}
+
+// Swept names one attachment a sweep retired or reaped, and the Tower it was behind ("" for
+// a direct origin), so the governance record can write one event per Station.
+type Swept struct {
+	StationID string
+	TowerID   string
 }
