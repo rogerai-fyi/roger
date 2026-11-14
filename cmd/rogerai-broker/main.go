@@ -194,6 +194,12 @@ type broker struct {
 	// moveStreaks and towerObsAt are the mobility pass's in-memory state (towermobility.go):
 	// each Station's run of fresh observations and the last health sample counted per Tower,
 	// under moveMu. Held by the instance that owns the Tower's link, never shared.
+	// houseOwners caches whether a Tower owner's login is a house account (towerplacement.go).
+	houseMu     sync.Mutex
+	houseOwners map[string]houseOwnerEntry
+	// stageCache is each Tower's trust stage for stageCacheTTL (towerstage.go), under stageMu.
+	stageMu     sync.Mutex
+	stageCache  map[string]cachedStage
 	moveMu      sync.Mutex
 	moveStreaks map[string]moveStreak
 	towerObsAt  map[string]time.Time

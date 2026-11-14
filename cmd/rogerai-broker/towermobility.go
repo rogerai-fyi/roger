@@ -90,33 +90,55 @@ func (b *broker) nudgeable(at attach.Attachment) bool {
 }
 
 // mobilityPassOnce runs one pass: finish or undo moves in progress, then start new ones.
+//
+// The fleet-wide half - moves in progress and Towers that are gone - runs on one instance per
+// pass (the mobility lease), and "gone" is decided only from a fleet-wide live set that was
+// actually read: a store that cannot answer is never mistaken for a Tower that is not there.
+// A Tower that is draining, suspended or late renewing its lease is not gone; its Stations stay.
 func (b *broker) mobilityPassOnce(now time.Time) {
 	ts := b.tower
 	if ts == nil || ts.mobility == nil {
 		return
 	}
-	if b.holdsMobilityLease() {
+	lease := b.holdsMobilityLease()
+	if lease {
 		b.mobilityPending(now)
 	}
+	liveList, liveErr := ts.link.LiveTowersChecked()
+	live := map[string]bool{}
+	for _, id := range liveList {
+		live[id] = true
+	}
+	snap := b.placementSnapshot()
 	pace := &movePace{from: map[string]int{}, into: map[string]int{}}
-	for _, tw := range ts.registry.All() {
+	seen := map[string]bool{}
+	towers := ts.registry.All()
+	byTower := map[string][]attach.Attachment{}
+	for _, tw := range towers {
 		atts, err := ts.stationStore.ByTower(tw.ID)
-		if err != nil || len(atts) == 0 {
+		if err != nil {
 			continue
 		}
-		var live []attach.Attachment
 		for _, at := range atts {
 			if at.Live() {
-				live = append(live, at)
+				byTower[tw.ID] = append(byTower[tw.ID], at)
+				seen[at.StationID] = true
 			}
 		}
-		if len(live) == 0 {
+	}
+	overOwner := b.overOwnerHouseCap(byTower)
+	for _, tw := range towers {
+		serving := byTower[tw.ID]
+		if len(serving) == 0 {
 			continue
 		}
-		if !ts.link.Live(tw.ID) || !ts.registry.MayTakeWork(tw.ID) {
+		if !live[tw.ID] || tw.State == admit.StateRevoked {
+			if !lease || liveErr != nil {
+				continue // not this instance's pass, or the live set could not be read
+			}
 			// Gone: no observation count and no idle gate - work through a Tower that is gone
 			// cannot complete.
-			for _, at := range live {
+			for _, at := range serving {
 				if pace.allow(tw.ID, "") && b.startMove(at, "", triggerGone, now) {
 					pace.note(tw.ID, "")
 				}
@@ -126,12 +148,24 @@ func (b *broker) mobilityPassOnce(now time.Time) {
 		if !ts.link.HoldsLocally(tw.ID) {
 			continue // the instance holding the link runs this Tower's streaks
 		}
-		b.mobilityTower(tw, live, pace, now)
+		b.mobilityTower(tw, serving, snap, overOwner, pace, now)
+	}
+	b.pruneStreaks(seen)
+}
+
+// pruneStreaks forgets streaks of Stations that are no longer serving anywhere.
+func (b *broker) pruneStreaks(serving map[string]bool) {
+	b.moveMu.Lock()
+	defer b.moveMu.Unlock()
+	for id := range b.moveStreaks {
+		if !serving[id] {
+			delete(b.moveStreaks, id)
+		}
 	}
 }
 
 // mobilityTower decides which of one live Tower's Stations are due, on this instance.
-func (b *broker) mobilityTower(tw admit.Tower, live []attach.Attachment, pace *movePace, now time.Time) {
+func (b *broker) mobilityTower(tw admit.Tower, live []attach.Attachment, snap []towerFacts, overOwner map[string]bool, pace *movePace, now time.Time) {
 	ts := b.tower
 	sum, _ := ts.health.Summary(tw.ID, now)
 	fresh := !sum.LastAt.IsZero() && now.Sub(sum.LastAt) <= observationStaleAfter
@@ -145,7 +179,7 @@ func (b *broker) mobilityTower(tw admit.Tower, live []attach.Attachment, pace *m
 	}
 	b.moveMu.Unlock()
 	failing := fresh && sum.FailStreak >= 2
-	overCap := b.overStageCap(tw, live)
+	overCap := b.overStageCap(tw, live, overOwner)
 
 	for _, at := range live {
 		trigger, target := "", ""
@@ -155,7 +189,7 @@ func (b *broker) mobilityTower(tw admit.Tower, live []attach.Attachment, pace *m
 		case overCap[at.StationID]:
 			trigger = triggerCap
 		case newObs:
-			target = b.observeBetter(at, tw.ID, sum.LastAt)
+			target = b.observeBetter(at, tw.ID, snap, sum.LastAt)
 			if target != "" {
 				trigger = triggerBetter
 			}
@@ -181,8 +215,9 @@ func (b *broker) mobilityTower(tw admit.Tower, live []attach.Attachment, pace *m
 	}
 }
 
-// overStageCap names the newest Stations above a community Tower's caps for its stage.
-func (b *broker) overStageCap(tw admit.Tower, live []attach.Attachment) map[string]bool {
+// overStageCap names the newest Stations above a community Tower's caps for its stage, and
+// the house Stations beyond the house cap counted per owner (overOwner, from the pass).
+func (b *broker) overStageCap(tw admit.Tower, live []attach.Attachment, overOwner map[string]bool) map[string]bool {
 	out := map[string]bool{}
 	if b.isHouseOwner(tw.Owner) {
 		return out
@@ -190,32 +225,65 @@ func (b *broker) overStageCap(tw admit.Tower, live []attach.Attachment) map[stri
 	caps := stageCaps[b.towerStage(tw.ID)]
 	var comm, house []attach.Attachment
 	for _, at := range live {
-		if b.isHouseOwner(at.Owner) {
+		if b.isHouseAccount(at.Owner) {
 			house = append(house, at)
+			if overOwner[at.StationID] {
+				out[at.StationID] = true
+			}
 		} else {
 			comm = append(comm, at)
 		}
 	}
-	mark := func(group []attach.Attachment, limit int) {
-		if limit < 0 || len(group) <= limit {
-			return
+	markNewest(out, comm, caps.community)
+	markNewest(out, house, caps.house)
+	return out
+}
+
+// markNewest marks the newest attachments beyond limit (-1 = no limit), oldest kept.
+func markNewest(out map[string]bool, group []attach.Attachment, limit int) {
+	if limit < 0 || len(group) <= limit {
+		return
+	}
+	sort.SliceStable(group, func(i, j int) bool { return group[i].AttachedAt.Before(group[j].AttachedAt) })
+	for _, at := range group[limit:] {
+		out[at.StationID] = true
+	}
+}
+
+// overOwnerHouseCap names the house Stations beyond each owner's house failover cap, counted
+// over all of the owner's community Towers: the cap is the largest any of them allows.
+func (b *broker) overOwnerHouseCap(byTower map[string][]attach.Attachment) map[string]bool {
+	ownerCap := map[string]int{}
+	ownerHouse := map[string][]attach.Attachment{}
+	for _, tw := range b.tower.registry.All() {
+		if b.isHouseOwner(tw.Owner) {
+			continue
 		}
-		sort.SliceStable(group, func(i, j int) bool { return group[i].AttachedAt.Before(group[j].AttachedAt) })
-		for _, at := range group[limit:] {
-			out[at.StationID] = true
+		if c := stageCaps[b.towerStage(tw.ID)].house; c > ownerCap[tw.Owner] {
+			ownerCap[tw.Owner] = c
+		}
+		for _, at := range byTower[tw.ID] {
+			if b.isHouseAccount(at.Owner) {
+				ownerHouse[tw.Owner] = append(ownerHouse[tw.Owner], at)
+			}
 		}
 	}
-	mark(comm, caps.community)
-	mark(house, caps.house)
+	out := map[string]bool{}
+	for owner, group := range ownerHouse {
+		markNewest(out, group, ownerCap[owner])
+	}
 	return out
 }
 
 // observeBetter advances a Station's streak on one fresh observation and returns the target
 // once a strictly better Tower has held for betterObservations in a row.
-func (b *broker) observeBetter(at attach.Attachment, current string, obsAt time.Time) string {
+//
+// The target is chosen deterministically (no draw), so equally good Towers do not reset each
+// other's streaks; the draw happens only when the node re-attaches.
+func (b *broker) observeBetter(at attach.Attachment, current string, snap []towerFacts, obsAt time.Time) string {
 	f, _, _ := b.tower.mobility.Facts(at.StationID)
-	alt, ok := b.placeStation(at.Owner, f.Locality, map[string]bool{current: true})
-	better := ok && placement.StrictlyBetter(alt.cand, b.towerCandidate(current, f.Locality), b.isHouseOwner(at.Owner))
+	alt, ok := b.chooseFrom(snap, at.Owner, f.Locality, map[string]bool{current: true}, "", nil)
+	better := ok && placement.StrictlyBetter(alt.cand, b.towerCandidate(snap, current, f.Locality), b.isHouseAccount(at.Owner))
 	b.moveMu.Lock()
 	defer b.moveMu.Unlock()
 	st := b.moveStreaks[at.StationID]
@@ -240,15 +308,18 @@ func (b *broker) observeBetter(at attach.Attachment, current string, obsAt time.
 // and records and announces it. It reports whether the move started.
 func (b *broker) startMove(at attach.Attachment, target, trigger string, now time.Time) bool {
 	ts := b.tower
-	ok, err := ts.stationStore.DormantForMove(at.StationID, at.Origin.TowerID, at.Epoch)
-	if err != nil || !ok {
-		return false // a concurrent change won: nothing written, nothing said
-	}
+	// The move row first, then the dormant write: a crash between the two leaves a row whose
+	// Station is still serving, which mobilityPending clears, never a dormant Station that
+	// nothing will nudge or undo.
 	started, err := ts.mobility.StartMove(mobility.Move{StationID: at.StationID, From: at.Origin.TowerID,
 		To: target, Trigger: trigger, Epoch: at.Epoch, PriorState: at.State, Started: now})
 	if err != nil || !started {
-		_, _ = ts.stationStore.UndoMove(at.StationID, at.Origin.TowerID, at.Epoch, at.State)
 		return false
+	}
+	ok, err := ts.stationStore.DormantForMove(at.StationID, at.Origin.TowerID, at.Epoch)
+	if err != nil || !ok {
+		_ = ts.mobility.FinishMove(at.StationID, "", time.Time{})
+		return false // a concurrent change won: nothing written, nothing said
 	}
 	b.moveMu.Lock()
 	delete(b.moveStreaks, at.StationID)
@@ -323,7 +394,11 @@ func (b *broker) mobilityPending(now time.Time) {
 			continue
 		}
 		if !found || at.State != attach.StateDormant || at.Epoch != mv.Epoch {
-			_ = ts.mobility.FinishMove(mv.StationID, "", time.Time{}) // it moved, or ended
+			// It moved, or ended - or the row was claimed a moment ago and its dormant write has
+			// not landed yet, which is why a fresh row is left alone.
+			if now.Sub(mv.Started) >= moveNudgeEvery {
+				_ = ts.mobility.FinishMove(mv.StationID, "", time.Time{})
+			}
 			continue
 		}
 		last := mv.LastNudge

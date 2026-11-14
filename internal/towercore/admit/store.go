@@ -113,6 +113,9 @@ type Store interface {
 	CASTowerEvent(tw Tower, ev Event) (bool, error)
 	// FindEvent returns the newest (or, with oldest, the first) event of any of the kinds.
 	FindEvent(towerID string, kinds []string, oldest bool) (Event, bool, error)
+	// EventsOfKinds returns a Tower's events of any of the kinds strictly after since, oldest
+	// first, at most limit of them.
+	EventsOfKinds(towerID string, kinds []string, since time.Time, limit int) ([]Event, error)
 	// AppendEventIfLast appends ev only if the newest event of those kinds still has the id
 	// the caller saw (0 for none), so two instances acting on one read cannot both write.
 	AppendEventIfLast(ev Event, kinds []string, lastID int64) (bool, error)
@@ -382,6 +385,26 @@ func (m *memStore) findLocked(towerID string, kinds []string, oldest bool) (Even
 		}
 	}
 	return best, found
+}
+
+func (m *memStore) EventsOfKinds(towerID string, kinds []string, since time.Time, limit int) ([]Event, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	want := map[string]bool{}
+	for _, k := range kinds {
+		want[k] = true
+	}
+	var out []Event
+	for _, ev := range m.events {
+		if ev.TowerID == towerID && want[ev.Kind] && ev.At.After(since) {
+			out = append(out, ev)
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return laterEvent(out[j], out[i]) })
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
 }
 
 func (m *memStore) FindEvent(towerID string, kinds []string, oldest bool) (Event, bool, error) {

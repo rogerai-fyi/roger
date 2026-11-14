@@ -53,8 +53,13 @@ var stageCaps = map[placement.Stage]stageCap{
 // Tower: a lapse renewed within the hour is not a demotion.
 const leaseLapseGrace = time.Hour
 
-// stageRecordScan bounds how many recent events a stage computation reads.
-const stageRecordScan = 500
+// stageScanLimit bounds one kind-filtered read of the record. Disqualifiers and excusals are
+// rare by nature (a few a month at most); the bound only keeps a runaway record from becoming
+// a runaway query.
+const stageScanLimit = 1000
+
+// disqualifierKinds are the kinds that can count against "clean".
+var disqualifierKinds = []string{evIncident, evHealthFailing, evLifecycle, evLeaseLapsed}
 
 // stageView is a Tower's stage as the record says, and the facts it was computed from.
 type stageView struct {
@@ -63,9 +68,9 @@ type stageView struct {
 	hasLast  bool
 	entered  time.Time
 	ceiling  placement.Stage
-	disq     *admit.Event // the oldest unexcused disqualifier since the stage was entered
+	disq     []admit.Event // unexcused disqualifiers since the latest stage event, oldest first
 	excused  map[int64]bool
-	approved time.Time // the first approval (quarantine to active)
+	approved time.Time // the latest approval (quarantine to active)
 	hasAppr  bool
 }
 
@@ -81,6 +86,23 @@ func eventID(v any) int64 {
 	return 0
 }
 
+// eventIDs reads a list of event ids back from a detail value (int64s in memory, float64s
+// after a JSON round trip).
+func eventIDs(v any) []int64 {
+	var out []int64
+	switch l := v.(type) {
+	case []int64:
+		out = append(out, l...)
+	case []any:
+		for _, x := range l {
+			if id := eventID(x); id != 0 {
+				out = append(out, id)
+			}
+		}
+	}
+	return out
+}
+
 func timeOf(v any) (time.Time, bool) {
 	s, ok := v.(string)
 	if !ok {
@@ -90,31 +112,34 @@ func timeOf(v any) (time.Time, bool) {
 	return t, err == nil
 }
 
-// readStage reads the record once and works out what the reader and the sweep need.
+// readStage reads what the stage depends on with kind-filtered queries, so no number of
+// unrelated events can push the stage, the ceiling or a disqualifier out of view.
 func (b *broker) readStage(towerID string, now time.Time) (stageView, error) {
-	evs, err := b.tower.registry.Events(towerID, stageRecordScan)
-	if err != nil {
-		return stageView{stage: stageNew}, err
-	}
+	reg := b.tower.registry
 	v := stageView{stage: stageNew, excused: map[int64]bool{}}
-	for _, ev := range evs { // newest first: the first of each kind is the latest
-		switch ev.Kind {
-		case evTrustStage:
-			if !v.hasLast {
-				v.last, v.hasLast = ev, true
-			}
-		case evExcusal:
-			if id := eventID(ev.Detail["event_id"]); id != 0 {
-				v.excused[id] = true
-			}
-		case evStageCeiling:
-			if v.ceiling == "" {
-				v.ceiling = placement.Stage(ev.To)
-			}
-		case evLifecycle:
-			if ev.From == admit.StateQuarantine && ev.To == admit.StateActive {
-				v.approved, v.hasAppr = ev.At, true // keeps overwriting: the oldest wins
-			}
+	var err error
+	if v.last, v.hasLast, err = reg.FindEvent(towerID, []string{evTrustStage}, false); err != nil {
+		return v, err
+	}
+	ceil, hasCeil, err := reg.FindEvent(towerID, []string{evStageCeiling}, false)
+	if err != nil {
+		return v, err
+	}
+	if hasCeil {
+		v.ceiling = placement.Stage(ceil.To)
+	}
+	appr, hasAppr, err := reg.FindTransition(towerID, admit.StateQuarantine, admit.StateActive)
+	if err != nil {
+		return v, err
+	}
+	v.approved, v.hasAppr = appr.At, hasAppr
+	excusals, err := reg.EventsOfKinds(towerID, []string{evExcusal}, time.Time{}, stageScanLimit)
+	if err != nil {
+		return v, err
+	}
+	for _, ex := range excusals {
+		if id := eventID(ex.Detail["event_id"]); id != 0 {
+			v.excused[id] = true
 		}
 	}
 	since, sinceID := v.approved, int64(0)
@@ -128,43 +153,55 @@ func (b *broker) readStage(towerID string, now time.Time) (stageView, error) {
 		}
 		since, sinceID = v.last.At, v.last.ID
 	}
-	for i := len(evs) - 1; i >= 0; i-- { // oldest first
-		ev := evs[i]
+	if !v.hasLast && !v.hasAppr {
+		return v, nil
+	}
+	cands, err := reg.EventsOfKinds(towerID, disqualifierKinds, since.Add(-time.Nanosecond), stageScanLimit)
+	if err != nil {
+		return v, err
+	}
+	for _, ev := range cands {
 		// After the stage was entered: later in time, or at the same instant but later in the
 		// record.
 		after := ev.At.After(since) || (ev.At.Equal(since) && ev.ID > sinceID)
 		if !after || v.excused[ev.ID] {
 			continue
 		}
-		if disqualifies(ev, evs, now) {
-			e := ev
-			v.disq = &e
-			break
+		dq, err := b.disqualifies(towerID, ev, now)
+		if err != nil {
+			return v, err
+		}
+		if dq {
+			v.disq = append(v.disq, ev)
 		}
 	}
 	return v, nil
 }
 
 // disqualifies reports whether one recorded event counts against "clean".
-func disqualifies(ev admit.Event, all []admit.Event, now time.Time) bool {
+func (b *broker) disqualifies(towerID string, ev admit.Event, now time.Time) (bool, error) {
 	switch ev.Kind {
 	case evIncident, evHealthFailing:
-		return true
+		return true, nil
 	case evLifecycle:
-		return ev.To == admit.StateSuspended || ev.To == admit.StateRevoked
+		return ev.To == admit.StateSuspended || ev.To == admit.StateRevoked, nil
 	case evLeaseLapsed:
 		if now.Sub(ev.At) < leaseLapseGrace {
-			return false
+			return false, nil
 		}
-		for _, o := range all {
+		after, err := b.tower.registry.EventsOfKinds(towerID, []string{evCertRenewed, evLifecycle}, ev.At, stageScanLimit)
+		if err != nil {
+			return false, err
+		}
+		for _, o := range after {
 			recovered := o.Kind == evCertRenewed || (o.Kind == evLifecycle && o.To == admit.StateActive)
-			if recovered && o.At.After(ev.At) && !o.At.After(ev.At.Add(leaseLapseGrace)) {
-				return false
+			if recovered && !o.At.After(ev.At.Add(leaseLapseGrace)) {
+				return false, nil
 			}
 		}
-		return true
+		return true, nil
 	}
-	return false
+	return false, nil
 }
 
 // disqualifyReason names a disqualifier in the demotion event.
@@ -175,19 +212,56 @@ func disqualifyReason(ev admit.Event) string {
 	return ev.Kind
 }
 
+// stageCacheTTL is how long a computed stage is reused on the request path. A write on THIS
+// instance that can change a stage drops the entry at once; a peer instance's write is seen
+// within the TTL.
+const stageCacheTTL = 15 * time.Second
+
+type cachedStage struct {
+	stage placement.Stage
+	at    time.Time
+}
+
+// stageKinds are the event kinds whose write drops a cached stage.
+var stageKinds = map[string]bool{evTrustStage: true, evStageCeiling: true, evExcusal: true,
+	evIncident: true, evHealthFailing: true, evLifecycle: true, evLeaseLapsed: true}
+
+// dropStageCache forgets a Tower's cached stage when an event that can change it is written.
+func (b *broker) dropStageCache(ev admit.Event) {
+	if !stageKinds[ev.Kind] {
+		return
+	}
+	b.stageMu.Lock()
+	delete(b.stageCache, ev.TowerID)
+	b.stageMu.Unlock()
+}
+
 // towerStage is a Tower's effective stage: the recorded stage, "new" at once on an unexcused
 // disqualifier, never above an administrator's ceiling. An unreadable record is "new": a
-// stage is earned, never assumed.
+// stage is earned, never assumed. Cached for stageCacheTTL.
 func (b *broker) towerStage(towerID string) placement.Stage {
-	v, err := b.readStage(towerID, time.Now())
-	if err != nil {
-		return stageNew
+	now := time.Now()
+	b.stageMu.Lock()
+	if c, ok := b.stageCache[towerID]; ok && now.Sub(c.at) < stageCacheTTL {
+		b.stageMu.Unlock()
+		return c.stage
 	}
-	st := v.stage
-	if v.disq != nil {
-		st = stageNew
+	b.stageMu.Unlock()
+	st := stageNew
+	if v, err := b.readStage(towerID, now); err == nil {
+		st = v.stage
+		if len(v.disq) > 0 {
+			st = stageNew
+		}
+		st = placement.MinStage(st, v.ceiling)
+		b.stageMu.Lock()
+		if b.stageCache == nil {
+			b.stageCache = map[string]cachedStage{}
+		}
+		b.stageCache[towerID] = cachedStage{stage: st, at: now}
+		b.stageMu.Unlock()
 	}
-	return placement.MinStage(st, v.ceiling)
+	return st
 }
 
 // towerEdgeWeight is the weight a Tower's side carries on the per-request coin: 1.0 for a
@@ -199,7 +273,9 @@ func (b *broker) towerEdgeWeight(towerID string) float64 {
 	return stageCaps[b.towerStage(towerID)].weight
 }
 
-// sweepStage is the governance sweep's stage pass for one Tower.
+// sweepStage is the governance sweep's stage pass for one Tower. Every write goes through
+// RecordIfLast on the trust_stage kind, so two instances computing the same change write it
+// once.
 func (b *broker) sweepStage(tw admit.Tower, now time.Time) {
 	if b.isHouseOwner(tw.Owner) || tw.State == admit.StateRevoked {
 		return
@@ -212,27 +288,50 @@ func (b *broker) sweepStage(tw admit.Tower, now time.Time) {
 	if !v.hasLast && !v.hasAppr {
 		return // never approved: no stage yet
 	}
+	lastID := int64(0)
+	if v.hasLast {
+		lastID = v.last.ID
+	}
 	write := func(from, to placement.Stage, reason string, detail map[string]any) {
-		b.towerEvent(admit.Event{TowerID: tw.ID, Kind: evTrustStage, Actor: admit.ActorSystem,
-			From: admit.State(from), To: admit.State(to), Reason: reason, Detail: detail})
+		b.towerRecordIfLast(admit.Event{TowerID: tw.ID, Kind: evTrustStage, Actor: admit.ActorSystem,
+			From: admit.State(from), To: admit.State(to), Reason: reason, Detail: detail},
+			[]string{evTrustStage}, lastID)
 	}
 	if !v.hasLast {
 		write("", stageNew, "approved", map[string]any{"entered_at": v.approved.UTC().Format(time.RFC3339Nano)})
 		return
 	}
-	// A demotion whose cause has since been excused is undone: back to the stage it took
-	// away, counted from when that stage was first entered.
-	if cause := eventID(v.last.Detail["cause_event"]); cause != 0 && v.excused[cause] && v.disq == nil {
-		if prior := placement.Stage(fmt.Sprint(v.last.Detail["prior"])); placement.ValidStage(prior) {
-			write(v.stage, prior, "excused", map[string]any{"entered_at": v.last.Detail["prior_entered"], "excused_event": cause})
+	// A demotion all of whose causes have since been excused is undone: back to the stage it
+	// took away, counted from when that stage was first entered.
+	if causes := eventIDs(v.last.Detail["cause_events"]); len(causes) > 0 && len(v.disq) == 0 {
+		all := true
+		for _, c := range causes {
+			all = all && v.excused[c]
+		}
+		if prior := placement.Stage(fmt.Sprint(v.last.Detail["prior"])); all && placement.ValidStage(prior) {
+			write(v.stage, prior, "excused", map[string]any{"entered_at": v.last.Detail["prior_entered"], "excused_events": causes})
 			return
 		}
 	}
-	if v.disq != nil {
-		write(v.stage, stageNew, disqualifyReason(*v.disq), map[string]any{
-			"cause_event": v.disq.ID, "prior": string(v.stage),
-			"prior_entered": v.entered.UTC().Format(time.RFC3339Nano),
-			"entered_at":    v.disq.At.UTC().Format(time.RFC3339Nano)})
+	if len(v.disq) > 0 {
+		ids := make([]int64, len(v.disq))
+		for i, d := range v.disq {
+			ids[i] = d.ID
+		}
+		latest := v.disq[len(v.disq)-1]
+		// prior is the stage the record held before these causes; a demotion of a demotion
+		// keeps pointing at the stage that was actually earned.
+		prior, priorEntered := v.stage, v.entered.UTC().Format(time.RFC3339Nano)
+		if eventIDs(v.last.Detail["cause_events"]) != nil {
+			prior = placement.Stage(fmt.Sprint(v.last.Detail["prior"]))
+			if pe, ok := v.last.Detail["prior_entered"].(string); ok {
+				priorEntered = pe
+			}
+			ids = append(eventIDs(v.last.Detail["cause_events"]), ids...)
+		}
+		write(v.stage, stageNew, disqualifyReason(latest), map[string]any{
+			"cause_events": ids, "prior": string(prior), "prior_entered": priorEntered,
+			"entered_at": latest.At.UTC().Format(time.RFC3339Nano)})
 		return
 	}
 	sum, err := b.tower.health.Summary(tw.ID, v.entered)
@@ -313,7 +412,7 @@ func (b *broker) towerExcuse(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusBadRequest, "event_id must name one recorded event")
 		return
 	}
-	evs, err := b.tower.registry.Events(tw.ID, stageRecordScan)
+	evs, err := b.tower.registry.EventsOfKinds(tw.ID, disqualifierKinds, time.Time{}, stageScanLimit)
 	if err != nil {
 		jsonErr(w, http.StatusServiceUnavailable, "the record is unavailable - try again shortly")
 		return
@@ -356,6 +455,9 @@ func (b *broker) towerStageCeiling(w http.ResponseWriter, r *http.Request) {
 // stageReport is a Tower's stage and the evidence behind it, for the admin detail and (in
 // part) the operator's own status. nil for a house Tower or one never approved.
 func (b *broker) stageReport(tw admit.Tower, now time.Time) map[string]any {
+	if tw.State == admit.StateRevoked {
+		return nil // revocation ends the stage with the Tower
+	}
 	if b.isHouseOwner(tw.Owner) {
 		return map[string]any{"stage": "house"}
 	}
@@ -367,7 +469,10 @@ func (b *broker) stageReport(tw admit.Tower, now time.Time) map[string]any {
 	if !v.hasLast {
 		entered = v.approved
 	}
-	st := b.towerStage(tw.ID)
+	st := placement.MinStage(v.stage, v.ceiling)
+	if len(v.disq) > 0 {
+		st = stageNew
+	}
 	sum, _ := b.tower.health.Summary(tw.ID, entered)
 	if st != v.stage {
 		entered, sum = now, health.Summary{} // just demoted: the new stage starts now

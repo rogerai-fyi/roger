@@ -112,6 +112,7 @@ func logValue(s string) string {
 // logTowerEvent prints the line without recording it: for refusals that name no Tower Core
 // admitted, and for requests too malformed to attribute to one.
 func (b *broker) logTowerEvent(ev admit.Event) {
+	b.dropStageCache(ev)
 	if ev.Instance == "" {
 		ev.Instance = b.instanceID
 	}
@@ -188,6 +189,7 @@ func (b *broker) overBudget(ev admit.Event) bool {
 // towerEvent prints the line and records the event, best effort. A paced event over its
 // hourly budget is logged and not recorded, and the log says so once a minute.
 func (b *broker) towerEvent(ev admit.Event) {
+	b.dropStageCache(ev)
 	if ev.Instance == "" {
 		ev.Instance = b.instanceID
 	}
@@ -210,6 +212,7 @@ func (b *broker) towerRecordIfLast(ev admit.Event, kinds []string, lastID int64)
 	if ev.Instance == "" {
 		ev.Instance = b.instanceID
 	}
+	b.dropStageCache(ev)
 	won, err := b.tower.registry.RecordIfLast(ev, kinds, lastID)
 	if err != nil {
 		b.towerGovUnavailable(err)

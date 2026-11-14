@@ -255,6 +255,15 @@ func (r *Registry) LinkSummaries(kinds []string) (map[string]LinkSummary, error)
 }
 
 // FindTransition returns a Tower's newest move from one state to another.
+// EventsOfKinds reads a Tower's events of some kinds after since, oldest first.
+func (r *Registry) EventsOfKinds(towerID string, kinds []string, since time.Time, limit int) ([]Event, error) {
+	evs, err := r.store.EventsOfKinds(towerID, kinds, since, limit)
+	if err != nil {
+		return nil, unavailable(err)
+	}
+	return evs, nil
+}
+
 func (r *Registry) FindTransition(towerID string, from, to State) (Event, bool, error) {
 	ev, ok, err := r.store.FindTransition(towerID, from, to)
 	if err != nil {

@@ -10,7 +10,12 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"rogerai.fm/roger/v7/internal/towercore/admit"
+	"rogerai.fm/roger/v7/internal/store"
 	"rogerai.fm/roger/v7/internal/towercore/attach"
+	"rogerai.fm/roger/v7/internal/towercore/cert"
+	"rogerai.fm/roger/v7/internal/towercore/enroll"
+	"rogerai.fm/roger/v7/internal/towercore/head"
+	"rogerai.fm/roger/v7/internal/towercore/link"
 	"rogerai.fm/roger/v7/internal/towercore/mobility"
 	"rogerai.fm/roger/v7/internal/towercore/placement"
 )
@@ -395,4 +400,122 @@ func TestOldHealthEvidenceIsReapedByTheHousekeepingSweep(t *testing.T) {
 	b.towerInviteSweepOnce(time.Now())
 	sum, _ := b.tower.health.Summary("tw-1", old)
 	require.Equal(t, 1, sum.Passed)
+}
+
+// REVIEW FINDING: an unreadable mirror, a drain or a late lease looked like "gone".
+func TestAnUnreadableLiveSetMovesNothing(t *testing.T) {
+	m := link.NewMemMirror()
+	b := testBrokerWithDB(store.NewMem())
+	ts, err := newTowerSubsystem(b, admit.NewMemStore(), cert.NewMemCustody(), enroll.NewMemStore(),
+		cert.Config{TTL: time.Hour}, linkDeps{stations: attach.NewMemStore(), heads: head.NewMemStore(), mirror: m})
+	require.NoError(t, err)
+	b.tower = ts
+	mux := http.NewServeMux()
+	b.registerTowerRoutes(mux)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	a := liveEdgeTower(t, b, srv, "op-a", "192.0.2.9:8443")
+	node := signedInOperator(t, b, "node-op")
+	body, _ := selfAttachBodyFor(t, b, node)
+	code, raw := node.attach(t, srv, body, nil)
+	require.Equal(t, http.StatusOK, code, raw)
+	// A peer instance holds nothing here; the mirror then fails.
+	peer := &broker{tower: b.tower, db: b.db, instanceID: "i-2"}
+	m.FailForTest(true)
+	peer.mobilityPassOnce(time.Now())
+	require.Empty(t, towerEventsOf(t, b, a.id, evStationMoveStarted), "a mirror that cannot answer is not a Tower that is gone")
+}
+
+func TestADrainingOrSuspendedTowerIsNotGone(t *testing.T) {
+	for _, st := range []admit.State{admit.StateDraining, admit.StateSuspended} {
+		r := newMovingRig(t, true)
+		require.NoError(t, r.b.tower.registry.Transition(r.a.id, st))
+		r.b.mobilityPassOnce(time.Now())
+		require.True(t, r.attachment(t).Live(), "%s: its Stations stay", st)
+	}
+}
+
+func TestATowerWhoseLeaseJustLapsedIsNotGoneWhileItsLinkLives(t *testing.T) {
+	r := newMovingRig(t, true)
+	tw := mustTower(t, r.b, r.a.id)
+	require.True(t, r.b.tower.link.Live(tw.ID))
+	require.NoError(t, r.b.tower.registry.ExpireLease(tw.ID))
+	r.b.mobilityPassOnce(time.Now())
+	require.True(t, r.attachment(t).Live())
+}
+
+func TestTheGoneHalfRunsOnlyUnderTheLease(t *testing.T) {
+	r := newMovingRig(t, false)
+	vs, _ := testValkeyShared(t)
+	r.b.multiInstance, r.b.shared, r.b.instanceID = true, vs, "i-1"
+	require.True(t, r.b.holdsMobilityLease()) // another pass holds it now
+	r.b.tower.link.Close(mustCurrent(t, r.b, r.a.id), r.a.id)
+	r.b.mobilityPassOnce(time.Now())
+	require.True(t, r.attachment(t).Live(), "without the lease this instance starts no gone moves")
+}
+
+// REVIEW FINDING: a crash between the two writes could strand a Station dark.
+func TestAMoveRowIsClaimedBeforeTheDormantWrite(t *testing.T) {
+	r := newMovingRig(t, true)
+	at := r.attachment(t)
+	// Simulate the crash: the row is claimed, the dormant write never happened.
+	ok, err := r.b.tower.mobility.StartMove(mobility.Move{StationID: at.StationID, From: at.Origin.TowerID,
+		Trigger: triggerFailing, Epoch: at.Epoch, PriorState: at.State, Started: time.Now()})
+	require.NoError(t, err)
+	require.True(t, ok)
+	r.b.mobilityPending(time.Now().Add(5 * time.Second))
+	_, pending, _ := r.b.tower.mobility.Move(at.StationID)
+	require.True(t, pending, "a fresh row is left for its dormant write")
+	r.b.mobilityPending(time.Now().Add(time.Minute))
+	_, pending, _ = r.b.tower.mobility.Move(at.StationID)
+	require.False(t, pending, "an old row whose Station still serves is cleared")
+	require.True(t, r.attachment(t).Live())
+}
+
+// REVIEW FINDING: equally good Towers reset each other's streaks through the random draw.
+func TestEquallyGoodTowersDoNotResetAStreak(t *testing.T) {
+	r := newMovingRig(t, true)
+	c := liveEdgeTower(t, r.b, r.srv, "op-c", "198.51.100.77:8443") // same bucket as B
+	waitMeasured(t, r.b, c.id)
+	now := time.Now()
+	r.observe(t, true, now)
+	r.observe(t, true, now.Add(5*time.Minute))
+	r.observe(t, true, now.Add(10*time.Minute))
+	require.Equal(t, attach.StateDormant, r.attachment(t).State, "three observations, one deterministic target")
+}
+
+func TestHouseFailoverAboveTheOwnersCapIsMovedOff(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	op := signedInOperator(t, b, "nora")
+	var ids []string
+	for i := 0; i < 2; i++ {
+		lt := enrolledTower(t, b, op.login)
+		require.NoError(t, b.tower.registry.Transition(lt.id, admit.StateActive))
+		code, raw := lt.call(t, srv, "/tower/session", jsonOf(t, link.Hello{Network: link.PublicNetwork,
+			Versions: []int{1}, TowerID: lt.id, Capabilities: mandatoryCaps(),
+			RelayEndpoint: "198.51.100." + string(rune('1'+i)) + ":8443"}), nil)
+		require.Equal(t, http.StatusOK, code, raw)
+		setStage(t, b, lt.id, placement.StageEstablished)
+		ids = append(ids, lt.id)
+	}
+	for i := 0; i < 8; i++ {
+		node := signedInOperator(t, b, "house-"+randHex(4))
+		makeHouse(t, b, node.login)
+		body, _ := selfAttachBodyFor(t, b, node)
+		body["nudge"] = true
+		code, raw := node.attach(t, srv, body, nil)
+		require.Equal(t, http.StatusOK, code, raw)
+		b.noteCancelCapable(body["node_id"].(string))
+	}
+	// Both of the owner's Towers drop to proving: the owner may hold 5 house Stations, not 8.
+	for _, id := range ids {
+		setStage(t, b, id, placement.StageProving)
+	}
+	houseTower(t, b, srv, "roger-house", "203.0.113.9:8443")
+	b.mobilityPassOnce(time.Now())
+	n := 0
+	for _, id := range ids {
+		n += len(towerEventsOf(t, b, id, evStationMoveStarted))
+	}
+	require.Equal(t, 3, n, "8 house Stations, owner cap 5: the 3 newest move")
 }

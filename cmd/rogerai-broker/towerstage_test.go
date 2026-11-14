@@ -82,8 +82,13 @@ func TestASuspensionDemotesAtOnce(t *testing.T) {
 	b, srv := towerTestBroker(t)
 	lt := approvedTower(t, b, srv, "nora", time.Now().Add(-time.Hour))
 	setStage(t, b, lt.id, placement.StageEstablished)
-	require.NoError(t, b.tower.registry.TransitionAs(lt.id, admit.StateSuspended, admit.Event{Kind: evLifecycle, Actor: admit.ActorSystem, Reason: "reputation"}))
+	_, err := b.tower.registry.TransitionRecorded(lt.id, admit.StateSuspended, admit.Event{Kind: evLifecycle, Actor: admit.ActorSystem, Reason: "reputation"})
+	require.NoError(t, err)
+	b.logTowerEvent(admit.Event{TowerID: lt.id, Kind: evLifecycle, To: admit.StateSuspended}) // the broker logs every write it makes
 	require.Equal(t, placement.StageNew, b.towerStage(lt.id), "the reader demotes before any sweep")
+
+	// A PEER's write is seen within the cache's lifetime, not later.
+	require.Less(t, stageCacheTTL, time.Minute)
 
 	b.towerGovSweepOnce(time.Now())
 	evs := stageEvents(t, b, lt.id)
@@ -200,8 +205,9 @@ func TestAdminStageRoutesRequireTheAdmin(t *testing.T) {
 
 func setStageAt(t *testing.T, b *broker, towerID string, st placement.Stage, at time.Time) {
 	t.Helper()
-	require.NoError(t, b.tower.registry.Record(admit.Event{TowerID: towerID, Kind: evTrustStage,
-		Actor: admit.ActorSystem, To: admit.State(st), At: at}))
+	ev := admit.Event{TowerID: towerID, Kind: evTrustStage, Actor: admit.ActorSystem, To: admit.State(st), At: at}
+	require.NoError(t, b.tower.registry.Record(ev))
+	b.dropStageCache(ev)
 }
 
 func TestTheEdgeWeightScalesTheTowerSideOfTheCoin(t *testing.T) {
@@ -291,4 +297,106 @@ func TestTheAdminSeesTheStageAndItsEvidence(t *testing.T) {
 	require.Equal(t, "0.900", st["pass_rate"])
 	require.NotEmpty(t, st["entered_at"])
 	require.Equal(t, "5 more days, 41 more passed health checks", st["next"])
+}
+
+// REVIEW FINDING: the stage was read from the newest 500 events, so a busy Tower lost it.
+func TestABusyRecordNeverPushesTheStageOutOfView(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	lt := approvedTower(t, b, srv, "nora", time.Now().Add(-40*24*time.Hour))
+	setStageAt(t, b, lt.id, placement.StageProving, time.Now().Add(-10*24*time.Hour))
+	require.NoError(t, b.tower.registry.Record(admit.Event{TowerID: lt.id, Kind: evStageCeiling,
+		Actor: "admin:broker-key", To: "proving", Reason: "hold", At: time.Now().Add(-9 * 24 * time.Hour)}))
+	for i := 0; i < 700; i++ {
+		require.NoError(t, b.tower.registry.Record(admit.Event{TowerID: lt.id, Kind: evStationPlaced,
+			Actor: admit.ActorSystem, At: time.Now().Add(-time.Duration(700-i) * time.Minute)}))
+	}
+	b.dropStageCache(admit.Event{TowerID: lt.id, Kind: evTrustStage})
+	require.Equal(t, placement.StageProving, b.towerStage(lt.id))
+	rep := b.stageReport(mustTower(t, b, lt.id), time.Now())
+	require.Equal(t, "proving", rep["ceiling"], "the ceiling is still seen")
+}
+
+// REVIEW FINDING: excusing one of two disqualifiers erased the other.
+func TestExcusingOneOfTwoDisqualifiersDoesNotUndoTheDemotion(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	b.adminKey = "admin-secret"
+	lt := approvedTower(t, b, srv, "nora", time.Now().Add(-20*24*time.Hour))
+	setStageAt(t, b, lt.id, placement.StageProving, time.Now().Add(-10*24*time.Hour))
+	require.NoError(t, b.tower.registry.Record(admit.Event{TowerID: lt.id, Kind: evIncident, Actor: "admin:broker-key",
+		Reason: "first", At: time.Now().Add(-2 * time.Hour)}))
+	require.NoError(t, b.tower.registry.Record(admit.Event{TowerID: lt.id, Kind: evIncident, Actor: "admin:broker-key",
+		Reason: "second", At: time.Now().Add(-time.Hour)}))
+	b.towerGovSweepOnce(time.Now())
+	demo := stageEvents(t, b, lt.id)[0]
+	require.Len(t, eventIDs(demo.Detail["cause_events"]), 2, "both causes are named")
+	entered, _ := timeOf(demo.Detail["entered_at"])
+	require.WithinDuration(t, time.Now().Add(-time.Hour), entered, time.Minute, "the new clock starts at the latest cause")
+
+	first := towerEventsOf(t, b, lt.id, evIncident)[1] // newest first
+	require.Equal(t, "first", first.Reason)
+	code, raw := adminTowerPost(t, srv, "/tower/excuse", `{"tower_id":"`+lt.id+`","event_id":`+strconv.FormatInt(first.ID, 10)+`,"reason":"ours"}`)
+	require.Equal(t, http.StatusOK, code, raw)
+	b.towerGovSweepOnce(time.Now())
+	require.Equal(t, placement.StageNew, b.towerStage(lt.id), "the second cause still stands")
+
+	second := towerEventsOf(t, b, lt.id, evIncident)[0]
+	code, raw = adminTowerPost(t, srv, "/tower/excuse", `{"tower_id":"`+lt.id+`","event_id":`+strconv.FormatInt(second.ID, 10)+`,"reason":"ours too"}`)
+	require.Equal(t, http.StatusOK, code, raw)
+	b.towerGovSweepOnce(time.Now())
+	require.Equal(t, placement.StageProving, b.towerStage(lt.id), "only when every cause is excused")
+}
+
+// REVIEW FINDING: every instance's sweep wrote its own stage events.
+func TestTwoInstancesSweepingTogetherWriteOneStageChange(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	lt := approvedTower(t, b, srv, "nora", time.Now().Add(-time.Hour))
+	other := &broker{tower: b.tower, db: b.db, instanceID: "i-2", stationLimitExempt: b.stationLimitExempt}
+	tw := mustTower(t, b, lt.id)
+	v, err := b.readStage(lt.id, time.Now()) // both read the same record...
+	require.NoError(t, err)
+	require.False(t, v.hasLast)
+	b.sweepStage(tw, time.Now())
+	other.sweepStage(tw, time.Now()) // ...and the second write loses
+	require.Len(t, stageEvents(t, b, lt.id), 1)
+}
+
+func mustTower(t *testing.T, b *broker, id string) admit.Tower {
+	t.Helper()
+	tw, ok := b.tower.registry.Get(id)
+	require.True(t, ok)
+	return tw
+}
+
+func TestARevokedTowerHasNoStage(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	lt := approvedTower(t, b, srv, "nora", time.Now().Add(-time.Hour))
+	b.towerGovSweepOnce(time.Now())
+	require.NoError(t, b.tower.registry.Transition(lt.id, admit.StateRevoked))
+	require.Nil(t, b.stageReport(mustTower(t, b, lt.id), time.Now()))
+}
+
+// REVIEW FINDING: the coin asked for a Tower's weight once per row, each a record scan.
+func TestTheCoinAsksEachTowerForItsWeightOnce(t *testing.T) {
+	rows := []attemptCand{
+		{edge: &edgeCand{row: fleetRow("tw-a", "n1")}}, {edge: &edgeCand{row: fleetRow("tw-a", "n2")}},
+		{edge: &edgeCand{row: fleetRow("tw-a", "n3")}}, {edge: &edgeCand{row: fleetRow("tw-b", "n4")}},
+	}
+	asked := map[string]int{}
+	edgeSideWeight(rows, func(string) int { return 1 }, func(tw string) float64 { asked[tw]++; return 1 })
+	require.Equal(t, map[string]int{"tw-a": 1, "tw-b": 1}, asked)
+}
+
+func TestAStageIsCachedOnTheRequestPath(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	lt := approvedTower(t, b, srv, "nora", time.Now().Add(-time.Hour))
+	setStage(t, b, lt.id, placement.StageProving)
+	// A peer's write (straight to the record, no local drop) is not seen until the entry ages out.
+	require.NoError(t, b.tower.registry.Record(admit.Event{TowerID: lt.id, Kind: evTrustStage, Actor: admit.ActorSystem, To: "established"}))
+	require.Equal(t, placement.StageProving, b.towerStage(lt.id))
+	b.stageMu.Lock()
+	c := b.stageCache[lt.id]
+	c.at = c.at.Add(-stageCacheTTL)
+	b.stageCache[lt.id] = c
+	b.stageMu.Unlock()
+	require.Equal(t, placement.StageEstablished, b.towerStage(lt.id))
 }

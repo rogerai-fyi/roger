@@ -112,9 +112,11 @@ func edgeCoinWeighted(requestID string, directCap, towerCap int, weight float64)
 }
 
 // edgeSideWeight is the Tower side's weight: each row's Tower's weight, averaged by the
-// capacity of the station behind it. No rows means no weighting.
+// capacity of the station behind it. No rows means no weighting. Each Tower's weight is asked
+// for once, however many rows it has.
 func edgeSideWeight(rows []attemptCand, rowCap func(node string) int, towerWeight func(towerID string) float64) float64 {
 	var sum, total float64
+	weights := map[string]float64{}
 	for _, c := range rows {
 		if c.edge == nil {
 			continue
@@ -123,7 +125,12 @@ func edgeSideWeight(rows []attemptCand, rowCap func(node string) int, towerWeigh
 		if cp < 1 {
 			cp = 1
 		}
-		sum += cp * towerWeight(c.edge.row.TowerID)
+		w, ok := weights[c.edge.row.TowerID]
+		if !ok {
+			w = towerWeight(c.edge.row.TowerID)
+			weights[c.edge.row.TowerID] = w
+		}
+		sum += cp * w
 		total += cp
 	}
 	if total == 0 {

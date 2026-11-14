@@ -9,6 +9,7 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"log"
+	"sort"
 	mrand "math/rand"
 	"strings"
 	"time"
@@ -31,35 +32,78 @@ const (
 // towerStationCapacity is how many live Stations one Tower may hold (a seam for tests).
 var towerStationCapacity = func() int { return hubConnCap / stationHubWorkers }
 
+// isHouseAccount reports whether an account key is on the house list Core keeps for the
+// per-owner cap. Station owners are account keys, so this is a map read.
+func (b *broker) isHouseAccount(key string) bool {
+	return key != "" && b.stationLimitExempt[strings.ToLower(key)]
+}
+
+// houseOwnerTTL is how long a Tower owner's house-ness is reused: a Tower owner is a login,
+// which takes a store read to resolve to an account key.
+const houseOwnerTTL = time.Minute
+
+type houseOwnerEntry struct {
+	house bool
+	at    time.Time
+}
+
 // isHouseOwner reports whether an owner - an account key, or a Tower operator's login - is on
-// the house list Core keeps for the per-owner cap.
+// the house list. A login's answer is cached for houseOwnerTTL.
 func (b *broker) isHouseOwner(owner string) bool {
 	if owner == "" || len(b.stationLimitExempt) == 0 {
 		return false
 	}
-	if b.stationLimitExempt[strings.ToLower(owner)] {
+	if b.isHouseAccount(owner) {
 		return true
 	}
+	now := time.Now()
+	b.houseMu.Lock()
+	if e, ok := b.houseOwners[owner]; ok && now.Sub(e.at) < houseOwnerTTL {
+		b.houseMu.Unlock()
+		return e.house
+	}
+	b.houseMu.Unlock()
 	o, found, err := b.db.OwnerByLogin(owner)
-	return err == nil && found && b.stationLimitExempt[strings.ToLower(b.accountKeyOf(o))]
+	if err != nil {
+		return false // not cached: an unreadable store is asked again next time
+	}
+	house := found && b.isHouseAccount(b.accountKeyOf(o))
+	b.houseMu.Lock()
+	if b.houseOwners == nil {
+		b.houseOwners = map[string]houseOwnerEntry{}
+	}
+	b.houseOwners[owner] = houseOwnerEntry{house: house, at: now}
+	b.houseMu.Unlock()
+	return house
 }
 
 // towerTier is a Tower's health tier: B when its last two health checks both failed or its
-// reputation verdict over the window is not clean, A otherwise.
-func (b *broker) towerTier(towerID string, now time.Time) placement.Tier {
+// reputation verdict over the window is not clean, A otherwise. fleet is the fleet tally over
+// the window, read once by the caller.
+func (b *broker) towerTier(towerID string, now time.Time, fleet *reputation.Tally) placement.Tier {
 	ts := b.tower
 	if sum, err := ts.health.Summary(towerID, now); err == nil && sum.BothLastFailed() {
 		return placement.TierB
 	}
-	if ts.outcomes != nil {
-		since := now.Add(-reputationWindow)
-		tower, terr := ts.outcomes.Tally(towerID, since)
-		fleetT, ferr := ts.outcomes.FleetTally(since)
-		if terr == nil && ferr == nil && ts.repPolicy.Evaluate(tower, fleetT.Without(tower)) != reputation.Clean {
+	if ts.outcomes != nil && fleet != nil {
+		if tower, err := ts.outcomes.Tally(towerID, now.Add(-reputationWindow)); err == nil &&
+			ts.repPolicy.Evaluate(tower, fleet.Without(tower)) != reputation.Clean {
 			return placement.TierB
 		}
 	}
 	return placement.TierA
+}
+
+// fleetTally is the fleet's reputation tally over the window, or nil when it cannot be read.
+func (b *broker) fleetTally(now time.Time) *reputation.Tally {
+	if b.tower.outcomes == nil {
+		return nil
+	}
+	f, err := b.tower.outcomes.FleetTally(now.Add(-reputationWindow))
+	if err != nil {
+		return nil
+	}
+	return &f
 }
 
 // placed is where a Station is going and why.
@@ -70,12 +114,78 @@ type placed struct {
 	cand    placement.Candidate
 }
 
+// towerFacts is one live Tower as placement sees it, before any one Station is considered.
 type towerFacts struct {
-	cand              placement.Candidate
-	plane             link.RelayPlane
-	owner             string
-	stage             placement.Stage
-	live, house, comm int
+	cand       placement.Candidate // Class is filled per Station
+	plane      link.RelayPlane
+	loc        placement.Locality
+	owner      string
+	stage      placement.Stage
+	house      int // house Stations on this Tower
+	comm       int // community Stations on this Tower
+	ownerHouse int // house Stations on ALL of this owner's Towers, eligible or not
+	full       bool
+}
+
+// placementSnapshot reads every live Tower's facts once: the candidates for any number of
+// placement decisions in one pass. House Stations are counted per owner over every Tower the
+// owner has, so a Tower that is full or not live still counts against the owner's failover.
+func (b *broker) placementSnapshot() []towerFacts {
+	ts := b.tower
+	now := time.Now()
+	towers, err := ts.link.LiveTowersChecked()
+	if err != nil && b.towerLogPace.allow("placement-mirror") {
+		log.Printf("placement degraded: mirror unavailable (%v); placing among this instance's own links", err)
+	}
+	live := map[string]bool{}
+	for _, id := range towers {
+		live[id] = true
+	}
+	capacity := towerStationCapacity()
+	fleet := b.fleetTally(now)
+	houseByOwner := map[string]int{}
+	var facts []towerFacts
+	for _, tw := range ts.registry.All() {
+		atts, aerr := ts.stationStore.ByTower(tw.ID)
+		if aerr != nil {
+			continue // a Tower whose load cannot be read is not placed on blind
+		}
+		f := towerFacts{owner: tw.Owner}
+		total := 0
+		for _, at := range atts {
+			if !at.Live() {
+				continue
+			}
+			total++
+			if b.isHouseAccount(at.Owner) {
+				f.house++
+			} else {
+				f.comm++
+			}
+		}
+		houseByOwner[tw.Owner] += f.house
+		if !live[tw.ID] || !ts.registry.MayTakeWork(tw.ID) {
+			continue
+		}
+		plane, has := ts.link.RelayPlane(tw.ID)
+		if !has || plane.Endpoint == "" {
+			continue
+		}
+		f.plane = plane
+		f.full = total >= capacity
+		f.cand = placement.Candidate{TowerID: tw.ID, House: b.isHouseOwner(tw.Owner),
+			Load: float64(total) / float64(capacity), Tier: b.towerTier(tw.ID, now, fleet)}
+		if !f.cand.House {
+			f.stage = b.towerStage(tw.ID)
+		}
+		f.loc, _ = ts.link.Locality(tw.ID)
+		facts = append(facts, f)
+	}
+	for i := range facts {
+		facts[i].ownerHouse = houseByOwner[facts[i].owner]
+	}
+	sort.Slice(facts, func(i, j int) bool { return facts[i].cand.TowerID < facts[j].cand.TowerID })
+	return facts
 }
 
 // placeStation chooses the Tower for a Station owned by owner, observed at loc. exclude names
@@ -87,76 +197,34 @@ func (b *broker) placeStation(owner string, loc placement.Locality, exclude map[
 // placeStationPrefer is placeStation with a preferred Tower - a move's intended target - taken
 // whenever it is still an eligible candidate.
 func (b *broker) placeStationPrefer(owner string, loc placement.Locality, exclude map[string]bool, prefer string) (placed, bool) {
-	ts := b.tower
-	now := time.Now()
-	towers, err := ts.link.LiveTowersChecked()
-	if err != nil && b.towerLogPace.allow("placement-mirror") {
-		log.Printf("placement degraded: mirror unavailable (%v); placing among this instance's own links", err)
-	}
-	houseStation := b.isHouseOwner(owner)
-	capacity := towerStationCapacity()
+	return b.chooseFrom(b.placementSnapshot(), owner, loc, exclude, prefer, placementRand())
+}
 
-	var facts []towerFacts
-	houseByOwner := map[string]int{}
-	for _, id := range towers {
-		if exclude[id] || !ts.registry.MayTakeWork(id) {
-			continue
-		}
-		plane, has := ts.link.RelayPlane(id)
-		if !has || plane.Endpoint == "" {
-			continue
-		}
-		tw, ok := ts.registry.Get(id)
-		if !ok {
-			continue
-		}
-		f := towerFacts{plane: plane, owner: tw.Owner}
-		f.cand = placement.Candidate{TowerID: id, House: b.isHouseOwner(tw.Owner)}
-		atts, aerr := ts.stationStore.ByTower(id)
-		if aerr != nil {
-			continue // a Tower whose load cannot be read is not placed on blind
-		}
-		for _, at := range atts {
-			if !at.Live() {
-				continue
-			}
-			f.live++
-			if b.isHouseOwner(at.Owner) {
-				f.house++
-			} else {
-				f.comm++
-			}
-		}
-		if f.live >= capacity {
-			continue
-		}
-		if !f.cand.House {
-			f.stage = b.towerStage(id)
-			houseByOwner[tw.Owner] += f.house
-		}
-		f.cand.Load = float64(f.live) / float64(capacity)
-		f.cand.Tier = b.towerTier(id, now)
-		tloc, _ := ts.link.Locality(id)
-		f.cand.Class = placement.ClassOf(loc, tloc)
-		facts = append(facts, f)
-	}
-
+// chooseFrom places one Station among a snapshot's Towers. A nil rng chooses deterministically.
+func (b *broker) chooseFrom(snap []towerFacts, owner string, loc placement.Locality, exclude map[string]bool, prefer string, rng *mrand.Rand) (placed, bool) {
+	houseStation := b.isHouseAccount(owner)
 	var cands []placement.Candidate
 	byID := map[string]towerFacts{}
-	for _, f := range facts {
-		if !f.cand.House {
+	for _, f := range snap {
+		if exclude[f.cand.TowerID] || f.full {
+			continue
+		}
+		c := f.cand
+		c.Class = placement.ClassOf(loc, f.loc)
+		if !c.House {
 			caps := stageCaps[f.stage]
 			if !houseStation && caps.community >= 0 && f.comm >= caps.community {
 				continue
 			}
 			// House failover room is counted per OWNER, so many Towers under one account do
 			// not multiply it.
-			f.cand.HouseAllowed = caps.house > 0 && houseByOwner[f.owner] < caps.house
+			c.HouseAllowed = caps.house > 0 && f.ownerHouse < caps.house
 		}
-		cands = append(cands, f.cand)
-		byID[f.cand.TowerID] = f
+		f.cand = c
+		cands = append(cands, c)
+		byID[c.TowerID] = f
 	}
-	choice, reason, ok := placement.Choose(cands, houseStation, placementRand())
+	choice, reason, ok := placement.Choose(cands, houseStation, rng)
 	if pf, has := byID[prefer]; has && (!houseStation || pf.cand.House || pf.cand.HouseAllowed) {
 		choice, reason, ok = pf.cand, "move", true
 	}
@@ -187,9 +255,16 @@ func placementRand() *mrand.Rand {
 }
 
 // towerCandidate is how placement sees one Tower for a Station at loc - the comparison a move
-// is judged against.
-func (b *broker) towerCandidate(towerID string, loc placement.Locality) placement.Candidate {
-	c := placement.Candidate{TowerID: towerID, Tier: b.towerTier(towerID, time.Now())}
+// is judged against - from a snapshot, or from the store when the Tower is not in it.
+func (b *broker) towerCandidate(snap []towerFacts, towerID string, loc placement.Locality) placement.Candidate {
+	for _, f := range snap {
+		if f.cand.TowerID == towerID {
+			c := f.cand
+			c.Class = placement.ClassOf(loc, f.loc)
+			return c
+		}
+	}
+	c := placement.Candidate{TowerID: towerID, Tier: b.towerTier(towerID, time.Now(), b.fleetTally(time.Now()))}
 	if tw, ok := b.tower.registry.Get(towerID); ok {
 		c.House = b.isHouseOwner(tw.Owner)
 	}

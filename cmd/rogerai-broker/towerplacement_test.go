@@ -186,8 +186,9 @@ func attachTo(t *testing.T, b *broker, srv *httptest.Server, towerID string) {
 // setStage records a Tower's trust stage as the ramp would, newest wins.
 func setStage(t *testing.T, b *broker, towerID string, st placement.Stage) {
 	t.Helper()
-	require.NoError(t, b.tower.registry.Record(admit.Event{TowerID: towerID, Kind: evTrustStage,
-		Actor: admit.ActorSystem, To: admit.State(st), At: time.Now()}))
+	ev := admit.Event{TowerID: towerID, Kind: evTrustStage, Actor: admit.ActorSystem, To: admit.State(st), At: time.Now()}
+	require.NoError(t, b.tower.registry.Record(ev))
+	b.dropStageCache(ev) // as every broker write does
 	require.Equal(t, st, b.towerStage(towerID))
 }
 
