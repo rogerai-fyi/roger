@@ -486,3 +486,15 @@ func TestAnUnreadableStageIsRememberedBriefly(t *testing.T) {
 	b.stageMu.Unlock()
 	require.WithinDuration(t, time.Now().Add(stageFailCacheTTL-stageCacheTTL), c.at, time.Second, "remembered for the short failure window only")
 }
+
+// AUDIT FINDING: a lapse inside its grace hour was skipped forever if a stage was entered in
+// that hour.
+func TestALapseJustBeforeAPromotionStillCountsIfNeverRenewed(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	lt := approvedTower(t, b, srv, "nora", time.Now().Add(-20*24*time.Hour))
+	lapse := time.Now().Add(-90 * time.Minute)
+	require.NoError(t, b.tower.registry.Record(admit.Event{TowerID: lt.id, Kind: evLeaseLapsed, Actor: admit.ActorSystem, At: lapse}))
+	setStageAt(t, b, lt.id, placement.StageProving, lapse.Add(20*time.Minute)) // promoted inside the grace
+	b.towerGovSweepOnce(time.Now())
+	require.Equal(t, placement.StageNew, b.towerStage(lt.id), "the unrenewed lapse counts")
+}

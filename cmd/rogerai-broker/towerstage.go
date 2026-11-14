@@ -172,7 +172,10 @@ func (b *broker) readStage(towerID string, now time.Time) (stageView, error) {
 		return v, nil
 	}
 	from := since.Add(-time.Nanosecond)
-	cands, err := reg.EventsOfKinds(towerID, disqualifierKinds, from, stageScanLimit)
+	// A lease lapse is judged an hour after it happens, so one that landed within the hour
+	// before the stage was entered is still read: entering a stage in that hour must not
+	// excuse it if the lease was never renewed.
+	cands, err := reg.EventsOfKinds(towerID, disqualifierKinds, from.Add(-leaseLapseGrace), stageScanLimit)
 	if err != nil {
 		return v, err
 	}
@@ -190,7 +193,8 @@ func (b *broker) readStage(towerID string, now time.Time) (stageView, error) {
 	for _, ev := range cands {
 		// After the stage was entered: later in time, or at the same instant but later in the
 		// record, and never a cause the demotion already names.
-		after := ev.At.After(since) || (ev.At.Equal(since) && ev.ID > sinceID)
+		after := ev.At.After(since) || (ev.At.Equal(since) && ev.ID > sinceID) ||
+			(ev.Kind == evLeaseLapsed && ev.At.After(since.Add(-leaseLapseGrace)))
 		if !after || v.excused[ev.ID] || listed[ev.ID] {
 			continue
 		}

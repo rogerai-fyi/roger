@@ -148,17 +148,17 @@ func (b *broker) mobilityPassOnce(now time.Time) {
 			if liveErr != nil {
 				continue // the live set could not be read: nothing is known to be gone
 			}
-			// GONE means absent for longer than the link freshness window - an orderly restart or
-			// a short outage is not a Tower that has left. Absence counts from when the Tower was
-			// last heard, when the link still knows (a Tower that went silent), and otherwise from
-			// this instance's first sight of it missing (an orderly close forgets the session). A
-			// revoked Tower is gone at once.
+			// GONE means absent from the live set for longer than the link freshness window - an
+			// orderly restart or a short outage is not a Tower that has left. A revoked Tower is
+			// gone at once.
 			b.moveMu.Lock()
 			first, seen := b.absentSince[tw.ID]
 			if !seen {
+				// When it LEFT the live set: a silent Tower leaves one window after it was last
+				// heard; a closed one, when this instance first sees it missing.
 				first = now
-				if last, ok := ts.link.LastSeen(tw.ID); ok && last.Before(now) {
-					first = last
+				if last, ok := ts.link.LastSeen(tw.ID); ok && last.Add(window).Before(now) {
+					first = last.Add(window)
 				}
 				b.absentSince[tw.ID] = first
 			}
@@ -238,9 +238,12 @@ func (b *broker) mobilityTower(tw admit.Tower, live []attach.Attachment, snap []
 			continue // an old node is moved only when its Tower is gone or failing
 		}
 		if trigger == triggerFailing || trigger == triggerCap {
-			// A move with nowhere to go would only take the Station dark and bring it back.
+			// A move with nowhere to go would only take the Station dark and bring it back. Off
+			// a failing Tower, "somewhere" must be healthy: moving between two failing Towers
+			// would bounce the Station for as long as both fail.
 			f, _, _ := ts.mobility.Facts(at.StationID)
-			if _, ok := b.chooseFrom(snap, at.Owner, f.Locality, map[string]bool{tw.ID: true}, "", nil); !ok {
+			alt, ok := b.chooseFrom(snap, at.Owner, f.Locality, map[string]bool{tw.ID: true}, "", nil)
+			if !ok || (trigger == triggerFailing && alt.cand.Tier != placement.TierA) {
 				continue
 			}
 		}

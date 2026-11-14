@@ -572,3 +572,36 @@ func TestAFailingTowerWithNoAlternativeKeepsItsStation(t *testing.T) {
 	require.True(t, r.attachment(t).Live())
 	require.Empty(t, towerEventsOf(t, r.b, r.a.id, evStationMoveStarted))
 }
+
+// AUDIT FINDING: a failing move could go to another failing Tower, so Stations bounced.
+func TestAFailingMoveNeedsAHealthyDestination(t *testing.T) {
+	r := newMovingRig(t, true)
+	now := time.Now()
+	// B fails too.
+	require.NoError(t, r.b.tower.health.Record(r.bTower.id, false, now))
+	require.NoError(t, r.b.tower.health.Record(r.bTower.id, false, now.Add(time.Second)))
+	r.observe(t, false, now)
+	r.observe(t, false, now.Add(5*time.Minute))
+	require.True(t, r.attachment(t).Live(), "no healthy Tower to go to: it stays")
+	// B recovers: now it moves.
+	require.NoError(t, r.b.tower.health.Record(r.bTower.id, true, now.Add(6*time.Minute)))
+	r.observe(t, false, now.Add(7*time.Minute))
+	require.Equal(t, attach.StateDormant, r.attachment(t).State)
+}
+
+// AUDIT FINDING: a silent Tower counted as gone the instant it left the live set.
+func TestASilentTowerIsGoneOnlyAWindowAfterLeavingTheLiveSet(t *testing.T) {
+	r := newMovingRig(t, false)
+	w := r.b.tower.link.Freshness()
+	last, ok := r.b.tower.link.LastSeen(r.a.id)
+	require.True(t, ok)
+	// Pretend no heartbeat since: just past one window it has left the live set...
+	r.b.tower.link.Close(mustCurrent(t, r.b, r.a.id), r.a.id)
+	r.b.moveMu.Lock()
+	r.b.absentSince = map[string]time.Time{}
+	r.b.moveMu.Unlock()
+	r.b.mobilityPassOnce(last.Add(w + time.Second))
+	require.True(t, r.attachment(t).Live(), "left the live set a moment ago: not gone yet")
+	r.b.mobilityPassOnce(last.Add(2*w + 2*time.Second))
+	require.Equal(t, attach.StateDormant, r.attachment(t).State)
+}

@@ -484,7 +484,9 @@ func (s *mobState) towerAbsent() error {
 	if len(live) != 1 || live[0] != s.r.bt.id {
 		return fmt.Errorf("the fleet-wide live set is %v, want only B", live)
 	}
-	s.at = time.Now()
+	// It left the live set when its last heartbeat was one window old; the pass runs a further
+	// window after that, so A has been ABSENT from the live set longer than the window.
+	s.at = s.r.aLastSeen.Add(2*s.r.b.tower.link.Freshness() + time.Second)
 	return nil
 }
 
