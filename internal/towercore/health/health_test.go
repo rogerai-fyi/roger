@@ -173,8 +173,6 @@ func TestTheStreakCountsOneFailurePerSlotFromAnySource(t *testing.T) {
 	})
 }
 
-
-
 // record files a check in a slot of its own (its nanosecond), so each call counts on its own -
 // what these tests mean by "a check at this time".
 func record(s Store, towerID string, ok bool, at time.Time) error {
