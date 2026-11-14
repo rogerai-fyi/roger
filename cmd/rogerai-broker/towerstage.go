@@ -273,6 +273,9 @@ func (b *broker) dropStageCache(ev admit.Event) {
 	b.stageMu.Lock()
 	delete(b.stageCache, ev.TowerID)
 	b.stageMu.Unlock()
+	// A read already in flight may have started before this write: later callers start a new
+	// one rather than joining it.
+	b.stageFlight.Forget(ev.TowerID)
 }
 
 // towerStage is a Tower's effective stage: the recorded stage, "new" at once on an unexcused
@@ -288,6 +291,13 @@ func (b *broker) towerStage(towerID string) placement.Stage {
 	b.stageMu.Unlock()
 	// One read per Tower however many requests miss the cache at once.
 	v, _, _ := b.stageFlight.Do(towerID, func() (any, error) {
+		// A caller that queued behind a finished flight finds the fresh entry here.
+		b.stageMu.Lock()
+		if c, ok := b.stageCache[towerID]; ok && time.Since(c.at) < stageCacheTTL {
+			b.stageMu.Unlock()
+			return c.stage, nil
+		}
+		b.stageMu.Unlock()
 		st, at := stageNew, now
 		if v, err := b.readStage(towerID, now); err == nil {
 			st = v.stage

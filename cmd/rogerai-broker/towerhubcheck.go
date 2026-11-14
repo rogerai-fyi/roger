@@ -35,6 +35,8 @@ func (b *broker) towerHubCheckOnce(now time.Time) {
 		}
 		plane, has := ts.link.RelayPlane(tw.ID)
 		if !has || plane.Endpoint == "" {
+			// No hub, no check - and no Stations either: placement takes only Towers that
+			// advertise a hub, so a Tower without one has nothing a health tier would protect.
 			continue
 		}
 		b.hubCheckMu.Lock()

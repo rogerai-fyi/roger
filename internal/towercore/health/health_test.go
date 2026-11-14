@@ -160,3 +160,21 @@ func TestOnlyHubChecksAdvanceTheStreak(t *testing.T) {
 		require.Equal(t, 2, sum.FailStreak)
 	})
 }
+
+// AUDIT FINDING: the streak's forward-in-time guard was shared with canaries, so a canary
+// stamped later than a hub check made the hub check vanish from the streak. The streak is
+// ordered by hub checks alone.
+func TestALaterCanaryNeverHidesAHubCheckFromTheStreak(t *testing.T) {
+	eachStore(t, func(t *testing.T, s Store) {
+		require.NoError(t, s.RecordCheck("tw-1", Check{OK: true, At: day0.Add(10 * time.Second), Source: SourceCanary}))
+		require.NoError(t, s.RecordCheck("tw-1", Check{OK: false, At: day0, Source: SourceHubCheck})) // older than the canary
+		sum, _ := s.Summary("tw-1", day0)
+		require.Equal(t, 1, sum.FailStreak, "the hub check still counts")
+		require.True(t, sum.LastAt.Equal(day0.Add(10*time.Second)), "the latest result is still the canary")
+		require.Equal(t, SourceCanary, sum.LastSource)
+		// An older HUB check than the last hub check is still ignored for the streak.
+		require.NoError(t, s.RecordCheck("tw-1", Check{OK: true, At: day0.Add(-time.Minute), Source: SourceHubCheck}))
+		sum, _ = s.Summary("tw-1", day0)
+		require.Equal(t, 1, sum.FailStreak)
+	})
+}

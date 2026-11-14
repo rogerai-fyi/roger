@@ -553,5 +553,17 @@ func TestConcurrentStageReadsCollapseIntoOne(t *testing.T) {
 		go func() { defer wg.Done(); b.towerStage("tw-x") }()
 	}
 	wg.Wait()
-	require.LessOrEqual(t, fs.calls, 2, "collapsed, not 50 reads")
+	require.Equal(t, 1, fs.calls, "collapsed into one read")
+}
+
+
+// AUDIT FINDING: a write during an in-flight read was lost to the stale flight.
+func TestAWriteDuringAReadIsNotLostToTheFlight(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	lt := approvedTower(t, b, srv, "nora", time.Now().Add(-time.Hour))
+	setStage(t, b, lt.id, placement.StageProving)
+	ev := admit.Event{TowerID: lt.id, Kind: evIncident, Actor: "admin:broker-key", Reason: "x"}
+	require.NoError(t, b.tower.registry.Record(ev))
+	b.dropStageCache(ev) // also forgets any flight that started before the write
+	require.Equal(t, placement.StageNew, b.towerStage(lt.id))
 }

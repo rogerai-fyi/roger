@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 	"rogerai.fm/roger/v7/internal/protocol"
@@ -150,10 +149,9 @@ func TestALargeTableLooksUpByPrefixNotByScan(t *testing.T) {
 	require.Equal(t, "OC", nt.continentOf("2001:db8:2::5"))
 	require.Equal(t, "", nt.continentOf("9.9.9.9"))
 	require.Equal(t, "AF", nt.continentOf("[::ffff:10.1.2.3]:443"), "a mapped v4 address with a port")
-	start := time.Now()
-	for i := 0; i < 10000; i++ {
-		nt.continentOf("12.3.4.5")
-	}
-	require.Less(t, time.Since(start), 200*time.Millisecond, "10,000 lookups in a 200,000-range table")
+	// Structure, not a stopwatch: a lookup reads one map per prefix length present, so the
+	// work is bounded by the number of lengths, not by the number of ranges.
+	require.LessOrEqual(t, len(nt.bits), 33+129)
+	require.Equal(t, 4, len(nt.bits), "/8, /24, /32 and /48 here")
 	require.Equal(t, map[string]any{"configured": true, "ranges": 200004}, (&broker{netTable: nt}).regionTableStatus())
 }

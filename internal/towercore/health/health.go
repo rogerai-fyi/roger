@@ -68,19 +68,21 @@ type latest struct {
 	since  time.Time
 	source string
 	rtt    time.Duration
+	hubAt  time.Time // the latest hub check, which orders the streak
 }
 
-// advance folds one result into the latest fields; a result older than the latest is counted
-// per day but does not rewrite them.
+// advance folds one result in. The latest-result fields move forward in time over every
+// source; the streak moves forward over hub checks alone, ordered by hubAt, so a canary stamped
+// later can never hide a hub check from it.
 func (l latest) advance(c Check) latest {
 	ok, at := c.OK, c.At
-	if !l.at.IsZero() && at.Before(l.at) {
-		return l
+	if l.at.IsZero() || !at.Before(l.at) {
+		l.at, l.source, l.rtt = at, c.Source, c.RTT
 	}
-	l.at, l.source, l.rtt = at, c.Source, c.RTT
-	if c.Source != SourceHubCheck {
+	if c.Source != SourceHubCheck || (!l.hubAt.IsZero() && at.Before(l.hubAt)) {
 		return l // the streak is hub checks only: one per Tower per interval, never doubled
 	}
+	l.hubAt = at
 	switch {
 	case ok:
 		l.streak, l.since = 0, time.Time{}
@@ -171,7 +173,8 @@ CREATE TABLE IF NOT EXISTS rogerai.tower_health (
     fail_streak  INT NOT NULL DEFAULT 0,
     streak_since TIMESTAMPTZ,
     last_source  TEXT NOT NULL DEFAULT '',
-    last_rtt_ms  BIGINT NOT NULL DEFAULT 0
+    last_rtt_ms  BIGINT NOT NULL DEFAULT 0,
+    last_hub_at  TIMESTAMPTZ
 )`
 
 func NewPGStore(db *sql.DB) (*PGStore, error) {
@@ -201,20 +204,27 @@ func (p *PGStore) RecordCheck(towerID string, c Check) error {
 	}
 	// The latest result moves only forward in time, in one statement, so two instances
 	// recording at once cannot interleave a read and a write.
+	// "streak" below: a hub check no older than the last hub check. Only it moves the streak.
 	_, err := p.db.Exec(`
-        INSERT INTO rogerai.tower_health (tower_id, last_at, fail_streak, streak_since, last_source, last_rtt_ms)
+        INSERT INTO rogerai.tower_health (tower_id, last_at, fail_streak, streak_since, last_source, last_rtt_ms, last_hub_at)
         VALUES ($1, $3::timestamptz,
                 CASE WHEN $2::boolean OR $4 <> 'hub_check' THEN 0 ELSE 1 END,
-                CASE WHEN $2::boolean OR $4 <> 'hub_check' THEN NULL ELSE $3::timestamptz END, $4, $5)
-        ON CONFLICT (tower_id) DO UPDATE
-          SET last_at = EXCLUDED.last_at, last_source = EXCLUDED.last_source, last_rtt_ms = EXCLUDED.last_rtt_ms,
-              fail_streak = CASE WHEN $4 <> 'hub_check' THEN tower_health.fail_streak
-                                 WHEN $2::boolean THEN 0 ELSE tower_health.fail_streak + 1 END,
-              streak_since = CASE WHEN $4 <> 'hub_check' THEN tower_health.streak_since
-                                  WHEN $2::boolean THEN NULL
-                                  WHEN tower_health.fail_streak = 0 THEN EXCLUDED.last_at
-                                  ELSE tower_health.streak_since END
-          WHERE tower_health.last_at <= EXCLUDED.last_at`,
+                CASE WHEN $2::boolean OR $4 <> 'hub_check' THEN NULL ELSE $3::timestamptz END, $4, $5,
+                CASE WHEN $4 = 'hub_check' THEN $3::timestamptz END)
+        ON CONFLICT (tower_id) DO UPDATE SET
+          last_at     = CASE WHEN EXCLUDED.last_at >= tower_health.last_at THEN EXCLUDED.last_at ELSE tower_health.last_at END,
+          last_source = CASE WHEN EXCLUDED.last_at >= tower_health.last_at THEN EXCLUDED.last_source ELSE tower_health.last_source END,
+          last_rtt_ms = CASE WHEN EXCLUDED.last_at >= tower_health.last_at THEN EXCLUDED.last_rtt_ms ELSE tower_health.last_rtt_ms END,
+          fail_streak = CASE WHEN $4 <> 'hub_check' OR EXCLUDED.last_at < COALESCE(tower_health.last_hub_at, '-infinity')
+                               THEN tower_health.fail_streak
+                             WHEN $2::boolean THEN 0 ELSE tower_health.fail_streak + 1 END,
+          streak_since = CASE WHEN $4 <> 'hub_check' OR EXCLUDED.last_at < COALESCE(tower_health.last_hub_at, '-infinity')
+                                THEN tower_health.streak_since
+                              WHEN $2::boolean THEN NULL
+                              WHEN tower_health.fail_streak = 0 THEN EXCLUDED.last_at
+                              ELSE tower_health.streak_since END,
+          last_hub_at = CASE WHEN $4 = 'hub_check' AND EXCLUDED.last_at >= COALESCE(tower_health.last_hub_at, '-infinity')
+                               THEN EXCLUDED.last_at ELSE tower_health.last_hub_at END`,
 		towerID, ok, at.UTC(), c.Source, c.RTT.Milliseconds())
 	return err
 }
