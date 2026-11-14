@@ -4,8 +4,6 @@ package main
 // The stage a Tower is in is the "to" of its latest trust_stage event; a community Tower with
 // none yet is "new".
 
-
-
 type trustStage string
 
 const (
@@ -43,4 +41,3 @@ func (b *broker) towerStage(towerID string) trustStage {
 	}
 	return stageNew
 }
-

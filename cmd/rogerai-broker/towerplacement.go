@@ -175,4 +175,3 @@ func placementRand() *mrand.Rand {
 	_, _ = rand.Read(seed[:])
 	return mrand.New(mrand.NewSource(int64(binary.LittleEndian.Uint64(seed[:]))))
 }
-
