@@ -68,7 +68,7 @@ Feature: Core places each Station on the best eligible Tower, not the first one
 
     Examples:
       | condition                                                          |
-      | its lifecycle state is not active or quarantine                    |
+      | its lifecycle state is not active (amended 2026-11-13)             |
       | the registry says it may not take work                             |
       | it advertises no hub endpoint                                      |
       | its link record is older than the freshness window                 |

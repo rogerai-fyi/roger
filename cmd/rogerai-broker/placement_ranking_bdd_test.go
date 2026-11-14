@@ -560,7 +560,7 @@ func (s *prkState) neverInvents() error {
 // --- exclusions -----------------------------------------------------------------------------
 
 const (
-	prkCondLifecycle = "its lifecycle state is not active or quarantine"
+	prkCondLifecycle = "its lifecycle state is not active (amended 2026-11-13)"
 	prkCondRegistry  = "the registry says it may not take work"
 	prkCondNoHub     = "it advertises no hub endpoint"
 	prkCondStale     = "its link record is older than the freshness window"

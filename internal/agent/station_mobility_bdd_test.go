@@ -29,8 +29,6 @@ import (
 	"net/http/httptest"
 	"net/http/httputil"
 	"net/url"
-	"os"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
@@ -43,26 +41,10 @@ import (
 	"rogerai.fm/roger/v7/internal/bddrun"
 )
 
-// mobAgentFeature copies the approved file with its two non-Gherkin rationale lines ("Because ..."
-// at line 151, "So that ..." at line 253) made into comments, line numbers intact.
+// mobAgentFeature is the approved file, read as it is.
 func mobAgentFeature(t *testing.T) string {
 	t.Helper()
-	raw, err := os.ReadFile("../../features/tower/station_mobility.feature")
-	require.NoError(t, err)
-	lines := strings.Split(string(raw), "\n")
-	fixed := 0
-	for i, l := range lines {
-		trimmed := strings.TrimSpace(l)
-		if strings.HasPrefix(trimmed, "Because work through a Tower that is gone cannot complete") ||
-			strings.HasPrefix(trimmed, "So that moves which raced live work can be counted against fence firings") {
-			lines[i] = l[:len(l)-len(strings.TrimLeft(l, " "))] + "# " + trimmed
-			fixed++
-		}
-	}
-	require.LessOrEqual(t, fixed, 2)
-	out := filepath.Join(t.TempDir(), "station_mobility.feature")
-	require.NoError(t, os.WriteFile(out, []byte(strings.Join(lines, "\n")), 0o600))
-	return out
+	return "../../features/tower/station_mobility.feature"
 }
 
 // mobNode is one real node serving through ServeTower against a stub Core.

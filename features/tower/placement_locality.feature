@@ -77,7 +77,12 @@ Feature: Core knows roughly where each Tower and each Station is, from addresses
       | an IPv6 unique local address    |
       | a link-local address            |
       | the unspecified address         |
-      | an address in no table range    |
+
+  # Amended 2026-11-13 (founder ruling): a public address outside the table keeps its network.
+  Scenario: A public hub address outside the table keeps its network and has no continent
+    Given a Tower's hub endpoint is "an address in no table range"
+    When Core computes the Tower's location
+    Then the Tower's bucket is known and its continent is unknown
 
   Scenario: A Tower's location is recomputed on every new link session and not in between
     Given a Tower's location was computed when its session opened
@@ -174,7 +179,7 @@ Feature: Core knows roughly where each Tower and each Station is, from addresses
     Given a Tower advertises a hub host that resolves into a network the operator does not run
     When Stations are placed on that Tower and dial the hub
     Then the hub's certificate pin and identity proof fail for any host that is not the admitted Tower
-    And those Stations fail their re-attach checks and are moved off by the "relay gone" trigger
+    And those Stations fail their re-attach checks and are moved off by the "tower_failing" trigger (amended 2026-11-13, founder ruling)
     And the Tower's canary failures count against it as they do today
 
   Scenario: A Station steering its own attach through a VPN only changes its own placement

@@ -148,7 +148,7 @@ Feature: Core moves an idle Station to a better Tower, and fences anything the m
     Given Tower A is gone and S shows load
     When the mobility pass runs
     Then S's move starts anyway
-    Because work through a Tower that is gone cannot complete
+    # Because work through a Tower that is gone cannot complete
 
   # --- the move itself ---------------------------------------------------------------
 
@@ -250,7 +250,7 @@ Feature: Core moves an idle Station to a better Tower, and fences anything the m
   Scenario: Every move records the load Core saw when it decided
     When a move starts
     Then the "station_move_started" event's detail carries the four load terms stationQuiescent read
-    So that moves which raced live work can be counted against fence firings
+    # So that moves which raced live work can be counted against fence firings
 
   # --- pacing ---------------------------------------------------------------------------
 

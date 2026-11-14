@@ -19,12 +19,8 @@ package main
 // held out at first because the handler refused Tower A's receipt with a 403 before the epoch
 // fence could answer; the handler now lets the Tower the attempt was granted to reach the fence.
 //
-// TWO LINES OF THE APPROVED FILE ARE NOT GHERKIN. "Because work through a Tower that is gone
-// cannot complete" (line 151) and "So that moves which raced live work can be counted against
-// fence firings" (line 253) sit among the steps, and godog refuses to parse the file because of
-// them. The runner reads the approved file unchanged and turns exactly those two rationale lines
-// into comments in a temporary copy, line numbers intact, so every step still runs and every line
-// selection still names the approved file's scenarios. See mobFeature.
+// Two rationale lines of the file (151, 253) were not Gherkin; the founder approved making them
+// comments on 2026-11-13, so the runner reads the approved file directly.
 
 import (
 	"bytes"
@@ -38,8 +34,6 @@ import (
 	"log"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
@@ -86,26 +80,10 @@ const (
 	mobBucketB   = "198.51.100.0/24"
 )
 
-// mobFeature copies the approved file into a temporary directory with its two non-Gherkin
-// rationale lines made into comments and nothing else changed.
+// mobFeature is the approved file, read as it is.
 func mobFeature(t *testing.T) string {
 	t.Helper()
-	raw, err := os.ReadFile(mobFeatureFile)
-	require.NoError(t, err)
-	lines := strings.Split(string(raw), "\n")
-	fixed := 0
-	for i, l := range lines {
-		trimmed := strings.TrimSpace(l)
-		if strings.HasPrefix(trimmed, "Because work through a Tower that is gone cannot complete") ||
-			strings.HasPrefix(trimmed, "So that moves which raced live work can be counted against fence firings") {
-			lines[i] = l[:len(l)-len(strings.TrimLeft(l, " "))] + "# " + trimmed
-			fixed++
-		}
-	}
-	require.LessOrEqual(t, fixed, 2, "only the two known rationale lines are commented")
-	out := filepath.Join(t.TempDir(), "station_mobility.feature")
-	require.NoError(t, os.WriteFile(out, []byte(strings.Join(lines, "\n")), 0o600))
-	return out
+	return mobFeatureFile
 }
 
 // mobRig is Station S live on Tower A at epoch 4, Tower B up after it attached, and every store a
