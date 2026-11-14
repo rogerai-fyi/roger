@@ -450,24 +450,16 @@ func (b *broker) towerEdgeAttach(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// CORE ASSIGNS THE TOWER: the first live, admitted tower advertising a data-plane
-	// endpoint. (LiveTowers reflects this instance's link sessions - the instance holding the
-	// links is the one that can answer; matchmaking beyond first-fit is a later refinement.)
-	var towerID string
-	var plane link.RelayPlane
-	for _, tw := range ts.link.LiveTowers() {
-		if !ts.registry.MayTakeWork(tw) {
-			continue
-		}
-		if p, has := ts.link.RelayPlane(tw); has && p.Endpoint != "" {
-			towerID, plane = tw, p
-			break
-		}
-	}
-	if towerID == "" {
+	// CORE ASSIGNS THE TOWER: the best eligible Tower in the fleet, ranked by health, then
+	// locality, then load, with house Stations on house Towers (towerplacement.go,
+	// features/tower/placement_ranking.feature). The Station's locality is the address this
+	// request came from, never what the node says about itself.
+	choice, placedOK := b.placeStation(ownerPubkey, b.addrLocality(clientIP(r)), nil)
+	if !placedOK {
 		jsonErr(w, http.StatusServiceUnavailable, "no tower can host this node right now - try again shortly")
 		return
 	}
+	towerID, plane := choice.towerID, choice.plane
 
 	// The internal invitation: minted and redeemed in this one call. The secret exists only
 	// on this stack; the cap and one-use guarantees are the store's, unchanged.
@@ -539,6 +531,8 @@ func (b *broker) towerEdgeAttach(w http.ResponseWriter, r *http.Request) {
 
 	b.towerEvent(admit.Event{TowerID: towerID, Kind: evStationAttached, Actor: "operator:" + owner,
 		Detail: map[string]any{"station": at.StationID, "quarantine": at.State == attach.StateQuarantine}})
+	choice.detail["station"] = at.StationID
+	b.towerEvent(admit.Event{TowerID: towerID, Kind: evStationPlaced, Actor: admit.ActorSystem, Detail: choice.detail})
 
 	// The node is routable NOW: publish its row (merged with the tower's leaf rows) so
 	// edgeTargetFor can find it at its listed price.

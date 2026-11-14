@@ -40,6 +40,7 @@ import (
 	"rogerai.fm/roger/v7/internal/towercore/envelope"
 	"rogerai.fm/roger/v7/internal/towercore/fleet"
 	"rogerai.fm/roger/v7/internal/towercore/head"
+	"rogerai.fm/roger/v7/internal/towercore/health"
 	"rogerai.fm/roger/v7/internal/towercore/inv"
 	"rogerai.fm/roger/v7/internal/towercore/link"
 	"rogerai.fm/roger/v7/internal/towercore/origin"
@@ -149,6 +150,8 @@ type towerSubsystem struct {
 	// outcomes records what became of each edge attempt, per Tower, so a pattern can be seen
 	// that no single attempt shows - the "signal is in the rate" the spec rests on.
 	outcomes reputation.Store
+	// health is the per-Tower health-check evidence (towercore/health).
+	health health.Store
 	// earnings is the funding ledger: what each operator is owed for the traffic they carried,
 	// one durable idempotent row per settled attempt. It records what is OWED; it never moves
 	// money - disbursement is a separate concern behind the payment rails.
@@ -192,6 +195,9 @@ func (p brokerOperatorPolicy) MayEnroll(owner string) error {
 // linkDeps are the durable stores the link layer needs. They are passed in rather than
 // built here so a test can wire the whole subsystem over in-process stores.
 type linkDeps struct {
+	// health is the per-Tower health-check evidence (hub checks and canaries) the trust ramp
+	// counts and placement reads. Nil = in-process.
+	health   health.Store
 	stations attach.Store
 	heads    head.Store
 	// routable is the fleet-wide view of which Stations are servable, so an instance that is
@@ -343,6 +349,10 @@ func newTowerSubsystem(b *broker, registryStore admit.Store, custody cert.Custod
 	if ts.outcomes == nil {
 		ts.outcomes = reputation.NewMemStore()
 	}
+	ts.health = deps.health
+	if ts.health == nil {
+		ts.health = health.NewMemStore()
+	}
 	ts.repPolicy = reputation.DefaultPolicy()
 	ts.auditWanted = deps.auditWanted
 	if ts.auditWanted == nil {
@@ -475,6 +485,11 @@ func loadTowerSubsystem(b *broker, db store.Store) (*towerSubsystem, error) {
 	if err != nil {
 		return fail(err)
 	}
+	// And the health-check evidence, shared: the ramp and placement read it on any instance.
+	healthStore, err := health.NewPGStore(sqlDB)
+	if err != nil {
+		return fail(err)
+	}
 	// And the audit list. Durable and shared for the same reason as the rest of the edge
 	// stores - the select happens on one instance, the transcript arrives at another.
 	auditStore, err := audit.NewPGStore(sqlDB)
@@ -502,7 +517,7 @@ func loadTowerSubsystem(b *broker, db store.Store) (*towerSubsystem, error) {
 		RootKeyPEM:  []byte(os.Getenv("ROGERAI_TOWER_CA_KEY_PEM")),
 		RootCertPEM: []byte(os.Getenv("ROGERAI_TOWER_CA_CERT_PEM")),
 	}, linkDeps{stations: stationStore, heads: headStore, attempts: attemptStore,
-		routable: routableStore, events: eventStore, acks: ackStore, outcomes: outcomeStore,
+		routable: routableStore, events: eventStore, acks: ackStore, outcomes: outcomeStore, health: healthStore,
 		auditWanted: auditStore, earnings: earningStore, origin: originStore, mirror: linkMirror})
 	if err != nil {
 		// A misconfigured root is a REFUSAL, not a reason to generate one: issuing under a

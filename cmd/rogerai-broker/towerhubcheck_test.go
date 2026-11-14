@@ -1,0 +1,121 @@
+package main
+
+// The Station-free hub check, as the broker runs it. Contract:
+// features/tower/tower_trust_ramp.feature ("the hub check").
+
+import (
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
+	"rogerai.fm/roger/v7/internal/towerhub"
+)
+
+// realHubFor mounts a towerhub server keyed with the Tower's own identity key.
+func realHubFor(t *testing.T, lt linkTower) string {
+	t.Helper()
+	s := towerhub.NewServer(towerhub.New(), nil, towerhub.ServerOptions{TowerID: lt.id, EpochKey: lt.priv,
+		SubmitTTL: time.Second, PollTTL: 50 * time.Millisecond})
+	mux := http.NewServeMux()
+	mux.HandleFunc(towerhub.PathPoll, s.Poll)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return strings.TrimPrefix(srv.URL, "http://")
+}
+
+func openWithHub(t *testing.T, b *broker, srv *httptest.Server, lt linkTower, endpoint string) {
+	t.Helper()
+	h := helloFor(lt)
+	h.RelayEndpoint = endpoint
+	code, raw := lt.call(t, srv, "/tower/session", jsonOf(t, h), nil)
+	require.Equal(t, http.StatusOK, code, raw)
+}
+
+func TestEveryLiveTowerWithAHubIsCheckedWithoutStations(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	op := signedInOperator(t, b, "octocat")
+	lt := enrolledTower(t, b, op.login)
+	openWithHub(t, b, srv, lt, realHubFor(t, lt))
+
+	b.towerHubCheckOnce(time.Now())
+	sum, err := b.tower.health.Summary(lt.id, time.Now().Add(-time.Hour))
+	require.NoError(t, err)
+	require.Equal(t, 1, sum.Passed)
+	require.Equal(t, 0, sum.Failed)
+	require.True(t, sum.LastOK)
+	require.Empty(t, towerEventsOf(t, b, lt.id, evHubCheckFailed), "a pass writes no event")
+}
+
+func TestAFailedHubCheckIsRecordedAndEvented(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	op := signedInOperator(t, b, "octocat")
+	lt := enrolledTower(t, b, op.login)
+	impostor := enrolledTower(t, b, op.login) // a hub keyed with somebody else's identity
+	openWithHub(t, b, srv, lt, realHubFor(t, impostor))
+
+	b.towerHubCheckOnce(time.Now())
+	sum, _ := b.tower.health.Summary(lt.id, time.Now().Add(-time.Hour))
+	require.Equal(t, 1, sum.Failed)
+	evs := towerEventsOf(t, b, lt.id, evHubCheckFailed)
+	require.Len(t, evs, 1)
+	require.Equal(t, "wrong_key", evs[0].Reason)
+	require.Equal(t, "system", evs[0].Actor)
+}
+
+func TestATowerWithNoHubIsNotChecked(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	op := signedInOperator(t, b, "octocat")
+	lt := enrolledTower(t, b, op.login)
+	call := func(p string, body []byte, out any) (int, string) { return lt.call(t, srv, p, body, out) }
+	openSessionOf(t, srv.URL, lt, call)
+	b.towerHubCheckOnce(time.Now())
+	sum, _ := b.tower.health.Summary(lt.id, time.Now().Add(-time.Hour))
+	require.Zero(t, sum.Passed+sum.Failed)
+}
+
+func TestOnlyTheInstanceHoldingTheLinkChecks(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	op := signedInOperator(t, b, "octocat")
+	lt := enrolledTower(t, b, op.login)
+	openWithHub(t, b, srv, lt, realHubFor(t, lt))
+	b.tower.link.Close(mustCurrent(t, b, lt.id), lt.id)
+	b.towerHubCheckOnce(time.Now())
+	sum, _ := b.tower.health.Summary(lt.id, time.Now().Add(-time.Hour))
+	require.Zero(t, sum.Passed+sum.Failed, "a Tower this instance does not hold is left to its holder")
+}
+
+func TestAHubCheckRunsAtMostOncePerCanaryIntervalPerTower(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	op := signedInOperator(t, b, "octocat")
+	lt := enrolledTower(t, b, op.login)
+	openWithHub(t, b, srv, lt, realHubFor(t, lt))
+	now := time.Now()
+	b.towerHubCheckOnce(now)
+	b.towerHubCheckOnce(now.Add(time.Minute))
+	sum, _ := b.tower.health.Summary(lt.id, now.Add(-time.Hour))
+	require.Equal(t, 1, sum.Passed)
+	b.towerHubCheckOnce(now.Add(canaryInterval))
+	sum, _ = b.tower.health.Summary(lt.id, now.Add(-time.Hour))
+	require.Equal(t, 2, sum.Passed)
+}
+
+func TestStationCanariesCountAsHealthChecksButStationFaultsDoNot(t *testing.T) {
+	b, _ := towerTestBroker(t)
+	b.recordTowerHealth("tw-1", "canary_pass")
+	b.recordTowerHealth("tw-1", "canary_fail")
+	b.recordTowerHealth("tw-1", "station_fault")
+	b.recordTowerHealth("tw-1", "aborted")
+	sum, _ := b.tower.health.Summary("tw-1", time.Now().Add(-time.Hour))
+	require.Equal(t, 1, sum.Passed)
+	require.Equal(t, 1, sum.Failed, "a Station's own fault is not the Tower's health")
+}
+
+func mustCurrent(t *testing.T, b *broker, towerID string) string {
+	t.Helper()
+	id, ok := b.tower.link.Current(towerID)
+	require.True(t, ok)
+	return id
+}

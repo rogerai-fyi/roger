@@ -7,6 +7,7 @@ package link
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"rogerai.fm/roger/v7/internal/towercore/placement"
@@ -97,4 +98,32 @@ func TestPGMirrorRoundTripsLocality(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, loc, all["tw-1"].Locality)
 	require.True(t, all["tw-1"].LocalityKnown)
+}
+
+func TestHoldsLocallyIsOnlyThisInstancesOwnFreshSession(t *testing.T) {
+	m := NewMemMirror()
+	a, b := New(mirrorCfg(m)), New(mirrorCfg(m))
+	openOn(t, a, "tw-1", "hub.example:7443")
+	require.True(t, a.HoldsLocally("tw-1"))
+	require.False(t, b.HoldsLocally("tw-1"), "a peer's session is not held here")
+	require.False(t, a.HoldsLocally("tw-none"))
+	a.advance(time.Hour)
+	require.False(t, a.HoldsLocally("tw-1"), "a stale session is not held")
+}
+
+func TestLiveTowersCheckedReportsAMirrorFailure(t *testing.T) {
+	m := NewMemMirror()
+	a, b := New(mirrorCfg(m)), New(mirrorCfg(m))
+	openOn(t, a, "tw-1", "")
+	openOn(t, b, "tw-2", "")
+	got, err := a.LiveTowersChecked()
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{"tw-1", "tw-2"}, got)
+	m.FailForTest(true)
+	got, err = a.LiveTowersChecked()
+	require.ErrorIs(t, err, ErrMirrorDown)
+	require.Equal(t, []string{"tw-1"}, got, "the local set, and the error")
+	got, err = New(mirrorCfg(nil)).LiveTowersChecked()
+	require.NoError(t, err)
+	require.Empty(t, got)
 }

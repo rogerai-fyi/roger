@@ -191,6 +191,10 @@ type broker struct {
 	// totalLat is each node's total-latency EWMA in ms (totallatency.go), guarded by metricsMu;
 	// merged from the shared store on the sync loop when one is wired.
 	totalLat map[string]float64
+	// hubCheckAt is when this instance last hub-checked each Tower (towerhubcheck.go), under
+	// hubCheckMu.
+	hubCheckMu sync.Mutex
+	hubCheckAt map[string]time.Time
 	// netTable is the operator's network-to-continent table (netcontinent.go); nil = none.
 	// netTableErr is why a configured table was refused ("" = none).
 	netTable    *netTable

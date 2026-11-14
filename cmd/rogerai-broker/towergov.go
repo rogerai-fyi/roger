@@ -53,6 +53,7 @@ const (
 	evEnrolled         = "enrolled"
 	evEnrollRefused    = "enroll_refused"
 	evCanary           = "canary"
+	evHubCheckFailed   = "hub_check_failed"
 )
 
 // actorUnauthenticated is a request that named a Tower but was not the Tower's own signed
@@ -135,6 +136,10 @@ func pacedKind(kind string) bool {
 	return false
 }
 
+// towerDecided reports kinds Core writes but the Tower decides (it can pass and fail Core's
+// probes at will), which are capped per Tower whoever records them.
+func towerDecided(kind string) bool { return kind == evCanary || kind == evHubCheckFailed }
+
 // pacedEvent reports whether an event counts against the budget: a paced kind, driven by
 // the Tower itself or an operator. The same kind written by Core or an administrator is
 // never capped, so an operator cannot crowd those records out.
@@ -142,7 +147,7 @@ func pacedKind(kind string) bool {
 // A canary result is the one exception to the actor rule: Core writes it, but the Tower
 // decides it (a Tower can pass and fail probes at will), so it is capped whoever records it.
 func pacedEvent(ev admit.Event) bool {
-	if ev.Kind == evCanary {
+	if towerDecided(ev.Kind) {
 		return true
 	}
 	return pacedKind(ev.Kind) && (ev.Actor == admit.ActorTower || strings.HasPrefix(ev.Actor, "operator:"))
@@ -154,7 +159,7 @@ func pacedEvent(ev admit.Event) bool {
 // transaction: two instances racing can overshoot by their concurrency, which is bounded.
 func (b *broker) overBudget(ev admit.Event) bool {
 	actor := ev.Actor
-	if ev.Kind == evCanary {
+	if towerDecided(ev.Kind) {
 		actor = "" // see pacedEvent: capped per Tower, whoever records it
 	}
 	n, err := b.tower.registry.CountEvents(ev.TowerID, ev.Kind, "", actor, time.Now().Add(-time.Hour))

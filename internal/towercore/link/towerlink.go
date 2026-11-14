@@ -375,6 +375,19 @@ func (s *Sessions) SetLocality(towerID, sessionID string, l placement.Locality) 
 	return true
 }
 
+// HoldsLocally reports whether THIS instance holds a fresh session for the Tower: the one
+// instance that should run per-Tower work such as the hub check, so it is done once.
+func (s *Sessions) HoldsLocally(towerID string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	id, ok := s.byTower[towerID]
+	if !ok {
+		return false
+	}
+	sess, ok := s.byID[id]
+	return ok && s.freshLocked(sess.lastSeen)
+}
+
 // Locality is a Tower's measured locality and whether it has been measured, from this
 // instance's session or else the mirror.
 func (s *Sessions) Locality(towerID string) (placement.Locality, bool) {
@@ -628,6 +641,13 @@ func (s *Sessions) Live(towerID string) bool {
 
 // LiveTowers lists every Tower currently eligible to receive work.
 func (s *Sessions) LiveTowers() []string {
+	out, _ := s.LiveTowersChecked()
+	return out
+}
+
+// LiveTowersChecked is LiveTowers plus whether the fleet-wide half could be read: on a mirror
+// error the list is only what this instance holds, and the error says so.
+func (s *Sessions) LiveTowersChecked() ([]string, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	seen := map[string]bool{}
@@ -640,16 +660,19 @@ func (s *Sessions) LiveTowers() []string {
 	}
 	// Plus every fresh record a peer instance holds. A mirror error leaves the local set:
 	// what this instance can actually see.
-	if s.cfg.Mirror != nil {
-		if all, err := s.cfg.Mirror.All(); err == nil {
-			for towerID, rec := range all {
-				if !seen[towerID] && s.freshLocked(rec.LastSeen) {
-					out = append(out, towerID)
-				}
-			}
+	if s.cfg.Mirror == nil {
+		return out, nil
+	}
+	all, err := s.cfg.Mirror.All()
+	if err != nil {
+		return out, err
+	}
+	for towerID, rec := range all {
+		if !seen[towerID] && s.freshLocked(rec.LastSeen) {
+			out = append(out, towerID)
 		}
 	}
-	return out
+	return out, nil
 }
 
 // Count is how many sessions are held, live or not. Used by the reaper and by tests.
