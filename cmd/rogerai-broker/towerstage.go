@@ -347,10 +347,18 @@ func (b *broker) sweepStage(tw admit.Tower, now time.Time) {
 		b.towerGovUnavailable(err)
 		return
 	}
-	if !v.hasLast && !v.hasAppr {
-		return // never approved: no stage yet
-	}
 	lastID := int64(0)
+	if !v.hasLast && !v.hasAppr {
+		// Approved before the governance record existed (founder ruling 2026-11-14): an active
+		// Tower with no approval on record starts at "new" from the sweep that first sees it.
+		if tw.State == admit.StateActive {
+			b.towerRecordIfLast(admit.Event{TowerID: tw.ID, Kind: evTrustStage, Actor: admit.ActorSystem,
+				To: admit.State(stageNew), Reason: "no approval on record",
+				Detail: map[string]any{"entered_at": now.UTC().Format(time.RFC3339Nano)}},
+				[]string{evTrustStage}, 0)
+		}
+		return
+	}
 	if v.hasLast {
 		lastID = v.last.ID
 	}

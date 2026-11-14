@@ -209,11 +209,11 @@ type broker struct {
 	moveMu        sync.Mutex
 	moveStreaks   map[string]moveStreak
 	towerObsAt    map[string]time.Time
-	// hubCheckAt is when this instance last hub-checked each Tower (towerhubcheck.go), under
-	// hubCheckMu.
 	// sweepSlot is the health slot of the canary sweep running now (0 = none), so its hub
 	// checks and canaries count as one round (towerhubcheck.go).
-	sweepSlot  atomic.Int64
+	sweepSlot atomic.Int64
+	// hubCheckAt is when this instance last hub-checked each Tower (towerhubcheck.go), under
+	// hubCheckMu.
 	hubCheckMu sync.Mutex
 	hubCheckAt map[string]time.Time
 	// netTable is the operator's network-to-continent table (netcontinent.go); nil = none.

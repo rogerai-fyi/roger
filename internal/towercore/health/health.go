@@ -1,6 +1,5 @@
 // Package health keeps Core's health-check evidence per Tower: hub checks and Station canaries,
-// counted per day for the trust ramp and summarized as the last two results for the health
-// tier. Contracts: features/tower/tower_trust_ramp.feature, placement_ranking.feature.
+// counted per day for the trust ramp, and each kind's run of failures for the health tier. Contracts: features/tower/tower_trust_ramp.feature, placement_ranking.feature.
 package health
 
 import (
@@ -29,14 +28,17 @@ const (
 )
 
 // Check is one health-check result. Slot is the canary interval it belongs to (the broker
-// computes it once per sweep): the fail streak counts at most one failure per slot, so a hub
-// check and a canary failing in the same sweep are one outage.
+// computes it once per sweep): a run counts at most one failure per slot, so a hub check and a
+// canary failing in the same sweep are one outage. MinGap is the least time between two counted
+// failures of one run, so two broker instances recording one blip moments apart - across a
+// slot boundary - count it once.
 type Check struct {
 	OK     bool
 	At     time.Time
 	Source string
 	RTT    time.Duration
 	Slot   int64
+	MinGap time.Duration
 }
 
 // Rate is the pass rate, 0 with no evidence.
@@ -63,42 +65,48 @@ func dayOf(t time.Time) time.Time {
 	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
 }
 
+// latest is the most recent result of any kind.
 type latest struct {
-	at         time.Time
+	at     time.Time
+	source string
+	rtt    time.Duration
+}
+
+// run is one kind of check's run of failures (founder ruling 2026-11-14: a passing hub check
+// does not clear canary failures, nor a passing canary hub-check failures). A Tower's streak is
+// its longer run.
+type run struct {
 	streak     int
 	since      time.Time
-	source     string
-	rtt        time.Duration
-	slot       int64 // the latest slot the streak has seen
+	slot       int64 // the latest slot this run has seen
 	slotFailed bool  // a failure in that slot is already counted
+	lastFail   time.Time
 	seen       bool
 }
 
-// advance folds one result in. The latest-result fields move forward in time over every
-// source. The streak moves forward by slot: a result from an earlier slot never moves it, a
-// pass resets it, and a failure counts once per slot whatever its source.
-func (l latest) advance(c Check) latest {
-	ok, at := c.OK, c.At
-	if l.at.IsZero() || !at.Before(l.at) {
-		l.at, l.source, l.rtt = at, c.Source, c.RTT
+// advance folds one result of this run's kind in: a result from an earlier slot never moves
+// it, a pass resets it, and a failure counts once per slot and never closer than MinGap to the
+// last counted one.
+func (r run) advance(c Check) run {
+	if r.seen && c.Slot < r.slot {
+		return r
 	}
-	if l.seen && c.Slot < l.slot {
-		return l
-	}
-	if !l.seen || c.Slot > l.slot {
-		l.slot, l.slotFailed, l.seen = c.Slot, false, true
+	if !r.seen || c.Slot > r.slot {
+		r.slot, r.slotFailed, r.seen = c.Slot, false, true
 	}
 	switch {
-	case ok:
-		l.streak, l.since, l.slotFailed = 0, time.Time{}, false
-	case l.slotFailed:
+	case c.OK:
+		r.streak, r.since, r.slotFailed = 0, time.Time{}, false
+	case r.slotFailed:
 		// already counted in this slot
-	case l.streak == 0:
-		l.streak, l.since, l.slotFailed = 1, at, true
+	case !r.lastFail.IsZero() && c.At.Sub(r.lastFail) < c.MinGap:
+		// the same blip, recorded again moments later
+	case r.streak == 0:
+		r.streak, r.since, r.slotFailed, r.lastFail = 1, c.At, true, c.At
 	default:
-		l.streak, l.slotFailed = l.streak+1, true
+		r.streak, r.slotFailed, r.lastFail = r.streak+1, true, c.At
 	}
-	return l
+	return r
 }
 
 // MemStore is the in-process Store.
@@ -106,10 +114,12 @@ type MemStore struct {
 	mu    sync.Mutex
 	days  map[string]map[time.Time][2]int
 	heads map[string]latest
+	runs  map[string]map[string]run // tower -> source -> run
 }
 
 func NewMemStore() *MemStore {
-	return &MemStore{days: map[string]map[time.Time][2]int{}, heads: map[string]latest{}}
+	return &MemStore{days: map[string]map[time.Time][2]int{}, heads: map[string]latest{},
+		runs: map[string]map[string]run{}}
 }
 
 func (m *MemStore) RecordCheck(towerID string, c Check) error {
@@ -127,7 +137,13 @@ func (m *MemStore) RecordCheck(towerID string, c Check) error {
 	}
 	m.days[towerID][dayOf(at)] = n
 	c.At = at.UTC()
-	m.heads[towerID] = m.heads[towerID].advance(c)
+	if h := m.heads[towerID]; h.at.IsZero() || !c.At.Before(h.at) {
+		m.heads[towerID] = latest{at: c.At, source: c.Source, rtt: c.RTT}
+	}
+	if m.runs[towerID] == nil {
+		m.runs[towerID] = map[string]run{}
+	}
+	m.runs[towerID][c.Source] = m.runs[towerID][c.Source].advance(c)
 	return nil
 }
 
@@ -142,7 +158,12 @@ func (m *MemStore) Summary(towerID string, since time.Time) (Summary, error) {
 		}
 	}
 	h := m.heads[towerID]
-	s.LastAt, s.FailStreak, s.StreakSince, s.LastSource, s.LastRTT = h.at, h.streak, h.since, h.source, h.rtt
+	s.LastAt, s.LastSource, s.LastRTT = h.at, h.source, h.rtt
+	for _, r := range m.runs[towerID] {
+		if r.streak > s.FailStreak || (r.streak == s.FailStreak && r.streak > 0 && r.since.Before(s.StreakSince)) {
+			s.FailStreak, s.StreakSince = r.streak, r.since
+		}
+	}
 	return s, nil
 }
 
@@ -183,7 +204,17 @@ CREATE TABLE IF NOT EXISTS rogerai.tower_health (
 ALTER TABLE rogerai.tower_health ADD COLUMN IF NOT EXISTS last_source TEXT NOT NULL DEFAULT '';
 ALTER TABLE rogerai.tower_health ADD COLUMN IF NOT EXISTS last_rtt_ms BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE rogerai.tower_health ADD COLUMN IF NOT EXISTS last_slot BIGINT;
-ALTER TABLE rogerai.tower_health ADD COLUMN IF NOT EXISTS slot_failed BOOLEAN NOT NULL DEFAULT false`
+ALTER TABLE rogerai.tower_health ADD COLUMN IF NOT EXISTS slot_failed BOOLEAN NOT NULL DEFAULT false;
+CREATE TABLE IF NOT EXISTS rogerai.tower_health_runs (
+    tower_id     TEXT NOT NULL,
+    source       TEXT NOT NULL,
+    fail_streak  INT NOT NULL DEFAULT 0,
+    streak_since TIMESTAMPTZ,
+    last_slot    BIGINT NOT NULL,
+    slot_failed  BOOLEAN NOT NULL DEFAULT false,
+    last_fail_at TIMESTAMPTZ,
+    PRIMARY KEY (tower_id, source)
+)`
 
 func NewPGStore(db *sql.DB) (*PGStore, error) {
 	if _, err := db.Exec(schema); err != nil {
@@ -206,31 +237,52 @@ func (p *PGStore) RecordCheck(towerID string, c Check) error {
 		towerID, dayOf(at), pass, fail); err != nil {
 		return err
 	}
-	// The latest result moves only forward in time, in one statement, so two instances
-	// recording at once cannot interleave a read and a write.
-	// The latest-result columns move forward in time; the streak columns move by slot (see
-	// latest.advance), in one statement so two instances cannot interleave a read and a write.
-	_, err := p.db.Exec(`
-        INSERT INTO rogerai.tower_health (tower_id, last_at, fail_streak, streak_since, last_source, last_rtt_ms, last_slot, slot_failed)
-        VALUES ($1, $3::timestamptz, CASE WHEN $2::boolean THEN 0 ELSE 1 END,
-                CASE WHEN $2::boolean THEN NULL ELSE $3::timestamptz END, $4, $5, $6, NOT $2::boolean)
+	// The latest result moves forward in time over every kind of check.
+	if _, err := p.db.Exec(`
+        INSERT INTO rogerai.tower_health (tower_id, last_at, last_source, last_rtt_ms)
+        VALUES ($1, $2, $3, $4)
         ON CONFLICT (tower_id) DO UPDATE SET
           last_at     = CASE WHEN EXCLUDED.last_at >= tower_health.last_at THEN EXCLUDED.last_at ELSE tower_health.last_at END,
           last_source = CASE WHEN EXCLUDED.last_at >= tower_health.last_at THEN EXCLUDED.last_source ELSE tower_health.last_source END,
-          last_rtt_ms = CASE WHEN EXCLUDED.last_at >= tower_health.last_at THEN EXCLUDED.last_rtt_ms ELSE tower_health.last_rtt_ms END,
-          fail_streak = CASE WHEN $6 < COALESCE(tower_health.last_slot, $6) THEN tower_health.fail_streak
-                             WHEN $2::boolean THEN 0
-                             WHEN $6 = tower_health.last_slot AND tower_health.slot_failed THEN tower_health.fail_streak
-                             ELSE tower_health.fail_streak + 1 END,
-          streak_since = CASE WHEN $6 < COALESCE(tower_health.last_slot, $6) THEN tower_health.streak_since
-                              WHEN $2::boolean THEN NULL
-                              WHEN $6 = tower_health.last_slot AND tower_health.slot_failed THEN tower_health.streak_since
-                              WHEN tower_health.fail_streak = 0 THEN EXCLUDED.last_at
-                              ELSE tower_health.streak_since END,
-          slot_failed = CASE WHEN $6 < COALESCE(tower_health.last_slot, $6) THEN tower_health.slot_failed
-                             ELSE NOT $2::boolean END,
-          last_slot = GREATEST(COALESCE(tower_health.last_slot, $6), $6)`,
-		towerID, ok, at.UTC(), c.Source, c.RTT.Milliseconds(), c.Slot)
+          last_rtt_ms = CASE WHEN EXCLUDED.last_at >= tower_health.last_at THEN EXCLUDED.last_rtt_ms ELSE tower_health.last_rtt_ms END`,
+		towerID, at.UTC(), c.Source, c.RTT.Milliseconds()); err != nil {
+		return err
+	}
+	// This kind's run moves by slot (see run.advance), in one statement so two instances cannot
+	// interleave a read and a write. "counts" is a failure in a new or not-yet-failed slot that
+	// is at least MinGap after the run's last counted failure.
+	_, err := p.db.Exec(`
+        INSERT INTO rogerai.tower_health_runs AS r (tower_id, source, fail_streak, streak_since, last_slot, slot_failed, last_fail_at)
+        VALUES ($1, $2, CASE WHEN $3::boolean THEN 0 ELSE 1 END, CASE WHEN $3::boolean THEN NULL ELSE $4::timestamptz END,
+                $5, NOT $3::boolean, CASE WHEN $3::boolean THEN NULL ELSE $4::timestamptz END)
+        ON CONFLICT (tower_id, source) DO UPDATE SET
+          fail_streak = CASE
+            WHEN $5 < r.last_slot THEN r.fail_streak
+            WHEN $3::boolean THEN 0
+            WHEN $5 = r.last_slot AND r.slot_failed THEN r.fail_streak
+            WHEN r.last_fail_at IS NOT NULL AND $4::timestamptz - r.last_fail_at < make_interval(secs => $6) THEN r.fail_streak
+            ELSE r.fail_streak + 1 END,
+          streak_since = CASE
+            WHEN $5 < r.last_slot THEN r.streak_since
+            WHEN $3::boolean THEN NULL
+            WHEN $5 = r.last_slot AND r.slot_failed THEN r.streak_since
+            WHEN r.last_fail_at IS NOT NULL AND $4::timestamptz - r.last_fail_at < make_interval(secs => $6) THEN r.streak_since
+            WHEN r.fail_streak = 0 THEN $4::timestamptz
+            ELSE r.streak_since END,
+          last_fail_at = CASE
+            WHEN $5 < r.last_slot OR $3::boolean THEN r.last_fail_at
+            WHEN $5 = r.last_slot AND r.slot_failed THEN r.last_fail_at
+            WHEN r.last_fail_at IS NOT NULL AND $4::timestamptz - r.last_fail_at < make_interval(secs => $6) THEN r.last_fail_at
+            ELSE $4::timestamptz END,
+          slot_failed = CASE
+            WHEN $5 < r.last_slot THEN r.slot_failed
+            WHEN $3::boolean THEN false
+            WHEN $5 = r.last_slot AND r.slot_failed THEN true
+            WHEN r.last_fail_at IS NOT NULL AND $4::timestamptz - r.last_fail_at < make_interval(secs => $6)
+              THEN CASE WHEN $5 > r.last_slot THEN false ELSE r.slot_failed END
+            ELSE true END,
+          last_slot = GREATEST(r.last_slot, $5)`,
+		towerID, c.Source, ok, at.UTC(), c.Slot, c.MinGap.Seconds())
 	return err
 }
 
@@ -241,11 +293,21 @@ func (p *PGStore) Summary(towerID string, since time.Time) (Summary, error) {
 		Scan(&s.Passed, &s.Failed); err != nil {
 		return Summary{}, err
 	}
-	var began sql.NullTime
 	var rttMs int64
-	err := p.db.QueryRow(`SELECT last_at, fail_streak, streak_since, last_source, last_rtt_ms FROM rogerai.tower_health WHERE tower_id = $1`,
-		towerID).Scan(&s.LastAt, &s.FailStreak, &began, &s.LastSource, &rttMs)
+	err := p.db.QueryRow(`SELECT last_at, last_source, last_rtt_ms FROM rogerai.tower_health WHERE tower_id = $1`,
+		towerID).Scan(&s.LastAt, &s.LastSource, &rttMs)
+	if err == sql.ErrNoRows {
+		return s, nil
+	}
+	if err != nil {
+		return s, err
+	}
 	s.LastRTT = time.Duration(rttMs) * time.Millisecond
+	// The Tower's streak is its longer run; on a tie, the one that began first.
+	var began sql.NullTime
+	err = p.db.QueryRow(`SELECT fail_streak, streak_since FROM rogerai.tower_health_runs
+          WHERE tower_id = $1 AND fail_streak > 0 ORDER BY fail_streak DESC, streak_since ASC LIMIT 1`,
+		towerID).Scan(&s.FailStreak, &began)
 	if err == sql.ErrNoRows {
 		return s, nil
 	}

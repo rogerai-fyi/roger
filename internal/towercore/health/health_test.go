@@ -27,7 +27,7 @@ func eachStore(t *testing.T, body func(t *testing.T, s Store)) {
 		_, _ = db.Exec(`CREATE SCHEMA IF NOT EXISTS rogerai`)
 		s, err := NewPGStore(db)
 		require.NoError(t, err)
-		_, err = db.Exec(`DELETE FROM rogerai.tower_health; DELETE FROM rogerai.tower_health_daily`)
+		_, err = db.Exec(`DELETE FROM rogerai.tower_health; DELETE FROM rogerai.tower_health_daily; DELETE FROM rogerai.tower_health_runs`)
 		require.NoError(t, err)
 		body(t, s)
 	})
@@ -158,15 +158,18 @@ func TestTheStreakCountsOneFailurePerSlotFromAnySource(t *testing.T) {
 		require.NoError(t, s.RecordCheck("tw-1", Check{OK: false, At: day0.Add(5 * time.Minute), Source: SourceCanary, Slot: 101}))
 		sum, _ = s.Summary("tw-1", day0)
 		require.Equal(t, 2, sum.FailStreak)
-		require.True(t, sum.StreakSince.Equal(day0))
+		require.True(t, sum.StreakSince.Equal(day0.Add(time.Second)), "the canary run began at its first failure")
 
 		// A late result from an earlier slot never moves it, whatever its time stamp says.
 		require.NoError(t, s.RecordCheck("tw-1", Check{OK: true, At: day0.Add(10 * time.Minute), Source: SourceHubCheck, Slot: 99}))
 		sum, _ = s.Summary("tw-1", day0)
 		require.Equal(t, 2, sum.FailStreak)
 
-		// A pass in the current slot resets it.
-		require.NoError(t, s.RecordCheck("tw-1", Check{OK: true, At: day0.Add(6 * time.Minute), Source: SourceHubCheck, Slot: 101}))
+		// A canary pass clears the canary run; the hub run (one failure) is what is left.
+		require.NoError(t, s.RecordCheck("tw-1", Check{OK: true, At: day0.Add(6 * time.Minute), Source: SourceCanary, Slot: 101}))
+		sum, _ = s.Summary("tw-1", day0)
+		require.Equal(t, 1, sum.FailStreak)
+		require.NoError(t, s.RecordCheck("tw-1", Check{OK: true, At: day0.Add(7 * time.Minute), Source: SourceHubCheck, Slot: 101}))
 		sum, _ = s.Summary("tw-1", day0)
 		require.Zero(t, sum.FailStreak)
 		require.True(t, sum.StreakSince.IsZero())
@@ -188,5 +191,34 @@ func TestAPassClearsTheSlotsCountedFailure(t *testing.T) {
 		}
 		sum, _ := s.Summary("tw-1", day0)
 		require.Equal(t, 1, sum.FailStreak)
+	})
+}
+
+// Founder ruling 2026-11-14: a passing hub check does not clear canary failures, nor a passing
+// canary hub-check failures. Each kind keeps its own run; the Tower's streak is the longer.
+func TestEachKindOfCheckKeepsItsOwnRun(t *testing.T) {
+	eachStore(t, func(t *testing.T, s Store) {
+		for i := int64(0); i < 2; i++ {
+			at := day0.Add(time.Duration(i) * 5 * time.Minute)
+			require.NoError(t, s.RecordCheck("tw-1", Check{OK: true, At: at, Source: SourceHubCheck, Slot: i}))
+			require.NoError(t, s.RecordCheck("tw-1", Check{OK: false, At: at.Add(time.Second), Source: SourceCanary, Slot: i}))
+		}
+		sum, _ := s.Summary("tw-1", day0)
+		require.Equal(t, 2, sum.FailStreak, "the hub answering does not hide a failing relay")
+		require.True(t, sum.StreakSince.Equal(day0.Add(time.Second)), "the run began at the first canary failure")
+	})
+}
+
+// Two broker instances recording one blip moments apart, across a slot boundary, count it once.
+func TestFailuresCloserThanTheGapCountOnce(t *testing.T) {
+	eachStore(t, func(t *testing.T, s Store) {
+		gap := 150 * time.Second
+		require.NoError(t, s.RecordCheck("tw-1", Check{OK: false, At: day0, Source: SourceCanary, Slot: 10, MinGap: gap}))
+		require.NoError(t, s.RecordCheck("tw-1", Check{OK: false, At: day0.Add(10 * time.Second), Source: SourceCanary, Slot: 11, MinGap: gap}))
+		sum, _ := s.Summary("tw-1", day0)
+		require.Equal(t, 1, sum.FailStreak)
+		require.NoError(t, s.RecordCheck("tw-1", Check{OK: false, At: day0.Add(5 * time.Minute), Source: SourceCanary, Slot: 12, MinGap: gap}))
+		sum, _ = s.Summary("tw-1", day0)
+		require.Equal(t, 2, sum.FailStreak, "a real next interval counts")
 	})
 }

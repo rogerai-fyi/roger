@@ -585,3 +585,29 @@ func TestAWriteDuringAReadIsNotLostToTheFlight(t *testing.T) {
 	<-done // the stale read finishes...
 	require.Equal(t, placement.StageNew, b.towerStage(lt.id), "...and did not cache the old stage")
 }
+
+// Founder ruling 2026-11-14: a Tower approved before the governance record existed has no
+// approval on record; it starts at "new" from the sweep that first sees it.
+func TestAnActiveTowerWithNoApprovalOnRecordStartsAtNew(t *testing.T) {
+	b, _ := towerTestBroker(t)
+	op := signedInOperator(t, b, "nora")
+	tw := enrolledTower(t, b, op.login)
+	require.NoError(t, b.tower.registry.Transition(tw.id, admit.StateActive)) // no recorded approval
+	require.Nil(t, b.stageReport(mustTower(t, b, tw.id), time.Now()))
+	now := time.Now()
+	b.towerGovSweepOnce(now)
+	evs := stageEvents(t, b, tw.id)
+	require.Len(t, evs, 1)
+	require.Equal(t, admit.State("new"), evs[0].To)
+	require.Equal(t, "no approval on record", evs[0].Reason)
+	entered, ok := timeOf(evs[0].Detail["entered_at"])
+	require.True(t, ok)
+	require.WithinDuration(t, now, entered, time.Second, "it counts from that sweep")
+	b.towerGovSweepOnce(now.Add(time.Minute))
+	require.Len(t, stageEvents(t, b, tw.id), 1, "written once")
+
+	// A quarantined Tower with no approval still has no stage.
+	q := enrolledTower(t, b, op.login)
+	b.towerGovSweepOnce(now)
+	require.Empty(t, stageEvents(t, b, q.id))
+}
