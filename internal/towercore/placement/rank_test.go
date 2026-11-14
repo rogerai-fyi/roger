@@ -148,3 +148,38 @@ func TestStrictlyBetter(t *testing.T) {
 	// ...but a house Tower of the same tier and class is not better than a community one.
 	require.False(t, StrictlyBetter(Candidate{House: true, Tier: TierA, Class: SameContinent}, Candidate{Tier: TierA, Class: SameContinent}, false))
 }
+
+// The worked placements in placement_ranking.feature, row by row.
+func TestTheWorkedPlacements(t *testing.T) {
+	houseOC := Candidate{TowerID: "HouseOC", House: true, Tier: TierA}
+	houseCore := Candidate{TowerID: "HouseCore", House: true, Tier: TierA}
+	nora := Candidate{TowerID: "Nora", Tier: TierA}
+	opNA := Candidate{TowerID: "OpNA", Tier: TierA}
+	with := func(c Candidate, class Class) Candidate { c.Class = class; return c }
+	for _, row := range []struct {
+		name  string
+		cands []Candidate
+		house bool
+		want  string
+	}{
+		{"house rig, Nora far", []Candidate{with(houseOC, SameNetwork), with(nora, Far)}, true, "HouseOC"},
+		{"EU network, house core near", []Candidate{with(houseOC, Far), with(houseCore, SameContinent), with(nora, Far)}, true, "HouseCore"},
+		{"only established Nora", []Candidate{func() Candidate { c := with(nora, Far); c.HouseAllowed = true; return c }()}, true, "Nora"},
+		{"only new Nora", []Candidate{with(nora, Far)}, true, ""},
+		{"AF community", []Candidate{with(houseOC, Far), with(nora, SameContinent)}, false, "Nora"},
+		{"NA community", []Candidate{with(houseOC, SameContinent), with(nora, Far)}, false, "HouseOC"},
+		{"NA community, OpNA", []Candidate{with(houseOC, SameContinent), with(opNA, SameContinent)}, false, "OpNA"},
+		{"AF community, Nora tier B", []Candidate{with(houseOC, Far), func() Candidate { c := with(nora, SameContinent); c.Tier = TierB; return c }()}, false, "HouseOC"},
+		{"NA community, three", []Candidate{with(houseOC, SameContinent), with(nora, Far), with(opNA, SameContinent)}, false, "OpNA"},
+		{"AF community, three", []Candidate{with(houseOC, Far), with(nora, SameContinent), with(opNA, Far)}, false, "Nora"},
+		{"AF community, Nora at cap", []Candidate{with(houseOC, Far)}, false, "HouseOC"},
+	} {
+		got, _, ok := Choose(row.cands, row.house, rng())
+		if row.want == "" {
+			require.False(t, ok, row.name)
+			continue
+		}
+		require.True(t, ok, row.name)
+		require.Equal(t, row.want, got.TowerID, row.name)
+	}
+}

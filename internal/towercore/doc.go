@@ -62,6 +62,16 @@
 //	         edge path: the set of settled attempts Core selected to check, whose
 //	         Station-signed transcripts the courier forwards and Core verifies against the
 //	         digests both ends signed. A missing or mismatched transcript is attributable.
+//	placement where a Station goes and when it should move: the locality class between a
+//	         Station and a Tower from addresses Core observed (never a self-declared region),
+//	         the ranked choice (health, then locality, then a two-choice draw on load, house
+//	         Stations on house Towers), and the trust-stage rules. Pure; the broker supplies
+//	         the inputs.
+//	health   Core's health-check evidence per Tower - Station-free hub checks and Station
+//	         canaries - counted per day for the trust ramp and summarized as the last two
+//	         results for the health tier.
+//	mobility what Core keeps about each Station for placement and moves: where it attached
+//	         from, whether its node hears the re-attach nudge, and the move in progress.
 //	reputation what became of each edge attempt, per Tower, over a moving window:
 //	         corroborated, uncorroborated, disputed, canary pass/fail, audit mismatch. It
 //	         records facts and computes rates; the decision to flag or suspend is a policy

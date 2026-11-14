@@ -957,6 +957,12 @@ func (b *broker) towerInviteSweepOnce(now time.Time) {
 	// Reputation evidence ages out of the window it is judged in, so a table that kept every
 	// outcome forever would grow without bound while nothing older than the window is ever
 	// read. Reap past the window, on the same sweep - one fewer ticker to keep alive.
+	// Health-check evidence is counted over at most 30 days by the trust ramp; keep 90.
+	if b.tower.health != nil {
+		if herr := b.tower.health.Reap(now.Add(-healthRetention)); herr != nil {
+			log.Printf("tower health: sweep failed: %v", herr)
+		}
+	}
 	if b.tower.outcomes != nil {
 		if r, rerr := b.tower.outcomes.Reap(now.Add(-reputationWindow)); rerr != nil {
 			log.Printf("tower outcomes: sweep failed: %v", rerr)

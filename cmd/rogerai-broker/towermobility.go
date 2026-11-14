@@ -376,8 +376,12 @@ func (b *broker) finishMoveOnReattach(mv mobility.Move, stationID, towerID strin
 			Reason: mv.Trigger, Detail: map[string]any{"station": stationID, "epoch": epoch}})
 		return
 	}
+	detail := map[string]any{"station": stationID, "from": mv.From, "epoch": epoch, "intended": mv.To}
+	if mv.To != "" && mv.To != towerID {
+		detail["intended_unavailable"] = true // the intended Tower was no longer eligible
+	}
 	b.towerEvent(admit.Event{TowerID: towerID, Kind: evStationMoved, Actor: admit.ActorSystem, Reason: mv.Trigger,
-		Detail: map[string]any{"station": stationID, "from": mv.From, "epoch": epoch, "intended": mv.To}})
+		Detail: detail})
 	b.towerEvent(admit.Event{TowerID: mv.From, Kind: evStationMovedAway, Actor: admit.ActorSystem, Reason: mv.Trigger,
 		Detail: map[string]any{"station": stationID, "to": towerID, "epoch": epoch}})
 }

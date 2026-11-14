@@ -14,6 +14,10 @@ import (
 	"rogerai.fm/roger/v7/internal/towerhub"
 )
 
+// healthRetention is how long health-check evidence is kept: three times the longest window
+// the trust ramp counts over.
+const healthRetention = 90 * 24 * time.Hour
+
 // hubCheckTimeout bounds one check: a hub that does not answer within it is unreachable.
 const hubCheckTimeout = 5 * time.Second
 

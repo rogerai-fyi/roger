@@ -136,10 +136,16 @@ func pacedKind(kind string) bool {
 	return false
 }
 
-// towerDecided reports kinds Core writes but the Tower decides (it can pass and fail Core's
-// probes at will), which are capped per Tower whoever records them.
+// towerDecided reports kinds capped per Tower whoever records them: what Core writes but the
+// Tower decides (it can pass and fail Core's probes at will), and Station moves, which a
+// failing or vanished Tower can cause in bulk (station_mobility.feature).
 func towerDecided(kind string) bool {
-	return kind == evCanary || kind == evHubCheckFailed || kind == evHealthFailing
+	switch kind {
+	case evCanary, evHubCheckFailed, evHealthFailing,
+		evStationMoveStarted, evStationMoved, evStationMovedAway, evStationMoveReturned, evStationMoveAbandoned:
+		return true
+	}
+	return false
 }
 
 // pacedEvent reports whether an event counts against the budget: a paced kind, driven by

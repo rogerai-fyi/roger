@@ -1,6 +1,9 @@
 # APPROVED SPEC - written and founder approved 2026-11-13 ("Approve as written"), with the
 # proposed numbers accepted as written. Changes to an approved scenario need re-approval.
-# BUILD STATUS: NOT BUILT.
+# BUILD STATUS: BUILT. internal/towercore/placement/rank.go (Choose, StrictlyBetter), cmd/rogerai-broker/
+# towerplacement.go (candidates, caps, house list, health tier), wired into /tower/edge/attach.
+# Capacity note: Core is not told a node's worker count, so Station capacity is sized on the node
+# default of 4 workers (512 / 4 = 128 Stations per Tower).
 #
 # Founder request 2026-11-13: implement ideas 1 (pick the Tower by distance) and 2 (house
 # traffic stays on Towers we run; community Towers carry community Stations), "trully and

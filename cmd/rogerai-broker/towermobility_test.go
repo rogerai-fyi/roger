@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"rogerai.fm/roger/v7/internal/towercore/admit"
 	"rogerai.fm/roger/v7/internal/towercore/attach"
 	"rogerai.fm/roger/v7/internal/towercore/mobility"
 	"rogerai.fm/roger/v7/internal/towercore/placement"
@@ -351,4 +352,47 @@ func TestOnlyOneInstanceRunsThePendingHalf(t *testing.T) {
 	b.instanceID = "i-1"
 	require.True(t, b.holdsMobilityLease())
 	require.False(t, b.holdsMobilityLease(), "the lease is held until it lapses")
+}
+
+func TestMovePacingCapsEachTowerEachTargetAndTheFleet(t *testing.T) {
+	p := &movePace{from: map[string]int{}, into: map[string]int{}}
+	for i := 0; i < movesIntoTowerPerPass; i++ {
+		require.True(t, p.allow("tw-"+string(rune('a'+i)), "tw-x"))
+		p.note("tw-"+string(rune('a'+i)), "tw-x")
+	}
+	require.False(t, p.allow("tw-z", "tw-x"), "no more than %d into one Tower", movesIntoTowerPerPass)
+	require.True(t, p.allow("tw-z", ""), "a move with no target is not counted against one")
+	for p.total < movesPerPass {
+		p.note("tw-q"+randHex(2), "")
+	}
+	require.False(t, p.allow("tw-new", ""), "no more than %d fleet-wide", movesPerPass)
+}
+
+func TestMoveEventsCountTowardThePerTowerBudget(t *testing.T) {
+	for _, k := range []string{evStationMoveStarted, evStationMoved, evStationMovedAway, evStationMoveReturned, evStationMoveAbandoned} {
+		require.True(t, pacedEvent(admit.Event{Kind: k, Actor: admit.ActorSystem}), k)
+	}
+}
+
+func TestAReattachThatMissesTheIntendedTowerSaysSo(t *testing.T) {
+	r := newMovingRig(t, true)
+	c := liveEdgeTower(t, r.b, r.srv, "op-c", "203.0.113.50:8443")
+	require.True(t, r.b.startMove(r.attachment(t), c.id, triggerBetter, time.Now()))
+	r.b.tower.link.Close(mustCurrent(t, r.b, c.id), c.id)
+	code, tower, raw := r.reattach(t)
+	require.Equal(t, http.StatusOK, code, raw)
+	require.Equal(t, r.bTower.id, tower, "re-ranked, excluding A")
+	ev := towerEventsOf(t, r.b, r.bTower.id, evStationMoved)[0]
+	require.Equal(t, true, ev.Detail["intended_unavailable"])
+	require.Equal(t, c.id, ev.Detail["intended"])
+}
+
+func TestOldHealthEvidenceIsReapedByTheHousekeepingSweep(t *testing.T) {
+	b, _ := towerTestBroker(t)
+	old := time.Now().Add(-100 * 24 * time.Hour)
+	require.NoError(t, b.tower.health.Record("tw-1", true, old))
+	require.NoError(t, b.tower.health.Record("tw-1", true, time.Now()))
+	b.towerInviteSweepOnce(time.Now())
+	sum, _ := b.tower.health.Summary("tw-1", old)
+	require.Equal(t, 1, sum.Passed)
 }

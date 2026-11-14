@@ -1,6 +1,10 @@
 # APPROVED SPEC - written and founder approved 2026-11-13 ("Approve as written"), with the
 # proposed numbers accepted as written. Changes to an approved scenario need re-approval.
-# BUILD STATUS: NOT BUILT.
+# BUILD STATUS: BUILT. internal/towercore/placement/locality.go (the class), cmd/rogerai-broker/
+# towerlocality.go (hub resolution, conflict check, sweep retry, admin view), internal/towercore/link
+# (locality on the session and the mirror), station locality in internal/towercore/mobility.
+# One wording difference: a hub that answers with someone else's identity fails the hub check and is
+# moved off by the "tower_failing" trigger, which is how a Tower that cannot prove itself is caught.
 #
 # Founder request 2026-11-13: "1, 2, 3 and 4 are good ideas and we should implement them with
 # rehoming and so on, lets make sure we trully and completely implement these". Idea 1 was

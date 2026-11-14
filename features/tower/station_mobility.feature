@@ -1,6 +1,12 @@
 # APPROVED SPEC - written and founder approved 2026-11-13 ("Approve as written"), with the
 # proposed numbers accepted as written. Changes to an approved scenario need re-approval.
-# BUILD STATUS: NOT BUILT.
+# BUILD STATUS: PARTIAL. Built: cmd/rogerai-broker/towermobility.go (triggers, streaks, idle gate, dormant
+# write, nudge on the cancel long-poll, resend, undo, pacing, records), internal/towercore/attach
+# (DormantForMove, UndoMove), internal/towercore/mobility (moves), internal/agent/tower_move.go (the node
+# hears the nudge, finishes its work, moves, and prints where it went in `roger share`).
+# Not built: the console notice (web/ is out of scope for this change); the owner sees moves in
+# `roger share` today. One addition: after a move is undone, that Station is not moved again (except
+# when its Tower is gone) for the same hour its intended Tower is skipped, so a silent node does not churn.
 #
 # Founder request 2026-11-13: idea 3, "move Stations between Towers, starting with idle ones",
 # "with rehoming and so on". This file builds the shape already DECIDED in
