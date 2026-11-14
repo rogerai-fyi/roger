@@ -41,6 +41,8 @@ func (b *broker) towerHubCheckOnce(now time.Time) {
 		}
 		b.hubCheckMu.Lock()
 		last := b.hubCheckAt[tw.ID]
+		// Never more often than the interval (tower_trust_ramp.feature). A tick that lands a
+		// moment early skips one sweep; health.RunStaleAfter leaves an interval of slack for that.
 		due := last.IsZero() || now.Sub(last) >= canaryInterval
 		if due {
 			if b.hubCheckAt == nil {
@@ -72,7 +74,7 @@ func (b *broker) hubCheck(tw admit.Tower, endpoint, pin string, now time.Time) {
 	// slow check never lands as older than a canary that finished before it.
 	done := now.Add(time.Since(start))
 	b.recordHealthCheck(tw.ID, health.Check{OK: reason == "", At: done, Source: health.SourceHubCheck, RTT: rtt,
-		Slot: b.slotFor(now)})
+		Slot: b.slotFor(now), MinGap: healthMinGap})
 	if reason == "" && remote != "" {
 		// Where the hub is, from the address that just proved the Tower's identity - not from
 		// what a name resolved to once, which a Tower controls (placement_locality.feature).
@@ -97,7 +99,7 @@ func (b *broker) recordTowerHealth(towerID string, outcome reputation.Outcome) {
 			slot = healthSlot(now)
 		}
 		b.recordHealthCheck(towerID, health.Check{OK: outcome == reputation.CanaryPass, At: now,
-			Source: health.SourceCanary, Slot: slot})
+			Source: health.SourceCanary, Slot: slot, MinGap: healthMinGap})
 	}
 }
 
@@ -108,6 +110,11 @@ func (b *broker) slotFor(now time.Time) int64 {
 	}
 	return healthSlot(now)
 }
+
+// healthMinGap is the least time between two counted failures of one kind of check: half a
+// canary interval, so two broker instances recording one blip moments apart count it once while
+// the next real interval still counts.
+const healthMinGap = canaryInterval / 2
 
 // healthSlot is the canary interval a check belongs to: the fail streak counts one failure per
 // slot, whatever its source.

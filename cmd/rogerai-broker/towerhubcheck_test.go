@@ -158,10 +158,8 @@ func TestOneFailurePerSweepFromAnySource(t *testing.T) {
 	require.Equal(t, 2, sum.Failed)
 	require.Empty(t, towerEventsOf(t, b, "tw-1", evHealthFailing), "one outage is not health_failing")
 
-	next := start.Add(canaryInterval + time.Minute)
-	b.sweepSlot.Store(healthSlot(next))
-	b.recordTowerHealth("tw-1", "canary_fail")
-	b.sweepSlot.Store(0)
+	next := start.Add(canaryInterval + time.Minute) // the next sweep, a real interval later
+	b.recordHealthCheck("tw-1", health.Check{OK: false, At: next, Source: health.SourceCanary, Slot: healthSlot(next), MinGap: healthMinGap})
 	sum, _ = b.tower.health.Summary("tw-1", start.Add(-time.Hour))
 	require.Equal(t, 2, sum.FailStreak, "a canary in the next sweep counts")
 	require.Len(t, towerEventsOf(t, b, "tw-1", evHealthFailing), 1)
@@ -170,4 +168,57 @@ func TestOneFailurePerSweepFromAnySource(t *testing.T) {
 // recordCheckForTest files a hub check in a slot of its own, so each call counts on its own.
 func recordCheckForTest(s health.Store, towerID string, ok bool, at time.Time) error {
 	return s.RecordCheck(towerID, health.Check{OK: ok, At: at, Source: health.SourceHubCheck, Slot: at.UnixNano()})
+}
+
+// Founder ruling 2026-11-14: a passing hub check does not clear canary failures. A failing relay
+// behind a hub that still answers is caught.
+func TestAPassingHubCheckDoesNotClearCanaryFailures(t *testing.T) {
+	b, _ := towerTestBroker(t)
+	start := time.Now()
+	for i := 0; i < 2; i++ {
+		at := start.Add(time.Duration(i) * canaryInterval)
+		b.sweepSlot.Store(healthSlot(at))
+		b.recordHealthCheck("tw-1", health.Check{OK: true, At: at, Source: health.SourceHubCheck, Slot: b.slotFor(at), MinGap: healthMinGap})
+		b.recordHealthCheck("tw-1", health.Check{OK: false, At: at.Add(time.Second), Source: health.SourceCanary, Slot: b.slotFor(at), MinGap: healthMinGap})
+	}
+	b.sweepSlot.Store(0)
+	sum, _ := b.tower.health.Summary("tw-1", start.Add(-time.Hour))
+	require.Equal(t, 2, sum.FailStreak)
+	require.Len(t, towerEventsOf(t, b, "tw-1", evHealthFailing), 1)
+}
+
+// Two instances recording one blip moments apart, across an interval boundary, count it once.
+func TestTwoInstancesRecordingOneBlipCountItOnce(t *testing.T) {
+	b, _ := towerTestBroker(t)
+	boundary := time.Unix(0, (time.Now().UnixNano()/int64(canaryInterval)+1)*int64(canaryInterval))
+	for _, at := range []time.Time{boundary.Add(-2 * time.Second), boundary.Add(3 * time.Second)} {
+		b.recordHealthCheck("tw-1", health.Check{OK: false, At: at, Source: health.SourceCanary, Slot: healthSlot(at), MinGap: healthMinGap})
+	}
+	sum, _ := b.tower.health.Summary("tw-1", boundary.Add(-time.Hour))
+	require.Equal(t, 1, sum.FailStreak)
+}
+
+// The health store's staleness window is two canary intervals, the same rule the mobility pass
+// applies to observations.
+func TestARunGoesStaleAfterThreeCanaryIntervals(t *testing.T) {
+	require.Equal(t, 3*canaryInterval, health.RunStaleAfter, "two intervals plus one of slack")
+}
+
+// AUDIT FINDING: after a quiet spell, a new outage resumed the old run and was taken as already
+// recorded. It starts over, and its health_failing is written when it reaches two.
+func TestANewOutageAfterAQuietSpellIsRecordedAgain(t *testing.T) {
+	b, _ := towerTestBroker(t)
+	base := time.Now().Add(-30 * time.Minute) // checks carry real times, as in production
+	rec := func(at time.Time) {
+		b.recordHealthCheck("tw-1", health.Check{OK: false, At: at, Source: health.SourceCanary, Slot: healthSlot(at), MinGap: healthMinGap})
+	}
+	rec(base)
+	rec(base.Add(canaryInterval))
+	require.Len(t, towerEventsOf(t, b, "tw-1", evHealthFailing), 1)
+	back := time.Now().Add(time.Minute) // after the first event, and after a quiet spell
+	rec(back)
+	sum, _ := b.tower.health.Summary("tw-1", base.Add(-time.Hour))
+	require.Equal(t, 1, sum.FailStreak, "one blip after a quiet spell")
+	rec(back.Add(canaryInterval))
+	require.Len(t, towerEventsOf(t, b, "tw-1", evHealthFailing), 2, "the new outage is recorded")
 }

@@ -347,10 +347,22 @@ func (b *broker) sweepStage(tw admit.Tower, now time.Time) {
 		b.towerGovUnavailable(err)
 		return
 	}
-	if !v.hasLast && !v.hasAppr {
-		return // never approved: no stage yet
-	}
 	lastID := int64(0)
+	if !v.hasLast && !v.hasAppr {
+		// Approved before the governance record existed (founder ruling 2026-11-14): an active
+		// Tower with no approval on record starts at "new" from the sweep that first sees it.
+		// Every approval today writes its record in the same step as the state change, so the
+		// only race is a sweep reading just before an approval lands: that Tower then starts at
+		// "new" within one sweep of its approval, labelled by this reason - the same stage at
+		// almost the same time, which is why no further guard is kept for it.
+		if tw.State == admit.StateActive {
+			b.towerRecordIfLast(admit.Event{TowerID: tw.ID, Kind: evTrustStage, Actor: admit.ActorSystem,
+				To: admit.State(stageNew), Reason: "no approval on record",
+				Detail: map[string]any{"entered_at": now.UTC().Format(time.RFC3339Nano)}},
+				[]string{evTrustStage}, 0)
+		}
+		return
+	}
 	if v.hasLast {
 		lastID = v.last.ID
 	}
@@ -420,7 +432,7 @@ func (b *broker) sweepStage(tw admit.Tower, now time.Time) {
 // once (the count may skip from one to three) still write it, and write it once.
 func (b *broker) noteHealthStreak(towerID string) {
 	sum, err := b.tower.health.Summary(towerID, time.Now())
-	if err != nil || sum.FailStreak < 2 || sum.StreakSince.IsZero() {
+	if err != nil || sum.FailStreak < 2 || sum.OutageSince.IsZero() {
 		return
 	}
 	last, found, err := b.tower.registry.FindEvent(towerID, []string{evHealthFailing}, false)
@@ -430,8 +442,8 @@ func (b *broker) noteHealthStreak(towerID string) {
 	}
 	lastID := int64(0)
 	if found {
-		if !last.At.Before(sum.StreakSince) {
-			return // this run is already recorded
+		if !last.At.Before(sum.OutageSince) {
+			return // this outage is already recorded, whichever kind of check is now the longer
 		}
 		lastID = last.ID
 	}

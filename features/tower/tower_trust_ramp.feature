@@ -6,6 +6,12 @@
 # sortband.go (the stage edge weight on the coin). Health checks are counted by whole UTC day, so a
 # day a stage is entered counts in full. A stage is cached for 15 seconds on the request path; a
 # write on the same instance drops the entry at once.
+# Each kind of check's run stops counting once that kind has gone unrefreshed for three canary
+# intervals (two plus one of slack, so one skipped sweep never resets an outage) (so a Tower whose Stations were moved off recovers on its hub checks). Streak values
+# from before 2026-11-14 were not carried over (the table had existed for a few hours).
+# A run that went quiet starts over on its next result. Failures closer than half a canary
+# interval count once, so a real failure landing that soon after a late one in the previous sweep
+# is counted one interval later.
 #
 # Founder request 2026-11-13: idea 4, "earned trust. New Towers carry a small, capped share of
 # traffic and grow as their canary and audit records stay clean", and "draft another message to
@@ -15,7 +21,8 @@
 # Core already keeps. A Tower cannot raise its own stage; only time, clean evidence and an
 # attributed admin action can.
 #
-# NUMBERS accepted 2026-11-13 as proposed.
+# NUMBERS accepted 2026-11-13 as proposed. Scenarios marked "Added 2026-11-14" were approved
+# by the founder that day.
 #
 # AMENDED 2026-11-13 (founder: "Add the hub check"): a Tower with no Stations could never pass a
 # canary, because canaries reach a Tower only through a Station behind it, so it could never
@@ -83,6 +90,24 @@ Feature: A community Tower earns traffic in stages, from Core's own record of it
     When a hub check passes
     Then no Station is contacted, no grant is minted, no hold is placed and nobody is paid
 
+  # Added 2026-11-14, founder rulings ("only a canary pass clears them"; and the audit's
+  # one-outage rule): each kind of health check keeps its own run of failures.
+  Scenario: Hub checks and Station canaries each keep their own run of failures
+    Given a Tower whose hub checks pass while its Station canaries fail in two consecutive canary intervals
+    When Core computes its fail streak
+    Then the streak is 2, from the canaries
+    And a passing hub check does not clear canary failures, nor a passing canary hub-check failures
+
+  Scenario: A hub check and a canary failing in one sweep are one outage
+    Given a hub check and a canary of one Tower fail in the same sweep
+    When Core computes its fail streak
+    Then the streak is 1
+
+  Scenario: Two instances recording one blip moments apart count it once
+    Given two broker instances record a failure of one Tower less than half a canary interval apart, across an interval boundary
+    When Core computes its fail streak
+    Then the streak is 1
+
   # --- computing the stage -----------------------------------------------------------
 
   Scenario: A newly approved Tower starts at "new"
@@ -90,6 +115,13 @@ Feature: A community Tower earns traffic in stages, from Core's own record of it
     When Core computes its stage
     Then the stage is "new"
     And a "trust_stage" event is recorded with from "" to "new" and actor "system"
+
+  # Added 2026-11-14, founder ruling ("start at 'new' now"): Towers approved before the
+  # governance record existed have no approval on record.
+  Scenario: An active Tower with no approval on record starts at "new" when the record first sees it
+    Given an active Tower whose record holds no approval and no stage
+    When the governance sweep computes stages
+    Then a "trust_stage" event is recorded with from "" to "new", reason "no approval on record", and the stage counts from that sweep
 
   Scenario: Promotion is computed from the record, never from the Tower
     Given a Tower has been in "new" for 7 days with a clean record and 50 passed health checks at 96%

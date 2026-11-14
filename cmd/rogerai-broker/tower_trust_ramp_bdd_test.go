@@ -86,6 +86,9 @@ type rampState struct {
 	snap        rampMoneySnap
 	shares      map[placement.Stage][3]float64
 	coinCalls   int
+	streakSum   health.Summary
+	firstCanary time.Time
+	sweptAt     time.Time
 }
 
 // rampMoneySnap is everything a hub check could have touched on the money and work paths.
@@ -1963,6 +1966,125 @@ func (s *rampState) noSelfReportRead() error {
 	return nil
 }
 
+// --- added 2026-11-14: each kind keeps its own run; one outage counts once; pre-record Towers ---
+
+func (s *rampState) rampStreakTower() string {
+	if s.tw.id == "" {
+		s.op = signedInOperator(s.t, s.b, "ramp-streak")
+		s.tw = enrolledTower(s.t, s.b, s.op.login)
+	}
+	return s.tw.id
+}
+
+func (s *rampState) hubPassesCanariesFailTwoIntervals() error {
+	id := s.rampStreakTower()
+	base := time.Now().Add(-time.Hour)
+	for i := 0; i < 2; i++ {
+		at := base.Add(time.Duration(i) * canaryInterval)
+		s.b.recordHealthCheck(id, health.Check{OK: true, At: at, Source: health.SourceHubCheck, Slot: healthSlot(at), MinGap: healthMinGap})
+		c := at.Add(time.Second)
+		if i == 0 {
+			s.firstCanary = c
+		}
+		s.b.recordHealthCheck(id, health.Check{OK: false, At: c, Source: health.SourceCanary, Slot: healthSlot(at), MinGap: healthMinGap})
+	}
+	return nil
+}
+
+func (s *rampState) computesFailStreak() error {
+	sum, err := s.b.tower.health.Summary(s.rampStreakTower(), time.Now().Add(-24*time.Hour))
+	s.streakSum = sum
+	return err
+}
+
+func (s *rampState) streakIsFromCanaries(n int) error {
+	if s.streakSum.FailStreak != n {
+		return fmt.Errorf("streak %d, want %d", s.streakSum.FailStreak, n)
+	}
+	if !s.streakSum.StreakSince.Equal(s.firstCanary) {
+		return fmt.Errorf("the run began at %v, not at the first canary failure %v", s.streakSum.StreakSince, s.firstCanary)
+	}
+	return nil
+}
+
+func (s *rampState) passesClearOnlyTheirOwnKind() error {
+	id := s.rampStreakTower()
+	// The next interval, while the canaries are still current (within health.RunStaleAfter).
+	at := s.firstCanary.Add(2 * canaryInterval)
+	s.b.recordHealthCheck(id, health.Check{OK: true, At: at, Source: health.SourceHubCheck, Slot: healthSlot(at), MinGap: healthMinGap})
+	if sum, _ := s.b.tower.health.Summary(id, at.Add(-24*time.Hour)); sum.FailStreak != 2 {
+		return fmt.Errorf("a hub pass cleared canary failures: streak %d", sum.FailStreak)
+	}
+	at = at.Add(canaryInterval)
+	s.b.recordHealthCheck(id, health.Check{OK: false, At: at, Source: health.SourceHubCheck, Slot: healthSlot(at), MinGap: healthMinGap})
+	s.b.recordHealthCheck(id, health.Check{OK: true, At: at.Add(time.Second), Source: health.SourceCanary, Slot: healthSlot(at), MinGap: healthMinGap})
+	if sum, _ := s.b.tower.health.Summary(id, at.Add(-24*time.Hour)); sum.FailStreak != 1 {
+		return fmt.Errorf("after a canary pass and a hub failure the streak is %d, want 1 (the hub run)", sum.FailStreak)
+	}
+	return nil
+}
+
+func (s *rampState) hubAndCanaryFailOneSweep() error {
+	id := s.rampStreakTower()
+	now := time.Now()
+	s.b.sweepSlot.Store(healthSlot(now))
+	defer s.b.sweepSlot.Store(0)
+	s.b.recordHealthCheck(id, health.Check{OK: false, At: now, Source: health.SourceHubCheck, Slot: s.b.slotFor(now), MinGap: healthMinGap})
+	s.b.recordTowerHealth(id, reputation.CanaryFail)
+	return nil
+}
+
+func (s *rampState) twoInstancesOneBlip() error {
+	id := s.rampStreakTower()
+	peer := &broker{tower: s.b.tower, db: s.b.db, instanceID: "ramp-peer"}
+	boundary := time.Unix(0, (time.Now().UnixNano()/int64(canaryInterval)+1)*int64(canaryInterval))
+	a, b := boundary.Add(-2*time.Second), boundary.Add(3*time.Second)
+	s.b.recordHealthCheck(id, health.Check{OK: false, At: a, Source: health.SourceCanary, Slot: healthSlot(a), MinGap: healthMinGap})
+	peer.recordHealthCheck(id, health.Check{OK: false, At: b, Source: health.SourceCanary, Slot: healthSlot(b), MinGap: healthMinGap})
+	if healthSlot(a) == healthSlot(b) {
+		return fmt.Errorf("fixture: the two records must fall in different intervals")
+	}
+	return nil
+}
+
+func (s *rampState) streakIs(n int) error {
+	if s.streakSum.FailStreak != n {
+		return fmt.Errorf("streak %d, want %d", s.streakSum.FailStreak, n)
+	}
+	return nil
+}
+
+func (s *rampState) activeTowerNoApprovalNoStage() error {
+	s.op = signedInOperator(s.t, s.b, "ramp-prerecord")
+	s.tw = enrolledTower(s.t, s.b, s.op.login)
+	if err := s.b.tower.registry.Transition(s.tw.id, admit.StateActive); err != nil {
+		return err
+	}
+	if _, found, _ := s.b.tower.registry.FindTransition(s.tw.id, admit.StateQuarantine, admit.StateActive); found {
+		return fmt.Errorf("fixture: an approval is on record")
+	}
+	if len(s.rampStageEvents(s.tw.id)) != 0 {
+		return fmt.Errorf("fixture: a stage is on record")
+	}
+	s.sweptAt = time.Now()
+	return nil
+}
+
+func (s *rampState) preRecordNewEvent() error {
+	evs := s.rampStageEvents(s.tw.id)
+	if len(evs) != 1 || evs[0].From != "" || evs[0].To != "new" || evs[0].Reason != "no approval on record" {
+		return fmt.Errorf("stage events %+v", evs)
+	}
+	entered, ok := timeOf(evs[0].Detail["entered_at"])
+	if !ok || entered.Before(s.sweptAt.Add(-time.Second)) || entered.After(time.Now()) {
+		return fmt.Errorf("the stage counts from %v, not from that sweep", evs[0].Detail["entered_at"])
+	}
+	if rep := s.b.stageReport(mustTower(s.t, s.b, s.tw.id), time.Now()); rep == nil || rep["stage"] != "new" {
+		return fmt.Errorf("the stage report says %v", rep)
+	}
+	return nil
+}
+
 func TestTowerTrustRampBDD(t *testing.T) {
 	suite := godog.TestSuite{
 		ScenarioInitializer: func(sc *godog.ScenarioContext) {
@@ -1985,6 +2107,15 @@ func TestTowerTrustRampBDD(t *testing.T) {
 			sc.Step(`^each outcome is stored where the ramp can count it over 30 days$`, s.outcomesCountableOver30Days)
 			sc.Step(`^the governance record gets a "hub_check_failed" event only for a fail, paced by the existing per-Tower budget, never one event per pass$`, s.failEventsOnlyPaced)
 			sc.Step(`^a hub check passes$`, s.aHubCheckPasses)
+			sc.Step(`^a Tower whose hub checks pass while its Station canaries fail in two consecutive canary intervals$`, s.hubPassesCanariesFailTwoIntervals)
+			sc.Step(`^Core computes its fail streak$`, s.computesFailStreak)
+			sc.Step(`^the streak is (\d+), from the canaries$`, s.streakIsFromCanaries)
+			sc.Step(`^a passing hub check does not clear canary failures, nor a passing canary hub-check failures$`, s.passesClearOnlyTheirOwnKind)
+			sc.Step(`^a hub check and a canary of one Tower fail in the same sweep$`, s.hubAndCanaryFailOneSweep)
+			sc.Step(`^two broker instances record a failure of one Tower less than half a canary interval apart, across an interval boundary$`, s.twoInstancesOneBlip)
+			sc.Step(`^the streak is (\d+)$`, s.streakIs)
+			sc.Step(`^an active Tower whose record holds no approval and no stage$`, s.activeTowerNoApprovalNoStage)
+			sc.Step(`^a "trust_stage" event is recorded with from "" to "new", reason "no approval on record", and the stage counts from that sweep$`, s.preRecordNewEvent)
 			sc.Step(`^no Station is contacted, no grant is minted, no hold is placed and nobody is paid$`, s.noWorkNoMoney)
 			// computing the stage
 			sc.Step(`^a Tower moves from quarantine to active for the first time$`, s.movesQuarantineToActive)

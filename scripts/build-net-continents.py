@@ -109,7 +109,15 @@ def main():
         v4 = [x for x in nets if x.version == 4]
         v6 = [x for x in nets if x.version == 6]
         for net in list(ipaddress.collapse_addresses(v4)) + list(ipaddress.collapse_addresses(v6)):
-            lines.append(f"{net} {cont}")
+            lines.append((net, cont))
+    # And again after collapsing: two continents' collapsed blocks can still be equal.
+    counts = {}
+    for net, _ in lines:
+        counts[net] = counts.get(net, 0) + 1
+    clash = {net for net, n in counts.items() if n > 1}
+    if clash:
+        print(f"left out {len(clash)} collapsed blocks equal across continents", file=sys.stderr)
+    lines = [f"{net} {cont}" for net, cont in lines if net not in clash]
     with open(a.out, "w") as f:
         f.write("# network-to-continent table for ROGERAI_NET_CONTINENTS\n")
         f.write("# built by scripts/build-net-continents.py from RIR delegated-extended stats + GeoNames\n")
