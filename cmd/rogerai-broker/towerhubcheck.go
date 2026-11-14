@@ -41,6 +41,8 @@ func (b *broker) towerHubCheckOnce(now time.Time) {
 		}
 		b.hubCheckMu.Lock()
 		last := b.hubCheckAt[tw.ID]
+		// Never more often than the interval (tower_trust_ramp.feature). A tick that lands a
+		// moment early skips one sweep; health.RunStaleAfter leaves an interval of slack for that.
 		due := last.IsZero() || now.Sub(last) >= canaryInterval
 		if due {
 			if b.hubCheckAt == nil {

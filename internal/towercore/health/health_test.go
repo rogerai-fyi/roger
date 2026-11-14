@@ -275,3 +275,30 @@ func TestAStaleRunStartsOver(t *testing.T) {
 		require.True(t, sum.StreakSince.Equal(back))
 	})
 }
+
+// AUDIT FINDING: one skipped sweep in a continuous outage (timer jitter, a restart) must not
+// reset the run. The window leaves a full interval of slack over two intervals.
+func TestOneSkippedSweepDoesNotResetARun(t *testing.T) {
+	eachStore(t, func(t *testing.T, s Store) {
+		require.NoError(t, s.RecordCheck("tw-1", Check{OK: false, At: day0, Source: SourceHubCheck, Slot: 0}))
+		// The next sweep was skipped; the one after lands two intervals and a bit later.
+		require.NoError(t, s.RecordCheck("tw-1", Check{OK: false, At: day0.Add(10*time.Minute + 30*time.Second), Source: SourceHubCheck, Slot: 2}))
+		sum, _ := s.Summary("tw-1", day0)
+		require.Equal(t, 2, sum.FailStreak)
+	})
+}
+
+// Overlapping runs of different kinds are one outage: OutageSince is when the earliest current
+// run began, so it is recorded once however the runs overlap.
+func TestOverlappingRunsShareOneOutageStart(t *testing.T) {
+	eachStore(t, func(t *testing.T, s Store) {
+		require.NoError(t, s.RecordCheck("tw-1", Check{OK: false, At: day0, Source: SourceCanary, Slot: 0}))
+		require.NoError(t, s.RecordCheck("tw-1", Check{OK: false, At: day0.Add(5 * time.Minute), Source: SourceCanary, Slot: 1}))
+		require.NoError(t, s.RecordCheck("tw-1", Check{OK: false, At: day0.Add(6 * time.Minute), Source: SourceHubCheck, Slot: 1}))
+		require.NoError(t, s.RecordCheck("tw-1", Check{OK: false, At: day0.Add(11 * time.Minute), Source: SourceHubCheck, Slot: 2}))
+		require.NoError(t, s.RecordCheck("tw-1", Check{OK: false, At: day0.Add(16 * time.Minute), Source: SourceHubCheck, Slot: 3}))
+		sum, _ := s.Summary("tw-1", day0)
+		require.Equal(t, 3, sum.FailStreak, "the hub run is now the longer")
+		require.True(t, sum.OutageSince.Equal(day0), "the outage began with the canary run")
+	})
+}

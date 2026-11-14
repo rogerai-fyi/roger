@@ -6,8 +6,8 @@
 # sortband.go (the stage edge weight on the coin). Health checks are counted by whole UTC day, so a
 # day a stage is entered counts in full. A stage is cached for 15 seconds on the request path; a
 # write on the same instance drops the entry at once.
-# Each kind of check's run stops counting once that kind has gone unrefreshed for two canary
-# intervals (so a Tower whose Stations were moved off recovers on its hub checks). Streak values
+# Each kind of check's run stops counting once that kind has gone unrefreshed for three canary
+# intervals (two plus one of slack, so one skipped sweep never resets an outage) (so a Tower whose Stations were moved off recovers on its hub checks). Streak values
 # from before 2026-11-14 were not carried over (the table had existed for a few hours).
 # A run that went quiet starts over on its next result. Failures closer than half a canary
 # interval count once, so a real failure landing that soon after a late one in the previous sweep

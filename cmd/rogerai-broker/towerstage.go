@@ -432,7 +432,7 @@ func (b *broker) sweepStage(tw admit.Tower, now time.Time) {
 // once (the count may skip from one to three) still write it, and write it once.
 func (b *broker) noteHealthStreak(towerID string) {
 	sum, err := b.tower.health.Summary(towerID, time.Now())
-	if err != nil || sum.FailStreak < 2 || sum.StreakSince.IsZero() {
+	if err != nil || sum.FailStreak < 2 || sum.OutageSince.IsZero() {
 		return
 	}
 	last, found, err := b.tower.registry.FindEvent(towerID, []string{evHealthFailing}, false)
@@ -442,8 +442,8 @@ func (b *broker) noteHealthStreak(towerID string) {
 	}
 	lastID := int64(0)
 	if found {
-		if !last.At.Before(sum.StreakSince) {
-			return // this run is already recorded
+		if !last.At.Before(sum.OutageSince) {
+			return // this outage is already recorded, whichever kind of check is now the longer
 		}
 		lastID = last.ID
 	}

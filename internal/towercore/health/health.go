@@ -1,5 +1,6 @@
 // Package health keeps Core's health-check evidence per Tower: hub checks and Station canaries,
-// counted per day for the trust ramp, and each kind's run of failures for the health tier. Contracts: features/tower/tower_trust_ramp.feature, placement_ranking.feature.
+// counted per day for the trust ramp, and each kind's run of failures for the health tier.
+// Contracts: features/tower/tower_trust_ramp.feature, placement_ranking.feature.
 package health
 
 import (
@@ -16,17 +17,20 @@ type Summary struct {
 	LastAt      time.Time
 	FailStreak  int
 	StreakSince time.Time
+	// OutageSince is when the earliest current run of failures began: overlapping runs of
+	// different kinds are one outage, recorded once.
+	OutageSince time.Time
 	// The latest check's source (a hub check or a Station canary) and its round trip.
 	LastSource string
 	LastRTT    time.Duration
 }
 
 // RunStaleAfter is how long a kind of check may go unrefreshed, counting back from the Tower's
-// latest result of any kind, before its run stops counting toward the Tower's streak: two
-// canary intervals, the staleness rule station_mobility.feature uses for observations. It is
-// what lets a Tower whose Stations were moved off - so no canary can run - recover on its hub
-// checks.
-const RunStaleAfter = 10 * time.Minute
+// latest result of any kind, before its run stops counting toward the Tower's streak (and
+// starts over on its next result): three canary intervals, so one skipped sweep - timer jitter,
+// a restart - never resets a run in a continuous outage. It is what lets a Tower whose Stations
+// were moved off - so no canary can run - recover on its hub checks.
+const RunStaleAfter = 15 * time.Minute
 
 // Sources of a health check.
 const (
@@ -181,6 +185,9 @@ func (m *MemStore) Summary(towerID string, since time.Time) (Summary, error) {
 		}
 		if r.streak > s.FailStreak || (r.streak == s.FailStreak && r.streak > 0 && r.since.Before(s.StreakSince)) {
 			s.FailStreak, s.StreakSince = r.streak, r.since
+		}
+		if r.streak > 0 && (s.OutageSince.IsZero() || r.since.Before(s.OutageSince)) {
+			s.OutageSince = r.since
 		}
 	}
 	return s, nil
@@ -339,8 +346,18 @@ func (p *PGStore) Summary(towerID string, since time.Time) (Summary, error) {
 	if err == sql.ErrNoRows {
 		return s, nil
 	}
+	if err != nil {
+		return s, err
+	}
 	if began.Valid {
 		s.StreakSince = began.Time
+	}
+	var outage sql.NullTime
+	err = p.db.QueryRow(`SELECT MIN(streak_since) FROM rogerai.tower_health_runs
+          WHERE tower_id = $1 AND fail_streak > 0 AND COALESCE(last_at, '-infinity') >= $2::timestamptz`,
+		towerID, s.LastAt.Add(-RunStaleAfter)).Scan(&outage)
+	if outage.Valid {
+		s.OutageSince = outage.Time
 	}
 	return s, err
 }

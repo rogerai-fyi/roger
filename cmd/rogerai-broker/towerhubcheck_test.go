@@ -200,9 +200,8 @@ func TestTwoInstancesRecordingOneBlipCountItOnce(t *testing.T) {
 
 // The health store's staleness window is two canary intervals, the same rule the mobility pass
 // applies to observations.
-func TestARunGoesStaleAfterTwoCanaryIntervals(t *testing.T) {
-	require.Equal(t, 2*canaryInterval, health.RunStaleAfter)
-	require.Equal(t, observationStaleAfter, health.RunStaleAfter)
+func TestARunGoesStaleAfterThreeCanaryIntervals(t *testing.T) {
+	require.Equal(t, 3*canaryInterval, health.RunStaleAfter, "two intervals plus one of slack")
 }
 
 // AUDIT FINDING: after a quiet spell, a new outage resumed the old run and was taken as already
