@@ -10,8 +10,12 @@
 # Core already keeps. A Tower cannot raise its own stage; only time, clean evidence and an
 # attributed admin action can.
 #
-# NUMBERS (days, counts, caps, weights) are PROPOSALS for the founder to set. Nothing is a
-# constant in the tree until approved.
+# NUMBERS accepted 2026-11-13 as proposed.
+#
+# AMENDED 2026-11-13 (founder: "Add the hub check"): a Tower with no Stations could never pass a
+# canary, because canaries reach a Tower only through a Station behind it, so it could never
+# leave "new". Core now also runs a Station-free hub check, and "canary passes" became "health
+# checks" (hub checks and Station canaries together). Counts and thresholds are unchanged.
 
 Feature: A community Tower earns traffic in stages, from Core's own record of it
   Every community Tower has a trust stage, computed by Core from the governance record and
@@ -22,16 +26,57 @@ Feature: A community Tower earns traffic in stages, from Core's own record of it
   The proposed stages:
     | stage       | to enter                                                                     | community Stations | house Stations | edge weight |
     | new         | approval (quarantine to active), or any demotion                             | up to 10           | none           | 0.25        |
-    | proving     | 7 days in new, clean, at least 50 canary passes, pass rate 95% or better     | up to 50           | failover, up to 5  | 0.5     |
+    | proving     | 7 days in new, clean, at least 50 passed health checks, pass rate 95% or better     | up to 50           | failover, up to 5  | 0.5     |
     | established | 30 days since entering proving, clean, pass rate 98% or better               | up to capacity     | failover, up to 25 | 1.0     |
 
   "Clean" over a window means: no suspension, no revocation, no lease lapse longer than one
-  hour, no admin-recorded incident, and no canary fail streak of 2 or more, except where an
+  hour, no admin-recorded incident, and no health-check fail streak of 2 or more, except where an
   admin has recorded an excusal for that specific event.
+
+  A "health check" is either a Station canary (as today) or a hub check: Core dials the Tower's
+  hub, verifies its certificate pin where one is advertised and its signed identity proof
+  against the admitted Tower key, and times the round trip. Both count toward the pass rate.
 
   "Edge weight" multiplies the Tower's side of the capacity-weighted coin that already decides,
   per request, whether a request for a Station behind a Tower goes through the Tower or
   straight to the Station on the classic path.
+
+  # --- the hub check ---------------------------------------------------------------
+
+  Scenario: Every live Tower with a hub is checked, with or without Stations
+    Given a live Tower advertising a hub and holding no Stations
+    When the hub check runs
+    Then Core dials the hub, verifies the pin if one is advertised, and verifies the hub's signed identity proof over a fresh nonce against the admitted Tower key
+    And records a "hub_check" outcome of pass or fail with the round-trip time
+    And runs at the canary interval, never more often per Tower
+
+  Scenario Outline: A hub check fails on any broken proof
+    Given a live Tower whose hub "<condition>"
+    When the hub check runs
+    Then the outcome is a fail with reason "<reason>"
+
+    Examples:
+      | condition                                         | reason          |
+      | does not accept a connection within 5 seconds     | unreachable     |
+      | presents a certificate that does not match the pin | pin_mismatch   |
+      | answers without an identity proof                 | no_proof        |
+      | signs the nonce with a key other than the admitted one | wrong_key  |
+      | signs a different nonce                           | stale_proof     |
+      | answers with a malformed proof                    | malformed_proof |
+
+  Scenario: A Tower with no hub gets no hub check and cannot pass one
+    Given a live Tower that advertises no hub
+    When the hub check runs
+    Then no outcome is recorded for it
+
+  Scenario: Hub-check outcomes are kept as evidence, paced like other records
+    When hub checks run
+    Then each outcome is stored where the ramp can count it over 30 days
+    And the governance record gets a "hub_check_failed" event only for a fail, paced by the existing per-Tower budget, never one event per pass
+
+  Scenario: A hub check carries no work and earns nothing
+    When a hub check passes
+    Then no Station is contacted, no grant is minted, no hold is placed and nobody is paid
 
   # --- computing the stage -----------------------------------------------------------
 
@@ -42,10 +87,10 @@ Feature: A community Tower earns traffic in stages, from Core's own record of it
     And a "trust_stage" event is recorded with from "" to "new" and actor "system"
 
   Scenario: Promotion is computed from the record, never from the Tower
-    Given a Tower has been in "new" for 7 days with a clean record and 50 passing canaries at 96%
+    Given a Tower has been in "new" for 7 days with a clean record and 50 passed health checks at 96%
     When the governance sweep computes stages
     Then the stage becomes "proving"
-    And a "trust_stage" event is recorded naming the evidence: days, canary passes, pass rate
+    And a "trust_stage" event is recorded naming the evidence: days, health checks passed, pass rate
 
   Scenario Outline: A Tower that misses any promotion condition stays where it is
     Given a Tower in "new" with "<shortfall>"
@@ -55,15 +100,15 @@ Feature: A community Tower earns traffic in stages, from Core's own record of it
     Examples:
       | shortfall                                        |
       | 6 days and 23 hours in new                       |
-      | 49 canary passes                                 |
-      | a 94% canary pass rate                           |
+      | 49 passed health checks                          |
+      | a 94% health-check pass rate                     |
       | a suspension 3 days ago                          |
       | a lease lapse of 2 hours 5 days ago              |
-      | a canary fail streak of 2 yesterday              |
+      | a health-check fail streak of 2 yesterday        |
       | an admin-recorded incident 6 days ago            |
 
   Scenario: Proving to established
-    Given a Tower has been in "proving" for 30 days, clean, at a 98.5% canary pass rate
+    Given a Tower has been in "proving" for 30 days, clean, at a 98.5% health-check pass rate
     When the governance sweep computes stages
     Then the stage becomes "established"
 
@@ -84,7 +129,7 @@ Feature: A community Tower earns traffic in stages, from Core's own record of it
       | proving     | Core suspends it                           |
       | established | Core suspends it                           |
       | established | its lease lapses for more than one hour    |
-      | established | its canary fails twice in a row            |
+      | established | its health checks fail twice in a row      |
       | proving     | an admin records an incident against it    |
 
   Scenario: Revocation ends the stage with the Tower
@@ -157,7 +202,7 @@ Feature: A community Tower earns traffic in stages, from Core's own record of it
 
   Scenario: Admins see each Tower's stage and the evidence behind it
     When an admin opens a Tower's detail
-    Then it shows the stage, when it was entered, the canary passes and pass rate, the days counted, any excusal, ceiling or incident, and what the next stage still needs
+    Then it shows the stage, when it was entered, the health checks passed and pass rate, the days counted, any excusal, ceiling or incident, and what the next stage still needs
 
   Scenario: The operator sees their own stage and what is left
     When a Tower's operator views their Tower
@@ -180,6 +225,6 @@ Feature: A community Tower earns traffic in stages, from Core's own record of it
   Scenario: Canaries a Tower can recognise do not inflate its pass rate
     Given a Tower that answers canaries well and paid work badly
     When a Tower's pass rate is computed
-    Then only Core's own canary outcomes count toward the pass rate
+    Then only Core's own health-check outcomes count toward the pass rate
     And Core's own record of paid-attempt outcomes keeps feeding the health tier, as it does today
     And no number the Tower reports about itself is read

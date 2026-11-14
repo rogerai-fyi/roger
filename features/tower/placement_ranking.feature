@@ -32,7 +32,7 @@ Feature: Core places each Station on the best eligible Tower, not the first one
     | house Tower     | a Tower whose owner is a house account                                     |
     | house Station   | a Station whose owner is a house account                                   |
     | community       | anything that is not house                                                  |
-    | health tier     | A or B, from Core's own canary and reputation record for the Tower         |
+    | health tier     | A, unless the Tower's last two health checks both failed or its reputation verdict is not clean, then B |
     | load            | the Tower's live attached Stations divided by its Station capacity         |
     | trust stage     | new, proving or established (tower_trust_ramp.feature); house Towers have none |
 

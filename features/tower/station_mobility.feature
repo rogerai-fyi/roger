@@ -50,12 +50,12 @@ Feature: Core moves an idle Station to a better Tower, and fences anything the m
     Then S is not due to move
 
   Scenario: Trigger 2, the Tower is failing, on two fresh observations
-    Given two consecutive fresh canary observations of Tower A both failed
+    Given two consecutive fresh health checks of Tower A (tower_trust_ramp.feature) both failed
     When the mobility pass runs
     Then S is due to move with trigger "tower_failing"
 
   Scenario: One failed observation is not enough
-    Given the latest canary observation of Tower A failed and the one before it passed
+    Given the latest health check of Tower A failed and the one before it passed
     When the mobility pass runs
     Then S is not due to move
 
@@ -90,8 +90,8 @@ Feature: Core moves an idle Station to a better Tower, and fences anything the m
   # --- observations and hysteresis --------------------------------------------------
 
   Scenario: The streak counts new observations, not passes
-    Given the mobility pass runs more often than the canary
-    When three passes see the same canary sample
+    Given the mobility pass runs more often than the health checks
+    When three passes see the same health-check sample
     Then the streak has advanced once, not three times
     And it advances only when the sample's own timestamp is newer than the last one counted
 
@@ -101,7 +101,7 @@ Feature: Core moves an idle Station to a better Tower, and fences anything the m
     Then the streak for S is zero
 
   Scenario: A stale streak is discarded
-    Given S's last counted observation is older than twice the canary interval
+    Given S's last counted observation is older than twice the health-check interval
     When a new observation arrives
     Then the streak starts again from one
 
