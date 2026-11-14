@@ -28,12 +28,15 @@ const (
 	SourceCanary   = "canary"
 )
 
-// Check is one health-check result.
+// Check is one health-check result. Slot is the canary interval it belongs to (the broker
+// passes At / canaryInterval): the fail streak counts at most one failure per slot, so a hub
+// check and a canary failing in the same sweep are one outage. Record gives each call its own.
 type Check struct {
 	OK     bool
 	At     time.Time
 	Source string
 	RTT    time.Duration
+	Slot   int64
 }
 
 // Rate is the pass rate, 0 with no evidence.
@@ -63,33 +66,39 @@ func dayOf(t time.Time) time.Time {
 }
 
 type latest struct {
-	at     time.Time
-	streak int
-	since  time.Time
-	source string
-	rtt    time.Duration
-	hubAt  time.Time // the latest hub check, which orders the streak
+	at         time.Time
+	streak     int
+	since      time.Time
+	source     string
+	rtt        time.Duration
+	slot       int64 // the latest slot the streak has seen
+	slotFailed bool  // a failure in that slot is already counted
+	seen       bool
 }
 
 // advance folds one result in. The latest-result fields move forward in time over every
-// source; the streak moves forward over hub checks alone, ordered by hubAt, so a canary stamped
-// later can never hide a hub check from it.
+// source. The streak moves forward by slot: a result from an earlier slot never moves it, a
+// pass resets it, and a failure counts once per slot whatever its source.
 func (l latest) advance(c Check) latest {
 	ok, at := c.OK, c.At
 	if l.at.IsZero() || !at.Before(l.at) {
 		l.at, l.source, l.rtt = at, c.Source, c.RTT
 	}
-	if c.Source != SourceHubCheck || (!l.hubAt.IsZero() && at.Before(l.hubAt)) {
-		return l // the streak is hub checks only: one per Tower per interval, never doubled
+	if l.seen && c.Slot < l.slot {
+		return l
 	}
-	l.hubAt = at
+	if !l.seen || c.Slot > l.slot {
+		l.slot, l.slotFailed, l.seen = c.Slot, false, true
+	}
 	switch {
 	case ok:
 		l.streak, l.since = 0, time.Time{}
+	case l.slotFailed:
+		// already counted in this slot
 	case l.streak == 0:
-		l.streak, l.since = 1, at
+		l.streak, l.since, l.slotFailed = 1, at, true
 	default:
-		l.streak++
+		l.streak, l.slotFailed = l.streak+1, true
 	}
 	return l
 }
@@ -106,7 +115,7 @@ func NewMemStore() *MemStore {
 }
 
 func (m *MemStore) Record(towerID string, ok bool, at time.Time) error {
-	return m.RecordCheck(towerID, Check{OK: ok, At: at, Source: SourceHubCheck})
+	return m.RecordCheck(towerID, Check{OK: ok, At: at, Source: SourceHubCheck, Slot: at.UnixNano()})
 }
 
 func (m *MemStore) RecordCheck(towerID string, c Check) error {
@@ -174,11 +183,13 @@ CREATE TABLE IF NOT EXISTS rogerai.tower_health (
     streak_since TIMESTAMPTZ,
     last_source  TEXT NOT NULL DEFAULT '',
     last_rtt_ms  BIGINT NOT NULL DEFAULT 0,
-    last_hub_at  TIMESTAMPTZ
+    last_slot    BIGINT,
+    slot_failed  BOOLEAN NOT NULL DEFAULT false
 );
 ALTER TABLE rogerai.tower_health ADD COLUMN IF NOT EXISTS last_source TEXT NOT NULL DEFAULT '';
 ALTER TABLE rogerai.tower_health ADD COLUMN IF NOT EXISTS last_rtt_ms BIGINT NOT NULL DEFAULT 0;
-ALTER TABLE rogerai.tower_health ADD COLUMN IF NOT EXISTS last_hub_at TIMESTAMPTZ`
+ALTER TABLE rogerai.tower_health ADD COLUMN IF NOT EXISTS last_slot BIGINT;
+ALTER TABLE rogerai.tower_health ADD COLUMN IF NOT EXISTS slot_failed BOOLEAN NOT NULL DEFAULT false`
 
 func NewPGStore(db *sql.DB) (*PGStore, error) {
 	if _, err := db.Exec(schema); err != nil {
@@ -188,7 +199,7 @@ func NewPGStore(db *sql.DB) (*PGStore, error) {
 }
 
 func (p *PGStore) Record(towerID string, ok bool, at time.Time) error {
-	return p.RecordCheck(towerID, Check{OK: ok, At: at, Source: SourceHubCheck})
+	return p.RecordCheck(towerID, Check{OK: ok, At: at, Source: SourceHubCheck, Slot: at.UnixNano()})
 }
 
 func (p *PGStore) RecordCheck(towerID string, c Check) error {
@@ -207,28 +218,30 @@ func (p *PGStore) RecordCheck(towerID string, c Check) error {
 	}
 	// The latest result moves only forward in time, in one statement, so two instances
 	// recording at once cannot interleave a read and a write.
-	// "streak" below: a hub check no older than the last hub check. Only it moves the streak.
+	// The latest-result columns move forward in time; the streak columns move by slot (see
+	// latest.advance), in one statement so two instances cannot interleave a read and a write.
 	_, err := p.db.Exec(`
-        INSERT INTO rogerai.tower_health (tower_id, last_at, fail_streak, streak_since, last_source, last_rtt_ms, last_hub_at)
-        VALUES ($1, $3::timestamptz,
-                CASE WHEN $2::boolean OR $4 <> 'hub_check' THEN 0 ELSE 1 END,
-                CASE WHEN $2::boolean OR $4 <> 'hub_check' THEN NULL ELSE $3::timestamptz END, $4, $5,
-                CASE WHEN $4 = 'hub_check' THEN $3::timestamptz END)
+        INSERT INTO rogerai.tower_health (tower_id, last_at, fail_streak, streak_since, last_source, last_rtt_ms, last_slot, slot_failed)
+        VALUES ($1, $3::timestamptz, CASE WHEN $2::boolean THEN 0 ELSE 1 END,
+                CASE WHEN $2::boolean THEN NULL ELSE $3::timestamptz END, $4, $5, $6, NOT $2::boolean)
         ON CONFLICT (tower_id) DO UPDATE SET
           last_at     = CASE WHEN EXCLUDED.last_at >= tower_health.last_at THEN EXCLUDED.last_at ELSE tower_health.last_at END,
           last_source = CASE WHEN EXCLUDED.last_at >= tower_health.last_at THEN EXCLUDED.last_source ELSE tower_health.last_source END,
           last_rtt_ms = CASE WHEN EXCLUDED.last_at >= tower_health.last_at THEN EXCLUDED.last_rtt_ms ELSE tower_health.last_rtt_ms END,
-          fail_streak = CASE WHEN $4 <> 'hub_check' OR EXCLUDED.last_at < COALESCE(tower_health.last_hub_at, '-infinity')
-                               THEN tower_health.fail_streak
-                             WHEN $2::boolean THEN 0 ELSE tower_health.fail_streak + 1 END,
-          streak_since = CASE WHEN $4 <> 'hub_check' OR EXCLUDED.last_at < COALESCE(tower_health.last_hub_at, '-infinity')
-                                THEN tower_health.streak_since
+          fail_streak = CASE WHEN $6 < COALESCE(tower_health.last_slot, $6) THEN tower_health.fail_streak
+                             WHEN $2::boolean THEN 0
+                             WHEN $6 = tower_health.last_slot AND tower_health.slot_failed THEN tower_health.fail_streak
+                             ELSE tower_health.fail_streak + 1 END,
+          streak_since = CASE WHEN $6 < COALESCE(tower_health.last_slot, $6) THEN tower_health.streak_since
                               WHEN $2::boolean THEN NULL
+                              WHEN $6 = tower_health.last_slot AND tower_health.slot_failed THEN tower_health.streak_since
                               WHEN tower_health.fail_streak = 0 THEN EXCLUDED.last_at
                               ELSE tower_health.streak_since END,
-          last_hub_at = CASE WHEN $4 = 'hub_check' AND EXCLUDED.last_at >= COALESCE(tower_health.last_hub_at, '-infinity')
-                               THEN EXCLUDED.last_at ELSE tower_health.last_hub_at END`,
-		towerID, ok, at.UTC(), c.Source, c.RTT.Milliseconds())
+          slot_failed = CASE WHEN $6 < COALESCE(tower_health.last_slot, $6) THEN tower_health.slot_failed
+                             WHEN $6 > COALESCE(tower_health.last_slot, $6 - 1) THEN NOT $2::boolean
+                             ELSE tower_health.slot_failed OR NOT $2::boolean END,
+          last_slot = GREATEST(COALESCE(tower_health.last_slot, $6), $6)`,
+		towerID, ok, at.UTC(), c.Source, c.RTT.Milliseconds(), c.Slot)
 	return err
 }
 

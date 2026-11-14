@@ -71,7 +71,8 @@ func (b *broker) hubCheck(tw admit.Tower, endpoint, pin string, now time.Time) {
 	// Stamped when the check FINISHED (the pass's time plus how long this check took), so a
 	// slow check never lands as older than a canary that finished before it.
 	done := now.Add(time.Since(start))
-	b.recordHealthCheck(tw.ID, health.Check{OK: reason == "", At: done, Source: health.SourceHubCheck, RTT: rtt})
+	b.recordHealthCheck(tw.ID, health.Check{OK: reason == "", At: done, Source: health.SourceHubCheck, RTT: rtt,
+		Slot: healthSlot(now)})
 	if reason == "" && remote != "" {
 		// Where the hub is, from the address that just proved the Tower's identity - not from
 		// what a name resolved to once, which a Tower controls (placement_locality.feature).
@@ -85,15 +86,20 @@ func (b *broker) hubCheck(tw admit.Tower, endpoint, pin string, now time.Time) {
 // recordTowerHealth files a Station canary's verdict as a health check of the Tower that
 // carried it. A Station's own fault, or an aborted probe, says nothing about the Tower.
 //
-// A canary counts toward the pass rate but not toward the fail streak (health.Store): the hub
-// check, one per Tower per interval, is the streak.
+// It counts toward the fail streak like a hub check, at most once per canary interval with it
+// (health.Check.Slot), so a hub check and a canary failing in the same sweep are one outage.
 func (b *broker) recordTowerHealth(towerID string, outcome reputation.Outcome) {
 	switch outcome {
 	case reputation.CanaryPass, reputation.CanaryFail:
-		b.recordHealthCheck(towerID, health.Check{OK: outcome == reputation.CanaryPass, At: time.Now(),
-			Source: health.SourceCanary})
+		now := time.Now()
+		b.recordHealthCheck(towerID, health.Check{OK: outcome == reputation.CanaryPass, At: now,
+			Source: health.SourceCanary, Slot: healthSlot(now)})
 	}
 }
+
+// healthSlot is the canary interval a check belongs to: the fail streak counts one failure per
+// slot, whatever its source.
+func healthSlot(t time.Time) int64 { return t.UnixNano() / int64(canaryInterval) }
 
 // recordHealthCheck files one health check with its source and round trip.
 func (b *broker) recordHealthCheck(towerID string, c health.Check) {

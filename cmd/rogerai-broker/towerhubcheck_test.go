@@ -138,16 +138,25 @@ func TestAHubCheckIsStampedWhenItFinishes(t *testing.T) {
 // recordHealthResult files one hub-check result, as the hub check does - the tests' way of
 // saying "a health check of this Tower passed or failed at this time".
 func (b *broker) recordHealthResult(towerID string, ok bool, at time.Time) {
-	b.recordHealthCheck(towerID, health.Check{OK: ok, At: at, Source: health.SourceHubCheck})
+	b.recordHealthCheck(towerID, health.Check{OK: ok, At: at, Source: health.SourceHubCheck, Slot: at.UnixNano()})
 }
 
-// A Station canary counts toward the rate but never doubles a fail streak (audit finding).
-func TestACanaryInTheSameSweepDoesNotDoubleAFailure(t *testing.T) {
+// A hub check and a canary failing in the same sweep are one outage (audit finding), and a
+// canary alone in the next interval advances the streak: a failing relay with a live hub is
+// still caught, as the specs define the streak over all health checks.
+func TestOneFailurePerIntervalFromAnySource(t *testing.T) {
 	b, _ := towerTestBroker(t)
-	b.recordHealthResult("tw-1", false, time.Now()) // the hub check
-	b.recordTowerHealth("tw-1", "canary_fail")      // a canary right after it
-	sum, _ := b.tower.health.Summary("tw-1", time.Now().Add(-time.Hour))
+	now := time.Now()
+	b.recordHealthCheck("tw-1", health.Check{OK: false, At: now, Source: health.SourceHubCheck, Slot: healthSlot(now)})
+	b.recordTowerHealth("tw-1", "canary_fail") // the same sweep
+	sum, _ := b.tower.health.Summary("tw-1", now.Add(-time.Hour))
 	require.Equal(t, 1, sum.FailStreak)
 	require.Equal(t, 2, sum.Failed)
 	require.Empty(t, towerEventsOf(t, b, "tw-1", evHealthFailing), "one outage is not health_failing")
+
+	next := now.Add(canaryInterval)
+	b.recordHealthCheck("tw-1", health.Check{OK: false, At: next, Source: health.SourceCanary, Slot: healthSlot(next)})
+	sum, _ = b.tower.health.Summary("tw-1", now.Add(-time.Hour))
+	require.Equal(t, 2, sum.FailStreak, "a canary in the next interval counts")
+	require.Len(t, towerEventsOf(t, b, "tw-1", evHealthFailing), 1)
 }

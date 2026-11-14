@@ -142,39 +142,43 @@ func TestTheLatestCheckKeepsItsSourceAndRoundTrip(t *testing.T) {
 	})
 }
 
-// The fail streak (two in a row demote a Tower and move its Stations) counts hub checks only:
-// a hub check and a Station canary running back to back in one sweep are one outage, not two.
-// Canaries still count toward the pass rate.
-func TestOnlyHubChecksAdvanceTheStreak(t *testing.T) {
+// The fail streak counts every health check - hub checks and Station canaries alike, as the
+// approved specs define it - but at most one failure per Tower per canary interval (a slot), so
+// a hub check and a canary failing in the same sweep are one outage, not two. A pass resets it.
+// Results from an earlier slot than the latest one counted never move it.
+func TestTheStreakCountsOneFailurePerSlotFromAnySource(t *testing.T) {
 	eachStore(t, func(t *testing.T, s Store) {
-		require.NoError(t, s.RecordCheck("tw-1", Check{OK: false, At: day0, Source: SourceHubCheck}))
-		require.NoError(t, s.RecordCheck("tw-1", Check{OK: false, At: day0.Add(time.Second), Source: SourceCanary})) // a canary in the same sweep
+		require.NoError(t, s.RecordCheck("tw-1", Check{OK: false, At: day0, Source: SourceHubCheck, Slot: 100}))
+		require.NoError(t, s.RecordCheck("tw-1", Check{OK: false, At: day0.Add(time.Second), Source: SourceCanary, Slot: 100}))
 		sum, _ := s.Summary("tw-1", day0)
-		require.Equal(t, 1, sum.FailStreak, "one outage")
+		require.Equal(t, 1, sum.FailStreak, "one outage in one slot")
 		require.Equal(t, 2, sum.Failed, "both count toward the rate")
-		require.NoError(t, s.RecordCheck("tw-1", Check{OK: true, At: day0.Add(2 * time.Second), Source: SourceCanary}))
-		sum, _ = s.Summary("tw-1", day0)
-		require.Equal(t, 1, sum.FailStreak, "a passing canary does not reset a hub-check streak either")
-		require.NoError(t, s.RecordCheck("tw-1", Check{OK: false, At: day0.Add(5 * time.Minute), Source: SourceHubCheck}))
+
+		// The next slot's canary alone advances it: a failing relay with a live hub is caught.
+		require.NoError(t, s.RecordCheck("tw-1", Check{OK: false, At: day0.Add(5 * time.Minute), Source: SourceCanary, Slot: 101}))
 		sum, _ = s.Summary("tw-1", day0)
 		require.Equal(t, 2, sum.FailStreak)
+		require.True(t, sum.StreakSince.Equal(day0))
+
+		// A late result from an earlier slot never moves it, whatever its time stamp says.
+		require.NoError(t, s.RecordCheck("tw-1", Check{OK: true, At: day0.Add(10 * time.Minute), Source: SourceHubCheck, Slot: 99}))
+		sum, _ = s.Summary("tw-1", day0)
+		require.Equal(t, 2, sum.FailStreak)
+
+		// A pass in the current slot resets it.
+		require.NoError(t, s.RecordCheck("tw-1", Check{OK: true, At: day0.Add(6 * time.Minute), Source: SourceHubCheck, Slot: 101}))
+		sum, _ = s.Summary("tw-1", day0)
+		require.Zero(t, sum.FailStreak)
+		require.True(t, sum.StreakSince.IsZero())
 	})
 }
 
-// AUDIT FINDING: the streak's forward-in-time guard was shared with canaries, so a canary
-// stamped later than a hub check made the hub check vanish from the streak. The streak is
-// ordered by hub checks alone.
-func TestALaterCanaryNeverHidesAHubCheckFromTheStreak(t *testing.T) {
+// Record (no slot) gives every call its own slot: each result counts on its own.
+func TestRecordGivesEachResultItsOwnSlot(t *testing.T) {
 	eachStore(t, func(t *testing.T, s Store) {
-		require.NoError(t, s.RecordCheck("tw-1", Check{OK: true, At: day0.Add(10 * time.Second), Source: SourceCanary}))
-		require.NoError(t, s.RecordCheck("tw-1", Check{OK: false, At: day0, Source: SourceHubCheck})) // older than the canary
+		require.NoError(t, s.Record("tw-1", false, day0))
+		require.NoError(t, s.Record("tw-1", false, day0.Add(time.Second)))
 		sum, _ := s.Summary("tw-1", day0)
-		require.Equal(t, 1, sum.FailStreak, "the hub check still counts")
-		require.True(t, sum.LastAt.Equal(day0.Add(10*time.Second)), "the latest result is still the canary")
-		require.Equal(t, SourceCanary, sum.LastSource)
-		// An older HUB check than the last hub check is still ignored for the streak.
-		require.NoError(t, s.RecordCheck("tw-1", Check{OK: true, At: day0.Add(-time.Minute), Source: SourceHubCheck}))
-		sum, _ = s.Summary("tw-1", day0)
-		require.Equal(t, 1, sum.FailStreak)
+		require.Equal(t, 2, sum.FailStreak)
 	})
 }
