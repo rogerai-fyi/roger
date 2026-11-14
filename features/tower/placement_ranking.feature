@@ -3,7 +3,10 @@
 # BUILD STATUS: BUILT. internal/towercore/placement/rank.go (Choose, StrictlyBetter), cmd/rogerai-broker/
 # towerplacement.go (candidates, caps, house list, health tier), wired into /tower/edge/attach.
 # Capacity note: Core is not told a node's worker count, so Station capacity is sized on the node
-# default of 4 workers (512 / 4 = 128 Stations per Tower).
+# default of 4 workers (512 / 4 = 128 Stations per Tower). Capacity and stage caps are SOFT under
+# concurrency: two attaches racing can both see room and land one over; the mobility pass moves the
+# newest Stations above a stage cap on its next pass. Only active Towers are candidates (a
+# quarantine Tower takes no Stations until it is approved).
 #
 # Founder request 2026-11-13: implement ideas 1 (pick the Tower by distance) and 2 (house
 # traffic stays on Towers we run; community Towers carry community Stations), "trully and

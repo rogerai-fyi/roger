@@ -3,7 +3,9 @@
 # BUILD STATUS: BUILT. internal/towercore/placement/stage.go (the rules), cmd/rogerai-broker/towerstage.go
 # (stage from the record, sweep, demotion, excusal/incident/ceiling routes, admin and operator views),
 # towerhubcheck.go + internal/towerhub/hubcheck.go (the hub check), internal/towercore/health (evidence),
-# sortband.go (the stage edge weight on the coin).
+# sortband.go (the stage edge weight on the coin). Health checks are counted by whole UTC day, so a
+# day a stage is entered counts in full. A stage is cached for 15 seconds on the request path; a
+# write on the same instance drops the entry at once.
 #
 # Founder request 2026-11-13: idea 4, "earned trust. New Towers carry a small, capped share of
 # traffic and grow as their canary and audit records stay clean", and "draft another message to

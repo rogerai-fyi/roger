@@ -5,6 +5,11 @@
 # (locality on the session and the mirror), station locality in internal/towercore/mobility.
 # One wording difference: a hub that answers with someone else's identity fails the hub check and is
 # moved off by the "tower_failing" trigger, which is how a Tower that cannot prove itself is caught.
+# Added after review: every passing hub check re-measures the hub from the address that just proved
+# the Tower's identity, so a name pointed somewhere else once does not keep its locality. A link/hub
+# conflict drops the bucket as well as the continent (conservative). Residual, stated plainly: a
+# Tower that answers Core's resolver differently from everyone else's, and proves its identity at
+# the address it gives Core, is measured where Core reached it.
 #
 # Founder request 2026-11-13: "1, 2, 3 and 4 are good ideas and we should implement them with
 # rehoming and so on, lets make sure we trully and completely implement these". Idea 1 was
