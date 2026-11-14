@@ -593,6 +593,7 @@ func (b *broker) towerGovSweepOnce(now time.Time) {
 		ids = append(ids, tw.ID)
 		b.sweepLink(tw.ID, now)
 		b.sweepLease(tw, now)
+		b.remeasureTowerLocality(tw.ID)
 	}
 	b.towerAdmitted.refresh(ids)
 	b.flushRefusals()

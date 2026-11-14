@@ -28,6 +28,7 @@ import (
 	"sync"
 	"time"
 
+	"rogerai.fm/roger/v7/internal/towercore/placement"
 	"rogerai.fm/roger/v7/internal/towerhub"
 )
 
@@ -160,6 +161,10 @@ type session struct {
 	// relay is the data plane the Tower advertised in its Hello - address and hub certificate
 	// pin - kept so the fleet projection can stamp both onto routable rows.
 	relay RelayPlane
+	// locality is where Core measured the hub to be (placement_locality.feature), set by
+	// SetLocality once Core has resolved the hub; localityKnown says it has been.
+	locality      placement.Locality
+	localityKnown bool
 }
 
 type head struct {
@@ -352,6 +357,45 @@ func (s *Sessions) RelayPlane(towerID string) (RelayPlane, bool) {
 	return rec.Relay, true
 }
 
+// SetLocality records where Core measured a Tower's hub to be, for the session it measured.
+// An answer for a session that has since been replaced is dropped (false): a new session
+// recomputes from scratch, and no value from an old one survives.
+func (s *Sessions) SetLocality(towerID, sessionID string, l placement.Locality) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.byTower[towerID] != sessionID {
+		return false
+	}
+	sess, ok := s.byID[sessionID]
+	if !ok {
+		return false
+	}
+	sess.locality, sess.localityKnown = l, true
+	s.mirrorPutLocked(towerID, sessionID)
+	return true
+}
+
+// Locality is a Tower's measured locality and whether it has been measured, from this
+// instance's session or else the mirror.
+func (s *Sessions) Locality(towerID string) (placement.Locality, bool) {
+	s.mu.RLock()
+	if id, ok := s.byTower[towerID]; ok {
+		if sess, ok := s.byID[id]; ok && sess.localityKnown {
+			s.mu.RUnlock()
+			return sess.locality, true
+		}
+	}
+	s.mu.RUnlock()
+	if s.cfg.Mirror == nil {
+		return placement.Locality{}, false
+	}
+	rec, there, err := s.cfg.Mirror.Get(towerID)
+	if err != nil || !there || !rec.LocalityKnown {
+		return placement.Locality{}, false
+	}
+	return rec.Locality, true
+}
+
 // Adopt reports whether a session id may be claimed. It exists so a replayed session id is
 // refused explicitly rather than by accident.
 func (s *Sessions) Adopt(sessionID, towerID string) error {
@@ -460,7 +504,7 @@ func (s *Sessions) adoptLocked(sessionID, towerID string) (*session, bool) {
 		return nil, false
 	}
 	sess := &session{towerID: towerID, version: rec.Version, opened: rec.LastSeen,
-		lastSeen: s.now(), relay: rec.Relay}
+		lastSeen: s.now(), relay: rec.Relay, locality: rec.Locality, localityKnown: rec.LocalityKnown}
 	if prev, exists := s.byTower[towerID]; exists {
 		delete(s.byID, prev)
 	}
@@ -482,6 +526,7 @@ func (s *Sessions) mirrorPutLocked(towerID, sessionID string) {
 	}
 	_ = s.cfg.Mirror.Put(towerID, Record{
 		SessionID: sessionID, Version: sess.version, LastSeen: s.now(), Relay: sess.relay,
+		Locality: sess.locality, LocalityKnown: sess.localityKnown,
 	})
 }
 

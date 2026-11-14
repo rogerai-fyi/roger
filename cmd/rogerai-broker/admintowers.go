@@ -141,6 +141,7 @@ func (b *broker) adminTowerDetail(w http.ResponseWriter, r *http.Request) {
 		// newest events, with who did what and why.
 		"connection": towerConnectionView(ts, id),
 		"events":     towerEventsView(ts, id),
+		"locality":   towerLocalityView(ts, id),
 	})
 }
 

@@ -4,6 +4,8 @@ import (
 	"errors"
 	"sync"
 	"time"
+
+	"rogerai.fm/roger/v7/internal/towercore/placement"
 )
 
 // Mirror is the shared view of every instance's live sessions.
@@ -39,6 +41,9 @@ type Record struct {
 	Version   int
 	LastSeen  time.Time
 	Relay     RelayPlane
+	// Locality is the hub's measured locality; LocalityKnown says it has been measured.
+	Locality      placement.Locality
+	LocalityKnown bool
 }
 
 // ErrMirrorDown is a mirror that cannot answer. Callers fall back to what they can

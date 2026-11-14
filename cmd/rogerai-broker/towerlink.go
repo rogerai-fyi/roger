@@ -199,6 +199,9 @@ func (b *broker) towerSessionOpen(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	// Where the hub is (placement_locality.feature): measured off the request path, so a
+	// slow lookup never delays the session.
+	go b.measureTowerLocality(tw.ID, acc.SessionID, hello.RelayEndpoint, clientIP(r))
 
 	// THE DURABLE HEAD DETECTS; IT DOES NOT RESUME. This is the correction the audit forced,
 	// and it matters because the wrong version was worse than useless.
