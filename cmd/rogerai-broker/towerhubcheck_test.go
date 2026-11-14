@@ -122,3 +122,15 @@ func mustCurrent(t *testing.T, b *broker, towerID string) string {
 	require.True(t, ok)
 	return id
 }
+
+// AUDIT FINDING: a slow hub check was stamped with the pass's start time.
+func TestAHubCheckIsStampedWhenItFinishes(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	op := signedInOperator(t, b, "octocat")
+	lt := enrolledTower(t, b, op.login)
+	openWithHub(t, b, srv, lt, realHubFor(t, lt))
+	start := time.Now()
+	b.towerHubCheckOnce(start)
+	sum, _ := b.tower.health.Summary(lt.id, start.Add(-time.Hour))
+	require.True(t, sum.LastAt.After(start), "stamped after the pass began")
+}

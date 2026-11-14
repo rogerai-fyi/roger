@@ -110,6 +110,10 @@ func (b *broker) mobilityPassOnce(now time.Time) {
 	}
 	window := ts.link.Freshness()
 	b.moveMu.Lock()
+	if b.mobilitySince.IsZero() {
+		b.mobilitySince = now
+	}
+	booted := b.mobilitySince
 	if b.absentSince == nil {
 		b.absentSince = map[string]time.Time{}
 	}
@@ -159,6 +163,12 @@ func (b *broker) mobilityPassOnce(now time.Time) {
 				first = now
 				if last, ok := ts.link.LastSeen(tw.ID); ok && last.Add(window).Before(now) {
 					first = last.Add(window)
+				}
+				// Never before this process began looking: an instance that starts after an
+				// outage gives every Tower one full window to reconnect, whatever an old record
+				// says about when it was last heard.
+				if first.Before(booted) {
+					first = booted
 				}
 				b.absentSince[tw.ID] = first
 			}

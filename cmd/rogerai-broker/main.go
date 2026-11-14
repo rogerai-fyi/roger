@@ -202,10 +202,11 @@ type broker struct {
 	stageCache map[string]cachedStage
 	// absentSince is when each Tower's absence from the live set began, as this instance knows
 	// it (towermobility.go), under moveMu.
-	absentSince map[string]time.Time
-	moveMu      sync.Mutex
-	moveStreaks map[string]moveStreak
-	towerObsAt  map[string]time.Time
+	absentSince   map[string]time.Time
+	mobilitySince time.Time // when this process's mobility pass first ran
+	moveMu        sync.Mutex
+	moveStreaks   map[string]moveStreak
+	towerObsAt    map[string]time.Time
 	// hubCheckAt is when this instance last hub-checked each Tower (towerhubcheck.go), under
 	// hubCheckMu.
 	hubCheckMu sync.Mutex

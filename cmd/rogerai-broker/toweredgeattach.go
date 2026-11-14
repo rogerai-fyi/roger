@@ -471,6 +471,11 @@ func (b *broker) towerEdgeAttach(w http.ResponseWriter, r *http.Request) {
 		delete(exclude, mv.From)
 		choice, placedOK = b.placeStationPrefer(ownerPubkey, stationLoc, exclude, "")
 	}
+	if !placedOK && len(exclude) > 0 {
+		// A skip keeps a Station off one Tower for an hour, but never leaves it with none: when
+		// nothing else can take it, the skipped Tower may.
+		choice, placedOK = b.placeStationPrefer(ownerPubkey, stationLoc, nil, "")
+	}
 	if !placedOK {
 		jsonErr(w, http.StatusServiceUnavailable, "no tower can host this node right now - try again shortly")
 		return

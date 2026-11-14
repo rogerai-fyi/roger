@@ -605,3 +605,33 @@ func TestASilentTowerIsGoneOnlyAWindowAfterLeavingTheLiveSet(t *testing.T) {
 	r.b.mobilityPassOnce(last.Add(2*w + 2*time.Second))
 	require.Equal(t, attach.StateDormant, r.attachment(t).State)
 }
+
+// AUDIT FINDING: a fresh process after an outage declared every not-yet-relinked Tower gone on
+// its first pass, from an old record of when it was last heard.
+func TestAFreshInstanceGivesEveryTowerAFullWindow(t *testing.T) {
+	r := newMovingRig(t, false)
+	w := r.b.tower.link.Freshness()
+	last, _ := r.b.tower.link.LastSeen(r.a.id)
+	r.b.tower.link.Close(mustCurrent(t, r.b, r.a.id), r.a.id)
+	// This process starts long after A was last heard.
+	boot := last.Add(3 * w)
+	r.b.moveMu.Lock()
+	r.b.absentSince, r.b.mobilitySince = nil, time.Time{}
+	r.b.moveMu.Unlock()
+	r.b.mobilityPassOnce(boot)
+	r.b.mobilityPassOnce(boot.Add(w / 2))
+	require.True(t, r.attachment(t).Live(), "a new instance waits a full window before calling a Tower gone")
+	r.b.mobilityPassOnce(boot.Add(w + time.Second))
+	require.Equal(t, attach.StateDormant, r.attachment(t).State)
+}
+
+// AUDIT FINDING: the skip could leave a Station with no Tower at all.
+func TestASkippedTowerIsUsedWhenItIsTheOnlyOne(t *testing.T) {
+	r := newMovingRig(t, true)
+	require.NoError(t, r.b.tower.mobility.FinishMove(r.station, r.bTower.id, time.Now().Add(time.Hour)))
+	require.True(t, r.b.startMove(r.attachment(t), "", triggerGone, time.Now()))
+	r.b.tower.link.Close(mustCurrent(t, r.b, r.a.id), r.a.id) // A is gone: B, skipped, is all there is
+	code, tower, raw := r.reattach(t)
+	require.Equal(t, http.StatusOK, code, raw)
+	require.Equal(t, r.bTower.id, tower)
+}

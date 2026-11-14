@@ -54,6 +54,7 @@ func (b *broker) towerHubCheckOnce(now time.Time) {
 }
 
 func (b *broker) hubCheck(tw admit.Tower, endpoint, pin string, now time.Time) {
+	start := time.Now()
 	reason, remote, rtt := "unreachable", "", time.Duration(0)
 	base, hc, err := towerhub.ReachVetted(endpoint, pin, b.canaryVet)
 	if err == nil {
@@ -65,7 +66,10 @@ func (b *broker) hubCheck(tw admit.Tower, endpoint, pin string, now time.Time) {
 			tr.CloseIdleConnections()
 		}
 	}
-	b.recordHealthCheck(tw.ID, health.Check{OK: reason == "", At: now, Source: health.SourceHubCheck, RTT: rtt})
+	// Stamped when the check FINISHED (the pass's time plus how long this check took), so a
+	// slow check never lands as older than a canary that finished before it.
+	done := now.Add(time.Since(start))
+	b.recordHealthCheck(tw.ID, health.Check{OK: reason == "", At: done, Source: health.SourceHubCheck, RTT: rtt})
 	if reason == "" && remote != "" {
 		// Where the hub is, from the address that just proved the Tower's identity - not from
 		// what a name resolved to once, which a Tower controls (placement_locality.feature).

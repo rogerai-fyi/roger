@@ -467,6 +467,8 @@ func (s *mobState) towerAbsent() error {
 	if !s.r.short {
 		return fmt.Errorf("fixture: this scenario needs the short link window")
 	}
+	// This instance has been running since before A went quiet (a pass while A is still live).
+	s.r.b.mobilityPassOnce(s.r.aLastSeen)
 	// B keeps heartbeating; A sends nothing for longer than the freshness window.
 	deadline := s.r.aLastSeen.Add(mobFreshness + 500*time.Millisecond)
 	for time.Now().Before(deadline) {
