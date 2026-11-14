@@ -141,22 +141,33 @@ func (b *broker) recordHealthResult(towerID string, ok bool, at time.Time) {
 	b.recordHealthCheck(towerID, health.Check{OK: ok, At: at, Source: health.SourceHubCheck, Slot: at.UnixNano()})
 }
 
-// A hub check and a canary failing in the same sweep are one outage (audit finding), and a
-// canary alone in the next interval advances the streak: a failing relay with a live hub is
-// still caught, as the specs define the streak over all health checks.
-func TestOneFailurePerIntervalFromAnySource(t *testing.T) {
+// A hub check and a canary failing in the same sweep are one outage (audit finding), even when
+// the sweep straddles a slot boundary; a canary alone in a later sweep advances the streak, so
+// a failing relay with a live hub is still caught.
+func TestOneFailurePerSweepFromAnySource(t *testing.T) {
 	b, _ := towerTestBroker(t)
-	now := time.Now()
-	b.recordHealthCheck("tw-1", health.Check{OK: false, At: now, Source: health.SourceHubCheck, Slot: healthSlot(now)})
-	b.recordTowerHealth("tw-1", "canary_fail") // the same sweep
-	sum, _ := b.tower.health.Summary("tw-1", now.Add(-time.Hour))
+	// A sweep that starts just before a boundary; its canary lands after it.
+	boundary := time.Unix(0, (time.Now().UnixNano()/int64(canaryInterval)+1)*int64(canaryInterval))
+	start := boundary.Add(-time.Second)
+	b.sweepSlot.Store(healthSlot(start))
+	b.recordHealthCheck("tw-1", health.Check{OK: false, At: start, Source: health.SourceHubCheck, Slot: b.slotFor(start)})
+	b.recordTowerHealth("tw-1", "canary_fail") // same sweep, whatever the clock says now
+	b.sweepSlot.Store(0)
+	sum, _ := b.tower.health.Summary("tw-1", start.Add(-time.Hour))
 	require.Equal(t, 1, sum.FailStreak)
 	require.Equal(t, 2, sum.Failed)
 	require.Empty(t, towerEventsOf(t, b, "tw-1", evHealthFailing), "one outage is not health_failing")
 
-	next := now.Add(canaryInterval)
-	b.recordHealthCheck("tw-1", health.Check{OK: false, At: next, Source: health.SourceCanary, Slot: healthSlot(next)})
-	sum, _ = b.tower.health.Summary("tw-1", now.Add(-time.Hour))
-	require.Equal(t, 2, sum.FailStreak, "a canary in the next interval counts")
+	next := start.Add(canaryInterval + time.Minute)
+	b.sweepSlot.Store(healthSlot(next))
+	b.recordTowerHealth("tw-1", "canary_fail")
+	b.sweepSlot.Store(0)
+	sum, _ = b.tower.health.Summary("tw-1", start.Add(-time.Hour))
+	require.Equal(t, 2, sum.FailStreak, "a canary in the next sweep counts")
 	require.Len(t, towerEventsOf(t, b, "tw-1", evHealthFailing), 1)
+}
+
+// recordCheckForTest files a hub check in a slot of its own, so each call counts on its own.
+func recordCheckForTest(s health.Store, towerID string, ok bool, at time.Time) error {
+	return s.RecordCheck(towerID, health.Check{OK: ok, At: at, Source: health.SourceHubCheck, Slot: at.UnixNano()})
 }

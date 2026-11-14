@@ -227,7 +227,7 @@ func (s *prkState) nameOf(id string) string {
 func (s *prkState) setTier(b *broker, id, tier string) error {
 	rec := func(ok bool) error {
 		s.hclock = s.hclock.Add(time.Second)
-		return b.tower.health.Record(id, ok, s.hclock)
+		return recordCheckForTest(b.tower.health, id, ok, s.hclock)
 	}
 	switch tier {
 	case "A":

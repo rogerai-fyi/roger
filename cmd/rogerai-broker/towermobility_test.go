@@ -405,8 +405,8 @@ func TestAReattachThatMissesTheIntendedTowerSaysSo(t *testing.T) {
 func TestOldHealthEvidenceIsReapedByTheHousekeepingSweep(t *testing.T) {
 	b, _ := towerTestBroker(t)
 	old := time.Now().Add(-100 * 24 * time.Hour)
-	require.NoError(t, b.tower.health.Record("tw-1", true, old))
-	require.NoError(t, b.tower.health.Record("tw-1", true, time.Now()))
+	require.NoError(t, recordCheckForTest(b.tower.health, "tw-1", true, old))
+	require.NoError(t, recordCheckForTest(b.tower.health, "tw-1", true, time.Now()))
 	b.towerInviteSweepOnce(time.Now())
 	sum, _ := b.tower.health.Summary("tw-1", old)
 	require.Equal(t, 1, sum.Passed)
@@ -578,13 +578,13 @@ func TestAFailingMoveNeedsAHealthyDestination(t *testing.T) {
 	r := newMovingRig(t, true)
 	now := time.Now()
 	// B fails too.
-	require.NoError(t, r.b.tower.health.Record(r.bTower.id, false, now))
-	require.NoError(t, r.b.tower.health.Record(r.bTower.id, false, now.Add(time.Second)))
+	require.NoError(t, recordCheckForTest(r.b.tower.health, r.bTower.id, false, now))
+	require.NoError(t, recordCheckForTest(r.b.tower.health, r.bTower.id, false, now.Add(time.Second)))
 	r.observe(t, false, now)
 	r.observe(t, false, now.Add(5*time.Minute))
 	require.True(t, r.attachment(t).Live(), "no healthy Tower to go to: it stays")
 	// B recovers: now it moves.
-	require.NoError(t, r.b.tower.health.Record(r.bTower.id, true, now.Add(6*time.Minute)))
+	require.NoError(t, recordCheckForTest(r.b.tower.health, r.bTower.id, true, now.Add(6*time.Minute)))
 	r.observe(t, false, now.Add(7*time.Minute))
 	require.Equal(t, attach.StateDormant, r.attachment(t).State)
 }

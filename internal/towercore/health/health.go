@@ -29,8 +29,8 @@ const (
 )
 
 // Check is one health-check result. Slot is the canary interval it belongs to (the broker
-// passes At / canaryInterval): the fail streak counts at most one failure per slot, so a hub
-// check and a canary failing in the same sweep are one outage. Record gives each call its own.
+// computes it once per sweep): the fail streak counts at most one failure per slot, so a hub
+// check and a canary failing in the same sweep are one outage.
 type Check struct {
 	OK     bool
 	At     time.Time
@@ -52,9 +52,7 @@ func (s Summary) BothLastFailed() bool { return s.FailStreak >= 2 }
 
 // Store records results and answers summaries; every instance shares the PG one.
 type Store interface {
-	// Record files a hub check's result with no round trip; RecordCheck files any check with
-	// its source and round trip.
-	Record(towerID string, ok bool, at time.Time) error
+	// RecordCheck files one check with its source, round trip and slot.
 	RecordCheck(towerID string, c Check) error
 	Summary(towerID string, since time.Time) (Summary, error)
 	Reap(before time.Time) error
@@ -92,7 +90,7 @@ func (l latest) advance(c Check) latest {
 	}
 	switch {
 	case ok:
-		l.streak, l.since = 0, time.Time{}
+		l.streak, l.since, l.slotFailed = 0, time.Time{}, false
 	case l.slotFailed:
 		// already counted in this slot
 	case l.streak == 0:
@@ -112,10 +110,6 @@ type MemStore struct {
 
 func NewMemStore() *MemStore {
 	return &MemStore{days: map[string]map[time.Time][2]int{}, heads: map[string]latest{}}
-}
-
-func (m *MemStore) Record(towerID string, ok bool, at time.Time) error {
-	return m.RecordCheck(towerID, Check{OK: ok, At: at, Source: SourceHubCheck, Slot: at.UnixNano()})
 }
 
 func (m *MemStore) RecordCheck(towerID string, c Check) error {
@@ -198,10 +192,6 @@ func NewPGStore(db *sql.DB) (*PGStore, error) {
 	return &PGStore{db: db}, nil
 }
 
-func (p *PGStore) Record(towerID string, ok bool, at time.Time) error {
-	return p.RecordCheck(towerID, Check{OK: ok, At: at, Source: SourceHubCheck, Slot: at.UnixNano()})
-}
-
 func (p *PGStore) RecordCheck(towerID string, c Check) error {
 	ok, at := c.OK, c.At
 	pass, fail := 0, 1
@@ -238,8 +228,7 @@ func (p *PGStore) RecordCheck(towerID string, c Check) error {
                               WHEN tower_health.fail_streak = 0 THEN EXCLUDED.last_at
                               ELSE tower_health.streak_since END,
           slot_failed = CASE WHEN $6 < COALESCE(tower_health.last_slot, $6) THEN tower_health.slot_failed
-                             WHEN $6 > COALESCE(tower_health.last_slot, $6 - 1) THEN NOT $2::boolean
-                             ELSE tower_health.slot_failed OR NOT $2::boolean END,
+                             ELSE NOT $2::boolean END,
           last_slot = GREATEST(COALESCE(tower_health.last_slot, $6), $6)`,
 		towerID, ok, at.UTC(), c.Source, c.RTT.Milliseconds(), c.Slot)
 	return err

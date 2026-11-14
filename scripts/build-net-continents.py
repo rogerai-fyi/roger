@@ -93,21 +93,23 @@ def main():
             by_cont[cont].append(net)
             n += 1
         print(f"{rir}: {n} blocks", file=sys.stderr)
-    collapsed = {}
-    for cont, nets in sorted(by_cont.items()):
-        v4 = [x for x in nets if x.version == 4]
-        v6 = [x for x in nets if x.version == 6]
-        collapsed[cont] = list(ipaddress.collapse_addresses(v4)) + list(ipaddress.collapse_addresses(v6))
-    # A block the registries place on two continents says nothing reliable about either: it is
-    # left out (an address in it then has no continent) rather than resolved by line order.
+    # A block the registries place on two continents says nothing reliable about either. It is
+    # found BEFORE the per-continent collapse (afterwards it can hide inside a larger block) and
+    # left out, so an address in it has no continent rather than one picked by line order.
     seen = {}
-    for cont, nets in collapsed.items():
+    for cont, nets in by_cont.items():
         for net in nets:
             seen.setdefault(net, set()).add(cont)
     ambiguous = {net for net, conts in seen.items() if len(conts) > 1}
-    lines = [f"{net} {cont}" for cont, nets in sorted(collapsed.items()) for net in nets if net not in ambiguous]
     if ambiguous:
         print(f"left out {len(ambiguous)} blocks listed on more than one continent", file=sys.stderr)
+    lines = []
+    for cont, nets in sorted(by_cont.items()):
+        nets = [x for x in nets if x not in ambiguous]
+        v4 = [x for x in nets if x.version == 4]
+        v6 = [x for x in nets if x.version == 6]
+        for net in list(ipaddress.collapse_addresses(v4)) + list(ipaddress.collapse_addresses(v6)):
+            lines.append(f"{net} {cont}")
     with open(a.out, "w") as f:
         f.write("# network-to-continent table for ROGERAI_NET_CONTINENTS\n")
         f.write("# built by scripts/build-net-continents.py from RIR delegated-extended stats + GeoNames\n")

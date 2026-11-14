@@ -33,7 +33,7 @@ func stageEvents(t *testing.T, b *broker, id string) []admit.Event {
 func passChecks(t *testing.T, b *broker, id string, n int, from time.Time) {
 	t.Helper()
 	for i := 0; i < n; i++ {
-		require.NoError(t, b.tower.health.Record(id, true, from.Add(time.Duration(i)*time.Minute)))
+		require.NoError(t, recordCheckForTest(b.tower.health, id, true, from.Add(time.Duration(i)*time.Minute)))
 	}
 }
 
@@ -289,7 +289,7 @@ func TestTheAdminSeesTheStageAndItsEvidence(t *testing.T) {
 	lt := approvedTower(t, b, srv, "nora", time.Now().Add(-2*24*time.Hour))
 	b.towerGovSweepOnce(time.Now())
 	passChecks(t, b, lt.id, 9, time.Now().Add(-time.Hour))
-	require.NoError(t, b.tower.health.Record(lt.id, false, time.Now()))
+	require.NoError(t, recordCheckForTest(b.tower.health, lt.id, false, time.Now()))
 	d := adminTowerDetailOf(t, srv, lt.id)
 	st := d["trust"].(map[string]any)
 	require.Equal(t, "new", st["stage"])
@@ -408,7 +408,7 @@ func TestHealthFailingIsWrittenOncePerRunEvenIfTheCountSkips(t *testing.T) {
 	b, _ := towerTestBroker(t)
 	now := time.Now()
 	for i := 0; i < 3; i++ {
-		require.NoError(t, b.tower.health.Record("tw-1", false, now.Add(time.Duration(i)*time.Second)))
+		require.NoError(t, recordCheckForTest(b.tower.health, "tw-1", false, now.Add(time.Duration(i)*time.Second)))
 	}
 	b.noteHealthStreak("tw-1") // first seen at three
 	b.noteHealthStreak("tw-1")
@@ -416,9 +416,9 @@ func TestHealthFailingIsWrittenOncePerRunEvenIfTheCountSkips(t *testing.T) {
 	require.False(t, pacedEvent(admit.Event{Kind: evHealthFailing, Actor: admit.ActorSystem}), "a demotion cause is never dropped by the budget")
 
 	// A pass ends the run; the next run is a new event.
-	require.NoError(t, b.tower.health.Record("tw-1", true, now.Add(10*time.Second)))
-	require.NoError(t, b.tower.health.Record("tw-1", false, now.Add(20*time.Second)))
-	require.NoError(t, b.tower.health.Record("tw-1", false, now.Add(30*time.Second)))
+	require.NoError(t, recordCheckForTest(b.tower.health, "tw-1", true, now.Add(10*time.Second)))
+	require.NoError(t, recordCheckForTest(b.tower.health, "tw-1", false, now.Add(20*time.Second)))
+	require.NoError(t, recordCheckForTest(b.tower.health, "tw-1", false, now.Add(30*time.Second)))
 	b.noteHealthStreak("tw-1")
 	require.Len(t, towerEventsOf(t, b, "tw-1", evHealthFailing), 2)
 }

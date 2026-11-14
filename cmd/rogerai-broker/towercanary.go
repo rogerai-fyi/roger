@@ -482,9 +482,14 @@ func (b *broker) towerCanarySweepOnce() {
 	if ts == nil || ts.routable == nil {
 		return
 	}
+	// One slot for the whole sweep: the hub checks and canaries below are one round, and a
+	// failing round counts once toward a Tower's streak even if it straddles a slot boundary.
+	start := time.Now()
+	b.sweepSlot.Store(healthSlot(start))
+	defer b.sweepSlot.Store(0)
 	// The Station-free hub check first: it needs no routable Station, so a listing failure
 	// below must not skip it.
-	b.towerHubCheckOnce(time.Now())
+	b.towerHubCheckOnce(start)
 	towers, err := ts.routable.RoutableTowers(time.Now())
 	if err != nil {
 		log.Printf("canary sweep: could not list routable towers: %v", err)

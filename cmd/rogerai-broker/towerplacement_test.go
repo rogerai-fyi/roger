@@ -109,8 +109,8 @@ func TestPlacementRanksHealthThenLocality(t *testing.T) {
 
 	// EU's last two health checks fail: tier B, and NA (far) wins.
 	now := time.Now()
-	require.NoError(t, b.tower.health.Record(eu.id, false, now.Add(-time.Minute)))
-	require.NoError(t, b.tower.health.Record(eu.id, false, now))
+	require.NoError(t, recordCheckForTest(b.tower.health, eu.id, false, now.Add(-time.Minute)))
+	require.NoError(t, recordCheckForTest(b.tower.health, eu.id, false, now))
 	got, _ = b.placeStation("someone-pubkey", station, nil)
 	require.Equal(t, na.id, got.towerID, "a healthy far Tower beats an unhealthy near one")
 	require.Equal(t, "far", got.detail["class"])

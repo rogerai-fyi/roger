@@ -72,7 +72,7 @@ func (b *broker) hubCheck(tw admit.Tower, endpoint, pin string, now time.Time) {
 	// slow check never lands as older than a canary that finished before it.
 	done := now.Add(time.Since(start))
 	b.recordHealthCheck(tw.ID, health.Check{OK: reason == "", At: done, Source: health.SourceHubCheck, RTT: rtt,
-		Slot: healthSlot(now)})
+		Slot: b.slotFor(now)})
 	if reason == "" && remote != "" {
 		// Where the hub is, from the address that just proved the Tower's identity - not from
 		// what a name resolved to once, which a Tower controls (placement_locality.feature).
@@ -92,9 +92,21 @@ func (b *broker) recordTowerHealth(towerID string, outcome reputation.Outcome) {
 	switch outcome {
 	case reputation.CanaryPass, reputation.CanaryFail:
 		now := time.Now()
+		slot := b.sweepSlot.Load() // the sweep this canary belongs to
+		if slot == 0 {
+			slot = healthSlot(now)
+		}
 		b.recordHealthCheck(towerID, health.Check{OK: outcome == reputation.CanaryPass, At: now,
-			Source: health.SourceCanary, Slot: healthSlot(now)})
+			Source: health.SourceCanary, Slot: slot})
 	}
+}
+
+// slotFor is the current sweep's slot, or now's when no sweep is running.
+func (b *broker) slotFor(now time.Time) int64 {
+	if s := b.sweepSlot.Load(); s != 0 {
+		return s
+	}
+	return healthSlot(now)
 }
 
 // healthSlot is the canary interval a check belongs to: the fail streak counts one failure per
