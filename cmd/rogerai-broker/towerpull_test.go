@@ -592,6 +592,8 @@ func TestPullPayloadsRideTheBulkPoolWithATimeThatFitsTheirSize(t *testing.T) {
 	require.Equal(t, sharedOpTimeout, bulkTimeout(0))
 	require.Greater(t, bulkTimeout(maxPullAnswer), 10*time.Second, "a full answer at 4 MiB/s needs ~11 s")
 	require.Equal(t, bulkOpMax, bulkTimeout(1<<40), "capped")
+	// Audit finding: a parked answer is read in time for the largest one, with room to spare.
+	require.Greater(t, bulkGetTimeout, bulkTimeout(maxPullAnswer), "a full parked answer must fit bulkGet's deadline")
 
 	vs, mr := testValkeyShared(t)
 	require.NotNil(t, vs.bulk, "no bulk pool")

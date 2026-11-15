@@ -1084,9 +1084,11 @@ func serveTowerTenancy(ctx context.Context, cfg Config, at TowerAttachment,
 	// THE TENANCY'S SOCKETS GO WITH THE TENANCY. A pinned link gets a transport of its own (see
 	// towerhub.Reach), and its idle connections are long-poll connections to a hub this node is
 	// about to stop believing in; leaving them pooled would keep an outage's worth of sockets open
-	// against a relay that has been replaced. An UNPINNED link is left alone deliberately: it has
-	// no transport of its own, so it is sharing http.DefaultTransport with the ordinary share's
-	// broker poll, and closing that would reach into a plane this one has no business touching.
+	// against a relay that has been replaced. An unpinned hub given by NAME has one of its own too
+	// (the vetted dial in hubBaseURL) and is closed the same way. An unpinned ADDRESS is left alone
+	// deliberately: it has no transport of its own, so it is sharing http.DefaultTransport with
+	// the ordinary share's broker poll, and closing that would reach into a plane this one has no
+	// business touching.
 	defer func() {
 		if tr, ok := hubHTTP.Transport.(*http.Transport); ok && tr != nil {
 			tr.CloseIdleConnections()

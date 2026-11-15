@@ -95,12 +95,16 @@ func (v *valkeyStore) cacheExists(key string) (bool, error) {
 	return n > 0, nil
 }
 
+// bulkGetTimeout is a bulkGet's deadline: the largest parked answer, plus a megabyte of room for
+// what wraps it.
+var bulkGetTimeout = bulkTimeout(maxPullAnswer + 1<<20)
+
 // bulkGet reads a bulkSet value; it is timed for the largest payload the store holds for pull.
 func (v *valkeyStore) bulkGet(key string) ([]byte, bool, error) {
 	if v == nil || v.rdb == nil {
 		return nil, false, errNoSharedStore
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), bulkTimeout(towerWorkDrainBudget))
+	ctx, cancel := context.WithTimeout(context.Background(), bulkGetTimeout)
 	defer cancel()
 	val, err := v.bulkClient().Get(ctx, cacheKeyPrefix+key).Bytes()
 	if err == redis.Nil {
