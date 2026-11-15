@@ -153,8 +153,8 @@ func TestPGMirrorRoundTripsTheLinkContinent(t *testing.T) {
 	require.True(t, a.SetLinkContinent("tw-1", sess, "AF"))
 	rec, _, err := m.Get("tw-1")
 	require.NoError(t, err)
-	require.Equal(t, "AF", rec.LinkContinent)
+	require.Equal(t, "AF", rec.Link.Continent)
 	all, err := m.All()
 	require.NoError(t, err)
-	require.Equal(t, "AF", all["tw-1"].LinkContinent)
+	require.Equal(t, "AF", all["tw-1"].Link.Continent)
 }

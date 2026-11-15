@@ -1412,11 +1412,11 @@ func (s *plcState) keepsOnlyCoarse() error {
 	if err := plcWant(rec.Locality, placement.Locality{Bucket: "203.0.113.0/24", Continent: "NA"}, "stored Tower locality"); err != nil {
 		return err
 	}
-	if rec.LinkContinent != "NA" {
-		return fmt.Errorf("the stored link cross-check is %q, want the continent NA", rec.LinkContinent)
+	if rec.Link.Continent != "NA" {
+		return fmt.Errorf("the stored link cross-check is %q, want the continent NA", rec.Link.Continent)
 	}
 	for _, full := range []string{"203.0.113.7", "203.0.113.200"} {
-		if strings.Contains(fmt.Sprintf("%+v %s", rec.Locality, rec.LinkContinent), full) {
+		if strings.Contains(fmt.Sprintf("%+v %s", rec.Locality, rec.Link.Continent), full) {
 			return fmt.Errorf("a full address %s is stored as the Tower's location", full)
 		}
 	}
