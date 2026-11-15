@@ -728,7 +728,9 @@ func (s *phpState) placedSameNetwork() error {
 func (s *phpState) nextRequestElsewhere() error {
 	n := s.stash["n"].(*plcNode)
 	n.peer = "203.0.112.50"
-	if code, raw := s.attachNode(n); code != http.StatusOK {
+	// Observed from elsewhere, the Station is not named the private hub again: told to try again
+	// while the mobility pass moves it.
+	if code, raw := s.attachNode(n); code != http.StatusServiceUnavailable || strings.Contains(raw, "192.168.") {
 		return fmt.Errorf("the re-attach answered %d %s", code, raw)
 	}
 	s.movesNow(time.Now())
@@ -1074,4 +1076,37 @@ func TestAnUnknownTowerNetworkMovesNoStation(t *testing.T) {
 	require.True(t, s.b.tower.link.SetLocality(s.id("T"), s.sess["T"], placement.Locality{}))
 	s.movesNow(time.Now())
 	require.Empty(t, s.moved[n.out.StationID], "an unknown Tower network moved a Station")
+}
+
+// Audit finding: a live Station's re-attach answered with its Tower's endpoint unchecked, so a
+// Station that had left a private hub's network was named that hub until the next mobility pass.
+// Off the network it is now moved (left_network) and told to try again, never handed the hub; on
+// the network it is answered as before.
+func TestAReattachFromAnotherNetworkIsNeverHandedThePrivateHub(t *testing.T) {
+	s := &phpState{plcState: &plcState{t: t}, towerPeer: map[string]string{}, moved: map[string]string{}}
+	s.reset()
+	t.Cleanup(s.teardown)
+	s.b.canaryVet = vetPublicIP
+	require.NoError(t, s.openAt("T", "198.51.100.40", "192.168.1.20:8444", phpPin, true))
+	n, code, raw := s.attachFrom("198.51.100.40")
+	require.Equal(t, http.StatusOK, code, raw)
+	require.Equal(t, s.id("T"), n.placedOn)
+
+	code, raw = s.attachNode(n) // the same network again
+	require.Equal(t, http.StatusOK, code, raw)
+	require.Contains(t, raw, "192.168.1.20:8444")
+
+	n.peer = "203.0.113.50" // the Station moved to another network
+	code, raw = s.attachNode(n)
+	require.Equal(t, http.StatusServiceUnavailable, code, raw)
+	require.NotContains(t, raw, "192.168.1.20", "a Station off the network was named the private hub")
+	moves, err := s.b.tower.mobility.Pending()
+	require.NoError(t, err)
+	require.Empty(t, moves, "the attach answer starts no move: the paced mobility pass does")
+	s.b.mobilityPassOnce(time.Now())
+	moves, err = s.b.tower.mobility.Pending()
+	require.NoError(t, err)
+	require.Len(t, moves, 1)
+	require.Equal(t, triggerLeftNetwork, moves[0].Trigger)
+	require.Equal(t, n.out.StationID, moves[0].StationID)
 }

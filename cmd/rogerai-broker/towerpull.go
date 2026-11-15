@@ -286,7 +286,12 @@ func (b *broker) pullAwait(ctx context.Context, id string) (<-chan pullAnswer, f
 			case <-sctx.Done():
 				return
 			}
-			raw, found, gerr := b.shared.cacheGet(pullAnswerKey(id))
+			// The look is cheap and on the hot path; the read, possibly megabytes, is on the bulk
+			// pool and only once there is something to read.
+			if there, eerr := b.shared.cacheExists(pullAnswerKey(id)); eerr != nil || !there {
+				continue
+			}
+			raw, found, gerr := b.shared.bulkGet(pullAnswerKey(id))
 			if gerr != nil || !found {
 				continue
 			}
@@ -434,29 +439,30 @@ func (b *broker) pullUntake(tower string, work []pullWork) {
 	}
 }
 
-// pullHoldSlot reserves one of the Tower's held-pull slots; release frees it.
-func (b *broker) pullHoldSlot(tower string) (release func(), ok bool) {
+// pullHoldSlot reserves one of the Tower's held-pull slots; release frees it. ok is false at the
+// cap; err is Core's own store failing, which is not the Tower's cap.
+func (b *broker) pullHoldSlot(tower string) (release func(), ok bool, err error) {
 	if b.shared != nil {
 		token := randHex(8)
 		now := time.Now()
 		won, err := b.shared.edgeSlotReserve("towerpull:"+tower, token, now.Add(pullHold+10*time.Second), now, pullMaxHeld)
 		if err != nil || !won {
-			return nil, false
+			return nil, false, err
 		}
-		return func() { _ = b.shared.edgeSlotDrop("towerpull:"+tower, token) }, true
+		return func() { _ = b.shared.edgeSlotDrop("towerpull:"+tower, token) }, true, nil
 	}
 	b.pulls.mu.Lock()
 	defer b.pulls.mu.Unlock()
 	b.pulls.init()
 	if b.pulls.held[tower] >= pullMaxHeld {
-		return nil, false
+		return nil, false, nil
 	}
 	b.pulls.held[tower]++
 	return func() {
 		b.pulls.mu.Lock()
 		b.pulls.held[tower]--
 		b.pulls.mu.Unlock()
-	}, true
+	}, true, nil
 }
 
 // towerWorkPull is POST /tower/work/pull: the Tower's held request for work. Signed by the Tower,
@@ -489,7 +495,11 @@ func (b *broker) towerWorkPull(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	b.noteLinkAddr(tw.ID, clientIP(r))
-	release, ok := b.pullHoldSlot(tw.ID)
+	release, ok, err := b.pullHoldSlot(tw.ID)
+	if err != nil {
+		jsonErr(w, http.StatusServiceUnavailable, "work delivery unavailable")
+		return
+	}
 	if !ok {
 		w.Header().Set("Retry-After", "1")
 		jsonErr(w, http.StatusTooManyRequests, fmt.Sprintf("a tower may hold at most %d pulls at once", pullMaxHeld))
@@ -602,7 +612,7 @@ func (b *broker) towerWorkPull(w http.ResponseWriter, r *http.Request) {
 func (b *broker) deliverAnswer(a pullAnswer) error {
 	if b.shared != nil {
 		raw, _ := json.Marshal(a)
-		if err := b.shared.cacheSet(pullAnswerKey(a.ID), raw, pullAnswerTTL); err != nil {
+		if err := b.shared.bulkSet(pullAnswerKey(a.ID), raw, pullAnswerTTL); err != nil {
 			return err
 		}
 		_ = b.shared.busPublishResult(a.ID, []byte{1})

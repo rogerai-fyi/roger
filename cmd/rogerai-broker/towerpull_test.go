@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
+	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 
 	"rogerai.fm/roger/v7/internal/protocol"
@@ -248,6 +249,20 @@ type flakyStore struct {
 	dropNotices  bool         // result notices are lost, as while a subscriber reconnects
 	claimLies    bool         // setIfAbsent writes, then reports a timeout
 	drains       atomic.Int64 // towerWorkDrain calls
+	failSlot     bool         // every held-pull slot reservation fails
+	bulkGets     atomic.Int64 // bulkGet calls
+}
+
+func (f *flakyStore) bulkGet(k string) ([]byte, bool, error) {
+	f.bulkGets.Add(1)
+	return f.valkeyStore.bulkGet(k)
+}
+
+func (f *flakyStore) edgeSlotReserve(account, member string, deadline, now time.Time, limit int) (bool, error) {
+	if f.failSlot {
+		return false, errors.New("i/o timeout")
+	}
+	return f.valkeyStore.edgeSlotReserve(account, member, deadline, now, limit)
 }
 
 func (f *flakyStore) towerWorkDrain(tower string) ([][]byte, error) {
@@ -273,11 +288,11 @@ func (f *flakyStore) busPublishResult(id string, raw []byte) error {
 	return f.valkeyStore.busPublishResult(id, raw)
 }
 
-func (f *flakyStore) cacheSet(k string, v []byte, ttl time.Duration) error {
+func (f *flakyStore) bulkSet(k string, v []byte, ttl time.Duration) error {
 	if f.failCacheSet.Add(-1) >= 0 {
 		return errors.New("i/o timeout")
 	}
-	return f.valkeyStore.cacheSet(k, v, ttl)
+	return f.valkeyStore.bulkSet(k, v, ttl)
 }
 
 func (f *flakyStore) busSubscribeResult(ctx context.Context, id string) (<-chan []byte, func(), error) {
@@ -556,4 +571,86 @@ func TestAClaimWrittenButReportedFailedIsKept(t *testing.T) {
 func take(b *broker, tower string) []pullWork {
 	w, _ := b.pullTake(tower)
 	return w
+}
+
+// Audit finding: a store error reserving a held-pull slot was answered as the Tower's own cap
+// (429 "at most 4 pulls"). Core's failure is said as Core's: 503.
+func TestAStoreErrorHoldingAPullIsCoresNotTheCap(t *testing.T) {
+	b, lt, sess, post := pullTower(t)
+	vs, _ := testValkeyShared(t)
+	b.shared = &flakyStore{valkeyStore: vs, failSlot: true}
+	code, raw := post("/tower/work/pull", map[string]string{"tower_id": lt.id, "session_id": sess})
+	require.Equal(t, http.StatusServiceUnavailable, code, raw)
+	require.Contains(t, raw, "work delivery unavailable")
+}
+
+// Audit finding: pull payloads (sealed requests up to ~21 MiB, answers up to ~42 MiB) went through
+// the hot-path Valkey client, whose sockets give every call 750 ms; the largest timed out and were
+// lost on any store not beside the broker. They ride a small pool of their own whose deadline
+// grows with the payload, and the hot path keeps its 750 ms.
+func TestPullPayloadsRideTheBulkPoolWithATimeThatFitsTheirSize(t *testing.T) {
+	require.Equal(t, sharedOpTimeout, bulkTimeout(0))
+	require.Greater(t, bulkTimeout(maxPullAnswer), 10*time.Second, "a full answer at 4 MiB/s needs ~11 s")
+	require.Equal(t, bulkOpMax, bulkTimeout(1<<40), "capped")
+
+	vs, mr := testValkeyShared(t)
+	require.NotNil(t, vs.bulk, "no bulk pool")
+	o := vs.bulk.(*redis.Client).Options()
+	require.True(t, o.ContextTimeoutEnabled, "the bulk pool's sockets follow each call's deadline")
+	require.GreaterOrEqual(t, o.WriteTimeout, bulkOpMax)
+	require.GreaterOrEqual(t, o.ReadTimeout, bulkOpMax)
+	hot := vs.rdb.(*redis.Client).Options()
+	require.Equal(t, sharedOpTimeout, hot.WriteTimeout, "the hot path keeps its tight bound")
+
+	big := bytes.Repeat([]byte("z"), 8<<20)
+	require.NoError(t, vs.bulkSet("big", big, time.Minute))
+	got, found, err := vs.bulkGet("big")
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, big, got)
+	require.True(t, mr.Exists(cacheKeyPrefix+"big"), "parked under the cache namespace")
+	_, found, err = vs.bulkGet("missing")
+	require.NoError(t, err)
+	require.False(t, found)
+	require.NoError(t, vs.towerWorkPush("tw-b", big, time.Minute))
+	drained, err := vs.towerWorkDrain("tw-b")
+	require.NoError(t, err)
+	require.Equal(t, [][]byte{big}, drained)
+
+	var m memStore
+	require.ErrorIs(t, m.bulkSet("k", nil, time.Minute), errNoSharedStore)
+	_, _, err = m.bulkGet("k")
+	require.ErrorIs(t, err, errNoSharedStore)
+}
+
+// Review finding: every waiting sender read its parked answer on the bulk pool once a second, so
+// those reads competed with multi-megabyte transfers for the pool's few connections. A waiting
+// sender asks the hot path whether the answer is there and reads it on the bulk pool only then.
+func TestAWaitingSenderLooksCheaplyBeforeItReads(t *testing.T) {
+	prev := pullAnswerPoll
+	pullAnswerPoll = 10 * time.Millisecond
+	defer func() { pullAnswerPoll = prev }()
+	b, lt, _, _ := pullTower(t)
+	vs, _ := testValkeyShared(t)
+	fs := &flakyStore{valkeyStore: vs, dropNotices: true}
+	b.shared = fs
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	answers, stop, err := b.pullAwait(ctx, "pw-cheap")
+	require.NoError(t, err)
+	defer stop()
+	time.Sleep(100 * time.Millisecond)
+	require.Zero(t, fs.bulkGets.Load(), "a sender with no answer yet read the bulk pool")
+	require.NoError(t, b.deliverAnswer(pullAnswer{TowerID: lt.id, ID: "pw-cheap", Status: 200}))
+	select {
+	case a := <-answers:
+		require.Equal(t, "pw-cheap", a.ID)
+	case <-ctx.Done():
+		t.Fatal("the parked answer was never read")
+	}
+	require.Equal(t, int64(1), fs.bulkGets.Load())
+	require.GreaterOrEqual(t, bulkPoolSize, 16)
+	var m memStore
+	_, err = m.cacheExists("k")
+	require.ErrorIs(t, err, errNoSharedStore)
 }

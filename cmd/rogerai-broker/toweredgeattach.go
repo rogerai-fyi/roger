@@ -42,6 +42,7 @@ import (
 	"rogerai.fm/roger/v7/internal/towercore/admit"
 	"rogerai.fm/roger/v7/internal/towercore/attach"
 	"rogerai.fm/roger/v7/internal/towercore/link"
+	"rogerai.fm/roger/v7/internal/towercore/placement"
 )
 
 // newHubToken mints the bearer token a self-attached node USED to present to its tower's hub.
@@ -431,7 +432,21 @@ func (b *broker) towerEdgeAttach(w http.ResponseWriter, r *http.Request) {
 		// and asks again, and the operator is told once rather than never.
 		// Where it attaches from, and whether it can hear a nudge, are refreshed on every
 		// attach, this one included (placement_locality.feature).
-		b.recordStationFacts(prior.StationID, b.addrLocality(clientIP(r)), req.Nudge)
+		loc := b.addrLocality(clientIP(r))
+		b.recordStationFacts(prior.StationID, loc, req.Nudge)
+		// A PRIVATE HUB IS NAMED ONLY ON ITS OWN NETWORK, on this answer as on a fresh one
+		// (private_hub_placement.feature). A Station whose known network now differs from the
+		// Tower's known one is told to try again; the network just recorded above is what the
+		// mobility pass moves it on (left_network), under the pacing every move follows. An
+		// unmeasured network on either side is not evidence it left.
+		if ts.link.HubClass(prior.Origin.TowerID) == placement.HubPrivate {
+			if towerLoc, known := ts.link.Locality(prior.Origin.TowerID); known && towerLoc.Home != "" &&
+				loc.Home != "" && !placement.SameHome(loc, towerLoc) {
+				jsonErr(w, http.StatusServiceUnavailable,
+					"this node is no longer on its tower's network and is being moved - try again shortly")
+				return
+			}
+		}
 		plane, has := ts.link.RelayPlane(prior.Origin.TowerID)
 		if !has {
 			jsonErr(w, http.StatusServiceUnavailable,

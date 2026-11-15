@@ -73,9 +73,14 @@ func (v *valkeyStore) bufPush(op, key, bus string, entry, wake []byte, ttl time.
 	if v == nil || v.rdb == nil {
 		return errNoSharedStore
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), busPublishTimeout)
+	return v.bufPushOn(v.rdb, busPublishTimeout, op, key, bus, entry, wake, ttl, maxLen)
+}
+
+// bufPushOn is bufPush on client c, bounded by timeout.
+func (v *valkeyStore) bufPushOn(c redis.UniversalClient, timeout time.Duration, op, key, bus string, entry, wake []byte, ttl time.Duration, maxLen int64) error {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	pipe := v.rdb.TxPipeline()
+	pipe := c.TxPipeline()
 	pipe.RPush(ctx, key, entry)
 	if maxLen > 0 {
 		pipe.LTrim(ctx, key, -maxLen, -1)
@@ -85,7 +90,7 @@ func (v *valkeyStore) bufPush(op, key, bus string, entry, wake []byte, ttl time.
 		v.noteErr(op, err)
 		return err
 	}
-	if err := v.rdb.Publish(ctx, bus, wake).Err(); err != nil {
+	if err := c.Publish(ctx, bus, wake).Err(); err != nil {
 		v.noteErr(op, err) // buffered all the same: the next poll drains it
 	}
 	v.setUp(true)
@@ -97,9 +102,14 @@ func (v *valkeyStore) bufDrain(op, key string) ([][]byte, error) {
 	if v == nil || v.rdb == nil {
 		return nil, errNoSharedStore
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	return v.bufDrainOn(v.rdb, sharedOpTimeout, op, key)
+}
+
+// bufDrainOn is bufDrain on client c, bounded by timeout.
+func (v *valkeyStore) bufDrainOn(c redis.UniversalClient, timeout time.Duration, op, key string) ([][]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	pipe := v.rdb.TxPipeline()
+	pipe := c.TxPipeline()
 	lr := pipe.LRange(ctx, key, 0, -1)
 	pipe.Del(ctx, key)
 	if _, err := pipe.Exec(ctx); err != nil && err != redis.Nil {

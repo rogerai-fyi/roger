@@ -144,12 +144,40 @@ func microsPerDollarPer1M(price float64) int64 {
 // the fact that nothing authenticates the hub's ANSWERS. The second return value exists so the
 // node can still say so, because "unencrypted" remains true of a relay whose operator has not
 // turned TLS on, and the operator is owed the sentence.
+//
+// AN UNPINNED HUB GIVEN BY NAME is dialed through towerhub.ReachVetted: the name's resolved
+// addresses are checked at the socket, every dial, and a private one is refused, because a
+// private hub reaches a Station only with its pin (private_hub_placement.feature). A literal
+// private address without a pin is refused earlier, at attach (privateHubUnpinned).
 func hubBaseURL(endpoint, pin string, hc *http.Client) (base string, client *http.Client, plaintext bool, err error) {
-	base, client, err = towerhub.Reach(endpoint, pin, hc)
+	if pin == "" && hubIsName(endpoint) {
+		base, client, err = towerhub.ReachVetted(endpoint, "", func(ip net.IP) error { return unpinnedHubVet(ip) })
+		if err == nil && hc != nil {
+			client.Timeout = hc.Timeout
+		}
+	} else {
+		base, client, err = towerhub.Reach(endpoint, pin, hc)
+	}
 	if err != nil {
 		return "", nil, false, err
 	}
 	return base, client, pin == "", nil
+}
+
+// hubIsName reports an endpoint whose host is a name rather than an address.
+func hubIsName(endpoint string) bool {
+	host, _, err := net.SplitHostPort(endpoint)
+	return err == nil && net.ParseIP(host) == nil
+}
+
+// unpinnedHubVet refuses a private address (RFC 1918, ULA, CGNAT) for an unpinned hub; loopback
+// is the same-machine rig and passes, as at attach. A variable so a test can stand in for DNS.
+var unpinnedHubVet = func(ip net.IP) error {
+	switch netpriv.Classify(ip) {
+	case netpriv.Private, netpriv.ULA, netpriv.CGNAT:
+		return fmt.Errorf("%s is a private address, and a private hub needs a certificate pin from Roger Core", ip)
+	}
+	return nil
 }
 
 // ErrPrivateShareNeverRelays refuses to put a PRIVATE band on the public relay fabric.
