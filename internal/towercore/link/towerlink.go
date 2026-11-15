@@ -606,6 +606,26 @@ func (s *Sessions) Heartbeat(sessionID, towerID string) error {
 	return nil
 }
 
+// Bound checks that sessionID is the Tower's current, fresh session, adopting it from the
+// shared record as Heartbeat does, but without counting as a heartbeat: no write to the shared
+// record. Pulled work and its answers are bound to the session; liveness stays with heartbeats,
+// so a Tower carrying many jobs does not turn each one into a write to the shared store.
+func (s *Sessions) Bound(sessionID, towerID string) error {
+	if sessionID == "" {
+		return ErrNoSession
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sess, ok := s.byID[sessionID]
+	if !ok {
+		sess, ok = s.adoptLocked(sessionID, towerID)
+	}
+	if !ok || sess.towerID != towerID || !s.freshLocked(sess.lastSeen) {
+		return ErrNoSession
+	}
+	return nil
+}
+
 // adoptLocked recreates a session this instance never held, from the shared record. The
 // session id must match exactly: the record was written by a peer only after the Tower's
 // signed request was authenticated there.

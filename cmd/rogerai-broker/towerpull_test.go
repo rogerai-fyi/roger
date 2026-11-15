@@ -101,3 +101,28 @@ func TestTheLocalClaimsGoWithTheSender(t *testing.T) {
 	defer b.pulls.mu.Unlock()
 	require.Empty(t, b.pulls.claim, "a finished sender leaves no claim behind")
 }
+
+// Work a Tower never received (its pull hung up as the work was handed over) goes back on the
+// queue unclaimed, and the next pull takes it - on one instance and over the shared store.
+func TestWorkAHungUpPullNeverReceivedIsGivenBack(t *testing.T) {
+	for _, shared := range []bool{false, true} {
+		b, lt, _, _ := pullTower(t)
+		if shared {
+			vs, _ := testValkeyShared(t)
+			b.shared = vs
+		}
+		w := pullWork{ID: "pw-back", Method: http.MethodPost, Path: towerhub.PathSubmit,
+			Exp: time.Now().Add(time.Minute).UnixMilli()}
+		require.NoError(t, b.pullQueue(lt.id, w))
+		got := b.pullTake(lt.id)
+		require.Len(t, got, 1)
+		require.Empty(t, b.pullTake(lt.id), "taken work is claimed")
+		b.pullUntake(lt.id, got)
+		again := b.pullTake(lt.id)
+		require.Len(t, again, 1, "shared=%v: the given-back work is taken by the next pull", shared)
+		require.Equal(t, "pw-back", again[0].ID)
+		// Another Tower's give-back cannot release this Tower's claim.
+		b.pullUntake("tw-other", again)
+		require.Empty(t, b.pullTake(lt.id))
+	}
+}

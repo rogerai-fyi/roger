@@ -326,6 +326,24 @@ func (b *broker) pullTake(tower string) []pullWork {
 	return out
 }
 
+// pullUntake releases this Tower's claim on work it never received and queues it again.
+func (b *broker) pullUntake(tower string, work []pullWork) {
+	for _, w := range work {
+		if b.shared != nil {
+			if err := b.shared.delIfEqual("tpull:"+w.ID, tower); err != nil {
+				continue // still claimed: its sender's drive ends it
+			}
+		} else {
+			b.pulls.mu.Lock()
+			if b.pulls.claim[w.ID] == tower {
+				delete(b.pulls.claim, w.ID)
+			}
+			b.pulls.mu.Unlock()
+		}
+		_ = b.pullQueue(tower, w)
+	}
+}
+
 // pullHoldSlot reserves one of the Tower's held-pull slots; release frees it.
 func (b *broker) pullHoldSlot(tower string) (release func(), ok bool) {
 	if b.shared != nil {
@@ -375,8 +393,8 @@ func (b *broker) towerWorkPull(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusForbidden, "pulling work requires a registered Tower's own signed request")
 		return
 	}
-	// The pull is bound to the Tower's live session, and is itself proof the Tower is there.
-	if err := ts.link.Heartbeat(req.SessionID, tw.ID); err != nil {
+	// The pull is bound to the Tower's live session (a check, not a heartbeat: no shared write).
+	if err := ts.link.Bound(req.SessionID, tw.ID); err != nil {
 		jsonErr(w, http.StatusConflict, err.Error())
 		return
 	}
@@ -392,6 +410,12 @@ func (b *broker) towerWorkPull(w http.ResponseWriter, r *http.Request) {
 	answer := func(work []pullWork) {
 		if len(work) == 0 {
 			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		if r.Context().Err() != nil {
+			// The Tower hung up as the work was handed over: give it back, unclaimed, so the next
+			// pull takes it within its deadline instead of the request waiting out its drive.
+			b.pullUntake(tw.ID, work)
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"work": work})
@@ -515,7 +539,7 @@ func (b *broker) towerWorkAnswer(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusForbidden, "answering work requires a registered Tower's own signed request")
 		return
 	}
-	if err := ts.link.Heartbeat(a.SessionID, tw.ID); err != nil {
+	if err := ts.link.Bound(a.SessionID, tw.ID); err != nil {
 		jsonErr(w, http.StatusConflict, err.Error())
 		return
 	}

@@ -34,6 +34,7 @@ import (
 	"time"
 
 	"github.com/cucumber/godog"
+	"github.com/stretchr/testify/require"
 
 	"rogerai.fm/roger/v7/internal/agent"
 	"rogerai.fm/roger/v7/internal/bddrun"
@@ -1056,4 +1057,21 @@ func phpUpstream(t *testing.T) *httptest.Server {
 		_, _ = io.ReadAll(r.Body)
 		fmt.Fprint(w, `{"choices":[{"message":{"content":"pong on the home network"}}],"usage":{"prompt_tokens":3,"completion_tokens":5}}`)
 	}))
+}
+
+// Review finding: a private-hub Tower whose own network is unknown (a mirror error, not yet
+// measured, or a local link address) is not evidence that its Stations left. Only two known
+// networks that differ trigger left_network.
+func TestAnUnknownTowerNetworkMovesNoStation(t *testing.T) {
+	s := &phpState{plcState: &plcState{t: t}, towerPeer: map[string]string{}, moved: map[string]string{}}
+	s.reset()
+	t.Cleanup(s.teardown)
+	s.b.canaryVet = vetPublicIP
+	require.NoError(t, s.openAt("T", "198.51.100.40", "192.168.1.20:8444", phpPin, true))
+	n, code, raw := s.attachFrom("198.51.100.40")
+	require.Equal(t, http.StatusOK, code, raw)
+	require.Equal(t, s.id("T"), n.placedOn)
+	require.True(t, s.b.tower.link.SetLocality(s.id("T"), s.sess["T"], placement.Locality{}))
+	s.movesNow(time.Now())
+	require.Empty(t, s.moved[n.out.StationID], "an unknown Tower network moved a Station")
 }

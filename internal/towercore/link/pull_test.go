@@ -144,3 +144,21 @@ func mustAll(t *testing.T, m Mirror) map[string]Record {
 	require.NoError(t, err)
 	return all
 }
+
+// Bound is Heartbeat's check without its write: a peer adopts the session, the shared record is
+// not touched, and a stale or foreign session is refused.
+func TestBoundChecksTheSessionWithoutWriting(t *testing.T) {
+	m := NewMemMirror()
+	a, b := New(mirrorCfg(m)), New(mirrorCfg(m))
+	sess := openPull(t, a, "tw-1", "")
+	before, _, _ := m.Get("tw-1")
+	require.NoError(t, b.Bound(sess, "tw-1"), "a peer adopts it from the shared record")
+	require.NoError(t, a.Bound(sess, "tw-1"))
+	after, _, _ := m.Get("tw-1")
+	require.Equal(t, before.LastSeen, after.LastSeen, "Bound wrote the shared record")
+	require.ErrorIs(t, a.Bound("", "tw-1"), ErrNoSession)
+	require.ErrorIs(t, a.Bound(sess, "tw-2"), ErrNoSession)
+	require.ErrorIs(t, a.Bound("sess-unknown", "tw-1"), ErrNoSession)
+	a.offset = a.cfg.Freshness * 2
+	require.ErrorIs(t, a.Bound(sess, "tw-1"), ErrNoSession, "a session past its freshness cannot take work")
+}
