@@ -178,10 +178,7 @@ func TestPrivateHubStationBDD(t *testing.T) {
 			sc.Step(`^a private hub address reaches a Station only in Core's signed attach answer$`, s.onlyFromAttach)
 			sc.Step(`^a Station ignores any private hub address from any other source$`, s.ignoresOtherSources)
 		},
-		Options: &godog.Options{Format: "pretty", Strict: true, TestingT: t, Paths: []string{
-			"../../features/tower/private_hub_placement.feature:139",
-			"../../features/tower/private_hub_placement.feature:145",
-		}},
+		Options: &godog.Options{Format: "pretty", Strict: true, TestingT: t, Paths: bddrun.Scenarios("../../features/tower/private_hub_placement.feature", bddrun.Titled(false, "The Station proves the hub before it sends anything", "A Station never dials a private address Core did not hand it"))},
 	}
 	if bddrun.Run(suite) != 0 {
 		t.Fatal("private_hub_placement.feature (Station half) failed")

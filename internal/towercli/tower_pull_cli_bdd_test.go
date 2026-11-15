@@ -217,15 +217,8 @@ func TestTowerPullCLIBDD(t *testing.T) {
 			sc.Step(`^that Stations elsewhere need a public address for now$`, s.saysElsewhereNeedsPublic)
 			sc.Step(`^it does not say the Tower carries nothing$`, s.doesNotSayCarriesNothing)
 		},
-		Options: &godog.Options{Format: "pretty", Strict: true, TestingT: t, Paths: []string{
-			"../../features/tower/tower_pull_dispatch.feature:235",
-			"../../features/tower/tower_pull_dispatch.feature:240",
-			"../../features/tower/tower_pull_dispatch.feature:247",
-			"../../features/tower/private_hub_placement.feature:63",
-			"../../features/tower/private_hub_placement.feature:68",
-			"../../features/tower/private_hub_placement.feature:134",
-			"../../features/tower/private_hub_placement.feature:199",
-		}},
+		Options: &godog.Options{Format: "pretty", Strict: true, TestingT: t, Paths: append(bddrun.Scenarios("../../features/tower/tower_pull_dispatch.feature", bddrun.Titled(false, "The serve command no longer says a Tower with no public address carries nothing", "Tower status says how work reaches the Tower", "The design documents describe what the code does")),
+			bddrun.Scenarios("../../features/tower/private_hub_placement.feature", bddrun.Titled(false, "A loopback hub is never handed to any Station", "A Tower with no hub address at all carries no Stations", "A private hub is handed out only with a TLS pin", "Serve says plainly who this Tower can serve"))...)},
 	}
 	if bddrun.Run(suite) != 0 {
 		t.Fatal("tower_pull_dispatch.feature (operator half) failed")

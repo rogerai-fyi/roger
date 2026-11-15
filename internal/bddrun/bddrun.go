@@ -103,3 +103,37 @@ func selectable(lines []string, n int) bool {
 	}
 	return false
 }
+
+// Scenarios selects scenarios by TITLE rather than by line, so a header edit cannot shift a
+// runner off its scenarios: it returns "file:line" for every Scenario or Scenario Outline whose
+// title keep accepts. A file that cannot be read yields no paths, which Run then refuses as a
+// vacuous run.
+func Scenarios(file string, keep func(title string) bool) []string {
+	raw, err := os.ReadFile(file)
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for i, line := range strings.Split(string(raw), "\n") {
+		t := strings.TrimSpace(line)
+		for _, kw := range []string{"Scenario Outline:", "Scenario:"} {
+			if strings.HasPrefix(t, kw) {
+				if keep(strings.TrimSpace(strings.TrimPrefix(t, kw))) {
+					out = append(out, file+":"+strconv.Itoa(i+1))
+				}
+				break
+			}
+		}
+	}
+	return out
+}
+
+// Titled is a keep function for Scenarios accepting exactly the titles given (or, with
+// except, every title but those).
+func Titled(except bool, titles ...string) func(string) bool {
+	set := map[string]bool{}
+	for _, t := range titles {
+		set[t] = true
+	}
+	return func(t string) bool { return set[t] != except }
+}

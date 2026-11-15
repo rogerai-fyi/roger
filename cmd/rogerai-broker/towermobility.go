@@ -225,13 +225,16 @@ func (b *broker) mobilityTower(tw admit.Tower, live []attach.Attachment, snap []
 	failing := fresh && sum.FailStreak >= 2
 	overCap := b.overStageCap(tw, live, overOwner)
 	private := ts.link.HubClass(tw.ID) == placement.HubPrivate
-	towerLoc, _ := ts.link.Locality(tw.ID)
+	towerLoc, towerKnown := ts.link.Locality(tw.ID)
 
 	for _, at := range live {
 		if private {
 			// Off the Tower's network the hub is unreachable: like a Tower that is gone, there is
 			// no idle to wait for, no streak to build, and no skip to honour.
-			if f, ok, err := ts.mobility.Facts(at.StationID); err == nil && ok && !placement.SameHome(f.Locality, towerLoc) {
+			// Only a KNOWN network on both sides that differs: an unmeasured or unreadable one is
+			// not evidence the Station left.
+			if f, ok, err := ts.mobility.Facts(at.StationID); err == nil && ok && towerKnown &&
+				f.Locality.Home != "" && towerLoc.Home != "" && f.Locality.Home != towerLoc.Home {
 				if pace.allow(tw.ID, "") && b.startMove(at, "", triggerLeftNetwork, now) {
 					pace.note(tw.ID, "")
 				}

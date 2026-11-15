@@ -142,7 +142,7 @@ func (s *phpState) pullFor(name string, hub http.Handler) {
 				go func() {
 					a := towerhub.ServePulled(context.Background(), hub, w, 32<<20)
 					a.TowerID, a.SessionID = lt.id, s.sess[name]
-					signedPostTo(lt, s.srv.URL, "/tower/work/answer", jsonOf(s.t, a), nil, 10*time.Second)
+					signedPostTo(lt, s.srv.URL, "/tower/work/answer?tower_id="+lt.id, jsonOf(s.t, a), nil, 10*time.Second)
 				}()
 			}
 		}
@@ -1019,8 +1019,7 @@ func TestPrivateHubPlacementBDD(t *testing.T) {
 			sc.Step(`^for a private hub, how many Stations are on its network and placed there$`, s.showsCounts)
 		},
 		Options: &godog.Options{Format: "pretty", Strict: true, TestingT: t,
-			Paths: tpdPaths("../../features/tower/private_hub_placement.feature", 41, 58, 63, 68, 74, 80, 84, 92, 106, 112,
-				117, 122, 127, 134, 151, 158, 163, 168, 175, 182, 187, 193, 205)},
+			Paths: bddrun.Scenarios("../../features/tower/private_hub_placement.feature", bddrun.Titled(true, "The Station proves the hub before it sends anything", "A Station never dials a private address Core did not hand it", "Serve says plainly who this Tower can serve"))},
 	}
 	if bddrun.Run(suite) != 0 {
 		t.Fatal("private_hub_placement.feature failed")

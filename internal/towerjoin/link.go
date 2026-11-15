@@ -268,7 +268,10 @@ func towerPostLimit(ctx context.Context, st *tower.State, path string, body []by
 		return 0, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	pub, ts, sig := protocol.SignRequest(identity, http.MethodPost, path, body)
+	// Core verifies the signature over the PATH alone; a query (the answer route's tower_id) rides
+	// beside it and is checked against the signed body.
+	signedPath, _, _ := strings.Cut(path, "?")
+	pub, ts, sig := protocol.SignRequest(identity, http.MethodPost, signedPath, body)
 	req.Header.Set(protocol.HeaderPubkey, pub)
 	req.Header.Set(protocol.HeaderTS, strconv.FormatInt(ts, 10))
 	req.Header.Set(protocol.HeaderSig, sig)

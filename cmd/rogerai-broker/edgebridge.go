@@ -19,6 +19,7 @@ import (
 	"crypto/ed25519"
 	crand "crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"math"
@@ -676,6 +677,11 @@ func (b *broker) driveSealedF(grant dispatch.EdgeGrant, target dispatch.Target, 
 	ctx, cancel := context.WithTimeout(context.Background(), d.timeout)
 	defer cancel()
 	res, err := hc.SubmitJob(ctx, grant.Signed, sealedRaw)
+	if errors.Is(err, errPullUnavailable) {
+		// Core's own store failed the hand-over: not the Tower's fault, and nothing to count.
+		log.Printf("%s: tower %s skipped: %v", d.tag, target.TowerID, err)
+		return nil, "", ""
+	}
 	if isDesignSkip(err) {
 		log.Printf("%s: tower %s endpoint %s skipped at dial: %v", d.tag, target.TowerID, endpoint, err)
 		if d.onDesignSkip != nil {

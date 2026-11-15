@@ -186,7 +186,8 @@ func signedPostTo(lt linkTower, base, path string, body []byte, out any, timeout
 		return 0, err.Error()
 	}
 	req.Header.Set("Content-Type", "application/json")
-	pub, ts, sig := protocol.SignRequest(lt.priv, http.MethodPost, path, body)
+	signed, _, _ := strings.Cut(path, "?")
+	pub, ts, sig := protocol.SignRequest(lt.priv, http.MethodPost, signed, body)
 	req.Header.Set(protocol.HeaderPubkey, pub)
 	req.Header.Set(protocol.HeaderTS, itoa64(ts))
 	req.Header.Set(protocol.HeaderSig, sig)
@@ -344,7 +345,7 @@ func (s *tpdState) serve(inst string, w towerhub.PullWork) {
 
 func (s *tpdState) postAnswer(inst string, lt linkTower, sess string, a towerhub.PullAnswer) (int, string) {
 	a.TowerID, a.SessionID = lt.id, sess
-	return s.signedPost(lt, inst, "/tower/work/answer", jsonOf(s.t, a), nil)
+	return s.signedPost(lt, inst, "/tower/work/answer?tower_id="+lt.id, jsonOf(s.t, a), nil)
 }
 
 // pullNow is one signed pull, held until Core answers.

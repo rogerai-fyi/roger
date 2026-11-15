@@ -56,7 +56,7 @@ func (v *valkeyStore) cancelCapGet(node string) (int64, error) {
 // cancelPush publishes entry to node's held cancel poll; when nobody is listening it is kept on
 // the node's buffer list (TTL ttl) for its next poll.
 func (v *valkeyStore) cancelPush(node string, entry []byte, ttl time.Duration) error {
-	return v.bufPush("cancelPush", cancelBufPrefix+node, busCancelPrefix+node, entry, ttl)
+	return v.bufPush("cancelPush", cancelBufPrefix+node, busCancelPrefix+node, entry, entry, ttl)
 }
 
 // cancelDrain removes and returns every buffered entry for node.
@@ -64,10 +64,10 @@ func (v *valkeyStore) cancelDrain(node string) ([][]byte, error) {
 	return v.bufDrain("cancelDrain", cancelBufPrefix+node)
 }
 
-// bufPush appends entry to the buffer list at key (TTL ttl), then publishes a wake-up on bus.
+// bufPush appends entry to the buffer list at key (TTL ttl), then publishes wake on bus.
 // ALWAYS buffered first: a poll drains the buffer on every wake, so an entry published while a
 // poll was answering another one (still subscribed) is not lost.
-func (v *valkeyStore) bufPush(op, key, bus string, entry []byte, ttl time.Duration) error {
+func (v *valkeyStore) bufPush(op, key, bus string, entry, wake []byte, ttl time.Duration) error {
 	if v == nil || v.rdb == nil {
 		return errNoSharedStore
 	}
@@ -80,7 +80,7 @@ func (v *valkeyStore) bufPush(op, key, bus string, entry []byte, ttl time.Durati
 		v.noteErr(op, err)
 		return err
 	}
-	if err := v.rdb.Publish(ctx, bus, entry).Err(); err != nil {
+	if err := v.rdb.Publish(ctx, bus, wake).Err(); err != nil {
 		v.noteErr(op, err) // buffered all the same: the next poll drains it
 	}
 	v.setUp(true)

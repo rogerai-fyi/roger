@@ -70,6 +70,9 @@ func (b *broker) hubCheck(tw admit.Tower, plane link.RelayPlane, pulls bool, cla
 	start := time.Now()
 	reason, remote, rtt := "", "", time.Duration(0)
 	source := health.SourceHubCheck
+	if pulls && b.shared != nil && !b.shared.healthy() {
+		return // Core's own store is down: a pull check now would blame the Tower for it
+	}
 	if pulls {
 		// Delivered by pull, like any other work for this Tower (tower_pull_dispatch.feature).
 		base, hc := b.pullClient(tw.ID)

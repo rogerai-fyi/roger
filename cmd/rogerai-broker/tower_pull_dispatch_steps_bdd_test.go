@@ -633,7 +633,7 @@ func (s *tpdState) billedOnlyServing() error { return s.notCharged() }
 func (s *tpdState) answerOverCap() error {
 	s.ansCode, s.ansBody = 0, ""
 	big := bytes.Repeat([]byte("x"), maxPullAnswer+1024)
-	code, raw := signedPostTo(s.lt, s.srv["A"].URL, "/tower/work/answer", big, nil, 30*time.Second)
+	code, raw := signedPostTo(s.lt, s.srv["A"].URL, "/tower/work/answer?tower_id="+s.lt.id, big, nil, 30*time.Second)
 	s.ansCode, s.ansBody = code, raw
 	return nil
 }
@@ -1344,20 +1344,11 @@ func TestTowerPullDispatchBDD(t *testing.T) {
 			sc.Step(`^pull delivery uses the same in-process fallback the node poll uses today$`, s.localFallback)
 		},
 		Options: &godog.Options{Format: "pretty", Strict: true, TestingT: t,
-			Paths: tpdPaths("../../features/tower/tower_pull_dispatch.feature", 51, 56, 62, 69, 77, 83, 89, 95, 101, 106,
-				112, 120, 127, 133, 137, 142, 148, 152, 159, 164, 178, 184, 192, 198, 206, 212, 218, 223, 229)},
+			Paths: bddrun.Scenarios("../../features/tower/tower_pull_dispatch.feature", bddrun.Titled(true, "The serve command no longer says a Tower with no public address carries nothing", "Tower status says how work reaches the Tower", "The design documents describe what the code does"))},
 	}
 	if bddrun.Run(suite) != 0 {
 		t.Fatal("tower_pull_dispatch.feature failed")
 	}
-}
-
-func tpdPaths(file string, lines ...int) []string {
-	out := make([]string, 0, len(lines))
-	for _, l := range lines {
-		out = append(out, fmt.Sprintf("%s:%d", file, l))
-	}
-	return out
 }
 
 // rewriteJSON applies f to one base64 field of a hub submit answer.

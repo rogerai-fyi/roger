@@ -18,7 +18,9 @@ const (
 )
 
 func (v *valkeyStore) towerWorkPush(tower string, entry []byte, ttl time.Duration) error {
-	return v.bufPush("towerWorkPush", towerWorkBufPrefix+tower, busTowerWorkPrefix+tower, entry, ttl)
+	// The wake is one byte: a held pull drains the buffer on any wake, and a sealed request can
+	// be megabytes that every subscriber would otherwise be handed and throw away.
+	return v.bufPush("towerWorkPush", towerWorkBufPrefix+tower, busTowerWorkPrefix+tower, entry, []byte{1}, ttl)
 }
 
 func (v *valkeyStore) towerWorkDrain(tower string) ([][]byte, error) {

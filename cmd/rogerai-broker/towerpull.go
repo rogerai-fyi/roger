@@ -20,6 +20,10 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -27,6 +31,8 @@ import (
 	"net/http"
 	"sync"
 	"time"
+
+	"rogerai.fm/roger/v7/internal/protocol"
 
 	"rogerai.fm/roger/v7/internal/towerhub"
 )
@@ -59,6 +65,10 @@ const pullWithdrawn = "!withdrawn"
 
 // errPullNotTaken is work no pull took before the pickup deadline.
 var errPullNotTaken = errors.New("the tower did not pull this work in time")
+
+// errPullUnavailable is Core's own shared store failing mid-hand-over: Core's fault, never a
+// strike against the Tower (driveSealedF treats it as a design skip).
+var errPullUnavailable = errors.New("work delivery is unavailable on Core's side")
 
 // pullWork and pullAnswer are the shared wire shapes (internal/towerhub/pull.go).
 type (
@@ -175,11 +185,11 @@ func (t pullTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	ctx := req.Context()
 	answers, stop, err := b.pullAwait(ctx, work.ID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %v", errPullUnavailable, err)
 	}
 	defer stop()
 	if err := b.pullQueue(t.tower, work); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %v", errPullUnavailable, err)
 	}
 	pickup := time.NewTimer(time.Until(deadline))
 	defer pickup.Stop()
@@ -197,7 +207,7 @@ func (t pullTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		case <-pickup.C:
 			won, cerr := b.pullClaim(work.ID, pullWithdrawn)
 			if cerr != nil {
-				return nil, cerr
+				return nil, fmt.Errorf("%w: %v", errPullUnavailable, cerr)
 			}
 			if won {
 				return nil, errPullNotTaken
@@ -223,6 +233,10 @@ func (b *broker) pullAwait(ctx context.Context, id string) (<-chan pullAnswer, f
 		return ch, func() {
 			b.pulls.mu.Lock()
 			delete(b.pulls.answers, id)
+			// The claims go with the sender: work past its deadline is dropped by its own expiry,
+			// and an answer arriving after this is refused as work never given - it is late.
+			delete(b.pulls.claim, id)
+			delete(b.pulls.claim, "ans:"+id)
 			b.pulls.mu.Unlock()
 		}, nil
 	}
@@ -396,14 +410,16 @@ func (b *broker) towerWorkPull(w http.ResponseWriter, r *http.Request) {
 				answer(nil)
 				return
 			}
-			if work := b.pullTake(tw.ID); len(work) > 0 {
-				answer(work)
-				return
-			}
+			// The wake channel is taken BEFORE the drain, so work queued between the two closes
+			// the channel this pull is about to wait on rather than one nobody holds.
 			b.pulls.mu.Lock()
 			b.pulls.init()
 			ch := b.pulls.wakeCh(tw.ID)
 			b.pulls.mu.Unlock()
+			if work := b.pullTake(tw.ID); len(work) > 0 {
+				answer(work)
+				return
+			}
 			select {
 			case <-ch:
 			case <-hold.C:
@@ -448,6 +464,21 @@ func (b *broker) towerWorkPull(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// towerKeyMatches is the cheap pre-read check: the hex Ed25519 key in pubHex hashes to the key
+// the named Tower was admitted with. Constant time, like towerCallerWhy.
+func (b *broker) towerKeyMatches(towerID, pubHex string) bool {
+	raw, err := hex.DecodeString(pubHex)
+	if err != nil || len(raw) != ed25519.PublicKeySize || towerID == "" || b.tower == nil {
+		return false
+	}
+	tw, ok := b.tower.registry.Get(towerID)
+	if !ok {
+		return false
+	}
+	sum := sha256.Sum256(raw)
+	return subtle.ConstantTimeCompare([]byte(hex.EncodeToString(sum[:])), []byte(tw.KeyHash)) == 1
+}
+
 // towerWorkAnswer is POST /tower/work/answer: the hub's answer to one piece of work the Tower
 // pulled. Accepted once, only from the Tower that took the work, and delivered to whichever
 // instance is waiting. An answer nobody is waiting for any more goes nowhere and bills nothing.
@@ -457,6 +488,12 @@ func (b *broker) towerWorkAnswer(w http.ResponseWriter, r *http.Request) {
 	}
 	ts := b.towerAvailable(w)
 	if ts == nil {
+		return
+	}
+	// WHO BEFORE HOW MUCH: an answer may be ~42 MiB, so the caller's key must be the named
+	// Tower's before a byte of it is buffered. The signature over the body is checked after.
+	if !b.towerKeyMatches(r.URL.Query().Get("tower_id"), r.Header.Get(protocol.HeaderPubkey)) {
+		jsonErr(w, http.StatusForbidden, "answering work requires a registered Tower's own signed request")
 		return
 	}
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxPullAnswer+1))
@@ -474,7 +511,7 @@ func (b *broker) towerWorkAnswer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tw, _, ok := b.towerCaller(r, body, a.TowerID)
-	if !ok {
+	if !ok || a.TowerID != r.URL.Query().Get("tower_id") {
 		jsonErr(w, http.StatusForbidden, "answering work requires a registered Tower's own signed request")
 		return
 	}
@@ -502,6 +539,9 @@ func (b *broker) towerWorkAnswer(w http.ResponseWriter, r *http.Request) {
 	}
 	a.TowerID = tw.ID
 	a.Header = towerhub.PickHeaders(towerhub.HeaderOf(a.Header))
+	if a.Status < 100 || a.Status > 599 {
+		a.Status = http.StatusBadGateway // a Tower's nonsense status is a failure, never a success
+	}
 	if b.shared != nil {
 		raw, _ := json.Marshal(a)
 		_ = b.shared.busPublishResult(a.ID, raw)

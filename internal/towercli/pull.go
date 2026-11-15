@@ -117,12 +117,16 @@ func runPulls(st *tower.State, hub http.Handler, box *sessionBox, out io.Writer,
 				report("")
 				backoff = time.Second
 				for _, w := range work {
-					sem <- struct{}{}
+					select {
+					case sem <- struct{}{}:
+					case <-stop:
+						return
+					}
 					wg.Add(1)
 					go func(w towerhub.PullWork) {
 						defer wg.Done()
 						defer func() { <-sem }()
-						servePulled(st, hub, sid, w, out)
+						servePulled(ctx, st, hub, box, w, out)
 					}(w)
 				}
 			}
@@ -133,12 +137,15 @@ func runPulls(st *tower.State, hub http.Handler, box *sessionBox, out io.Writer,
 
 // servePulled runs one piece of work against the hub and posts the answer, retrying a post that
 // did not reach Core a couple of times: the answer is someone's request.
-func servePulled(st *tower.State, hub http.Handler, sid string, w towerhub.PullWork, out io.Writer) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+//
+// The answer goes on the CURRENT session: a link that re-opened while the work ran has not lost
+// the work, which Core bound to this Tower, not to a session. Work stops with the Tower (ctx).
+func servePulled(ctx context.Context, st *tower.State, hub http.Handler, box *sessionBox, w towerhub.PullWork, out io.Writer) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 	ans := towerhub.ServePulled(ctx, hub, w, maxPulledAnswer)
 	for attempt := 0; attempt < 3; attempt++ {
-		err := answerWorkFn(st, sid, ans)
+		err := answerWorkFn(st, box.get(), ans)
 		if err == nil || !errors.Is(err, towerjoin.ErrUnreachable) {
 			if err != nil {
 				fmt.Fprintf(out, "pull: Core refused the answer to %s: %v\n", w.ID, err)
