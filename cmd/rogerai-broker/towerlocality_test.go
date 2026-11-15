@@ -310,3 +310,16 @@ func TestALinkAddressChangeReMeasuresOnlyARealMove(t *testing.T) {
 	require.Equal(t, b.addrLocality("198.51.100.77"), got, "a new address in the same family is a move")
 	b.noteLinkAddr("tw-unknown", "198.51.100.77") // no session: nothing to do
 }
+
+// awaitHubClassed waits for the asynchronous measurement that classes a Tower's hub after its
+// session opens. Until it lands the hub check skips the Tower and placement does not offer it, by
+// design; a test that checks or attaches straight after opening would otherwise race it.
+func awaitHubClassed(t *testing.T, b *broker, towerID, endpoint string) {
+	t.Helper()
+	host, _, err := net.SplitHostPort(endpoint)
+	if err != nil || net.ParseIP(host) == nil {
+		return // no hub, or a name: nothing a test can wait on
+	}
+	require.Eventually(t, func() bool { return b.tower.link.HubClass(towerID) != placement.HubNone },
+		10*time.Second, 5*time.Millisecond, "the hub at %s was never classed", endpoint)
+}

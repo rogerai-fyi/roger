@@ -137,6 +137,10 @@ func TestJoinAdminSocketBDD(t *testing.T) {
 		ScenarioInitializer: func(sc *godog.ScenarioContext) {
 			sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
 				s.reset()
+				// A config of its own per scenario: the client remembers each Tower's key by
+				// address, and a later scenario's Tower on a reused port would otherwise read as a
+				// Tower whose key changed.
+				t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 				return ctx, nil
 			})
 			sc.Step(`^a standalone Tower directory /srv/lab-tower owned by the user "rt"$`, func() error { return nil })

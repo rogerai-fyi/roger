@@ -125,6 +125,7 @@ func (s *rampState) rampOpen(lt linkTower, endpoint, pin string) (string, error)
 	if code != http.StatusOK {
 		return "", fmt.Errorf("session open: %d %s", code, raw)
 	}
+	awaitHubClassed(s.t, s.b, lt.id, endpoint)
 	return acc.SessionID, nil
 }
 
