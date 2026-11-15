@@ -86,6 +86,8 @@ type broker struct {
 	localPollAt map[string]time.Time
 	// cancels is the job-cancel fallback used ONLY without a shared store (jobcancel.go).
 	cancels cancelLocal
+	// pulls is the single-instance fallback for Tower pull dispatch (towerpull.go).
+	pulls pullLocal
 	// localJobs marks the jobs THIS instance handed to a local poller because the shared store
 	// was down, so their result and stream chunks are read back in memory rather than routed
 	// through the store (storeoutage.go). Per-request and per-instance by nature: the job never

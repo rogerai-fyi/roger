@@ -125,6 +125,9 @@ type towerFacts struct {
 	comm       int // community Stations on this Tower
 	ownerHouse int // house Stations on ALL of this owner's Towers, eligible or not
 	full       bool
+	// private is a hub at a private address: offered only to a Station on the Tower's own
+	// network (private_hub_placement.feature).
+	private bool
 }
 
 // placementSnapshot reads every live Tower's facts once: the candidates for any number of
@@ -171,6 +174,19 @@ func (b *broker) placementSnapshot() []towerFacts {
 		if !has || plane.Endpoint == "" {
 			continue
 		}
+		switch ts.link.HubClass(tw.ID) {
+		case placement.HubPublic:
+		case placement.HubPrivate:
+			// Handed out only by a Tower that pulls (Core cannot dial it) and only with a pin
+			// (the Station proves the hub before it sends anything).
+			if !ts.link.Pulls(tw.ID) || plane.TLSSPKI == "" {
+				continue
+			}
+			f.private = true
+		default:
+			// Loopback, unusable, or not classed yet: never handed to any Station.
+			continue
+		}
 		f.plane = plane
 		f.full = total >= capacity
 		f.cand = placement.Candidate{TowerID: tw.ID, House: b.isHouseOwner(tw.Owner),
@@ -211,6 +227,12 @@ func (b *broker) chooseFrom(snap []towerFacts, owner string, loc placement.Local
 		}
 		c := f.cand
 		c.Class = placement.ClassOf(loc, f.loc)
+		if f.private {
+			if !placement.SameHome(loc, f.loc) {
+				continue // an internet Station is never handed a private address
+			}
+			c.Class = placement.SameNetwork
+		}
 		if !c.House {
 			caps := stageCaps[f.stage]
 			if !houseStation && caps.community >= 0 && f.comm >= caps.community {

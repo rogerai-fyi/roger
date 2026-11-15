@@ -168,6 +168,7 @@ CREATE TABLE IF NOT EXISTS rogerai.station_facts (
     loc_continent TEXT NOT NULL DEFAULT '',
     nudge         BOOLEAN NOT NULL DEFAULT false
 );
+ALTER TABLE rogerai.station_facts ADD COLUMN IF NOT EXISTS loc_home TEXT NOT NULL DEFAULT '';
 CREATE TABLE IF NOT EXISTS rogerai.station_moves (
     station_id  TEXT PRIMARY KEY,
     from_tower  TEXT NOT NULL DEFAULT '',
@@ -190,17 +191,18 @@ func NewPGStore(db *sql.DB) (*PGStore, error) {
 }
 
 func (p *PGStore) PutFacts(id string, f Facts) error {
-	_, err := p.db.Exec(`INSERT INTO rogerai.station_facts (station_id, loc_bucket, loc_continent, nudge)
-        VALUES ($1,$2,$3,$4) ON CONFLICT (station_id) DO UPDATE
-        SET loc_bucket=EXCLUDED.loc_bucket, loc_continent=EXCLUDED.loc_continent, nudge=EXCLUDED.nudge`,
-		id, f.Locality.Bucket, f.Locality.Continent, f.Nudge)
+	_, err := p.db.Exec(`INSERT INTO rogerai.station_facts (station_id, loc_bucket, loc_continent, nudge, loc_home)
+        VALUES ($1,$2,$3,$4,$5) ON CONFLICT (station_id) DO UPDATE
+        SET loc_bucket=EXCLUDED.loc_bucket, loc_continent=EXCLUDED.loc_continent, nudge=EXCLUDED.nudge,
+            loc_home=EXCLUDED.loc_home`,
+		id, f.Locality.Bucket, f.Locality.Continent, f.Nudge, f.Locality.Home)
 	return err
 }
 
 func (p *PGStore) Facts(id string) (Facts, bool, error) {
 	var f Facts
-	err := p.db.QueryRow(`SELECT loc_bucket, loc_continent, nudge FROM rogerai.station_facts WHERE station_id=$1`, id).
-		Scan(&f.Locality.Bucket, &f.Locality.Continent, &f.Nudge)
+	err := p.db.QueryRow(`SELECT loc_bucket, loc_continent, nudge, loc_home FROM rogerai.station_facts WHERE station_id=$1`, id).
+		Scan(&f.Locality.Bucket, &f.Locality.Continent, &f.Nudge, &f.Locality.Home)
 	if err == sql.ErrNoRows {
 		return Facts{}, false, nil
 	}

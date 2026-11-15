@@ -1,7 +1,7 @@
 # APPROVED SPEC - written and founder approved 2026-11-14 ("Approve as written"): every upgraded Tower pulls,
 # "same network" is the same public IPv4 or the same IPv6 /64, numbers accepted (3 s pickup, 4 held
 # pulls, 25 s hold). Changes to an approved scenario need re-approval.
-# BUILD STATUS: NOT BUILT.
+# BUILD STATUS: PARTIAL. Code is in; the executable runners are being written.
 #
 # Founder request 2026-11-14: "i don't want towers that carry nothing, thats useless. also if
 # every tower has to go through our core then that is just adding an extra hop for no reason.

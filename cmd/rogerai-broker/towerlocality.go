@@ -7,6 +7,9 @@ package main
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"log"
 	"net"
 	"sync/atomic"
@@ -28,9 +31,24 @@ func init() {
 	hubResolve.Store(&hubResolver{lookup: net.DefaultResolver.LookupHost, timeout: 2 * time.Second})
 }
 
-// addrLocality is the locality of one observed address.
+// addrLocality is the locality of one observed address. Its same-network key is stored only as
+// a keyed hash (homeTag): two observations still compare equal, and no full address is kept
+// (placement_locality.feature, "Locality is kept coarse and never published").
 func (b *broker) addrLocality(addr string) placement.Locality {
-	return placement.FromAddr(addr, coarseNetBucket, b.netTable.continentOf)
+	l := placement.FromAddr(addr, coarseNetBucket, b.netTable.continentOf)
+	l.Home = b.homeTag(l.Home)
+	return l
+}
+
+// homeTag is the keyed hash of a same-network key ("" stays ""), keyed by a secret every broker
+// instance derives from the same key, so instances agree without any address being stored.
+func (b *broker) homeTag(home string) string {
+	if home == "" {
+		return ""
+	}
+	mac := hmac.New(sha256.New, b.deriveSecret("rogerai home network v1"))
+	mac.Write([]byte(home))
+	return hex.EncodeToString(mac.Sum(nil)[:16])
 }
 
 // measureTowerLocality resolves a Tower's hub endpoint and records its locality on the
@@ -38,20 +56,22 @@ func (b *broker) addrLocality(addr string) placement.Locality {
 // cross-check the continent. A failed lookup records nothing, so the sweep tries again.
 func (b *broker) measureTowerLocality(towerID, sessionID, endpoint, linkAddr string) {
 	ts := b.tower
-	// The link's continent is kept FIRST, before anything can return early: a Tower controls
+	// The link's locality is kept FIRST, before anything can return early: a Tower controls
 	// its own DNS, and a lookup it makes fail must not cost the session its cross-check.
-	linkCont := b.addrLocality(linkAddr).Continent
-	if linkAddr != "" {
-		ts.link.SetLinkContinent(towerID, sessionID, linkCont)
+	linkLoc, linkKnown := b.addrLocality(linkAddr), linkAddr != ""
+	if linkKnown {
+		ts.link.SetLinkLocality(towerID, sessionID, linkLoc)
 	} else {
-		linkCont = ts.link.LinkContinent(towerID) // a retry keeps the session's cross-check
+		linkLoc, linkKnown = ts.link.LinkLocality(towerID) // a retry keeps the session's cross-check
 	}
 	if endpoint == "" {
+		ts.link.SetHubClass(towerID, sessionID, placement.HubNone)
 		ts.link.SetLocality(towerID, sessionID, placement.Locality{})
 		return
 	}
 	host, _, err := net.SplitHostPort(endpoint)
 	if err != nil {
+		ts.link.SetHubClass(towerID, sessionID, placement.HubNone)
 		ts.link.SetLocality(towerID, sessionID, placement.Locality{})
 		return
 	}
@@ -65,12 +85,59 @@ func (b *broker) measureTowerLocality(towerID, sessionID, endpoint, linkAddr str
 			return
 		}
 	}
-	loc, conflict := placement.FromAddrs(addrs, linkCont, coarseNetBucket, b.netTable.continentOf)
+	class := b.hubClassOf(addrs)
+	ts.link.SetHubClass(towerID, sessionID, class)
+	if class != placement.HubPublic {
+		// A private hub's address says nothing about where the Tower is: its location is the
+		// address its link is observed from (private_hub_placement.feature). A loopback or
+		// unusable one is placed nowhere, so it has no location worth recording.
+		if class == placement.HubPrivate && linkKnown {
+			ts.link.SetLocality(towerID, sessionID, linkLoc)
+		} else {
+			ts.link.SetLocality(towerID, sessionID, placement.Locality{})
+		}
+		return
+	}
+	loc, conflict := placement.FromAddrs(addrs, linkLoc.Continent, coarseNetBucket, b.netTable.continentOf)
 	if conflict {
 		hub, _ := placement.FromAddrs(addrs, "", coarseNetBucket, b.netTable.continentOf)
-		log.Printf("tower-locality conflict tower=%s hub=%s link=%s", towerID, hub.Continent, linkCont)
+		log.Printf("tower-locality conflict tower=%s hub=%s link=%s", towerID, hub.Continent, linkLoc.Continent)
 	}
+	loc.Home = "" // a public hub is compared by bucket and continent only
 	ts.link.SetLocality(towerID, sessionID, loc)
+}
+
+// hubClassOf classes a hub's resolved addresses. A broker with no dial vet (canaryVet nil, the
+// permissive posture a test harness runs with) treats any address as one it may dial, exactly
+// as its dials do; production vets with vetPublicIP and classes for real.
+func (b *broker) hubClassOf(addrs []string) placement.HubClass {
+	class := placement.HubClassOf(addrs)
+	if b.canaryVet == nil && class != placement.HubNone {
+		return placement.HubPublic
+	}
+	return class
+}
+
+// noteLinkAddr re-measures a Tower whose link is now observed from a different network: its link
+// locality, and for a private hub its location too (private_hub_placement.feature, "A private-hub
+// Tower whose link address changes is re-measured"). It writes only on a change.
+func (b *broker) noteLinkAddr(towerID, addr string) {
+	ts := b.tower
+	if ts == nil || addr == "" {
+		return
+	}
+	sid, ok := ts.link.Current(towerID)
+	if !ok {
+		return
+	}
+	loc := b.addrLocality(addr)
+	if prev, known := ts.link.LinkLocality(towerID); known && prev == loc {
+		return
+	}
+	ts.link.SetLinkLocality(towerID, sid, loc)
+	if ts.link.HubClass(towerID) == placement.HubPrivate {
+		ts.link.SetLocality(towerID, sid, loc)
+	}
 }
 
 // relocateFromProof re-measures a Tower's hub from the address a passing hub check reached,
@@ -91,6 +158,7 @@ func (b *broker) relocateFromProof(towerID, remote string) {
 		hub := b.addrLocality(host)
 		log.Printf("tower-locality conflict tower=%s hub=%s link=%s", towerID, hub.Continent, linkCont)
 	}
+	loc.Home = "" // a public hub is compared by bucket and continent only
 	if prev, known := ts.link.Locality(towerID); known && prev == loc {
 		return
 	}
@@ -120,4 +188,38 @@ func towerLocalityView(ts *towerSubsystem, towerID string) map[string]any {
 		return map[string]any{"measured": false}
 	}
 	return map[string]any{"measured": true, "continent": loc.Continent, "has_bucket": loc.Bucket != ""}
+}
+
+// towerHubView is what an admin sees of a Tower's hub (private_hub_placement.feature, "Admins see
+// the hub class and the network Core measured"): its class, how work reaches it, whether Core has
+// measured its network - never the network itself - and for a private hub, how many of its
+// Stations are on that network.
+func (b *broker) towerHubView(towerID string) map[string]any {
+	ts := b.tower
+	class := ts.link.HubClass(towerID)
+	loc, measured := ts.link.Locality(towerID)
+	out := map[string]any{"class": class.String(), "pulls": ts.link.Pulls(towerID),
+		"network_measured": measured && (loc.Bucket != "" || loc.Home != "")}
+	if class != placement.HubPrivate {
+		return out
+	}
+	atts, err := ts.stationStore.ByTower(towerID)
+	if err != nil {
+		return out
+	}
+	placed, onNetwork := 0, 0
+	for _, at := range atts {
+		if !at.Live() {
+			continue
+		}
+		placed++
+		if ts.mobility == nil {
+			continue
+		}
+		if f, ok, ferr := ts.mobility.Facts(at.StationID); ferr == nil && ok && placement.SameHome(f.Locality, loc) {
+			onNetwork++
+		}
+	}
+	out["stations_placed"], out["stations_on_network"] = placed, onNetwork
+	return out
 }

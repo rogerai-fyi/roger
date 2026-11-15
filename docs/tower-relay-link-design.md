@@ -8,6 +8,13 @@ This is the design for the part that makes it carry work, written against the al
 approved specs (`inventory_and_routing`, `station_attachment`, `job_and_settlement`,
 `receipt_v2`) rather than inventing a second design beside them.
 
+**Update 2026-11-14.** Jobs now ride this link: a Tower pulls its work over its own outbound
+connection and posts the answer back, so Core never dials a Tower and no Tower needs a public
+address to carry traffic. The hub address only decides which Stations can reach the hub (any
+Station for a public address, the Stations on the Tower's own network for a private one). See
+`features/tower/tower_pull_dispatch.feature`, `features/tower/private_hub_placement.feature` and
+`docs/tower-architecture.md`.
+
 Three requirements shape every decision below, and they pull against each other:
 
 1. **Roger Core stays the authority.** A Tower may transport, aggregate, and report. It may

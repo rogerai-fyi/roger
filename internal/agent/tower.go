@@ -42,8 +42,10 @@ import (
 	"io"
 	"math"
 	randv2 "math/rand/v2"
+	"net"
 	"net/http"
 	"path/filepath"
+	"rogerai.fm/roger/v7/internal/netpriv"
 	"sync"
 	"time"
 
@@ -722,6 +724,13 @@ func AttachTower(cfg Config, priv ed25519.PrivateKey, dir string) (*station.Stat
 	// not a security property. Signed hub polls have not shipped in a tagged release, so
 	// nothing in the field is stranded by this - but a Core older than the fingerprint is, and
 	// the deployment order was already written down: Core, then Towers, then nodes.
+	// A PRIVATE HUB COMES WITH A PIN OR NOT AT ALL (private_hub_placement.feature). A private
+	// address is somewhere on this machine's own network; dialing one without a certificate to
+	// check would hand this node's signed polls to whatever answers there.
+	if privateHubUnpinned(at.Endpoint, at.EndpointTLSSPKI) {
+		return nil, TowerAttachment{}, errors.New("attach named a private hub address with no " +
+			"certificate pin; this node dials a private hub only when it can check what answers")
+	}
 	if at.TowerKeyHash == "" {
 		return nil, TowerAttachment{}, errors.New(
 			"attach answered without the relay's identity fingerprint (tower_key_hash): this node " +
@@ -730,6 +739,28 @@ func AttachTower(cfg Config, priv ed25519.PrivateKey, dir string) (*station.Stat
 				"updated before the towers and nodes that talk to it")
 	}
 	return st, at, nil
+}
+
+// privateHubUnpinned reports a hub endpoint at a private address (RFC 1918, ULA, CGNAT) handed
+// out without a certificate pin. Loopback is a same-machine test rig Core never hands out and is
+// left to the pin rules the hub client already applies.
+func privateHubUnpinned(endpoint, pin string) bool {
+	if pin != "" {
+		return false
+	}
+	host, _, err := net.SplitHostPort(endpoint)
+	if err != nil {
+		return false
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	switch netpriv.Classify(ip) {
+	case netpriv.Private, netpriv.ULA, netpriv.CGNAT:
+		return true
+	}
+	return false
 }
 
 // fetchCoreKeys pins Roger Core's grant-signing key AND its envelope key, from Core itself.

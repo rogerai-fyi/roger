@@ -1,7 +1,7 @@
 # APPROVED SPEC - written and founder approved 2026-11-14 ("Approve as written"): every upgraded Tower pulls,
 # "same network" is the same public IPv4 or the same IPv6 /64, numbers accepted (3 s pickup, 4 held
 # pulls, 25 s hold). Changes to an approved scenario need re-approval.
-# BUILD STATUS: NOT BUILT.
+# BUILD STATUS: PARTIAL. Code is in; the executable runners are being written.
 #
 # Companion to tower_pull_dispatch.feature (change 1 of three, founder request 2026-11-14). That
 # file moves the Core-to-Tower leg onto the Tower's outbound link. This file covers the other

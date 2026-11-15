@@ -176,7 +176,9 @@ func TestNoTableMeansOnlyABucketIsKnown(t *testing.T) {
 
 func TestAStationsLocalityComesFromItsOwnAddress(t *testing.T) {
 	b := &broker{netTable: testNetTable(t)}
-	require.Equal(t, placement.Locality{Bucket: "198.51.100.0/24", Continent: "EU"}, b.addrLocality("198.51.100.20"))
+	require.Equal(t, placement.Locality{Bucket: "198.51.100.0/24", Continent: "EU",
+		Home: b.homeTag("198.51.100.20")}, b.addrLocality("198.51.100.20"))
+	require.NotContains(t, b.addrLocality("198.51.100.20").Home, "198.51.100", "the same-network key is never the address")
 	require.Equal(t, placement.Locality{}, b.addrLocality("192.168.1.5"))
 	require.Equal(t, placement.Locality{}, b.addrLocality("not an address"))
 	require.True(t, strings.HasPrefix(b.addrLocality("2001:db8::5").Bucket, "2001:db8::"))

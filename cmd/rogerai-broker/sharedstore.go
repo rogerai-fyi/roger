@@ -58,6 +58,12 @@ type sharedStore interface {
 	cancelPush(node string, entry []byte, ttl time.Duration) error
 	cancelDrain(node string) ([][]byte, error)
 	cancelSubscribe(ctx context.Context, node string) (<-chan []byte, func(), error)
+	// Tower pull dispatch (towerpull.go, features/tower/tower_pull_dispatch.feature): the
+	// per-Tower work buffer and its wake-up channel, plus a read of a setIfAbsent claim.
+	towerWorkPush(tower string, entry []byte, ttl time.Duration) error
+	towerWorkDrain(tower string) ([][]byte, error)
+	towerWorkSubscribe(ctx context.Context, tower string) (<-chan []byte, func(), error)
+	stringGet(key string) (val string, found bool, err error)
 
 	// Pair cooldowns (paircool.go, contract §14.2): pairCoolExtend raises one (node|model)
 	// field of a payer's cooldown hash to untilMs - atomically, never lowering it - and keeps

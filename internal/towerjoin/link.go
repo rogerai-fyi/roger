@@ -23,6 +23,7 @@ package towerjoin
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -94,7 +95,7 @@ func OpenSession(st *tower.State, head Head, relay link.RelayPlane) (Session, er
 		// Both are integrity properties rather than features, and Core refuses a session
 		// without them: without the first a modified frame is indistinguishable from an
 		// honest one, and without the second Core's traffic would be readable by us.
-		Capabilities:  []string{link.CapIntegrity, link.CapInnerSession},
+		Capabilities:  sessionCaps(relay),
 		HeadRevision:  head.Revision,
 		HeadHash:      head.Hash,
 		RelayEndpoint: relay.Endpoint,
@@ -115,6 +116,17 @@ func OpenSession(st *tower.State, head Head, relay link.RelayPlane) (Session, er
 		Freshness:         time.Duration(acc.FreshnessSeconds) * time.Second,
 		NeedFullInventory: acc.NeedFullInventory,
 	}, nil
+}
+
+// sessionCaps is what this Tower offers: the two mandatory integrity capabilities, plus pull
+// whenever it serves a hub (features/tower/tower_pull_dispatch.feature) - a Tower with a hub
+// takes its work over this link instead of waiting to be dialed.
+func sessionCaps(relay link.RelayPlane) []string {
+	caps := []string{link.CapIntegrity, link.CapInnerSession}
+	if relay.Endpoint != "" {
+		caps = append(caps, link.CapPull)
+	}
+	return caps
 }
 
 // Heartbeat tells Core we are still here. The frame IS the liveness signal; losing one is
@@ -235,6 +247,12 @@ func towerPost(st *tower.State, path string, body []byte, out any) error {
 // "nothing to do" (204) apart from "here is your work" (200). Folding that into towerPost
 // would make every other caller carry a status they have no use for.
 func towerPostStatus(st *tower.State, path string, body []byte, out any, client *http.Client) (int, error) {
+	return towerPostLimit(context.Background(), st, path, body, out, client, 1<<20)
+}
+
+// towerPostLimit is towerPostStatus reading at most limit bytes of the answer: pulled work
+// carries sealed requests far larger than any control-plane reply.
+func towerPostLimit(ctx context.Context, st *tower.State, path string, body []byte, out any, client *http.Client, limit int64) (int, error) {
 	// HubNodes delivers node bearer tokens over this channel and tower<->Core calls delivers
 	// certificate trust - so the transport guard applies to every tower<->Core call, here at
 	// the single entry point (audit M-3).
@@ -245,7 +263,7 @@ func towerPostStatus(st *tower.State, path string, body []byte, out any, client 
 	if err != nil {
 		return 0, fmt.Errorf("this Tower's identity key is unreadable: %w", err)
 	}
-	req, err := http.NewRequest(http.MethodPost, brokerBase()+path, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, brokerBase()+path, bytes.NewReader(body))
 	if err != nil {
 		return 0, err
 	}
@@ -264,7 +282,7 @@ func towerPostStatus(st *tower.State, path string, body []byte, out any, client 
 		return 0, fmt.Errorf("%w: %v", ErrUnreachable, err)
 	}
 	defer resp.Body.Close()
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, limit))
 
 	switch {
 	case resp.StatusCode == http.StatusConflict:

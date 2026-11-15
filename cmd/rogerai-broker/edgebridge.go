@@ -650,18 +650,27 @@ func (b *broker) driveSealedF(grant dispatch.EdgeGrant, target dispatch.Target, 
 		log.Printf("%s: could not encode a submit for tower %s: %v", d.tag, target.TowerID, err)
 		return nil, "", ""
 	}
-	if verr := endpointNotPublic(context.Background(), endpoint, b.canaryVet); verr != nil {
-		log.Printf("%s: tower %s endpoint %s skipped: %v (unreachable by design, not a failure)",
-			d.tag, target.TowerID, endpoint, verr)
-		if d.onDesignSkip != nil {
-			d.onDesignSkip()
+	var base string
+	var httpc *http.Client
+	if ts := b.tower; ts != nil && ts.link.Pulls(target.TowerID) {
+		// THE TOWER PULLS (tower_pull_dispatch.feature): the submit rides its own link, so its
+		// hub's address - public, private or none Core can reach - plays no part here.
+		base, httpc = b.pullClient(target.TowerID)
+	} else {
+		if verr := endpointNotPublic(context.Background(), endpoint, b.canaryVet); verr != nil {
+			log.Printf("%s: tower %s endpoint %s skipped: %v (unreachable by design, not a failure)",
+				d.tag, target.TowerID, endpoint, verr)
+			if d.onDesignSkip != nil {
+				d.onDesignSkip()
+			}
+			return nil, "", ""
 		}
-		return nil, "", ""
-	}
-	base, httpc, err := towerhub.ReachVetted(endpoint, endpointPin, b.canaryVet)
-	if err != nil {
-		log.Printf("%s: tower %s advertises an unusable data plane: %v", d.tag, target.TowerID, err)
-		return nil, reputation.CanaryFail, ""
+		var err error
+		base, httpc, err = towerhub.ReachVetted(endpoint, endpointPin, b.canaryVet)
+		if err != nil {
+			log.Printf("%s: tower %s advertises an unusable data plane: %v", d.tag, target.TowerID, err)
+			return nil, reputation.CanaryFail, ""
+		}
 	}
 	hc := &towerhub.Client{BaseURL: base, HTTP: httpc}
 	ctx, cancel := context.WithTimeout(context.Background(), d.timeout)

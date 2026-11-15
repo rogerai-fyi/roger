@@ -513,9 +513,22 @@ func plcNoAddr(where, text string) error {
 	return nil
 }
 
+// plcWant compares the bucket and continent this spec is about. The same-network key
+// (private_hub_placement.feature) rides along as a keyed tag and must never be an address.
 func plcWant(got, want placement.Locality, what string) error {
-	if got != want {
+	if got.Bucket != want.Bucket || got.Continent != want.Continent {
 		return fmt.Errorf("%s: got %+v, want %+v", what, got, want)
+	}
+	return plcHomeIsTag(got.Home, what)
+}
+
+// plcHomeIsTag fails a same-network key that is anything but empty or a 32-hex keyed tag.
+func plcHomeIsTag(home, what string) error {
+	if home == "" {
+		return nil
+	}
+	if len(home) != 32 || strings.Trim(home, "0123456789abcdef") != "" {
+		return fmt.Errorf("%s: the same-network key %q is not a keyed tag", what, home)
 	}
 	return nil
 }
@@ -1322,7 +1335,7 @@ func (s *plcState) placementNoContinents() error {
 			return fmt.Errorf("broker %d loaded a table that cannot be used", i)
 		}
 		for _, a := range []string{"203.0.113.7", "198.51.100.20", "192.0.2.5", "2001:db8::5", "10.0.0.1"} {
-			if got, want := nb.addrLocality(a), noTable.addrLocality(a); got != want {
+			if got, want := nb.addrLocality(a), noTable.addrLocality(a); got.Bucket != want.Bucket || got.Continent != want.Continent {
 				return fmt.Errorf("broker %d measures %s as %+v, with no table %+v", i, a, got, want)
 			}
 		}
@@ -1401,8 +1414,11 @@ func (s *plcState) storesOrUsesLocation() error {
 
 func (s *plcState) keepsOnlyCoarse() error {
 	for _, typ := range []reflect.Type{reflect.TypeOf(placement.Locality{})} {
-		if typ.NumField() != 2 || typ.Field(0).Name != "Bucket" || typ.Field(1).Name != "Continent" {
-			return fmt.Errorf("a locality holds more than a bucket and a continent: %v", typ)
+		// The bucket and the continent, plus the same-network key a private hub needs, which is
+		// stored only as a keyed tag (checked below), never as an address.
+		if typ.NumField() != 3 || typ.Field(0).Name != "Bucket" || typ.Field(1).Name != "Continent" ||
+			typ.Field(2).Name != "Home" {
+			return fmt.Errorf("a locality holds more than a bucket, a continent and a same-network tag: %v", typ)
 		}
 	}
 	rec, _, err := s.mirror.Get(s.towers["T"].id)
@@ -1416,7 +1432,7 @@ func (s *plcState) keepsOnlyCoarse() error {
 		return fmt.Errorf("the stored link cross-check is %q, want the continent NA", rec.Link.Continent)
 	}
 	for _, full := range []string{"203.0.113.7", "203.0.113.200"} {
-		if strings.Contains(fmt.Sprintf("%+v %s", rec.Locality, rec.Link.Continent), full) {
+		if strings.Contains(fmt.Sprintf("%+v %+v", rec.Locality, rec.Link), full) {
 			return fmt.Errorf("a full address %s is stored as the Tower's location", full)
 		}
 	}

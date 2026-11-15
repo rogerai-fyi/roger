@@ -108,19 +108,8 @@ func (b *broker) towerCallerWhy(r *http.Request, body []byte, claimedID string) 
 	// precisely when a Tower needs its link: it has to heartbeat while it winds down and
 	// then POST /tower/session/close. Refusing it would leave the fleet to age out over the
 	// freshness window instead, which is the outcome the drain exists to avoid.
-	if !towerMayHoldLink(tw) {
-		if time.Now().After(tw.LeaseExpires) {
-			return admit.Tower{}, nil, "lease_lapsed"
-		}
-		return admit.Tower{}, nil, "state_" + string(tw.State)
-	}
-	// CERTIFICATE REVOCATION, enforced here. This deployment authenticates a Tower by its
-	// signed request rather than by a certificate presented at a TLS handshake, so a revoked
-	// certificate would otherwise be inert - the review's finding. The certificate serial is
-	// bound to the Tower at enrollment, so a revoked serial is a per-Tower kill switch that
-	// takes effect on the Tower's very next request, without waiting for its lease to lapse.
-	if ts.ca != nil && ts.ca.SerialRevoked(tw.CertSerial) {
-		return admit.Tower{}, nil, "cert_revoked"
+	if why := b.towerStillEntitled(tw); why != "" {
+		return admit.Tower{}, nil, why
 	}
 	// MUTUAL TLS, the channel-binding half, enforced when the Tower connected over TLS and
 	// presented a client certificate. The signed request above proves possession of the
@@ -139,6 +128,35 @@ func (b *broker) towerCallerWhy(r *http.Request, body []byte, claimedID string) 
 		}
 	}
 	return tw, ed25519.PublicKey(raw), ""
+}
+
+// towerStillEntitled is the entitlement half of towerCallerWhy: "" when Core still wants this
+// Tower here, else the refusal reason. A held pull asks it again before handing anything over.
+func (b *broker) towerStillEntitled(tw admit.Tower) string {
+	if !towerMayHoldLink(tw) {
+		if time.Now().After(tw.LeaseExpires) {
+			return "lease_lapsed"
+		}
+		return "state_" + string(tw.State)
+	}
+	// CERTIFICATE REVOCATION, enforced here. This deployment authenticates a Tower by its
+	// signed request rather than by a certificate presented at a TLS handshake, so a revoked
+	// certificate would otherwise be inert - the review's finding. The certificate serial is
+	// bound to the Tower at enrollment, so a revoked serial is a per-Tower kill switch that
+	// takes effect on the Tower's very next request, without waiting for its lease to lapse.
+	if ts := b.tower; ts != nil && ts.ca != nil && ts.ca.SerialRevoked(tw.CertSerial) {
+		return "cert_revoked"
+	}
+	return ""
+}
+
+// towerEntitled re-reads a Tower from the registry and asks towerStillEntitled.
+func (b *broker) towerEntitled(towerID string) (admit.Tower, string) {
+	tw, ok := b.tower.registry.Get(towerID)
+	if !ok {
+		return admit.Tower{}, "unknown_tower"
+	}
+	return tw, b.towerStillEntitled(tw)
 }
 
 // towerMayHoldLink reports whether a Tower may hold a session and push inventory.
@@ -286,6 +304,7 @@ func (b *broker) towerHeartbeat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	b.noteHeartbeat(tw.ID)
+	b.noteLinkAddr(tw.ID, clientIP(r))
 	// The state rides every heartbeat answer, so the operator's terminal can announce an
 	// approval, a suspension, or a drain within one beat instead of waiting for a restart
 	// or a failed push to reveal it.
@@ -1100,6 +1119,8 @@ func (b *broker) registerTowerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/tower/session", b.towerSessionOpen)             // Tower: open the link
 	mux.HandleFunc("/tower/session/heartbeat", b.towerHeartbeat)     // Tower: still here
 	mux.HandleFunc("/tower/session/close", b.towerSessionClose)      // Tower: orderly drain
+	mux.HandleFunc("/tower/work/pull", b.towerWorkPull)              // Tower: held request for work (pull dispatch)
+	mux.HandleFunc("/tower/work/answer", b.towerWorkAnswer)          // Tower: the hub's answer to pulled work
 	mux.HandleFunc("/tower/inventory", b.towerInventory(false))      // Tower: full signed revision
 	mux.HandleFunc("/tower/inventory/delta", b.towerInventory(true)) // Tower: chained amendment
 
