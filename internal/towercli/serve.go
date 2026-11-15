@@ -582,6 +582,14 @@ func cmdServeJoined(args []string, out io.Writer) error {
 		if note != "" {
 			fmt.Fprintln(out, note)
 		}
+		// Who that address can serve, said the same way as for an address the operator typed.
+		if host, _, herr := net.SplitHostPort(resolved); herr == nil {
+			if ip := net.ParseIP(host); ip != nil {
+				if tier := classifyAdvertised(host, []net.IP{ip}, false); tier != "" && !strings.Contains(note, tier) {
+					fmt.Fprintln(out, tier)
+				}
+			}
+		}
 		if advertisedPrivate(resolved) && !*hubTLSOn && *hubCert == "" {
 			// A private hub is handed to Stations only with a certificate pin, so the hub this
 			// command chose the address for gets one. An operator who typed the address keeps
