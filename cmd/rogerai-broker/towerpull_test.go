@@ -4,10 +4,12 @@ package main
 // scenarios themselves run in tower_pull_dispatch_*_bdd_test.go.
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"testing"
 	"time"
@@ -125,4 +127,43 @@ func TestWorkAHungUpPullNeverReceivedIsGivenBack(t *testing.T) {
 		b.pullUntake("tw-other", again)
 		require.Empty(t, b.pullTake(lt.id))
 	}
+}
+
+// Over the shared store an answer is parked under a key and only a notice is published (a
+// subscriber is cut off past Valkey's output-buffer limit, which would lose the largest answers);
+// the waiting instance reads it and removes it.
+func TestASharedAnswerIsParkedNotPublished(t *testing.T) {
+	b, lt, sess, post := pullTower(t)
+	vs, mr := testValkeyShared(t)
+	b.shared = vs
+	got := make(chan []byte, 1)
+	go func() {
+		base, hc := b.pullClient(lt.id)
+		req, _ := http.NewRequest(http.MethodPost, base+towerhub.PathSubmit, nil)
+		resp, err := hc.Do(req)
+		if err != nil {
+			got <- nil
+			return
+		}
+		body, _ := io.ReadAll(resp.Body)
+		got <- body
+	}()
+	var work []towerhub.PullWork
+	require.Eventually(t, func() bool {
+		c, raw := post("/tower/work/pull", map[string]string{"tower_id": lt.id, "session_id": sess})
+		if c == http.StatusOK {
+			var out struct {
+				Work []towerhub.PullWork `json:"work"`
+			}
+			_ = json.Unmarshal([]byte(raw), &out)
+			work = out.Work
+		}
+		return len(work) == 1
+	}, 5*time.Second, 10*time.Millisecond)
+	big := bytes.Repeat([]byte("a"), 1<<20)
+	code, raw := post("/tower/work/answer?tower_id="+lt.id, towerhub.PullAnswer{TowerID: lt.id, SessionID: sess,
+		ID: work[0].ID, Status: 200, Body: big})
+	require.Equal(t, http.StatusOK, code, raw)
+	require.Equal(t, big, <-got)
+	require.False(t, mr.Exists(cacheKeyPrefix+pullAnswerKey(work[0].ID)), "the parked answer was not removed")
 }

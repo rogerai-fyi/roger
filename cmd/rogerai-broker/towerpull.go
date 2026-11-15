@@ -249,7 +249,12 @@ func (b *broker) pullAwait(ctx context.Context, id string) (<-chan pullAnswer, f
 	out := make(chan pullAnswer, 1)
 	go func() {
 		defer close(out)
-		for raw := range raws {
+		for range raws {
+			raw, found, gerr := b.shared.cacheGet(pullAnswerKey(id))
+			if gerr != nil || !found {
+				continue
+			}
+			_ = b.shared.cacheDel(pullAnswerKey(id))
 			var a pullAnswer
 			if json.Unmarshal(raw, &a) != nil {
 				continue
@@ -263,6 +268,11 @@ func (b *broker) pullAwait(ctx context.Context, id string) (<-chan pullAnswer, f
 	}()
 	return out, func() { unsub(); cancel() }, nil
 }
+
+// pullAnswerTTL bounds how long a parked answer waits for the instance that asked for it.
+const pullAnswerTTL = 2 * time.Minute
+
+func pullAnswerKey(id string) string { return "tpullans-body:" + id }
 
 // pullQueue puts one piece of work on the Tower's buffer and wakes its held pulls.
 func (b *broker) pullQueue(tower string, w pullWork) error {
@@ -567,8 +577,15 @@ func (b *broker) towerWorkAnswer(w http.ResponseWriter, r *http.Request) {
 		a.Status = http.StatusBadGateway // a Tower's nonsense status is a failure, never a success
 	}
 	if b.shared != nil {
+		// THE ANSWER IS PARKED, THE NOTICE IS PUBLISHED. An answer can be tens of megabytes and a
+		// Valkey subscriber is cut off past its output-buffer limit (32 MB by default), which
+		// would lose exactly the largest answers. The waiting instance reads it from the key.
 		raw, _ := json.Marshal(a)
-		_ = b.shared.busPublishResult(a.ID, raw)
+		if err := b.shared.cacheSet(pullAnswerKey(a.ID), raw, pullAnswerTTL); err != nil {
+			jsonErr(w, http.StatusServiceUnavailable, "work delivery unavailable")
+			return
+		}
+		_ = b.shared.busPublishResult(a.ID, []byte{1})
 	} else {
 		b.pulls.mu.Lock()
 		ch := b.pulls.answers[a.ID]
