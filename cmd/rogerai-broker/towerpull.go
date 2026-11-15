@@ -89,6 +89,7 @@ type pullLocal struct {
 	buf     map[string][]pullWork      // tower -> queued work
 	wake    map[string]chan struct{}   // tower -> closed when work is queued
 	claim   map[string]string          // work id -> tower, or pullWithdrawn
+	claimAt map[string]time.Time       // when each claim was made, for pruning
 	answers map[string]chan pullAnswer // work id -> the waiting sender
 	held    map[string]int             // tower -> pulls held
 }
@@ -96,7 +97,7 @@ type pullLocal struct {
 func (p *pullLocal) init() {
 	if p.buf == nil {
 		p.buf, p.wake, p.claim = map[string][]pullWork{}, map[string]chan struct{}{}, map[string]string{}
-		p.answers, p.held = map[string]chan pullAnswer{}, map[string]int{}
+		p.answers, p.held, p.claimAt = map[string]chan pullAnswer{}, map[string]int{}, map[string]time.Time{}
 	}
 }
 
@@ -120,8 +121,20 @@ func (b *broker) pullClaim(id, who string) (bool, error) {
 	if _, taken := b.pulls.claim[id]; taken {
 		return false, nil
 	}
-	b.pulls.claim[id] = who
+	b.pulls.pruneLocked(time.Now())
+	b.pulls.claim[id], b.pulls.claimAt[id] = who, time.Now()
 	return true, nil
+}
+
+// pruneLocked drops claims older than pullClaimTTL, as the shared store's TTL does: long past
+// any work's deadline and any answer's drive, so nothing that could still arrive needs them.
+func (p *pullLocal) pruneLocked(now time.Time) {
+	for id, at := range p.claimAt {
+		if now.Sub(at) > pullClaimTTL {
+			delete(p.claim, id)
+			delete(p.claimAt, id)
+		}
+	}
 }
 
 // pullClaimant is who won work id's claim ("" when nobody has).
@@ -147,7 +160,7 @@ func (b *broker) pullAnsweredOnce(id string) (bool, error) {
 	if b.pulls.claim["ans:"+id] != "" {
 		return false, nil
 	}
-	b.pulls.claim["ans:"+id] = "1"
+	b.pulls.claim["ans:"+id], b.pulls.claimAt["ans:"+id] = "1", time.Now()
 	return true, nil
 }
 
@@ -202,6 +215,9 @@ func (t pullTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 			if a.TowerID != t.tower || a.ID != work.ID {
 				continue // not this Tower's answer to this work: never trusted
 			}
+			if a.Status == 0 {
+				return nil, errPullNotTaken // handed over to a pull that hung up, too late to retake
+			}
 			return &http.Response{StatusCode: a.Status, Header: towerhub.HeaderOf(a.Header), Request: req,
 				Body: io.NopCloser(bytes.NewReader(a.Body)), ContentLength: int64(len(a.Body))}, nil
 		case <-pickup.C:
@@ -233,10 +249,6 @@ func (b *broker) pullAwait(ctx context.Context, id string) (<-chan pullAnswer, f
 		return ch, func() {
 			b.pulls.mu.Lock()
 			delete(b.pulls.answers, id)
-			// The claims go with the sender: work past its deadline is dropped by its own expiry,
-			// and an answer arriving after this is refused as work never given - it is late.
-			delete(b.pulls.claim, id)
-			delete(b.pulls.claim, "ans:"+id)
 			b.pulls.mu.Unlock()
 		}, nil
 	}
@@ -337,16 +349,27 @@ func (b *broker) pullTake(tower string) []pullWork {
 }
 
 // pullUntake releases this Tower's claim on work it never received and queues it again.
+//
+// Work already past its pickup deadline cannot be taken again, and its sender lost the withdraw
+// race to this Tower's claim: it is told the work was not taken (Status 0), so it fails over now
+// rather than waiting out its whole drive.
 func (b *broker) pullUntake(tower string, work []pullWork) {
+	now := time.Now().UnixMilli()
 	for _, w := range work {
+		if w.Exp <= now {
+			b.deliverAnswer(pullAnswer{TowerID: tower, ID: w.ID})
+			continue
+		}
 		if b.shared != nil {
 			if err := b.shared.delIfEqual("tpull:"+w.ID, tower); err != nil {
 				continue // still claimed: its sender's drive ends it
 			}
 		} else {
 			b.pulls.mu.Lock()
+			b.pulls.init()
 			if b.pulls.claim[w.ID] == tower {
 				delete(b.pulls.claim, w.ID)
+				delete(b.pulls.claimAt, w.ID)
 			}
 			b.pulls.mu.Unlock()
 		}
@@ -498,6 +521,31 @@ func (b *broker) towerWorkPull(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// deliverAnswer hands an answer to whichever instance is waiting for it. Over the shared store
+// the answer is PARKED under a key and only a notice is published: an answer can be tens of
+// megabytes and a Valkey subscriber is cut off past its output-buffer limit (32 MB by default),
+// which would lose exactly the largest answers.
+func (b *broker) deliverAnswer(a pullAnswer) error {
+	if b.shared != nil {
+		raw, _ := json.Marshal(a)
+		if err := b.shared.cacheSet(pullAnswerKey(a.ID), raw, pullAnswerTTL); err != nil {
+			return err
+		}
+		_ = b.shared.busPublishResult(a.ID, []byte{1})
+		return nil
+	}
+	b.pulls.mu.Lock()
+	ch := b.pulls.answers[a.ID]
+	b.pulls.mu.Unlock()
+	if ch != nil {
+		select {
+		case ch <- a:
+		default:
+		}
+	}
+	return nil
+}
+
 // towerKeyMatches is the cheap pre-read check: the hex Ed25519 key in pubHex hashes to the key
 // the named Tower was admitted with. Constant time, like towerCallerWhy.
 func (b *broker) towerKeyMatches(towerID, pubHex string) bool {
@@ -576,26 +624,9 @@ func (b *broker) towerWorkAnswer(w http.ResponseWriter, r *http.Request) {
 	if a.Status < 100 || a.Status > 599 {
 		a.Status = http.StatusBadGateway // a Tower's nonsense status is a failure, never a success
 	}
-	if b.shared != nil {
-		// THE ANSWER IS PARKED, THE NOTICE IS PUBLISHED. An answer can be tens of megabytes and a
-		// Valkey subscriber is cut off past its output-buffer limit (32 MB by default), which
-		// would lose exactly the largest answers. The waiting instance reads it from the key.
-		raw, _ := json.Marshal(a)
-		if err := b.shared.cacheSet(pullAnswerKey(a.ID), raw, pullAnswerTTL); err != nil {
-			jsonErr(w, http.StatusServiceUnavailable, "work delivery unavailable")
-			return
-		}
-		_ = b.shared.busPublishResult(a.ID, []byte{1})
-	} else {
-		b.pulls.mu.Lock()
-		ch := b.pulls.answers[a.ID]
-		b.pulls.mu.Unlock()
-		if ch != nil {
-			select {
-			case ch <- a:
-			default:
-			}
-		}
+	if err := b.deliverAnswer(a); err != nil {
+		jsonErr(w, http.StatusServiceUnavailable, "work delivery unavailable")
+		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }

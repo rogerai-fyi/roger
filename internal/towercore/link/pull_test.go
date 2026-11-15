@@ -162,3 +162,24 @@ func TestBoundChecksTheSessionWithoutWriting(t *testing.T) {
 	a.offset = a.cfg.Freshness * 2
 	require.ErrorIs(t, a.Bound(sess, "tw-1"), ErrNoSession, "a session past its freshness cannot take work")
 }
+
+// Audit finding: an instance that missed the Tower's heartbeats (they went to the other instance)
+// must not refuse its pulls while the shared record is fresh.
+func TestBoundTrustsAFreshSharedRecordOverAStaleLocalCopy(t *testing.T) {
+	m := NewMemMirror()
+	a, b := New(mirrorCfg(m)), New(mirrorCfg(m))
+	sess := openPull(t, a, "tw-1", "")
+	require.NoError(t, b.Bound(sess, "tw-1")) // b adopts a copy
+	b.offset = b.cfg.Freshness * 2            // b's copy is stale by b's clock...
+	a.offset = b.offset
+	require.NoError(t, a.Heartbeat(sess, "tw-1")) // ...while the Tower heartbeats a
+	require.NoError(t, b.Bound(sess, "tw-1"), "a fresh shared record keeps the session bound")
+	m.FailForTest(true)
+	b.offset += b.cfg.Freshness * 2
+	require.ErrorIs(t, b.Bound(sess, "tw-1"), ErrNoSession, "no shared record to vouch: refused")
+	m.FailForTest(false)
+	c := New(mirrorCfg(nil))
+	s2 := openPull(t, c, "tw-2", "")
+	c.offset = c.cfg.Freshness * 2
+	require.ErrorIs(t, c.Bound(s2, "tw-2"), ErrNoSession)
+}

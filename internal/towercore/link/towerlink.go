@@ -620,8 +620,20 @@ func (s *Sessions) Bound(sessionID, towerID string) error {
 	if !ok {
 		sess, ok = s.adoptLocked(sessionID, towerID)
 	}
-	if !ok || sess.towerID != towerID || !s.freshLocked(sess.lastSeen) {
+	if !ok || sess.towerID != towerID {
 		return ErrNoSession
+	}
+	if !s.freshLocked(sess.lastSeen) {
+		// This instance's copy only advances on heartbeats that reach it; the Tower may have been
+		// heartbeating the other instance all along. The shared record decides - a read, no write.
+		if s.cfg.Mirror == nil {
+			return ErrNoSession
+		}
+		rec, there, err := s.cfg.Mirror.Get(towerID)
+		if err != nil || !there || rec.SessionID != sessionID || !s.freshLocked(rec.LastSeen) {
+			return ErrNoSession
+		}
+		sess.lastSeen = rec.LastSeen
 	}
 	return nil
 }

@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"rogerai.fm/roger/v7/internal/towercore/link"
+	"rogerai.fm/roger/v7/internal/towercore/placement"
 	"rogerai.fm/roger/v7/internal/towerhub"
 )
 
@@ -91,7 +92,7 @@ func TestCoresOwnStoreFailingIsNeverTheTowersFault(t *testing.T) {
 	require.True(t, errors.Is(err, errPullUnavailable), "got %v", err)
 }
 
-func TestTheLocalClaimsGoWithTheSender(t *testing.T) {
+func TestAFinishedSenderStopsListeningButKeepsItsWithdrawal(t *testing.T) {
 	b, lt, _, _ := pullTower(t)
 	prev := pullPickupDeadline
 	pullPickupDeadline = 50 * time.Millisecond
@@ -101,7 +102,8 @@ func TestTheLocalClaimsGoWithTheSender(t *testing.T) {
 	require.ErrorIs(t, err, errPullNotTaken)
 	b.pulls.mu.Lock()
 	defer b.pulls.mu.Unlock()
-	require.Empty(t, b.pulls.claim, "a finished sender leaves no claim behind")
+	require.Empty(t, b.pulls.answers, "a finished sender stops listening")
+	require.Len(t, b.pulls.claim, 1, "its withdrawn claim stays until it expires, so the work is never run late")
 }
 
 // Work a Tower never received (its pull hung up as the work was handed over) goes back on the
@@ -166,4 +168,69 @@ func TestASharedAnswerIsParkedNotPublished(t *testing.T) {
 	require.Equal(t, http.StatusOK, code, raw)
 	require.Equal(t, big, <-got)
 	require.False(t, mr.Exists(cacheKeyPrefix+pullAnswerKey(work[0].ID)), "the parked answer was not removed")
+}
+
+// Audit finding: work given back after its pickup deadline cannot be retaken, so its sender is
+// told now and fails over, instead of waiting out its whole drive.
+func TestLateGivenBackWorkFailsTheSenderOverAtOnce(t *testing.T) {
+	b, lt, _, _ := pullTower(t)
+	prev := pullPickupDeadline
+	pullPickupDeadline = 200 * time.Millisecond
+	defer func() { pullPickupDeadline = prev }()
+	done := make(chan error, 1)
+	go func() {
+		base, hc := b.pullClient(lt.id)
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		_, err := (&towerhub.Client{BaseURL: base, HTTP: hc}).SubmitJob(ctx, []byte("g"), []byte("e"))
+		done <- err
+	}()
+	var taken []pullWork
+	require.Eventually(t, func() bool { taken = b.pullTake(lt.id); return len(taken) == 1 }, 2*time.Second, 5*time.Millisecond)
+	time.Sleep(300 * time.Millisecond) // past the deadline; the Tower has the claim
+	start := time.Now()
+	b.pullUntake(lt.id, taken)
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, errPullNotTaken)
+		require.Less(t, time.Since(start), 2*time.Second)
+	case <-time.After(5 * time.Second):
+		t.Fatal("the sender was never told")
+	}
+}
+
+// Audit finding: on one instance, a withdrawn claim outlives its sender, so buffered work the
+// sender gave up on is never run.
+func TestAWithdrawnClaimOutlivesItsSender(t *testing.T) {
+	b, lt, _, _ := pullTower(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		base, hc := b.pullClient(lt.id)
+		_, _ = (&towerhub.Client{BaseURL: base, HTTP: hc}).SubmitJob(ctx, []byte("g"), []byte("e"))
+	}()
+	require.Eventually(t, func() bool {
+		b.pulls.mu.Lock()
+		defer b.pulls.mu.Unlock()
+		return len(b.pulls.buf[lt.id]) == 1
+	}, 2*time.Second, 5*time.Millisecond)
+	cancel()
+	<-done
+	require.Empty(t, b.pullTake(lt.id), "work its sender withdrew was handed to a pull")
+	b.pulls.mu.Lock()
+	b.pulls.pruneLocked(time.Now().Add(pullClaimTTL + time.Minute))
+	n := len(b.pulls.claim)
+	b.pulls.mu.Unlock()
+	require.Zero(t, n, "claims are pruned once they cannot matter")
+}
+
+// Audit finding: a session adopted from a record written before hub classes existed has a
+// location but no class; the sweep measures it again rather than leaving it unplaceable.
+func TestAnUnclassedHubIsMeasuredAgain(t *testing.T) {
+	b, lt, sess, _ := pullTower(t)
+	require.Eventually(t, func() bool { return b.tower.link.HubClass(lt.id) != placement.HubNone }, 3*time.Second, 5*time.Millisecond)
+	require.True(t, b.tower.link.SetHubClass(lt.id, sess, placement.HubNone)) // as an old record reads
+	b.remeasureTowerLocality(lt.id)
+	require.Equal(t, placement.HubPublic, b.tower.link.HubClass(lt.id))
 }

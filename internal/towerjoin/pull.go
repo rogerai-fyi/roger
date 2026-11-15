@@ -5,10 +5,11 @@ package towerjoin
 // link call uses, and posts the hub's answer back the same way.
 
 import (
-	"net/url"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"net/url"
 	"time"
 
 	"rogerai.fm/roger/v7/internal/protocol"
@@ -57,6 +58,10 @@ func AnswerWork(st *tower.State, sessionID string, a towerhub.PullAnswer) error 
 	}
 	// The Tower is named in the URL too, so Core can check the caller's key before it buffers an
 	// answer that may be tens of megabytes.
-	_, err = towerPostLimit(context.Background(), st, "/tower/work/answer?tower_id="+url.QueryEscape(towerID), body, nil, pullClient, 1<<20)
+	status, err := towerPostLimit(context.Background(), st, "/tower/work/answer?tower_id="+url.QueryEscape(towerID), body, nil, pullClient, 1<<20)
+	if err != nil && status >= 500 {
+		// Core's own trouble, not a refusal of this answer: worth another try, like a lost post.
+		return fmt.Errorf("%w: %v", ErrUnreachable, err)
+	}
 	return err
 }

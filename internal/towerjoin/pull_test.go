@@ -61,3 +61,22 @@ func TestPullAndAnswerNeedARegisteredTower(t *testing.T) {
 	require.Error(t, err)
 	require.Error(t, AnswerWork(st, "s", towerhub.PullAnswer{}))
 }
+
+// Audit finding: Core's own trouble answering (a 5xx) is retried by the Tower like a lost post.
+func TestAnAnswerCoreCouldNotTakeIsRetryable(t *testing.T) {
+	st := registeredTower(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"error":{"message":"work delivery unavailable"}}`, http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+	t.Setenv("ROGER_BROKER", srv.URL)
+	require.ErrorIs(t, AnswerWork(st, "s", towerhub.PullAnswer{ID: "pw"}), ErrUnreachable)
+	srv2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"error":{"message":"this tower was not given that work"}}`, http.StatusForbidden)
+	}))
+	defer srv2.Close()
+	t.Setenv("ROGER_BROKER", srv2.URL)
+	err := AnswerWork(st, "s", towerhub.PullAnswer{ID: "pw"})
+	require.Error(t, err)
+	require.NotErrorIs(t, err, ErrUnreachable, "a refusal is final")
+}

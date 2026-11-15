@@ -89,7 +89,11 @@ func ServePulled(ctx context.Context, h http.Handler, w PullWork, maxBody int) P
 	if w.Query != "" {
 		target += "?" + w.Query
 	}
-	req := httptest.NewRequest(w.Method, target, strings.NewReader(string(w.Body))).WithContext(ctx)
+	req, err := http.NewRequestWithContext(ctx, w.Method, target, strings.NewReader(string(w.Body)))
+	if err != nil {
+		ans.Status = http.StatusBadRequest // a request that does not parse never reaches the hub
+		return ans
+	}
 	req.RemoteAddr = "pulled"
 	for k, v := range w.Header {
 		if HeaderOf(map[string]string{k: v}).Get(k) != "" {

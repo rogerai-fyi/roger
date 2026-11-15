@@ -180,14 +180,20 @@ func (b *broker) relocateFromProof(towerID, remote string) {
 // been measured on its current session.
 func (b *broker) remeasureTowerLocality(towerID string) {
 	ts := b.tower
-	if _, known := ts.link.Locality(towerID); known || !ts.link.Live(towerID) {
+	if !ts.link.Live(towerID) {
+		return
+	}
+	plane, _ := ts.link.RelayPlane(towerID)
+	// A hub with an address but no class is measured again: a session adopted from a record
+	// written before hub classes existed has a location and no class, and an unclassed hub is
+	// placed nowhere and checked never.
+	if _, known := ts.link.Locality(towerID); known && (plane.Endpoint == "" || ts.link.HubClass(towerID) != placement.HubNone) {
 		return
 	}
 	sid, ok := ts.link.Current(towerID)
 	if !ok {
 		return
 	}
-	plane, _ := ts.link.RelayPlane(towerID)
 	b.measureTowerLocality(towerID, sid, plane.Endpoint, "")
 }
 
