@@ -130,7 +130,7 @@ func TestThePullLoopEdges(t *testing.T) {
 	}
 	var answers atomic.Int64
 	gotSess := make(chan string, 1)
-	answerWorkFn = func(_ *tower.State, sid string, a towerhub.PullAnswer) error {
+	answerWorkFn = func(_ context.Context, _ *tower.State, sid string, a towerhub.PullAnswer) error {
 		if answers.Add(1) == 1 {
 			return towerjoin.ErrUnreachable
 		}
@@ -169,13 +169,192 @@ func TestAnAnswerThatNeverReachesCoreIsSaid(t *testing.T) {
 		c <- time.Now()
 		return c
 	}
-	answerWorkFn = func(*tower.State, string, towerhub.PullAnswer) error { return towerjoin.ErrUnreachable }
+	answerWorkFn = func(context.Context, *tower.State, string, towerhub.PullAnswer) error {
+		return towerjoin.ErrUnreachable
+	}
 	var out strings.Builder
 	box := &sessionBox{}
 	servePulled(context.Background(), nil, http.NewServeMux(), box, towerhub.PullWork{ID: "pw-3"}, &out)
 	require.Contains(t, out.String(), "did not reach Core")
-	answerWorkFn = func(*tower.State, string, towerhub.PullAnswer) error { return errors.New("no") }
+	answerWorkFn = func(context.Context, *tower.State, string, towerhub.PullAnswer) error { return errors.New("no") }
 	out.Reset()
 	servePulled(context.Background(), nil, http.NewServeMux(), box, towerhub.PullWork{ID: "pw-4"}, &out)
 	require.Contains(t, out.String(), "refused the answer")
+}
+
+// Review finding: an answer finished while the link re-opens met a 409 for the old session and
+// was dropped. It now waits for the new session and goes on it.
+func TestAnAnswerWaitsOutAReopeningLink(t *testing.T) {
+	prevAns := answerWorkFn
+	t.Cleanup(func() { answerWorkFn = prevAns })
+	box := &sessionBox{}
+	box.set("sess-old")
+	var sessions []string
+	var mu sync.Mutex
+	answerWorkFn = func(_ context.Context, _ *tower.State, sid string, _ towerhub.PullAnswer) error {
+		mu.Lock()
+		sessions = append(sessions, sid)
+		mu.Unlock()
+		if sid == "sess-old" {
+			go func() { time.Sleep(20 * time.Millisecond); box.set("sess-new") }()
+			return towerjoin.ErrSessionGone
+		}
+		return nil
+	}
+	var out strings.Builder
+	servePulled(context.Background(), nil, http.NewServeMux(), box, towerhub.PullWork{ID: "pw-5"}, &out)
+	require.Equal(t, []string{"sess-old", "sess-new"}, sessions)
+	require.Empty(t, out.String(), "the answer was delivered")
+
+	// A link that never comes back gives up when the work's time is up, and says so.
+	answerWorkFn = func(context.Context, *tower.State, string, towerhub.PullAnswer) error {
+		return towerjoin.ErrSessionGone
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	servePulled(ctx, nil, http.NewServeMux(), box, towerhub.PullWork{ID: "pw-6"}, &out)
+	require.Contains(t, out.String(), "did not reach Core")
+}
+
+// Review finding: stopping the Tower waited for every in-flight answer post, minutes with Core
+// down. The post and the wait between tries both end with the Tower.
+func TestStoppingTheTowerEndsAnAnswerPostAtOnce(t *testing.T) {
+	prevAns, prevAfter := answerWorkFn, pullAfter
+	t.Cleanup(func() { answerWorkFn, pullAfter = prevAns, prevAfter })
+	pullAfter = func(time.Duration) <-chan time.Time { return nil } // a wait that never ends by itself
+	answerWorkFn = func(context.Context, *tower.State, string, towerhub.PullAnswer) error {
+		return towerjoin.ErrUnreachable
+	}
+	box := &sessionBox{}
+	box.set("s")
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		servePulled(ctx, nil, http.NewServeMux(), box, towerhub.PullWork{ID: "pw-7"}, &strings.Builder{})
+		close(done)
+	}()
+	time.Sleep(20 * time.Millisecond)
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("a stopped Tower kept waiting to post an answer")
+	}
+
+	answerWorkFn = func(ctx context.Context, _ *tower.State, _ string, _ towerhub.PullAnswer) error {
+		<-ctx.Done() // a post hung on a dead network
+		return towerjoin.ErrUnreachable
+	}
+	ctx, cancel = context.WithCancel(context.Background())
+	done = make(chan struct{})
+	go func() {
+		servePulled(ctx, nil, http.NewServeMux(), box, towerhub.PullWork{ID: "pw-8"}, &strings.Builder{})
+		close(done)
+	}()
+	time.Sleep(20 * time.Millisecond)
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("a stopped Tower kept a hung answer post open")
+	}
+}
+
+// Review finding: a pull refused for a session Core no longer holds backed off up to 10 s even
+// after the link re-opened. It now pulls again as soon as the session changes.
+func TestAPullOnAGoneSessionPullsAgainOnTheNewOne(t *testing.T) {
+	prevPull, prevAfter := pullWorkFn, pullAfter
+	t.Cleanup(func() { pullWorkFn, pullAfter = prevPull, prevAfter })
+	pullAfter = func(time.Duration) <-chan time.Time { return nil } // backoff would never end
+	box := &sessionBox{}
+	box.set("sess-old")
+	pulledNew := make(chan struct{})
+	var once sync.Once
+	pullWorkFn = func(ctx context.Context, _ *tower.State, sid string) ([]towerhub.PullWork, error) {
+		if sid == "sess-old" {
+			return nil, towerjoin.ErrSessionGone
+		}
+		once.Do(func() { close(pulledNew) })
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	stop := make(chan struct{})
+	wait := runPulls(nil, http.NewServeMux(), box, &strings.Builder{}, stop)
+	time.Sleep(20 * time.Millisecond)
+	box.set("sess-new")
+	select {
+	case <-pulledNew:
+	case <-time.After(5 * time.Second):
+		t.Fatal("pulls did not resume on the re-opened session")
+	}
+	close(stop)
+	wait()
+}
+
+func TestTheSessionBoxSaysWhenTheSessionChanges(t *testing.T) {
+	box := &sessionBox{}
+	box.set("a")
+	ch := box.changedFrom("a")
+	select {
+	case <-ch:
+		t.Fatal("unchanged")
+	default:
+	}
+	box.set("a")
+	select {
+	case <-ch:
+		t.Fatal("setting the same id is no change")
+	default:
+	}
+	box.set("b")
+	<-ch
+	<-box.changedFrom("a") // already different: closed at once
+	var nilBox *sessionBox
+	require.Nil(t, nilBox.changedFrom("x"))
+}
+
+// Review finding: a 409 whose session never changes (a heartbeat kept the same session, or Core's
+// check met a store blip) left the pulls waiting forever. They retry after the backoff too.
+func TestAGoneSessionThatNeverChangesIsRetried(t *testing.T) {
+	prevPull, prevAns, prevAfter := pullWorkFn, answerWorkFn, pullAfter
+	t.Cleanup(func() { pullWorkFn, answerWorkFn, pullAfter = prevPull, prevAns, prevAfter })
+	pullAfter = func(time.Duration) <-chan time.Time {
+		c := make(chan time.Time, 1)
+		c <- time.Now()
+		return c
+	}
+	box := &sessionBox{}
+	box.set("sess")
+	var calls atomic.Int64
+	again := make(chan struct{})
+	var once sync.Once
+	pullWorkFn = func(ctx context.Context, _ *tower.State, _ string) ([]towerhub.PullWork, error) {
+		if calls.Add(1) <= 2 {
+			return nil, towerjoin.ErrSessionGone
+		}
+		once.Do(func() { close(again) })
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	stop := make(chan struct{})
+	wait := runPulls(nil, http.NewServeMux(), box, &strings.Builder{}, stop)
+	select {
+	case <-again:
+	case <-time.After(5 * time.Second):
+		t.Fatal("pulls stopped for good on a session that never changed")
+	}
+	close(stop)
+	wait()
+
+	var posts atomic.Int64
+	answerWorkFn = func(context.Context, *tower.State, string, towerhub.PullAnswer) error {
+		if posts.Add(1) == 1 {
+			return towerjoin.ErrSessionGone
+		}
+		return nil
+	}
+	var out strings.Builder
+	servePulled(context.Background(), nil, http.NewServeMux(), box, towerhub.PullWork{ID: "pw-9"}, &out)
+	require.Equal(t, int64(2), posts.Load(), "an answer refused for a session that never changed was not posted again")
+	require.Empty(t, out.String())
 }

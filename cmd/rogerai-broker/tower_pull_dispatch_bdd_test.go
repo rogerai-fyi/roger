@@ -20,6 +20,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -187,7 +188,22 @@ func signedPostTo(lt linkTower, base, path string, body []byte, out any, timeout
 	}
 	req.Header.Set("Content-Type", "application/json")
 	signed, _, _ := strings.Cut(path, "?")
-	pub, ts, sig := protocol.SignRequest(lt.priv, http.MethodPost, signed, body)
+	signedOver := body
+	if signed == "/tower/work/answer" {
+		// As the real Tower answers (towerjoin.AnswerWork): it signs the body's digest and names the
+		// work in the URL, so Core authenticates the caller before it reads a byte.
+		digest := towerhub.AnswerDigest(body)
+		req.Header.Set(towerhub.AnswerDigestHeader, digest)
+		signedOver = []byte(digest)
+		if !strings.Contains(path, "work=") {
+			var a struct {
+				ID string `json:"id"`
+			}
+			_ = json.Unmarshal(body, &a)
+			req.URL.RawQuery += "&work=" + url.QueryEscape(a.ID)
+		}
+	}
+	pub, ts, sig := protocol.SignRequest(lt.priv, http.MethodPost, signed, signedOver)
 	req.Header.Set(protocol.HeaderPubkey, pub)
 	req.Header.Set(protocol.HeaderTS, itoa64(ts))
 	req.Header.Set(protocol.HeaderSig, sig)
@@ -260,8 +276,32 @@ func (s *tpdState) liveTower() error {
 		s.hubServer.Poll(w, r)
 	})
 	s.hubMux.HandleFunc(towerhub.PathComplete, s.hubServer.Complete)
-	hubSrv := &http.Server{Handler: s.hubMux}
+	// The hub's handlers read this scenario's state, so reset waits for the ones in flight and
+	// refuses later ones before it clears that state.
+	var inflight sync.WaitGroup
+	var gateMu sync.Mutex
+	gateShut := false
+	gated := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gateMu.Lock()
+		if gateShut {
+			gateMu.Unlock()
+			http.Error(w, "closed", http.StatusServiceUnavailable)
+			return
+		}
+		inflight.Add(1)
+		gateMu.Unlock()
+		defer inflight.Done()
+		s.hubMux.ServeHTTP(w, r)
+	})
+	hubSrv := &http.Server{Handler: gated}
 	s.hubDownFn = func() { _ = hubSrv.Close() } // the listener and every open connection
+	s.closers = append(s.closers, func() {
+		_ = hubSrv.Close()
+		gateMu.Lock()
+		gateShut = true
+		gateMu.Unlock()
+		inflight.Wait()
+	})
 	go func() { _ = hubSrv.Serve(hubLn) }()
 
 	nodeOp := signedInOperator(t, b, "pull-node-op")
@@ -295,7 +335,7 @@ func (s *tpdState) liveTower() error {
 func (s *tpdState) startAuto(inst string) {
 	s.stopAuto()
 	s.autoStop, s.autoInst = make(chan struct{}), inst
-	stop := s.autoStop
+	stop, lt, sess, srv := s.autoStop, s.lt, s.sess, s.srv[inst]
 	for i := 0; i < 2; i++ {
 		s.autoDone.Add(1)
 		go func() {
@@ -306,7 +346,7 @@ func (s *tpdState) startAuto(inst string) {
 					return
 				default:
 				}
-				p := s.pullNow(inst, s.lt, s.sess)
+				p := s.pullAt(srv.URL, lt, sess)
 				if p.code != http.StatusOK {
 					select {
 					case <-stop:
@@ -316,7 +356,8 @@ func (s *tpdState) startAuto(inst string) {
 					continue
 				}
 				for _, w := range p.work {
-					go s.serve(inst, w)
+					s.autoDone.Add(1) // tracked, so a reset waits for it before clearing the state it reads
+					go func() { defer s.autoDone.Done(); s.serve(inst, w) }()
 				}
 			}
 		}()
@@ -350,8 +391,13 @@ func (s *tpdState) postAnswer(inst string, lt linkTower, sess string, a towerhub
 
 // pullNow is one signed pull, held until Core answers.
 func (s *tpdState) pullNow(inst string, lt linkTower, sess string) tpdPull {
+	return s.pullAt(s.srv[inst].URL, lt, sess)
+}
+
+// pullAt is pullNow against a base URL, for a caller that must not read the scenario's state.
+func (s *tpdState) pullAt(base string, lt linkTower, sess string) tpdPull {
 	body := jsonOf(s.t, map[string]string{"tower_id": lt.id, "session_id": sess})
-	req, _ := http.NewRequest(http.MethodPost, s.srv[inst].URL+"/tower/work/pull", bytes.NewReader(body))
+	req, _ := http.NewRequest(http.MethodPost, base+"/tower/work/pull", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	pub, ts, sig := protocol.SignRequest(lt.priv, http.MethodPost, "/tower/work/pull", body)
 	req.Header.Set(protocol.HeaderPubkey, pub)

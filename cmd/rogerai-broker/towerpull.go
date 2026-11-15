@@ -20,10 +20,7 @@ package main
 import (
 	"bytes"
 	"context"
-	"crypto/ed25519"
-	"crypto/sha256"
 	"crypto/subtle"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -31,8 +28,6 @@ import (
 	"net/http"
 	"sync"
 	"time"
-
-	"rogerai.fm/roger/v7/internal/protocol"
 
 	"rogerai.fm/roger/v7/internal/towerhub"
 )
@@ -276,7 +271,21 @@ func (b *broker) pullAwait(ctx context.Context, id string) (<-chan pullAnswer, f
 	out := make(chan pullAnswer, 1)
 	go func() {
 		defer close(out)
-		for range raws {
+		// The notice is a wake-up, not the delivery: one lost while the subscriber reconnects, or
+		// read while the store failed, would strand the parked answer. So the key is also looked
+		// at on a ticker until the sender stops waiting.
+		tick := time.NewTicker(pullAnswerPoll)
+		defer tick.Stop()
+		for {
+			select {
+			case _, ok := <-raws:
+				if !ok {
+					raws = nil // the subscription ended: the ticker still finds the answer
+				}
+			case <-tick.C:
+			case <-sctx.Done():
+				return
+			}
 			raw, found, gerr := b.shared.cacheGet(pullAnswerKey(id))
 			if gerr != nil || !found {
 				continue
@@ -298,6 +307,9 @@ func (b *broker) pullAwait(ctx context.Context, id string) (<-chan pullAnswer, f
 
 // pullAnswerTTL bounds how long a parked answer waits for the instance that asked for it.
 const pullAnswerTTL = 2 * time.Minute
+
+// pullAnswerPoll is how often a waiting sender looks for its parked answer without a notice.
+var pullAnswerPoll = time.Second
 
 func pullAnswerKey(id string) string { return "tpullans-body:" + id }
 
@@ -329,12 +341,13 @@ func (b *broker) pullQueue(tower string, w pullWork) error {
 
 // pullTake drains the Tower's buffer and claims every live piece of work for it. Work past its
 // pickup deadline, or already claimed (withdrawn), is dropped: it is never delivered late.
-func (b *broker) pullTake(tower string) []pullWork {
+// storeFailed says Core's store failed on the way, so the caller pauses before taking again.
+func (b *broker) pullTake(tower string) (work []pullWork, storeFailed bool) {
 	var queued []pullWork
 	if b.shared != nil {
 		raws, err := b.shared.towerWorkDrain(tower)
 		if err != nil {
-			return nil
+			return nil, true
 		}
 		for _, raw := range raws {
 			var w pullWork
@@ -354,13 +367,30 @@ func (b *broker) pullTake(tower string) []pullWork {
 	size := 0
 	for _, w := range queued {
 		if w.Exp <= now {
+			// Never delivered late. If nobody holds it (its sender has not withdrawn it, as when
+			// work given back near its deadline lost the race to the sender's check), the sender
+			// is told now so it fails over instead of waiting out its drive.
+			if won, err := b.pullClaim(w.ID, pullWithdrawn); err == nil && won {
+				_ = b.deliverAnswer(pullAnswer{TowerID: tower, ID: w.ID})
+			}
 			continue
 		}
 		if len(out) >= pullBatchMax || (len(out) > 0 && size+len(w.Body) > pullBatchBytes) {
 			rest = append(rest, w)
 			continue
 		}
-		if won, err := b.pullClaim(w.ID, tower); err == nil && won {
+		won, err := b.pullClaim(w.ID, tower)
+		if err != nil {
+			// The store may have written the claim and lost the reply: ask who holds it.
+			who, werr := b.pullClaimant(w.ID)
+			won = werr == nil && who == tower
+			if werr != nil || who == "" {
+				storeFailed = true
+				rest = append(rest, w) // Core's store failed, not the Tower: keep it for the next pull
+				continue
+			}
+		}
+		if won {
 			out = append(out, w)
 			size += len(w.Body)
 		}
@@ -368,8 +398,12 @@ func (b *broker) pullTake(tower string) []pullWork {
 	for _, w := range rest {
 		_ = b.pullQueue(tower, w) // unclaimed: the next pull takes it, within its pickup deadline
 	}
-	return out
+	return out, storeFailed
 }
+
+// pullStoreRetry is how long a held pull waits before taking again after Core's store failed,
+// so work requeued by that failure does not spin the pull against the store.
+var pullStoreRetry = 250 * time.Millisecond
 
 // pullUntake releases this Tower's claim on work it never received and queues it again.
 //
@@ -501,7 +535,7 @@ func (b *broker) towerWorkPull(w http.ResponseWriter, r *http.Request) {
 			b.pulls.init()
 			ch := b.pulls.wakeCh(tw.ID)
 			b.pulls.mu.Unlock()
-			if work := b.pullTake(tw.ID); len(work) > 0 {
+			if work, _ := b.pullTake(tw.ID); len(work) > 0 {
 				answer(work)
 				return
 			}
@@ -530,9 +564,21 @@ func (b *broker) towerWorkPull(w http.ResponseWriter, r *http.Request) {
 			answer(nil)
 			return
 		}
-		if work := b.pullTake(tw.ID); len(work) > 0 {
+		work, storeFailed := b.pullTake(tw.ID)
+		if len(work) > 0 {
 			answer(work)
 			return
+		}
+		if storeFailed {
+			select {
+			case <-time.After(pullStoreRetry):
+				continue // the wake our own requeue published is taken by this pass, not a spin
+			case <-hold.C:
+				answer(nil)
+				return
+			case <-r.Context().Done():
+				return
+			}
 		}
 		select {
 		case _, ok := <-wakes:
@@ -574,21 +620,6 @@ func (b *broker) deliverAnswer(a pullAnswer) error {
 	return nil
 }
 
-// towerKeyMatches is the cheap pre-read check: the hex Ed25519 key in pubHex hashes to the key
-// the named Tower was admitted with. Constant time, like towerCallerWhy.
-func (b *broker) towerKeyMatches(towerID, pubHex string) bool {
-	raw, err := hex.DecodeString(pubHex)
-	if err != nil || len(raw) != ed25519.PublicKeySize || towerID == "" || b.tower == nil {
-		return false
-	}
-	tw, ok := b.tower.registry.Get(towerID)
-	if !ok {
-		return false
-	}
-	sum := sha256.Sum256(raw)
-	return subtle.ConstantTimeCompare([]byte(hex.EncodeToString(sum[:])), []byte(tw.KeyHash)) == 1
-}
-
 // towerWorkAnswer is POST /tower/work/answer: the hub's answer to one piece of work the Tower
 // pulled. Accepted once, only from the Tower that took the work, and delivered to whichever
 // instance is waiting. An answer nobody is waiting for any more goes nowhere and bills nothing.
@@ -600,14 +631,33 @@ func (b *broker) towerWorkAnswer(w http.ResponseWriter, r *http.Request) {
 	if ts == nil {
 		return
 	}
-	// WHO BEFORE HOW MUCH: an answer may be ~42 MiB, so the caller's key must be the named
-	// Tower's before a byte of it is buffered. The signature over the body is checked after.
-	if !b.towerKeyMatches(r.URL.Query().Get("tower_id"), r.Header.Get(protocol.HeaderPubkey)) {
+	// WHO BEFORE HOW MUCH: an answer may be ~42 MiB, so the caller is authenticated before a byte
+	// of it is read. The Tower signs the body's digest (towerhub.AnswerDigestHeader) and names
+	// itself and the work in the URL: its signature, its entitlement and its claim on that work
+	// are all checked here, and the body is checked against the digest once read.
+	q := r.URL.Query()
+	towerID, workID := q.Get("tower_id"), q.Get("work")
+	digest := r.Header.Get(towerhub.AnswerDigestHeader)
+	tw, _, ok := b.towerCaller(r, []byte(digest), towerID)
+	if !ok || len(digest) != 64 {
 		jsonErr(w, http.StatusForbidden, "answering work requires a registered Tower's own signed request")
 		return
 	}
+	if r.ContentLength > maxPullAnswer {
+		jsonErr(w, http.StatusRequestEntityTooLarge, "that answer is over the hub's response cap")
+		return
+	}
+	who, err := b.pullClaimant(workID)
+	if err != nil {
+		jsonErr(w, http.StatusServiceUnavailable, "work delivery unavailable")
+		return
+	}
+	if workID == "" || who != tw.ID {
+		jsonErr(w, http.StatusForbidden, "this tower was not given that work")
+		return
+	}
 	// A large answer from a home uplink needs longer than the server's default read bound; the
-	// caller has just proven it holds the Tower's key.
+	// caller has just proven it is the Tower holding this work.
 	_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(pullAnswerRead))
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxPullAnswer+1))
 	if err != nil {
@@ -618,27 +668,21 @@ func (b *broker) towerWorkAnswer(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusRequestEntityTooLarge, "that answer is over the hub's response cap")
 		return
 	}
+	if subtle.ConstantTimeCompare([]byte(towerhub.AnswerDigest(body)), []byte(digest)) != 1 {
+		jsonErr(w, http.StatusForbidden, "the answer does not match its signed digest")
+		return
+	}
 	var a pullAnswer
 	if err := json.Unmarshal(body, &a); err != nil {
 		jsonErr(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
-	tw, _, ok := b.towerCaller(r, body, a.TowerID)
-	if !ok || a.TowerID != r.URL.Query().Get("tower_id") {
+	if a.TowerID != tw.ID || a.ID != workID {
 		jsonErr(w, http.StatusForbidden, "answering work requires a registered Tower's own signed request")
 		return
 	}
 	if err := ts.link.Bound(a.SessionID, tw.ID); err != nil {
 		jsonErr(w, http.StatusConflict, err.Error())
-		return
-	}
-	who, err := b.pullClaimant(a.ID)
-	if err != nil {
-		jsonErr(w, http.StatusServiceUnavailable, "work delivery unavailable")
-		return
-	}
-	if a.ID == "" || who != tw.ID {
-		jsonErr(w, http.StatusForbidden, "this tower was not given that work")
 		return
 	}
 	first, err := b.pullAnsweredOnce(a.ID)

@@ -894,9 +894,10 @@ func (s *tpdState) twoInProgress() error {
 		return fmt.Errorf("the Tower took %d jobs, want two", len(got))
 	}
 	s.heldWork = got
-	s.gotResp = make(chan tpdResp, 2)
-	go func() { s.gotResp <- <-r1 }()
-	go func() { s.gotResp <- <-r2 }()
+	got2 := make(chan tpdResp, 2) // local: these outlive the scenario's state when it is reset
+	s.gotResp = got2
+	go func() { got2 <- <-r1 }()
+	go func() { got2 <- <-r2 }()
 	return nil
 }
 
@@ -1165,6 +1166,7 @@ func (s *tpdState) lateDiscardedNotBilled() error {
 }
 
 func (s *tpdState) oneInstanceNoStore() error {
+	s.stopAuto() // the two-instance Tower's pulls end before its instances are replaced
 	b, srv := towerTestBroker(s.t)
 	s.inst, s.srv = map[string]*broker{"A": b}, map[string]*httptest.Server{"A": srv}
 	op := signedInOperator(s.t, b, "local-op")

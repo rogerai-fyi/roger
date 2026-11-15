@@ -38,6 +38,7 @@ import (
 	"rogerai.fm/roger/v7/internal/tower"
 	"rogerai.fm/roger/v7/internal/towercore/inv"
 	"rogerai.fm/roger/v7/internal/towercore/link"
+	"rogerai.fm/roger/v7/internal/towerhub"
 	"rogerai.fm/roger/v7/internal/towerobj"
 )
 
@@ -253,6 +254,12 @@ func towerPostStatus(st *tower.State, path string, body []byte, out any, client 
 // towerPostLimit is towerPostStatus reading at most limit bytes of the answer: pulled work
 // carries sealed requests far larger than any control-plane reply.
 func towerPostLimit(ctx context.Context, st *tower.State, path string, body []byte, out any, client *http.Client, limit int64) (int, error) {
+	return towerPostAs(ctx, st, path, body, false, out, client, limit)
+}
+
+// towerPostAs is towerPostLimit that, with digest, signs the body's digest (sent in
+// towerhub.AnswerDigestHeader) instead of the body, for a route Core authenticates before reading.
+func towerPostAs(ctx context.Context, st *tower.State, path string, body []byte, digest bool, out any, client *http.Client, limit int64) (int, error) {
 	// HubNodes delivers node bearer tokens over this channel and tower<->Core calls delivers
 	// certificate trust - so the transport guard applies to every tower<->Core call, here at
 	// the single entry point (audit M-3).
@@ -268,10 +275,16 @@ func towerPostLimit(ctx context.Context, st *tower.State, path string, body []by
 		return 0, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	// Core verifies the signature over the PATH alone; a query (the answer route's tower_id) rides
-	// beside it and is checked against the signed body.
+	// Core verifies the signature over the PATH alone; a query (the answer route's tower_id and
+	// work) rides beside it and is checked against the signer and the answer's body.
 	signedPath, _, _ := strings.Cut(path, "?")
-	pub, ts, sig := protocol.SignRequest(identity, http.MethodPost, signedPath, body)
+	signedOver := body
+	if digest {
+		d := towerhub.AnswerDigest(body)
+		req.Header.Set(towerhub.AnswerDigestHeader, d)
+		signedOver = []byte(d)
+	}
+	pub, ts, sig := protocol.SignRequest(identity, http.MethodPost, signedPath, signedOver)
 	req.Header.Set(protocol.HeaderPubkey, pub)
 	req.Header.Set(protocol.HeaderTS, strconv.FormatInt(ts, 10))
 	req.Header.Set(protocol.HeaderSig, sig)

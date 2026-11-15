@@ -11,11 +11,24 @@ package towerhub
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
 )
+
+// AnswerDigestHeader carries the hex SHA-256 of an answer's body. The Tower signs the digest, not
+// the body, so Core can authenticate the caller before it reads an answer that may be tens of
+// megabytes, and checks the body against the digest once read.
+const AnswerDigestHeader = "X-Roger-Body-Sha256"
+
+// AnswerDigest is the digest AnswerDigestHeader carries.
+func AnswerDigest(body []byte) string {
+	sum := sha256.Sum256(body)
+	return hex.EncodeToString(sum[:])
+}
 
 // PullWork is one piece of work queued for a Tower.
 type PullWork struct {

@@ -7,6 +7,7 @@ package towerjoin
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -20,6 +21,10 @@ import (
 // pullClient outlasts Core's 25 s hold, so an empty pull ends with Core's 204 rather than our
 // own timeout.
 var pullClient = &http.Client{Timeout: 45 * time.Second, CheckRedirect: protocol.NoDowngradeRedirect}
+
+// ErrSessionGone is Core saying it no longer holds the link session a pull or an answer named:
+// the link is re-opening, and the call is worth repeating on the new session.
+var ErrSessionGone = errors.New("Roger Core no longer holds this link session")
 
 // maxPullBody bounds one pull's answer: Core caps a batch at 24 MiB of sealed requests, which is
 // about 32 MiB as base64 inside JSON.
@@ -39,14 +44,14 @@ func PullWork(ctx context.Context, st *tower.State, sessionID string) ([]towerhu
 	var out struct {
 		Work []towerhub.PullWork `json:"work"`
 	}
-	if _, err := towerPostLimit(ctx, st, "/tower/work/pull", body, &out, pullClient, maxPullBody); err != nil {
-		return nil, err
+	if status, err := towerPostLimit(ctx, st, "/tower/work/pull", body, &out, pullClient, maxPullBody); err != nil {
+		return nil, sessionGone(status, err)
 	}
 	return out.Work, nil
 }
 
-// AnswerWork posts the hub's answer to one piece of pulled work.
-func AnswerWork(st *tower.State, sessionID string, a towerhub.PullAnswer) error {
+// AnswerWork posts the hub's answer to one piece of pulled work; it stops with ctx.
+func AnswerWork(ctx context.Context, st *tower.State, sessionID string, a towerhub.PullAnswer) error {
 	towerID, err := CoreTowerID(st)
 	if err != nil {
 		return err
@@ -56,12 +61,21 @@ func AnswerWork(st *tower.State, sessionID string, a towerhub.PullAnswer) error 
 	if err != nil {
 		return err
 	}
-	// The Tower is named in the URL too, so Core can check the caller's key before it buffers an
-	// answer that may be tens of megabytes.
-	status, err := towerPostLimit(context.Background(), st, "/tower/work/answer?tower_id="+url.QueryEscape(towerID), body, nil, pullClient, 1<<20)
+	// The Tower and the work are named in the URL and the signature covers the body's digest, so
+	// Core can check who is answering what before it buffers an answer of tens of megabytes.
+	path := "/tower/work/answer?tower_id=" + url.QueryEscape(towerID) + "&work=" + url.QueryEscape(a.ID)
+	status, err := towerPostAs(ctx, st, path, body, true, nil, pullClient, 1<<20)
 	if err != nil && status >= 500 {
 		// Core's own trouble, not a refusal of this answer: worth another try, like a lost post.
 		return fmt.Errorf("%w: %v", ErrUnreachable, err)
+	}
+	return sessionGone(status, err)
+}
+
+// sessionGone marks Core's 409 on the pull routes, its answer to a session it does not hold.
+func sessionGone(status int, err error) error {
+	if err != nil && status == http.StatusConflict {
+		return fmt.Errorf("%w: %v", ErrSessionGone, err)
 	}
 	return err
 }
