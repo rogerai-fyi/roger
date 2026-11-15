@@ -12,6 +12,9 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+// towerWorkMax is the most pieces of work kept queued for one Tower.
+const towerWorkMax = 256
+
 const (
 	towerWorkBufPrefix = keyPrefix + "towerwork:"
 	busTowerWorkPrefix = keyPrefix + "bus:towerwork:"
@@ -20,7 +23,9 @@ const (
 func (v *valkeyStore) towerWorkPush(tower string, entry []byte, ttl time.Duration) error {
 	// The wake is one byte: a held pull drains the buffer on any wake, and a sealed request can
 	// be megabytes that every subscriber would otherwise be handed and throw away.
-	return v.bufPush("towerWorkPush", towerWorkBufPrefix+tower, busTowerWorkPrefix+tower, entry, []byte{1}, ttl)
+	// Capped at the newest towerWorkMax: anything older is long past its 3 s pickup deadline on any
+	// Tower that is pulling, and a Tower that is not must not pile sealed bodies up.
+	return v.bufPush("towerWorkPush", towerWorkBufPrefix+tower, busTowerWorkPrefix+tower, entry, []byte{1}, ttl, towerWorkMax)
 }
 
 func (v *valkeyStore) towerWorkDrain(tower string) ([][]byte, error) {

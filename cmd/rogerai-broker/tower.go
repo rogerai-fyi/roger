@@ -24,7 +24,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"rogerai.fm/roger/v7/internal/towercore/placement"
 	"strings"
 	"time"
 
@@ -46,6 +45,7 @@ import (
 	"rogerai.fm/roger/v7/internal/towercore/link"
 	"rogerai.fm/roger/v7/internal/towercore/mobility"
 	"rogerai.fm/roger/v7/internal/towercore/origin"
+	"rogerai.fm/roger/v7/internal/towercore/placement"
 	"rogerai.fm/roger/v7/internal/towercore/policy"
 	"rogerai.fm/roger/v7/internal/towercore/reputation"
 )

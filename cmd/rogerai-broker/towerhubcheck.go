@@ -7,6 +7,8 @@ package main
 
 import (
 	"context"
+	"errors"
+	"net/http"
 	"time"
 
 	"rogerai.fm/roger/v7/internal/towercore/admit"
@@ -76,9 +78,14 @@ func (b *broker) hubCheck(tw admit.Tower, plane link.RelayPlane, pulls bool, cla
 	if pulls {
 		// Delivered by pull, like any other work for this Tower (tower_pull_dispatch.feature).
 		base, hc := b.pullClient(tw.ID)
+		rec := &errRecorder{rt: hc.Transport}
+		hc.Transport = rec
 		ctx, cancel := context.WithTimeout(context.Background(), hubCheckTimeout)
 		rtt, _, reason = towerhub.CheckHub(ctx, hc, base, tw.ID, tw.KeyHash)
 		cancel()
+		if errors.Is(rec.err, errPullUnavailable) {
+			return // Core's own store failed the check: nothing is known about the Tower
+		}
 		if class != placement.HubPublic {
 			source = health.SourcePull
 		}
@@ -161,4 +168,16 @@ func (b *broker) recordHealthCheck(towerID string, c health.Check) {
 	if !c.OK {
 		b.noteHealthStreak(towerID)
 	}
+}
+
+// errRecorder keeps the last transport error, which towerhub.CheckHub folds into "unreachable".
+type errRecorder struct {
+	rt  http.RoundTripper
+	err error
+}
+
+func (e *errRecorder) RoundTrip(r *http.Request) (*http.Response, error) {
+	resp, err := e.rt.RoundTrip(r)
+	e.err = err
+	return resp, err
 }

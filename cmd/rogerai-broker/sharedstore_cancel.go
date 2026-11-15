@@ -56,7 +56,7 @@ func (v *valkeyStore) cancelCapGet(node string) (int64, error) {
 // cancelPush publishes entry to node's held cancel poll; when nobody is listening it is kept on
 // the node's buffer list (TTL ttl) for its next poll.
 func (v *valkeyStore) cancelPush(node string, entry []byte, ttl time.Duration) error {
-	return v.bufPush("cancelPush", cancelBufPrefix+node, busCancelPrefix+node, entry, entry, ttl)
+	return v.bufPush("cancelPush", cancelBufPrefix+node, busCancelPrefix+node, entry, entry, ttl, 0)
 }
 
 // cancelDrain removes and returns every buffered entry for node.
@@ -67,7 +67,9 @@ func (v *valkeyStore) cancelDrain(node string) ([][]byte, error) {
 // bufPush appends entry to the buffer list at key (TTL ttl), then publishes wake on bus.
 // ALWAYS buffered first: a poll drains the buffer on every wake, so an entry published while a
 // poll was answering another one (still subscribed) is not lost.
-func (v *valkeyStore) bufPush(op, key, bus string, entry, wake []byte, ttl time.Duration) error {
+//
+// maxLen > 0 keeps only the newest maxLen entries, so a list nobody drains stays bounded.
+func (v *valkeyStore) bufPush(op, key, bus string, entry, wake []byte, ttl time.Duration, maxLen int64) error {
 	if v == nil || v.rdb == nil {
 		return errNoSharedStore
 	}
@@ -75,6 +77,9 @@ func (v *valkeyStore) bufPush(op, key, bus string, entry, wake []byte, ttl time.
 	defer cancel()
 	pipe := v.rdb.TxPipeline()
 	pipe.RPush(ctx, key, entry)
+	if maxLen > 0 {
+		pipe.LTrim(ctx, key, -maxLen, -1)
+	}
 	pipe.Expire(ctx, key, ttl)
 	if _, err := pipe.Exec(ctx); err != nil {
 		v.noteErr(op, err)

@@ -56,6 +56,9 @@ const maxPullRequest = 16 << 20
 // base64 inside JSON, plus room for the envelope fields.
 const maxPullAnswer = 32<<20*4/3 + 64<<10
 
+// pullAnswerRead bounds how long an answer's upload may take: 42 MiB at about 2 Mbit/s.
+const pullAnswerRead = 3 * time.Minute
+
 // pullClaimTTL keeps a claim past the longest a piece of work can be in flight, so a late answer
 // is still recognised as belonging to the Tower that took it.
 const pullClaimTTL = 10 * time.Minute
@@ -162,6 +165,18 @@ func (b *broker) pullAnsweredOnce(id string) (bool, error) {
 	}
 	b.pulls.claim["ans:"+id], b.pulls.claimAt["ans:"+id] = "1", time.Now()
 	return true, nil
+}
+
+// pullForgetAnswer undoes pullAnsweredOnce for an answer that could not be delivered.
+func (b *broker) pullForgetAnswer(id string) {
+	if b.shared != nil {
+		_ = b.shared.delIfEqual("tpullans:"+id, "1")
+		return
+	}
+	b.pulls.mu.Lock()
+	delete(b.pulls.claim, "ans:"+id)
+	delete(b.pulls.claimAt, "ans:"+id)
+	b.pulls.mu.Unlock()
 }
 
 // pullTransport is an http.RoundTripper that carries a request to a Tower's hub through the
@@ -298,7 +313,15 @@ func (b *broker) pullQueue(tower string, w pullWork) error {
 	b.pulls.mu.Lock()
 	defer b.pulls.mu.Unlock()
 	b.pulls.init()
-	b.pulls.buf[tower] = append(b.pulls.buf[tower], w)
+	// Expired work is dropped as new work arrives, so a Tower that never pulls cannot pile it up.
+	now := time.Now().UnixMilli()
+	live := b.pulls.buf[tower][:0]
+	for _, q := range b.pulls.buf[tower] {
+		if q.Exp > now {
+			live = append(live, q)
+		}
+	}
+	b.pulls.buf[tower] = append(live, w)
 	close(b.pulls.wakeCh(tower))
 	delete(b.pulls.wake, tower)
 	return nil
@@ -362,7 +385,7 @@ func (b *broker) pullUntake(tower string, work []pullWork) {
 		}
 		if b.shared != nil {
 			if err := b.shared.delIfEqual("tpull:"+w.ID, tower); err != nil {
-				continue // still claimed: its sender's drive ends it
+				continue // the store did not answer: leave it claimed, its sender's drive ends it
 			}
 		} else {
 			b.pulls.mu.Lock()
@@ -445,13 +468,18 @@ func (b *broker) towerWorkPull(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
+		// The Tower hung up as the work was handed over - before the write, or during it: give it
+		// back, unclaimed, so the next pull takes it within its deadline instead of the request
+		// waiting out its drive.
+		raw, _ := json.Marshal(map[string]any{"work": work})
 		if r.Context().Err() != nil {
-			// The Tower hung up as the work was handed over: give it back, unclaimed, so the next
-			// pull takes it within its deadline instead of the request waiting out its drive.
 			b.pullUntake(tw.ID, work)
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"work": work})
+		w.Header().Set("Content-Type", "application/json")
+		if _, werr := w.Write(raw); werr != nil {
+			b.pullUntake(tw.ID, work)
+		}
 	}
 	// A Tower revoked or suspended while its pull is held gets nothing more: checked before
 	// anything is handed over.
@@ -578,6 +606,9 @@ func (b *broker) towerWorkAnswer(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusForbidden, "answering work requires a registered Tower's own signed request")
 		return
 	}
+	// A large answer from a home uplink needs longer than the server's default read bound; the
+	// caller has just proven it holds the Tower's key.
+	_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(pullAnswerRead))
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxPullAnswer+1))
 	if err != nil {
 		jsonErr(w, http.StatusBadRequest, "unreadable body")
@@ -625,6 +656,8 @@ func (b *broker) towerWorkAnswer(w http.ResponseWriter, r *http.Request) {
 		a.Status = http.StatusBadGateway // a Tower's nonsense status is a failure, never a success
 	}
 	if err := b.deliverAnswer(a); err != nil {
+		// Not delivered, so not received: the Tower's retry must be taken, not told "already".
+		b.pullForgetAnswer(a.ID)
 		jsonErr(w, http.StatusServiceUnavailable, "work delivery unavailable")
 		return
 	}

@@ -9,8 +9,10 @@ import (
 	"crypto/ed25519"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -233,4 +235,103 @@ func TestAnUnclassedHubIsMeasuredAgain(t *testing.T) {
 	require.True(t, b.tower.link.SetHubClass(lt.id, sess, placement.HubNone)) // as an old record reads
 	b.remeasureTowerLocality(lt.id)
 	require.Equal(t, placement.HubPublic, b.tower.link.HubClass(lt.id))
+}
+
+// flakyStore is the real shared store with chosen operations failing, to stand in for a
+// Valkey that answers some calls and times out on others.
+type flakyStore struct {
+	*valkeyStore
+	failCacheSet atomic.Int64 // fail this many cacheSet calls
+	failSub      bool         // every result subscription fails
+}
+
+func (f *flakyStore) cacheSet(k string, v []byte, ttl time.Duration) error {
+	if f.failCacheSet.Add(-1) >= 0 {
+		return errors.New("i/o timeout")
+	}
+	return f.valkeyStore.cacheSet(k, v, ttl)
+}
+
+func (f *flakyStore) busSubscribeResult(ctx context.Context, id string) (<-chan []byte, func(), error) {
+	if f.failSub {
+		return nil, func() {}, errors.New("i/o timeout")
+	}
+	return f.valkeyStore.busSubscribeResult(ctx, id)
+}
+
+func (f *flakyStore) healthy() bool { return true }
+
+// Audit finding: an answer Core accepted but could not hand on is not "received"; the Tower's
+// retry is taken and delivered.
+func TestAnAnswerCoreCouldNotDeliverIsTakenOnRetry(t *testing.T) {
+	b, lt, sess, post := pullTower(t)
+	vs, _ := testValkeyShared(t)
+	fs := &flakyStore{valkeyStore: vs}
+	b.shared = fs
+	got := make(chan []byte, 1)
+	go func() {
+		base, hc := b.pullClient(lt.id)
+		req, _ := http.NewRequest(http.MethodPost, base+towerhub.PathSubmit, nil)
+		resp, err := hc.Do(req)
+		if err != nil {
+			got <- nil
+			return
+		}
+		body, _ := io.ReadAll(resp.Body)
+		got <- body
+	}()
+	var work []towerhub.PullWork
+	require.Eventually(t, func() bool {
+		c, raw := post("/tower/work/pull", map[string]string{"tower_id": lt.id, "session_id": sess})
+		if c == http.StatusOK {
+			var out struct {
+				Work []towerhub.PullWork `json:"work"`
+			}
+			_ = json.Unmarshal([]byte(raw), &out)
+			work = out.Work
+		}
+		return len(work) == 1
+	}, 5*time.Second, 10*time.Millisecond)
+	fs.failCacheSet.Store(1)
+	ans := towerhub.PullAnswer{TowerID: lt.id, SessionID: sess, ID: work[0].ID, Status: 200, Body: []byte("the answer")}
+	code, raw := post("/tower/work/answer?tower_id="+lt.id, ans)
+	require.Equal(t, http.StatusServiceUnavailable, code, raw)
+	code, raw = post("/tower/work/answer?tower_id="+lt.id, ans)
+	require.Equal(t, http.StatusOK, code, raw)
+	require.NotContains(t, raw, "already received", "the retry was refused as a duplicate")
+	require.Equal(t, []byte("the answer"), <-got)
+}
+
+// Audit finding: a store failure in the middle of a pull hub check is Core's, never recorded
+// against the Tower.
+func TestAStoreFailureMidHubCheckRecordsNothing(t *testing.T) {
+	b, lt, _, _ := pullTower(t)
+	vs, _ := testValkeyShared(t)
+	b.shared = &flakyStore{valkeyStore: vs, failSub: true}
+	b.towerHubCheckOnce(time.Now())
+	sum, _ := b.tower.health.Summary(lt.id, time.Time{})
+	require.True(t, sum.LastAt.IsZero(), "a store failure was recorded as a hub check: %+v", sum)
+}
+
+// Audit finding: work nobody pulls cannot pile up - expired work is dropped on one instance, and
+// the shared list keeps only the newest towerWorkMax.
+func TestQueuedWorkStaysBounded(t *testing.T) {
+	b, lt, _, _ := pullTower(t)
+	old := pullWork{ID: "pw-old", Exp: time.Now().Add(-time.Second).UnixMilli()}
+	require.NoError(t, b.pullQueue(lt.id, old))
+	require.NoError(t, b.pullQueue(lt.id, pullWork{ID: "pw-new", Exp: time.Now().Add(time.Minute).UnixMilli()}))
+	b.pulls.mu.Lock()
+	require.Len(t, b.pulls.buf[lt.id], 1, "expired work was kept")
+	b.pulls.mu.Unlock()
+
+	vs, mr := testValkeyShared(t)
+	b.shared = vs
+	for i := 0; i < towerWorkMax+20; i++ {
+		require.NoError(t, b.pullQueue(lt.id, pullWork{ID: fmt.Sprintf("pw-%d", i), Exp: time.Now().Add(time.Minute).UnixMilli()}))
+	}
+	items, err := mr.List(towerWorkBufPrefix + lt.id)
+	require.NoError(t, err)
+	require.Len(t, items, towerWorkMax)
+	require.True(t, streamRoutes["/tower/work/pull"] && streamRoutes["/tower/work/answer"],
+		"the held pull and the large answer bound themselves, not the 30 s response deadline")
 }

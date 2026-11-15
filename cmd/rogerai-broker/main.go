@@ -1285,6 +1285,10 @@ func (b *broker) routes() *http.ServeMux {
 //     in the audio handler is already bounded (non-blocking semaphore, 3s local /
 //     bus dispatch, the 90s result select), so nothing here can pin a connection.
 //   - /concierge - the public Ping chat may wait on an upstream model.
+//   - /tower/work/pull - a Tower's held pull (features/tower/tower_pull_dispatch.feature), held up
+//     to 25s like the node poll; it bounds itself (pullHold).
+//   - /tower/work/answer - a Tower's answer, up to tens of megabytes from a home uplink; it sets
+//     its own read deadline (pullAnswerRead) once the caller's key is checked.
 //
 // Every OTHER route is non-streaming and gets bounded by http.TimeoutHandler.
 var streamRoutes = map[string]bool{
@@ -1296,6 +1300,8 @@ var streamRoutes = map[string]bool{
 	"/v1/audio/speech":         true,
 	"/v1/audio/transcriptions": true,
 	"/concierge":               true,
+	"/tower/work/pull":         true,
+	"/tower/work/answer":       true,
 }
 
 // nonStreamTimeout is the response deadline applied to every NON-streaming route. It
