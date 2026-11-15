@@ -1,7 +1,17 @@
 # APPROVED SPEC - written and founder approved 2026-11-14 ("Approve as written"): every upgraded Tower pulls,
 # "same network" is the same public IPv4 or the same IPv6 /64, numbers accepted (3 s pickup, 4 held
 # pulls, 25 s hold). Changes to an approved scenario need re-approval.
-# BUILD STATUS: PARTIAL. Code is in; the executable runners are being written.
+# BUILD STATUS: BUILT. placement/home.go (same-network key, hub class), towerlocality.go (class, link
+# locality, re-measure), towerplacement.go (private hubs offered to same-network Stations only),
+# towerhubcheck.go (no dial, no failure for a private hub), towermobility.go (left_network),
+# internal/agent (a private hub only with a pin). Executable: private_hub_placement_bdd_test.go (broker),
+# internal/towercli/tower_pull_cli_bdd_test.go (serve) and internal/agent/private_hub_bdd_test.go (Station).
+# For re-approval: (1) the same-network key is stored as a keyed tag, never an address, which needed a
+# third field in placement_locality's "kept coarse" rule; (2) the attach answer reaches a Station over
+# Core's authenticated HTTPS, it is not a separately signed object; (3) the admin view shows whether a
+# network was measured, not the bucket, as placement_locality requires. Added in the build: a local
+# address, or the other address family within one session, never re-measures a Tower (a dual-stack
+# Tower must not flip its location on every request).
 #
 # Companion to tower_pull_dispatch.feature (change 1 of three, founder request 2026-11-14). That
 # file moves the Core-to-Tower leg onto the Tower's outbound link. This file covers the other

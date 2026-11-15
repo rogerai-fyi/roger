@@ -221,6 +221,10 @@ func TestTowerPullCLIBDD(t *testing.T) {
 			"../../features/tower/tower_pull_dispatch.feature:235",
 			"../../features/tower/tower_pull_dispatch.feature:240",
 			"../../features/tower/tower_pull_dispatch.feature:247",
+			"../../features/tower/private_hub_placement.feature:63",
+			"../../features/tower/private_hub_placement.feature:68",
+			"../../features/tower/private_hub_placement.feature:134",
+			"../../features/tower/private_hub_placement.feature:199",
 		}},
 	}
 	if bddrun.Run(suite) != 0 {

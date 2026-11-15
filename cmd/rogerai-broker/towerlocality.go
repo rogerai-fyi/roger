@@ -12,6 +12,7 @@ import (
 	"encoding/hex"
 	"log"
 	"net"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -131,7 +132,17 @@ func (b *broker) noteLinkAddr(towerID, addr string) {
 		return
 	}
 	loc := b.addrLocality(addr)
-	if prev, known := ts.link.LinkLocality(towerID); known && prev == loc {
+	if loc.Bucket == "" {
+		return // a local or unreadable address says nothing about where the Tower is
+	}
+	prev, known := ts.link.LinkLocality(towerID)
+	if known && prev == loc {
+		return
+	}
+	// One address family per session: a dual-stack Tower whose requests arrive over IPv4 and
+	// IPv6 by turns has not moved, and flipping its location on every request would move its
+	// Stations off and back. A new session measures from scratch, whichever family it uses.
+	if known && prev.Bucket != "" && strings.Contains(prev.Bucket, ":") != strings.Contains(loc.Bucket, ":") {
 		return
 	}
 	ts.link.SetLinkLocality(towerID, sid, loc)

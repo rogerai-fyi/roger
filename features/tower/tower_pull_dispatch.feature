@@ -1,7 +1,13 @@
 # APPROVED SPEC - written and founder approved 2026-11-14 ("Approve as written"): every upgraded Tower pulls,
 # "same network" is the same public IPv4 or the same IPv6 /64, numbers accepted (3 s pickup, 4 held
 # pulls, 25 s hold). Changes to an approved scenario need re-approval.
-# BUILD STATUS: PARTIAL. Code is in; the executable runners are being written.
+# BUILD STATUS: BUILT. cmd/rogerai-broker/towerpull.go (queue, pull and answer routes, the pull transport
+# under driveSealedF and the hub check), internal/towerhub/pull.go (the shared wire shape and ServePulled),
+# internal/towercli/pull.go (the Tower's pull loop), internal/towerjoin (pull-work-v1 offered with a hub).
+# Executable: cmd/rogerai-broker/tower_pull_dispatch_*_bdd_test.go and internal/towercli/tower_pull_cli_bdd_test.go.
+# One wording for re-approval, behaviour built as the closest true reading: an OLDER binary cannot be
+# made to print anything new, so the upgrade advice reaches it through the `roger tower status` note
+# every version prints, not through `roger tower serve`.
 #
 # Founder request 2026-11-14: "i don't want towers that carry nothing, thats useless. also if
 # every tower has to go through our core then that is just adding an extra hop for no reason.
