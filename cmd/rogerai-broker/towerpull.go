@@ -501,6 +501,8 @@ func (b *broker) towerWorkPull(w http.ResponseWriter, r *http.Request) {
 	b.notePull(tw.ID)
 	// The pull is the proof: a session an older instance opened during a rolling deploy reads
 	// as not pulling, and its work would never be queued for the pull that is waiting for it.
+	// Recording it is one shared write per session (it refreshes the record's last-seen too),
+	// after which the local copy answers.
 	if !ts.link.Pulls(tw.ID) {
 		ts.link.SetPull(tw.ID, req.SessionID, true)
 	}

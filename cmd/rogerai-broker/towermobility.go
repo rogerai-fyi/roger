@@ -588,7 +588,8 @@ func (b *broker) avoidFor(stationID string, now time.Time) map[string]bool {
 
 // chooseAvoiding is placement for a Station leaving current, keeping it off a Tower it said it
 // cannot reach. An avoid is only ever set for a private hub, so the store is read only when the
-// choice falls on a private one: not once per Station per pass.
+// choice falls on a private one. (The pass's own unreachable check reads it for the Stations of
+// private-hub Towers, a household's few Stations, once a pass.)
 func (b *broker) chooseAvoiding(snap []towerFacts, at attach.Attachment, loc placement.Locality, current string, now time.Time) (placed, bool) {
 	excl := map[string]bool{current: true}
 	alt, ok := b.chooseFrom(snap, at.Owner, loc, excl, "", nil)

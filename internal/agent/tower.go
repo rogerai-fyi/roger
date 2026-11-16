@@ -552,19 +552,17 @@ func staleAdvertisement(err error) bool {
 	return true
 }
 
-// hubOutOfReach reports a hub failure that is this Station not reaching the hub at all: a dial,
-// DNS, timeout, TLS or pin failure. A hub that answered, with any status, was reached.
+// hubOutOfReach reports a hub failure that is this Station not reaching the hub at all: a dial
+// (refused, no route, timed out), DNS, TLS or pin failure. A hub that answered, with any status,
+// or a connection that broke after it was made, was reached.
 func hubOutOfReach(err error) bool {
 	var op *net.OpError
 	var dns *net.DNSError
 	var cert *tls.CertificateVerificationError
-	var ne net.Error
 	switch {
-	case errors.Is(err, towerhub.ErrHubCertificateUnpinned), errors.Is(err, context.DeadlineExceeded):
+	case errors.Is(err, towerhub.ErrHubCertificateUnpinned):
 		return true
-	case errors.As(err, &op), errors.As(err, &dns), errors.As(err, &cert):
-		return true
-	case errors.As(err, &ne) && ne.Timeout():
+	case errors.As(err, &op) && op.Op == "dial", errors.As(err, &dns), errors.As(err, &cert):
 		return true
 	}
 	return false
