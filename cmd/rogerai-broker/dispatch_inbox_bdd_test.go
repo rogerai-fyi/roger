@@ -58,7 +58,11 @@ type dqOutcome struct {
 }
 
 type dqState struct {
-	t       *testing.T
+	t *testing.T
+	// pollers is every node poll loop the scenario started; teardown waits for them before it
+	// closes a store, because a ring client's Close under a poll still writing panics inside
+	// go-redis (its shard table goes nil under the pipeline's own goroutine).
+	pollers sync.WaitGroup
 	servers []*miniredis.Miniredis
 	urls    []string
 	// inProcess forces the in-process miniredis even when ROGERAI_TEST_REDIS_URL names a real
@@ -117,6 +121,7 @@ func (s *dqState) cleanup() {
 	}
 	dqAfterPop = nil
 	s.stopAll()
+	s.pollers.Wait()
 	for _, b := range s.inst {
 		if b != nil && b.shared != nil {
 			_ = b.shared.(*valkeyStore).Close()
@@ -206,7 +211,8 @@ func (s *dqState) startPollers(n *dqNode, inst, count int) {
 		n.mu.Lock()
 		n.cancels[inst] = append(n.cancels[inst], cancel)
 		n.mu.Unlock()
-		go s.pollLoop(ctx, n, inst)
+		s.pollers.Add(1)
+		go func() { defer s.pollers.Done(); s.pollLoop(ctx, n, inst) }()
 	}
 }
 
@@ -807,6 +813,7 @@ func (s *dqState) redisURL2() string {
 
 func (s *dqState) cleanupInstances() {
 	s.stopAll()
+	s.pollers.Wait()
 	for _, b := range s.inst {
 		if b != nil {
 			_ = b.shared.(*valkeyStore).Close()
