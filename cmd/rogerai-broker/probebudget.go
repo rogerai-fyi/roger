@@ -40,12 +40,19 @@ var (
 // its own, so no instance checks faster than the budget allows by itself.
 func (b *broker) allowCheck(node, kind string) bool {
 	now := checkClock()
-	if kind == "tools" && !b.toolCheckBudget(node, now) {
-		return false // tool-call checks keep within their share, leaving room for liveness
+	var toolTok string
+	if kind == "tools" {
+		var ok bool
+		if toolTok, ok = b.toolCheckBudget(node, now); !ok {
+			return false // tool-call checks keep within their share, leaving room for liveness
+		}
 	}
 	ok, shared := b.sharedCheckBudget(node, now)
 	if !shared {
 		ok = b.localCheckBudget(node, now)
+	}
+	if !ok && toolTok != "" {
+		b.dropToolCheck(node, toolTok, now) // not sent: its share of the day is given back
 	}
 	if ok && probeCheckSent != nil {
 		probeCheckSent(b, node, kind)
@@ -178,6 +185,7 @@ func (b *broker) takePeerReadings(now time.Time) {
 	if b.shared == nil {
 		return
 	}
+	b.takeAgeingReadings(now)
 	b.checkMu.Lock()
 	lost := make(map[string]time.Time, len(b.probeLost))
 	for n, at := range b.probeLost {
@@ -277,11 +285,12 @@ func (b *broker) releaseProbe(node string) {
 
 // toolCheckBudget draws a tool-call check from its own day share (toolBudgetDay), across instances
 // when the store answers, on this instance alone when it does not.
-func (b *broker) toolCheckBudget(node string, now time.Time) bool {
+func (b *broker) toolCheckBudget(node string, now time.Time) (token string, ok bool) {
 	if b.shared != nil && b.shared.healthy() {
-		ok, err := b.shared.edgeSlotReserve("checks-tools-d:"+node, randHex(8), now.Add(24*time.Hour), now, toolBudgetDay)
+		tok := randHex(8)
+		ok, err := b.shared.edgeSlotReserve("checks-tools-d:"+node, tok, now.Add(24*time.Hour), now, toolBudgetDay)
 		if err == nil {
-			return ok
+			return tok, ok
 		}
 	}
 	b.checkMu.Lock()
@@ -298,8 +307,53 @@ func (b *broker) toolCheckBudget(node string, now time.Time) bool {
 	}
 	if len(kept) >= toolBudgetDay {
 		b.checkTimes[key] = kept
-		return false
+		return "", false
 	}
 	b.checkTimes[key] = append(kept, now)
-	return true
+	return "local", true
+}
+
+// dropToolCheck gives back a tool-call slot whose check the main budget refused.
+func (b *broker) dropToolCheck(node, token string, now time.Time) {
+	if token != "local" {
+		_ = b.shared.edgeSlotDrop("checks-tools-d:"+node, token)
+		return
+	}
+	b.checkMu.Lock()
+	defer b.checkMu.Unlock()
+	key := node + "\x00tools"
+	if ts := b.checkTimes[key]; len(ts) > 0 && ts[len(ts)-1].Equal(now) {
+		b.checkTimes[key] = ts[:len(ts)-1]
+	}
+}
+
+// takeAgeingReadings adopts a peer's newer reading for any node whose own reading is past half its
+// freshness window, not only after a lost round: an instance whose round falls long before its
+// peer's would otherwise let the node's reading (and its verified mark) lapse until its next round.
+func (b *broker) takeAgeingReadings(now time.Time) {
+	if !b.multiInstance || !b.shared.healthy() {
+		return
+	}
+	b.mu.Lock()
+	ids := make([]string, 0, len(b.nodes))
+	for id := range b.nodes {
+		ids = append(ids, id)
+	}
+	b.mu.Unlock()
+	half := b.probe.freshFor() / 2
+	for _, id := range ids {
+		b.metricsMu.Lock()
+		st := b.probeSchedLocked()[id]
+		ageing := st == nil || now.Sub(st.lastMeasured) > half
+		b.metricsMu.Unlock()
+		if !ageing {
+			continue
+		}
+		raw, found, err := b.shared.cacheGet(probeReadingKey(id))
+		var r probeReading
+		if err != nil || !found || json.Unmarshal(raw, &r) != nil || r.By == b.instanceID {
+			continue
+		}
+		b.applyPeerReading(id, r) // a no-op unless newer than the one already taken
+	}
 }

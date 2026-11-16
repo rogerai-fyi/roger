@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"rogerai.fm/roger/v7/internal/protocol"
 	"rogerai.fm/roger/v7/internal/store"
 )
 
@@ -129,4 +130,38 @@ func TestAFreshPeerReadingIsTakenInsteadOfProbing(t *testing.T) {
 	a2.shared, a2.multiInstance, a2.instanceID = vs2, true, "i-a"
 	a2.publishProbe("m", trustState{probed: true, probeOK: true}, time.Now().Add(-time.Hour))
 	require.True(t, c.claimProbe("m", time.Now().Add(10*time.Minute), time.Minute), "a stale reading stopped a probe")
+}
+
+// Audit finding: an instance took a peer's reading only after losing a round to it, so one whose
+// round fell long before the peer's let the node's reading lapse. A node whose own reading is ageing
+// takes the peer's newer one on any tick.
+func TestAnAgeingReadingTakesThePeersNewerOne(t *testing.T) {
+	vs, _ := testValkeyShared(t)
+	a := adaptiveBroker(30*time.Second, 30*time.Minute)
+	a.shared, a.multiInstance, a.instanceID = vs, true, "i-a"
+	b := adaptiveBroker(30*time.Second, 30*time.Minute)
+	b.shared, b.multiInstance, b.instanceID = vs, true, "i-b"
+	b.nodes["n"] = protocol.NodeRegistration{NodeID: "n"}
+	b.probeSched["n"] = &probeState{lastMeasured: time.Now().Add(-40 * time.Minute)}
+	a.publishProbe("n", trustState{probed: true, probeOK: true, ttftMs: 90}, time.Now())
+	b.takePeerReadings(time.Now())
+	require.Equal(t, 90.0, b.trust["n"].ttftMs, "an ageing node did not take the peer's newer reading")
+}
+
+// Audit finding: a tool-call slot reserved before the main budget refused the check was kept.
+func TestARefusedToolCheckGivesItsSlotBack(t *testing.T) {
+	vs, _ := testValkeyShared(t)
+	b := adaptiveBroker(30*time.Second, 30*time.Minute)
+	b.shared = vs
+	for i := 0; i < checkBudgetHour; i++ {
+		require.True(t, b.allowCheck("slot-node", "canary"))
+	}
+	for i := 0; i < toolBudgetDay+5; i++ {
+		require.False(t, b.allowCheck("slot-node", "tools"), "the hour's budget is spent")
+	}
+	// An hour later the main budget has room again, and the tool share was never spent.
+	at := time.Now().Add(61 * time.Minute)
+	checkClock = func() time.Time { return at }
+	defer func() { checkClock = time.Now }()
+	require.True(t, b.allowCheck("slot-node", "tools"), "refused tool checks spent the tool share")
 }
