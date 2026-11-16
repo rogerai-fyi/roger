@@ -318,8 +318,8 @@ func TestProbeMinRealTrafficRefreshesNoMoreThanToday(t *testing.T) {
 }
 
 func TestProbeMinNeverExtendsToolsVerification(t *testing.T) {
-	t.Run("the TTL itself is unchanged", func(t *testing.T) {
-		require.Equal(t, 45*time.Minute, toolsVerifiedTTL)
+	t.Run("the TTL itself is the shipped one", func(t *testing.T) {
+		require.Equal(t, 90*time.Minute, toolsVerifiedTTL) // above two 30m ceilings (2026-11-15)
 	})
 
 	t.Run("single instance: the tools bit lapses on the TTL", func(t *testing.T) {
@@ -329,9 +329,9 @@ func TestProbeMinNeverExtendsToolsVerification(t *testing.T) {
 			age      time.Duration
 			want     bool
 		}{
-			{"declared, inside the TTL", sixHours, 44 * time.Minute, true},
-			{"declared, past the TTL", sixHours, 46 * time.Minute, false},
-			{"undeclared, past the TTL (unchanged)", 0, 46 * time.Minute, true},
+			{"declared, inside the TTL", sixHours, toolsVerifiedTTL - time.Minute, true},
+			{"declared, past the TTL", sixHours, toolsVerifiedTTL + time.Minute, false},
+			{"undeclared, past the TTL (unchanged)", 0, toolsVerifiedTTL + time.Minute, true},
 		} {
 			t.Run(tc.name, func(t *testing.T) {
 				b := probeMinBroker()

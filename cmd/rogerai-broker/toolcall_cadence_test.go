@@ -168,11 +168,19 @@ func TestAFirstTransientMissIsForgiven(t *testing.T) {
 	if !b.toolProbeDue("n1", "m1", now.Add(30*time.Second)) {
 		t.Fatal("a first transient miss made a model wait out the back-off")
 	}
+	// Send, miss, send, miss: the forgiveness was used, so the second miss counts.
 	b.toolCheckSent("n1", "m1", now.Add(30*time.Second))
-	b.toolCheckSent("n1", "m1", now.Add(31*time.Second))
 	b.recordToolProbe("n1", "m1", false, true, true)
 	if b.toolProbeDue("n1", "m1", now.Add(time.Minute)) {
 		t.Fatal("repeated transient misses were all forgiven: the round-by-round loop is back")
+	}
+	// And a pass resets it, forgiveness included.
+	b.recordToolProbe("n1", "m1", true, false, true)
+	b.metricsMu.Lock()
+	_, kept := b.toolFails[toolKey("n1", "m1")]
+	b.metricsMu.Unlock()
+	if kept {
+		t.Fatal("a pass did not end the back-off")
 	}
 }
 

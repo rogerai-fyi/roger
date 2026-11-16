@@ -7,6 +7,7 @@ package main
 
 import (
 	"encoding/json"
+	"strings"
 	"time"
 )
 
@@ -108,6 +109,7 @@ func (b *broker) claimProbe(node string, now time.Time, freshFor time.Duration) 
 		var r probeReading
 		if json.Unmarshal(raw, &r) == nil && r.By != b.instanceID && now.Sub(time.UnixMilli(r.At)) < freshFor {
 			b.applyPeerReading(node, r)
+			b.noteLost(node, now) // and take the newer one, if a peer's probe is in flight now
 			return false
 		}
 	}
@@ -115,13 +117,18 @@ func (b *broker) claimProbe(node string, now time.Time, freshFor time.Duration) 
 	if err != nil || won {
 		return true
 	}
+	b.noteLost(node, now)
+	return false
+}
+
+// noteLost records that a peer has this node's probe, so its reading is taken when published.
+func (b *broker) noteLost(node string, now time.Time) {
 	b.checkMu.Lock()
 	if b.probeLost == nil {
 		b.probeLost = map[string]time.Time{}
 	}
 	b.probeLost[node] = now
 	b.checkMu.Unlock()
-	return false
 }
 
 // probeReading is one node's reading as the instance that probed it holds it after the probe.
@@ -231,9 +238,26 @@ func (b *broker) applyPeerReading(node string, r probeReading) {
 	if lp := time.UnixMilli(r.ProbeSchedule); lp.After(st.lastProbe) {
 		st.lastProbe = lp
 	}
+	var reassert []string
+	if r.OK && b.shared != nil {
+		pfx := node + "\x00"
+		for k, ok := range b.toolsOK {
+			if ok && strings.HasPrefix(k, pfx) {
+				reassert = append(reassert, strings.TrimPrefix(k, pfx))
+			}
+		}
+	}
 	b.metricsMu.Unlock()
 	if r.OK && r.TPS > 0 {
 		b.updateTPS(node, r.TPS) // the speed band, as the prober's own reading feeds it
+	}
+	// A passing reading re-asserts the verified tools mark here too when THIS instance is the
+	// node's poll host (only the host writes it, so a stale bit elsewhere never re-poisons a
+	// regression the host cleared): the host need not be the instance that ran the canary.
+	if len(reassert) > 0 && b.authoritativeFor(node, time.Now()) {
+		for _, model := range reassert {
+			_ = b.shared.markToolsVerified(node, model, toolsVerifiedTTL)
+		}
 	}
 }
 

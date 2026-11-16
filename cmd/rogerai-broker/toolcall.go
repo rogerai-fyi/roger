@@ -60,10 +60,11 @@ const toolCanaryMaxTokens = 64
 
 // toolsVerifiedTTL is the freshness window for a shared verified-tools field: a verified model
 // must be re-proven (a passing canary re-marks it) within this window or it ages out of the
-// union as UNDETERMINED. Set comfortably above the probe ceiling (15m) so a model probed on the
-// idle backoff stays fresh; it is the backstop for an authoritative host that dies WITHOUT a
-// regression (a real regression clears the field immediately via clearToolsVerified).
-const toolsVerifiedTTL = 45 * time.Minute
+// union as UNDETERMINED. Set above TWO probe ceilings (30m each since the 2026-11-15 budget
+// ruling), so one skipped, budget-refused or peer-run canary does not let a healthy model's mark
+// lapse; it is the backstop for an authoritative host that dies WITHOUT a regression (a real
+// regression clears the field immediately via clearToolsVerified).
+const toolsVerifiedTTL = 90 * time.Minute
 
 // toolsRefreshEvery throttles the served-traffic refresh of a verified model's shared field (see
 // markMeasured): a continuously-busy node that probeOnce keeps skipping still keeps its verified
@@ -79,14 +80,10 @@ const toolsRefreshEvery = 15 * time.Minute
 // property of a model plus its runtime: it changes when the operator changes their setup,
 // not minute to minute. Re-asserting it as often as liveness bought nothing.
 //
-// The number is bounded by toolsVerifiedTTL (45m): a verified model ages out of the union as
-// UNDETERMINED unless a passing canary re-marks it in that window. At 20m, with rounds landing
-// on the 15m ceiling, re-verification lands about every 30m - a 15m margin under the TTL, and
-// a busy node that probeOnce skips entirely is covered separately by the served-traffic
-// refresh (toolsRefreshEvery).
-//
-// A model that has NOT earned the bit is deliberately NOT throttled: it is probed every round
-// so it earns "tools" as promptly as it always did. Only re-proving a settled verdict slows.
+// Since the 2026-11-15 budget ruling a verified model is fully re-checked once a day
+// (toolReverifyEvery) and each passed canary re-asserts its mark in between; a busy node that
+// probeOnce skips is covered by the served-traffic refresh (toolsRefreshEvery). toolProbeEvery
+// is the first step of a not-yet-verified model's back-off (probe_accounting.feature R3).
 const toolProbeEvery = 20 * time.Minute
 
 // toolReverifyEvery is how often a model that holds the tools bit is fully re-checked: once a
@@ -131,8 +128,9 @@ const toolBackoffKeep = 72 * time.Hour
 // toolBackoffState is a not-yet-verified model's tool-call back-off: checks in a row without a
 // pass, and when the last one ran.
 type toolBackoffState struct {
-	streak int
-	last   time.Time
+	streak   int
+	last     time.Time
+	forgiven bool // its one forgiven transient miss is used (cleared by a pass)
 }
 
 // toolBackoff is the wait after n tool-call checks in a row without a pass: 20 minutes, doubled
@@ -303,8 +301,8 @@ func (b *broker) recordToolProbe(nodeID, model string, ok, transient, authoritat
 		// tool-capable model that was cold on its first check tries again next round.
 		key := toolKey(nodeID, model)
 		b.metricsMu.Lock()
-		if st := b.toolFails[key]; st.streak == 1 {
-			delete(b.toolFails, key)
+		if st := b.toolFails[key]; st.streak == 1 && !st.forgiven {
+			b.toolFails[key] = toolBackoffState{forgiven: true} // once per model, not every round
 		}
 		b.metricsMu.Unlock()
 		return
@@ -508,8 +506,9 @@ func (b *broker) toolsVerifiedNow(nodeID, model string) bool {
 	return b.toolsOK[key] || b.toolsMerged[key] // the shared verdict counts after a restart
 }
 
-// toolCheckSent counts a tool-call check toward a not-yet-verified model's back-off: a check that
-// was due but never sent (a spent budget, no tunnel) is not a miss.
+// toolCheckSent counts a tool-call check toward a not-yet-verified model's back-off once the budget
+// lets it go: a check that was due but never let go (a spent budget, no tunnel) is not a miss. One
+// let go that then fails to reach the node counts, as it costs the node's budget too.
 func (b *broker) toolCheckSent(nodeID, model string, now time.Time) {
 	key := toolKey(nodeID, model)
 	b.metricsMu.Lock()
@@ -521,5 +520,5 @@ func (b *broker) toolCheckSent(nodeID, model string, now time.Time) {
 		b.toolFails = map[string]toolBackoffState{}
 	}
 	st := b.toolFails[key]
-	b.toolFails[key] = toolBackoffState{streak: st.streak + 1, last: now}
+	b.toolFails[key] = toolBackoffState{streak: st.streak + 1, last: now, forgiven: st.forgiven}
 }
