@@ -1257,3 +1257,24 @@ func runSub(t *testing.T, f func(*testing.T)) error {
 	}
 	return nil
 }
+
+// Audit finding: a move that came back (its node missed the window) pauses further moves for an
+// hour, and an unreachable report inside that pause was answered 503 with a fresh avoid every
+// retry, locking the Station out even after its hub recovered. Inside the pause it is answered
+// as before.
+func TestAnUnreachableReportDuringAPausedMoveIsAnsweredAsBefore(t *testing.T) {
+	s := &phpState{plcState: &plcState{t: t}, towerPeer: map[string]string{}, moved: map[string]string{}}
+	s.reset()
+	t.Cleanup(s.teardown)
+	s.b.canaryVet = vetPublicIP
+	require.NoError(t, s.openAt("T", "198.51.100.40", "192.168.1.20:8444", phpPin, true))
+	require.NoError(t, s.openAt("U", "203.0.113.30", "203.0.113.30:8444", "", true))
+	n, code, raw := s.attachFrom("198.51.100.40")
+	require.Equal(t, http.StatusOK, code, raw)
+	require.NoError(t, s.b.tower.mobility.FinishMove(n.out.StationID, "", time.Now().Add(time.Hour)))
+	n.body["unreachable_tower"], n.body["unreachable_pin"] = s.id("T"), phpPin
+	code, raw = s.attachNode(n)
+	require.Equal(t, http.StatusOK, code, raw)
+	tw, _, _ := s.b.tower.mobility.Avoid(n.out.StationID)
+	require.Empty(t, tw)
+}

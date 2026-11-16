@@ -453,8 +453,11 @@ func (b *broker) towerEdgeAttach(w http.ResponseWriter, r *http.Request) {
 			now := time.Now()
 			excl := b.avoidFor(prior.StationID, now)
 			excl[tw] = true
+			// Nor inside a paused move (one that came back because the node missed its window):
+			// the mobility pass will not move it then, so a 503 would only lock it out.
+			_, paused, _ := ts.mobility.Skip(prior.StationID)
 			if _, elsewhere := b.chooseFrom(b.placementSnapshot(), prior.Owner, loc, excl, "", nil); has &&
-				req.UnreachablePin == plane.TLSSPKI && elsewhere {
+				req.UnreachablePin == plane.TLSSPKI && elsewhere && !now.Before(paused) {
 				if err := ts.mobility.SetAvoid(prior.StationID, tw, now.Add(unreachableAvoidFor)); err != nil {
 					b.towerGovUnavailable(err)
 				}
