@@ -1010,6 +1010,19 @@ func TestPrivateHubPlacementBDD(t *testing.T) {
 			sc.Step(`^Core does not name that hub again and tells the node to try again shortly$`, s.hubNotNamedAgain)
 			sc.Step(`^the mobility pass moves the Station off that Tower with the trigger "unreachable", under the pacing every move follows$`, s.movedUnreachable)
 			sc.Step(`^placement does not offer that Tower to the Station for 24 hours$`, s.avoidedForADay)
+			sc.Step(`^a Station placed on a private-hub Tower$`, func() error { return nil })
+			sc.Step(`^its node reports the hub unreachable naming a certificate pin that is not the Tower's current one$`, func() error { return nil })
+			sc.Step(`^Core answers with the Tower's current pin, as for a certificate the Tower rotated, and keeps nothing off$`, func() error {
+				return runSub(t, TestARotatedCertificateIsNotTakenForAnUnreachableHub)
+			})
+			sc.Step(`^its node reports the hub unreachable and no other Tower can take the Station$`, func() error { return nil })
+			sc.Step(`^Core answers as before, with the only hub there is, and keeps nothing off$`, func() error {
+				return runSub(t, TestAnUnreachableStationWithNowhereElseIsAnsweredAsBefore)
+			})
+			sc.Step(`^its node reports the hub unreachable while the Tower's own link is down, or for a public hub$`, func() error { return nil })
+			sc.Step(`^Core answers as before: a Tower that is down is down for everyone, and a public hub is Core's to check$`, func() error {
+				return runSub(t, TestAnUnreachableReportIsBelievedOnlyForALivePrivateHub)
+			})
 			sc.Step(`^Core records the move trigger "left_network"$`, s.triggerLeft)
 			sc.Step(`^moves the Station to its best eligible Tower without proving it idle, because it can no longer reach the hub$`, s.movedWithoutIdle)
 			sc.Step(`^the move follows the existing pacing, nudge and epoch rules in station_mobility.feature$`, s.existingRules)
@@ -1137,7 +1150,7 @@ func (s *phpState) placedBehindCGNAT() error {
 
 func (s *phpState) cannotReachHub() error {
 	n := s.stash["n"].(*plcNode)
-	n.body["unreachable_tower"] = s.id("T")
+	n.body["unreachable_tower"], n.body["unreachable_pin"] = s.id("T"), phpPin // the pin it was handed
 	code, raw := s.attachNode(n)
 	s.stash["code"], s.stash["raw"] = code, raw
 	return nil
@@ -1178,9 +1191,10 @@ func (s *phpState) avoidedForADay() error {
 	return nil
 }
 
-// Audit finding: with no other Tower to take it, an unreachable Station was taken dark and placed
-// back every pass for the whole day. It is moved only when it has somewhere else to go.
-func TestAnUnreachableStationWithNowhereElseIsNotChurned(t *testing.T) {
+// Audit findings: with no other Tower to take it, an unreachable Station was taken dark and placed
+// back every pass, and then told to try again for the whole day. With nowhere else to go it is
+// answered as before, the only hub there is, and nothing is kept off.
+func TestAnUnreachableStationWithNowhereElseIsAnsweredAsBefore(t *testing.T) {
 	s := &phpState{plcState: &plcState{t: t}, towerPeer: map[string]string{}, moved: map[string]string{}}
 	s.reset()
 	t.Cleanup(s.teardown)
@@ -1188,11 +1202,34 @@ func TestAnUnreachableStationWithNowhereElseIsNotChurned(t *testing.T) {
 	require.NoError(t, s.openAt("T", "198.51.100.40", "192.168.1.20:8444", phpPin, true))
 	n, code, raw := s.attachFrom("198.51.100.40")
 	require.Equal(t, http.StatusOK, code, raw)
-	n.body["unreachable_tower"] = s.id("T")
-	code, _ = s.attachNode(n)
-	require.Equal(t, http.StatusServiceUnavailable, code)
+	n.body["unreachable_tower"], n.body["unreachable_pin"] = s.id("T"), phpPin
+	code, raw = s.attachNode(n)
+	require.Equal(t, http.StatusOK, code, raw)
+	tw, _, _ := s.b.tower.mobility.Avoid(n.out.StationID)
+	require.Empty(t, tw, "a Station with nowhere else to go was kept off its only Tower")
 	s.movesNow(time.Now())
 	require.Empty(t, s.moved[n.out.StationID], "a Station with nowhere else to go was moved")
+}
+
+// Audit finding: a pin mismatch looks the same to the node whether a stranger's device answered or
+// the Tower rotated its certificate. Core tells them apart: when the pin the node was using is not
+// the Tower's current one, the node is handed the new pin and nothing is kept off.
+func TestARotatedCertificateIsNotTakenForAnUnreachableHub(t *testing.T) {
+	s := &phpState{plcState: &plcState{t: t}, towerPeer: map[string]string{}, moved: map[string]string{}}
+	s.reset()
+	t.Cleanup(s.teardown)
+	s.b.canaryVet = vetPublicIP
+	require.NoError(t, s.openAt("T", "198.51.100.40", "192.168.1.20:8444", phpPin, true))
+	require.NoError(t, s.openAt("U", "203.0.113.30", "203.0.113.30:8444", "", true))
+	n, code, raw := s.attachFrom("198.51.100.40")
+	require.Equal(t, http.StatusOK, code, raw)
+	require.Equal(t, s.id("T"), n.placedOn)
+	n.body["unreachable_tower"], n.body["unreachable_pin"] = s.id("T"), strings.Repeat("cd", 32) // an older pin
+	code, raw = s.attachNode(n)
+	require.Equal(t, http.StatusOK, code, raw)
+	require.Contains(t, raw, phpPin, "the node was not handed the Tower's current pin")
+	tw, _, _ := s.b.tower.mobility.Avoid(n.out.StationID)
+	require.Empty(t, tw, "a certificate rotation kept the Station off its Tower")
 }
 
 // Audit finding: any 90 s hub outage, a Tower restarting for one, sent every Station away for a
@@ -1211,4 +1248,12 @@ func TestAnUnreachableReportIsBelievedOnlyForALivePrivateHub(t *testing.T) {
 	require.Equal(t, http.StatusOK, code, "a public hub is Core's to check, not the Station's word: %s", raw)
 	tw, _, _ := s.b.tower.mobility.Avoid(n.out.StationID)
 	require.Empty(t, tw, "a public hub was avoided on a Station's report")
+}
+
+// runSub runs a focused test as a scenario step, so a scenario and its regression test are one proof.
+func runSub(t *testing.T, f func(*testing.T)) error {
+	if !t.Run("step", f) {
+		return fmt.Errorf("the scenario's check failed (see the subtest above)")
+	}
+	return nil
 }

@@ -236,7 +236,7 @@ func (b *broker) mobilityTower(tw admit.Tower, live []attach.Attachment, snap []
 	for _, at := range live {
 		// A Station that said it cannot reach this Tower's hub has no idle to wait for either:
 		// it is moved off, under the pacing every move follows.
-		if b.avoidFor(at.StationID, now)[tw.ID] {
+		if private && b.avoidFor(at.StationID, now)[tw.ID] { // an avoid is only ever set for a private hub
 			// Only with somewhere else to go, and not while a move that came back is paused: a
 			// Station whose only Tower is this one would otherwise be taken dark and placed back
 			// on it every pass for the whole day.
@@ -244,9 +244,7 @@ func (b *broker) mobilityTower(tw admit.Tower, live []attach.Attachment, snap []
 				continue
 			}
 			f, _, _ := ts.mobility.Facts(at.StationID)
-			excl := b.avoidFor(at.StationID, now)
-			excl[tw.ID] = true
-			if _, ok := b.chooseFrom(snap, at.Owner, f.Locality, excl, "", nil); !ok {
+			if _, ok := b.chooseAvoiding(snap, at, f.Locality, tw.ID, now); !ok {
 				continue
 			}
 			if pace.allow(tw.ID, "") && b.startMove(at, "", triggerUnreachable, now) {
@@ -296,9 +294,7 @@ func (b *broker) mobilityTower(tw admit.Tower, live []attach.Attachment, snap []
 			// a failing Tower, "somewhere" must be healthy: moving between two failing Towers
 			// would bounce the Station for as long as both fail.
 			f, _, _ := ts.mobility.Facts(at.StationID)
-			excl := b.avoidFor(at.StationID, now)
-			excl[tw.ID] = true
-			alt, ok := b.chooseFrom(snap, at.Owner, f.Locality, excl, "", nil)
+			alt, ok := b.chooseAvoiding(snap, at, f.Locality, tw.ID, now)
 			if !ok || (trigger == triggerFailing && alt.cand.Tier != placement.TierA) {
 				continue
 			}
@@ -379,9 +375,7 @@ func (b *broker) overOwnerHouseCap(byTower map[string][]attach.Attachment) map[s
 // other's streaks; the draw happens only when the node re-attaches.
 func (b *broker) observeBetter(at attach.Attachment, current string, snap []towerFacts, obsAt time.Time) string {
 	f, _, _ := b.tower.mobility.Facts(at.StationID)
-	excl := b.avoidFor(at.StationID, time.Now())
-	excl[current] = true
-	alt, ok := b.chooseFrom(snap, at.Owner, f.Locality, excl, "", nil)
+	alt, ok := b.chooseAvoiding(snap, at, f.Locality, current, obsAt)
 	better := ok && placement.StrictlyBetter(alt.cand, b.towerCandidate(snap, current, f.Locality), b.isHouseAccount(at.Owner))
 	b.moveMu.Lock()
 	defer b.moveMu.Unlock()
@@ -584,4 +578,29 @@ func (b *broker) avoidFor(stationID string, now time.Time) map[string]bool {
 		out[tw] = true
 	}
 	return out
+}
+
+// chooseAvoiding is placement for a Station leaving current, keeping it off a Tower it said it
+// cannot reach. An avoid is only ever set for a private hub, so the store is read only when the
+// choice falls on a private one: not once per Station per pass.
+func (b *broker) chooseAvoiding(snap []towerFacts, at attach.Attachment, loc placement.Locality, current string, now time.Time) (placed, bool) {
+	excl := map[string]bool{current: true}
+	alt, ok := b.chooseFrom(snap, at.Owner, loc, excl, "", nil)
+	if !ok || !privateIn(snap, alt.towerID) {
+		return alt, ok
+	}
+	for tw := range b.avoidFor(at.StationID, now) {
+		excl[tw] = true
+	}
+	return b.chooseFrom(snap, at.Owner, loc, excl, "", nil)
+}
+
+// privateIn reports a Tower in the snapshot whose hub is private.
+func privateIn(snap []towerFacts, towerID string) bool {
+	for _, f := range snap {
+		if f.cand.TowerID == towerID {
+			return f.private
+		}
+	}
+	return false
 }

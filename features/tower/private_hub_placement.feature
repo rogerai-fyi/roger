@@ -193,6 +193,15 @@ Feature: A Tower with no public address serves the Stations on its own network
     And the mobility pass moves the Station off that Tower with the trigger "unreachable", under the pacing every move follows
     And placement does not offer that Tower to the Station for 24 hours
 
+  Scenario: An unreachable report changes nothing when it cannot help
+    Given a Station placed on a private-hub Tower
+    When its node reports the hub unreachable naming a certificate pin that is not the Tower's current one
+    Then Core answers with the Tower's current pin, as for a certificate the Tower rotated, and keeps nothing off
+    When its node reports the hub unreachable and no other Tower can take the Station
+    Then Core answers as before, with the only hub there is, and keeps nothing off
+    When its node reports the hub unreachable while the Tower's own link is down, or for a public hub
+    Then Core answers as before: a Tower that is down is down for everyone, and a public hub is Core's to check
+
   Scenario: A Station that leaves the Tower's network is moved off, without waiting for idle
     Given a Station placed on a private-hub Tower while on the same network
     When the Station's next request to Core is observed from a different network

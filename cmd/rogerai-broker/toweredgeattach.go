@@ -182,6 +182,7 @@ func (b *broker) towerEdgeAttach(w http.ResponseWriter, r *http.Request) {
 		// UnreachableTower names the Tower whose hub this node could not reach, on the attach it
 		// makes after giving up on that hub. It only ever moves this Station off that Tower.
 		UnreachableTower string `json:"unreachable_tower"`
+		UnreachablePin   string `json:"unreachable_pin"`
 		// Nudge declares that this node understands the re-attach nudge on its cancel
 		// long-poll, so Core may move it to a better Tower while it is idle
 		// (station_mobility.feature). An older node does not send it and is moved only when its
@@ -443,14 +444,24 @@ func (b *broker) towerEdgeAttach(w http.ResponseWriter, r *http.Request) {
 		// Only for a PRIVATE hub, which Core cannot dial to see for itself, and only while the
 		// Tower's own link is up: a Tower that restarts takes its hub down for everyone, and that
 		// is not this Station failing to reach it.
-		if req.UnreachableTower != "" && req.UnreachableTower == prior.Origin.TowerID &&
-			ts.link.HubClass(prior.Origin.TowerID) == placement.HubPrivate && ts.link.Live(prior.Origin.TowerID) {
-			if err := ts.mobility.SetAvoid(prior.StationID, prior.Origin.TowerID, time.Now().Add(unreachableAvoidFor)); err != nil {
-				b.towerGovUnavailable(err)
+		// And only when it can help: a pin the node holds that is not the Tower's current one is a
+		// certificate the Tower rotated (the answer below hands over the new pin), and a Station
+		// with nowhere else to go is answered as before rather than told to wait out the day.
+		if tw := prior.Origin.TowerID; req.UnreachableTower != "" && req.UnreachableTower == tw &&
+			ts.link.HubClass(tw) == placement.HubPrivate && ts.link.Live(tw) {
+			plane, has := ts.link.RelayPlane(tw)
+			now := time.Now()
+			excl := b.avoidFor(prior.StationID, now)
+			excl[tw] = true
+			if _, elsewhere := b.chooseFrom(b.placementSnapshot(), prior.Owner, loc, excl, "", nil); has &&
+				req.UnreachablePin == plane.TLSSPKI && elsewhere {
+				if err := ts.mobility.SetAvoid(prior.StationID, tw, now.Add(unreachableAvoidFor)); err != nil {
+					b.towerGovUnavailable(err)
+				}
+				jsonErr(w, http.StatusServiceUnavailable,
+					"this node cannot reach its tower and is being moved - try again shortly")
+				return
 			}
-			jsonErr(w, http.StatusServiceUnavailable,
-				"this node cannot reach its tower and is being moved - try again shortly")
-			return
 		}
 		// A PRIVATE HUB IS NAMED ONLY ON ITS OWN NETWORK, on this answer as on a fresh one
 		// (private_hub_placement.feature). A Station whose known network now differs from the

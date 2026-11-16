@@ -648,13 +648,14 @@ func waitFor(ctx context.Context, d time.Duration) bool {
 // identity under dir, the offer from cfg (model/modality/prices), the request signed with the
 // node's account-bound key. Idempotent on retry with the same identity.
 func AttachTower(cfg Config, priv ed25519.PrivateKey, dir string) (*station.Station, TowerAttachment, error) {
-	return attachTowerAvoiding(cfg, priv, dir, "")
+	return attachTowerAvoiding(cfg, priv, dir, "", "")
 }
 
 // attachTowerAvoiding is AttachTower after this node gave up on a Tower's hub: unreachable names
-// that Tower, so Core moves this Station off it rather than handing back the same hub
+// that Tower and pin the certificate pin the node was using, so Core can tell a hub out of this
+// Station's reach (moved off it) from a certificate the Tower rotated (the new pin handed back)
 // (private_hub_placement.feature). It only ever moves this Station.
-func attachTowerAvoiding(cfg Config, priv ed25519.PrivateKey, dir, unreachable string) (*station.Station, TowerAttachment, error) {
+func attachTowerAvoiding(cfg Config, priv ed25519.PrivateKey, dir, unreachable, pin string) (*station.Station, TowerAttachment, error) {
 	// A PRIVATE BAND IS NEVER ATTACHED. Structural, at the network act, so the guarantee does not
 	// depend on which branch of a caller happens to reach here. See ErrPrivateShareNeverRelays.
 	if cfg.Private {
@@ -706,7 +707,7 @@ func attachTowerAvoiding(cfg Config, priv ed25519.PrivateKey, dir, unreachable s
 		"nudge": true,
 	}
 	if unreachable != "" {
-		fields["unreachable_tower"] = unreachable
+		fields["unreachable_tower"], fields["unreachable_pin"] = unreachable, pin
 	}
 	body, err := json.Marshal(fields)
 	if err != nil {
@@ -922,14 +923,15 @@ func ServeTower(ctx context.Context, cfg Config, priv ed25519.PrivateKey, dir st
 		gen                 int
 		movedFrom, movedWhy string
 		unreachable         string // the Tower whose hub this node last gave up on
+		unreachablePin      string // and the pin it was using for that hub
 	)
 	for {
 		if ctx.Err() != nil {
 			return nil
 		}
-		st, at, err := attachTowerAvoiding(cfg, priv, dir, unreachable)
+		st, at, err := attachTowerAvoiding(cfg, priv, dir, unreachable, unreachablePin)
 		if err == nil {
-			unreachable = ""
+			unreachable, unreachablePin = "", ""
 		}
 		if err != nil {
 			if gen == 0 {
@@ -1021,7 +1023,7 @@ func ServeTower(ctx context.Context, cfg Config, priv ed25519.PrivateKey, dir st
 			gen++
 			continue
 		case errors.Is(terr, errHubStanding):
-			unreachable = at.TowerID // said on the next attach, so Core does not hand the same hub back
+			unreachable, unreachablePin = at.TowerID, at.EndpointTLSSPKI // said on the next attach
 			// terr ITSELF, not errors.Unwrap(terr). A `fmt.Errorf("%w: %w", ...)` has an
 			// `Unwrap() []error`, not an `Unwrap() error`, so errors.Unwrap returns NIL on it and
 			// the cause would have been formatted as "%!w(<nil>)" - an operator handed a rendering
