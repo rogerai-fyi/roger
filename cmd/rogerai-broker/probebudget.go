@@ -16,9 +16,12 @@ const (
 	// day: canaries, tool-call checks and Tower-carried canaries together, first sight included.
 	checkBudgetHour = 12
 	checkBudgetDay  = 60
-	// probeLeaseTTL caps how long a round's probe lease lasts. The lease is held for less than
-	// the probe floor (leaseTTL), so the next round always finds it free, whichever instance
-	// held it; a peer whose round fell in the same window found it taken.
+	// toolBudgetDay is the share of a node's day budget tool-call checks may take, so liveness
+	// canaries (48 a day at an idle node's 30 minute ceiling) always have room.
+	toolBudgetDay = 12
+	// probeLeaseTTL caps how long a round's probe lease lasts: the jitter before the canary and the
+	// canary itself. The prober releases it as soon as its reading is published (or its check is
+	// refused), so the next round finds it free; the cap only covers a prober that died.
 	probeLeaseTTL = probeJitter + 40*time.Second
 	// probeResultTTL keeps a published reading past two ceilings, so a peer that ticks late
 	// still takes it.
@@ -37,6 +40,9 @@ var (
 // its own, so no instance checks faster than the budget allows by itself.
 func (b *broker) allowCheck(node, kind string) bool {
 	now := checkClock()
+	if kind == "tools" && !b.toolCheckBudget(node, now) {
+		return false // tool-call checks keep within their share, leaving room for liveness
+	}
 	ok, shared := b.sharedCheckBudget(node, now)
 	if !shared {
 		ok = b.localCheckBudget(node, now)
@@ -113,7 +119,7 @@ func (b *broker) claimProbe(node string, now time.Time, freshFor time.Duration) 
 			return false
 		}
 	}
-	won, err := b.shared.setIfAbsent("probelease:"+node, b.instanceID, b.leaseTTL())
+	won, err := b.shared.setIfAbsent("probelease:"+node, b.instanceID, probeLeaseTTL)
 	if err != nil || won {
 		return true
 	}
@@ -161,6 +167,7 @@ func (b *broker) publishProbe(node string, tq trustState, lastMeasured time.Time
 	}
 	raw, _ := json.Marshal(r)
 	_ = b.shared.cacheSet(probeReadingKey(node), raw, probeResultTTL)
+	b.releaseProbe(node) // the round is over: the next one, on either instance, finds it free
 }
 
 // takePeerReadings adopts the published reading of every node whose probe this instance lost
@@ -261,8 +268,38 @@ func (b *broker) applyPeerReading(node string, r probeReading) {
 	}
 }
 
-// leaseTTL is the probe lease's life: under the probe floor, so a lease never blocks the next
-// round (the holder's own included), and never under a few seconds.
-func (b *broker) leaseTTL() time.Duration {
-	return max(min(probeLeaseTTL, b.probe.interval-time.Second), 5*time.Second)
+// releaseProbe frees this instance's probe lease on a node once its round is over.
+func (b *broker) releaseProbe(node string) {
+	if b.shared != nil && b.multiInstance {
+		_ = b.shared.delIfEqual("probelease:"+node, b.instanceID)
+	}
+}
+
+// toolCheckBudget draws a tool-call check from its own day share (toolBudgetDay), across instances
+// when the store answers, on this instance alone when it does not.
+func (b *broker) toolCheckBudget(node string, now time.Time) bool {
+	if b.shared != nil && b.shared.healthy() {
+		ok, err := b.shared.edgeSlotReserve("checks-tools-d:"+node, randHex(8), now.Add(24*time.Hour), now, toolBudgetDay)
+		if err == nil {
+			return ok
+		}
+	}
+	b.checkMu.Lock()
+	defer b.checkMu.Unlock()
+	if b.checkTimes == nil {
+		b.checkTimes = map[string][]time.Time{}
+	}
+	key := node + "\x00tools"
+	kept := b.checkTimes[key][:0:0]
+	for _, at := range b.checkTimes[key] {
+		if now.Sub(at) < 24*time.Hour {
+			kept = append(kept, at)
+		}
+	}
+	if len(kept) >= toolBudgetDay {
+		b.checkTimes[key] = kept
+		return false
+	}
+	b.checkTimes[key] = append(kept, now)
+	return true
 }

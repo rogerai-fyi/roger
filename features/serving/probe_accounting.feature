@@ -3,6 +3,9 @@
 # with the node's own token like its poll, instead of /stations, which needs a logged-in owner
 # with a verified identity and so would leave anonymous sharers (and most phones) with no number.
 # It returns aggregates only; owners can already see per-request rows in /stations.
+# Also for re-approval: the difference between what a node handled and what Core counted is
+# labelled "unbilled jobs" (Core's checks, or work that did not settle), not "network checks":
+# a cancelled or failed customer job falls in it too.
 #
 # Why: a phone serving an on-device model showed 14 requests "served" within a couple of minutes.
 # They were Core's own checks. Since the 2026-10-06 ruling (a canary carries a fresh customer-style
@@ -56,7 +59,7 @@ Feature: Core's checks are counted as checks and cost as little as possible
   Scenario: What the node handled is shown apart from what it served
     When the node handled 8 jobs and Core's record shows 3 paid
     Then the share screen shows "3 served" as the headline
-    And it may show "5 network checks" as the difference, labelled as Core checking the node
+    And it may show "5 unbilled jobs" as the difference, labelled as Core's checks or work that did not settle
 
   Scenario: Core's record cannot be read for a moment
     When GET /nodes/served does not answer

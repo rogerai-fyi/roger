@@ -171,7 +171,7 @@
     if (t.probes > 0) {
       totals.appendChild(document.createTextNode(" · "));
       totals.appendChild(el("span", "muted",
-        "plus " + fmtInt(t.probes) + " network checks (RogerAI Core checking this node, unbilled)"));
+        "plus " + fmtInt(t.probes) + " unbilled jobs (RogerAI Core's checks, or work that did not settle)"));
     }
 
     show($("share-login-warn"), !s.logged_in);

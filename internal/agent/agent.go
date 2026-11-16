@@ -460,7 +460,8 @@ func (s *Session) RecordHandledForTest(completionTokens int64) {
 	s.record(protocol.UsageReceipt{RequestID: "test", CompletionTokens: int(completionTokens)})
 }
 
-// ProbeStats returns the network checks this share answered: what it handled beyond what
+// ProbeStats returns the unbilled jobs this share answered (Core's checks, and work that did not
+// settle): what it handled beyond what
 // Core's record shows it served. Only while Core's numbers are current; zero otherwise, so a
 // stale record never turns real work into "checks".
 func (s *Session) ProbeStats() (reqs, tokens int64) {

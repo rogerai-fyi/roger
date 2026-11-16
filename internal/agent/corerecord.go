@@ -28,7 +28,7 @@ type coreNumbers struct {
 	served, tokens int64
 	earned         float64
 	current        bool // Core's latest answer; false before it first answered and while it cannot
-	// handledReqs / handledToks are what this node had handled when it asked: the network checks
+	// handledReqs / handledToks are what this node had handled when it asked: the unbilled jobs
 	// are those beyond Core's answer, so a job served since is never shown as a check.
 	handledReqs, handledToks int64
 }

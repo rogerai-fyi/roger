@@ -44,7 +44,7 @@ func TestProbeStaleness(t *testing.T) {
 		t.Error("a node measured a minute ago is fresh")
 	}
 	if !c.measurementStale(now.Add(-2*time.Hour), now) {
-		t.Error("a node measured 2h ago (> ceiling) is stale")
+		t.Error("a node measured 2h ago (past the freshness window) is stale")
 	}
 	if (probeConfig{}).stalenessFactor(time.Hour) != 1.0 {
 		t.Error("no ceiling -> staleness factor 1.0")
@@ -52,7 +52,7 @@ func TestProbeStaleness(t *testing.T) {
 	if c.stalenessFactor(time.Minute) != 1.0 {
 		t.Error("within ceiling -> 1.0")
 	}
-	if f := c.stalenessFactor(90 * time.Minute); f >= 1.0 || f < 0.7 {
+	if f := c.stalenessFactor(2 * time.Hour); f >= 1.0 || f < 0.7 { // past the 90m freshness window
 		t.Errorf("aged staleness factor = %v, want in [0.7,1.0)", f)
 	}
 }

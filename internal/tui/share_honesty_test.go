@@ -108,7 +108,7 @@ func TestTheShareViewSaysWhatTheUnbilledWorkWas(t *testing.T) {
 	m.shares = map[string]*agent.Session{m.shareRows[0].model: sess}
 
 	v := stripANSI(m.shareView(140))
-	if !strings.Contains(v, "3 network checks") {
+	if !strings.Contains(v, "3 unbilled jobs") {
 		t.Errorf("the canary work is invisible: a busy rig reporting nothing served has no "+
 			"way to explain itself.\n%s", v)
 	}
@@ -126,7 +126,7 @@ func TestNoProbeLineWhenNothingHasBeenProbed(t *testing.T) {
 	m.width, m.height = 140, 30
 	m.shares = map[string]*agent.Session{m.shareRows[0].model: {}}
 
-	if strings.Contains(stripANSI(m.shareView(140)), "network checks") {
+	if strings.Contains(stripANSI(m.shareView(140)), "unbilled jobs") {
 		t.Error("an unprobed station still reported broker checks")
 	}
 }
@@ -164,7 +164,7 @@ func TestTheShareViewShowsCoresRecordOnly(t *testing.T) {
 	}
 	m.shares = map[string]*agent.Session{m.shareRows[0].model: sess}
 	v := stripANSI(m.shareView(140))
-	if !strings.Contains(v, "…") || strings.Contains(v, "network checks") {
+	if !strings.Contains(v, "…") || strings.Contains(v, "unbilled jobs") {
 		t.Errorf("before Core answered the table must show … and no checks:\n%s", v)
 	}
 	if d := stripANSI(m.shareRowDetail(m.shareRows[0], sess)); !strings.Contains(d, "waiting for Core") {
@@ -172,7 +172,7 @@ func TestTheShareViewShowsCoresRecordOnly(t *testing.T) {
 	}
 	sess.SetCoreForTest(2, 20, 0, false)
 	v = stripANSI(m.shareView(140))
-	if !strings.Contains(v, "not current") || strings.Contains(v, "network checks") {
+	if !strings.Contains(v, "not current") || strings.Contains(v, "unbilled jobs") {
 		t.Errorf("a stale record must be said to be not current and claim no checks:\n%s", v)
 	}
 }

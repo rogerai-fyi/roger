@@ -9,25 +9,67 @@ import (
 	"rogerai.fm/roger/v7/internal/store"
 )
 
-// Review finding: the probe lease outlived a round (45 s against a 30 s floor), so the next
-// round found it taken on both instances and nobody probed. It now lasts under the floor: a peer
-// in the same round is refused, the next round is free for either instance.
-func TestTheProbeLeaseNeverBlocksTheNextRound(t *testing.T) {
+// Review finding: the probe lease outlived a round, so the next round found it taken on both
+// instances. The prober releases it the moment its reading is published (or its check is
+// refused); the TTL only covers a prober that died.
+func TestTheProbeLeaseIsReleasedWithTheReading(t *testing.T) {
 	vs, mr := testValkeyShared(t)
 	a := adaptiveBroker(30*time.Second, 15*time.Minute)
 	a.shared, a.multiInstance, a.instanceID = vs, true, "i-a"
 	b := adaptiveBroker(30*time.Second, 15*time.Minute)
 	b.shared, b.multiInstance, b.instanceID = vs, true, "i-b"
-	require.Less(t, a.leaseTTL(), a.probe.interval)
 	now := time.Now()
-	require.True(t, a.claimProbe("n", now, time.Second))
-	require.False(t, b.claimProbe("n", now, time.Second), "a peer in the same round probed too")
-	mr.FastForward(a.probe.interval)
-	require.True(t, a.claimProbe("n", now.Add(a.probe.interval), time.Second), "the holder could not probe its next round")
-	mr.FastForward(a.probe.interval)
-	require.True(t, b.claimProbe("n", now.Add(2*a.probe.interval), time.Second), "the peer could not probe a later round")
-	tiny := adaptiveBroker(time.Second, time.Minute)
-	require.Equal(t, 5*time.Second, tiny.leaseTTL(), "a lease is never under a few seconds")
+	require.True(t, a.claimProbe("n", now, time.Nanosecond))
+	require.False(t, b.claimProbe("n", now, time.Nanosecond), "a peer in the same round probed too")
+	a.publishProbe("n", trustState{probed: true, probeOK: true}, now)
+	require.True(t, b.claimProbe("n", now.Add(time.Second), time.Nanosecond), "the published round still held the lease")
+	// A prober that died never publishes: its lease lapses on its own.
+	mr.FastForward(probeLeaseTTL + time.Second)
+	require.True(t, a.claimProbe("n", now.Add(probeLeaseTTL+time.Second), time.Nanosecond))
+}
+
+// Audit finding: freshness equal to the idle interval went stale for a moment every cycle, and a
+// browse then restarted the probe ramp (about 160 canaries a day against 60). Freshness outlasts
+// the ceiling, a browse never restarts a healthy node's ramp, and tool-call checks keep to a share
+// of the day so liveness canaries are never crowded out.
+func TestABrowsedIdleNodeStaysWithinItsBudgetAndFresh(t *testing.T) {
+	c := probeConfig{interval: 30 * time.Second, ceiling: defaultProbeCeiling}
+	require.Greater(t, c.freshFor(), c.ceiling, "a reading goes stale before the next idle canary lands")
+	require.False(t, c.measurementStale(time.Now().Add(-c.ceiling-time.Minute), time.Now()))
+
+	b := probeMinBroker()
+	addNode(b, "n", 0) // a verified, healthy node
+	b.metricsMu.Lock()
+	b.probeSched["n"] = &probeState{backoff: 6, nextDue: time.Now().Add(20 * time.Minute)}
+	b.demandProbeSoonLocked("n", time.Now())
+	level := b.probeSched["n"].backoff
+	b.metricsMu.Unlock()
+	require.Equal(t, 6, level, "a browse restarted a healthy node's probe ramp")
+	b.trust["n"] = trustState{probed: true, probeOK: false} // a failing node does start over
+	b.metricsMu.Lock()
+	b.demandProbeSoonLocked("n", time.Now())
+	level = b.probeSched["n"].backoff
+	b.metricsMu.Unlock()
+	require.Zero(t, level, "a failing node was not let recover quickly")
+
+	// A day at the ceiling: 48 canaries, with tool checks asking as often as they can.
+	vs, _ := testValkeyShared(t)
+	d := adaptiveBroker(30*time.Second, defaultProbeCeiling)
+	d.shared = vs
+	t0 := time.Now()
+	refused := 0
+	for i := 0; i < int(24*time.Hour/defaultProbeCeiling); i++ {
+		at := t0.Add(time.Duration(i) * defaultProbeCeiling)
+		checkClock = func() time.Time { return at }
+		for j := 0; j < 3; j++ {
+			d.allowCheck("day-node", "tools")
+		}
+		if !d.allowCheck("day-node", "canary") {
+			refused++
+		}
+	}
+	checkClock = time.Now
+	require.Zero(t, refused, "tool-call checks crowded %d liveness canaries out of the day", refused)
 }
 
 // Audit finding: a reading this instance already took ended its wait for the round it lost, so a

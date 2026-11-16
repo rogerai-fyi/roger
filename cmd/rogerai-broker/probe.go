@@ -264,14 +264,20 @@ func (c probeConfig) curatedHold(st *probeState, verified bool, now time.Time) b
 	return now.Before(st.lastProbe.Add(c.curatedEvery))
 }
 
+// freshFor is how long a measurement counts as fresh: the ceiling plus half again. An idle node
+// is probed once a ceiling, so its next canary always lands before its reading goes stale; a
+// window equal to the ceiling went stale for a moment every cycle, and a browse in that moment
+// restarted the probe ramp and spent the node's check budget (probe_accounting.feature).
+func (c probeConfig) freshFor() time.Duration { return c.ceiling + c.ceiling/2 }
+
 // measurementStale reports whether a node's last measurement (probe or real traffic)
-// is old enough to count as "not recently verified": older than the ceiling, the
-// horizon an idle node backs off to. A never-measured node (zero time) is stale.
+// is old enough to count as "not recently verified": older than freshFor. A
+// never-measured node (zero time) is stale.
 func (c probeConfig) measurementStale(lastMeasured, now time.Time) bool {
 	if lastMeasured.IsZero() {
 		return true
 	}
-	return now.Sub(lastMeasured) > c.ceiling
+	return now.Sub(lastMeasured) > c.freshFor()
 }
 
 // stalenessFactor is a gentle recency/confidence multiplier (0.7..1.0) on the
@@ -282,11 +288,11 @@ func (c probeConfig) measurementStale(lastMeasured, now time.Time) bool {
 // measurement restores it to 1.0 immediately. A zero ceiling (probe off) => 1.0 (no
 // staleness notion). age is now - lastMeasured.
 func (c probeConfig) stalenessFactor(age time.Duration) float64 {
-	if c.ceiling <= 0 || age <= c.ceiling {
+	if c.ceiling <= 0 || age <= c.freshFor() {
 		return 1.0
 	}
 	const floor = 0.7
-	over := float64(age-c.ceiling) / float64(c.ceiling) // 0 at the horizon, 1 a ceiling later
+	over := float64(age-c.freshFor()) / float64(c.ceiling) // 0 at the horizon, 1 a ceiling later
 	if over > 1 {
 		over = 1
 	}
@@ -479,7 +485,12 @@ func (b *broker) demandProbeSoonLocked(nodeID string, now time.Time) {
 	if st.battery && !st.lastProbe.IsZero() {
 		return
 	}
-	st.backoff = 0
+	// A healthy node's next probe is pulled in, but its ramp is not restarted: restarting it on
+	// every browse cost an idle node about 160 canaries a day against a budget of 60. A node that
+	// is failing (or never passed) does start over, so it can recover quickly.
+	if tq := b.trust[nodeID]; !(tq.probed && tq.probeOK) {
+		st.backoff = 0
+	}
 	if st.nextDue.IsZero() || st.nextDue.After(now) {
 		st.nextDue = now // eligible on the next round (floor resolution)
 	}
@@ -831,6 +842,7 @@ func (b *broker) probeNode(node protocol.NodeRegistration, model string, fp cana
 	}
 	// Every check draws on the node's budget (R4); a spent budget skips it, nothing queued.
 	if !b.allowCheck(node.NodeID, "canary") {
+		b.releaseProbe(node.NodeID)
 		return
 	}
 

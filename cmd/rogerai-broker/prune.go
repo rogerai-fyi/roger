@@ -110,6 +110,7 @@ func (b *broker) pruneStaleNodes(now time.Time) int {
 	b.checkMu.Lock()
 	for _, id := range stale {
 		delete(b.checkTimes, id)
+		delete(b.checkTimes, id+"\x00tools")
 		delete(b.servedReadAt, id)
 		delete(b.probeApplied, id)
 		delete(b.probeLost, id)

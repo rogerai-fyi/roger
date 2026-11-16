@@ -112,7 +112,7 @@ func TestConsoleHeadsTheValueColumnLikeTheTerminal(t *testing.T) {
 // dropped - the console's half of the rail the terminal holds.
 func TestConsoleReportsUnbilledBrokerChecks(t *testing.T) {
 	js := consoleJS(t)
-	if !strings.Contains(js, "network checks") {
+	if !strings.Contains(js, "unbilled jobs") {
 		t.Error("the console never mentions the broker's canary traffic, so a busy rig " +
 			"reporting little served traffic cannot explain itself there")
 	}

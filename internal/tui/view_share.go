@@ -574,7 +574,7 @@ func (m model) shareView(w int) string {
 	// It appears only when there ARE checks and Core's numbers are current: a stale record
 	// must never turn real work into "checks".
 	if preqs, ptoks := m.probeTotals(); preqs > 0 {
-		pn := stDim.Render(fmt.Sprintf("plus %d network checks (%d tok) - RogerAI Core checking this node, unbilled and not counted above",
+		pn := stDim.Render(fmt.Sprintf("plus %d unbilled jobs (%d tok) - RogerAI Core's checks, or work that did not settle; not counted above",
 			preqs, ptoks))
 		b.WriteString("  " + truncVisible(pn, w-4) + "\n")
 	}
@@ -611,7 +611,7 @@ func sharePriceText(in, out float64) string {
 	}
 }
 
-// probeTotals sums the network checks across every live band: what each rig handled beyond
+// probeTotals sums the unbilled jobs (Core's checks, and work that did not settle) across every live band: what each rig handled beyond
 // what Core's record shows it served (agent.Session.ProbeStats), reported beside the
 // operator's numbers, never inside them.
 func (m model) probeTotals() (reqs, tokens int64) {

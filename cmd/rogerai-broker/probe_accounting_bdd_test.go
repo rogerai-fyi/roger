@@ -856,7 +856,7 @@ func TestProbeAccountingBDD(t *testing.T) {
 			sc.Step(`^no answer to the node, before or after it serves the job, says it was a check$`, s.noAnswerSaysCheck)
 			sc.Step(`^the node handled (\d+) jobs and Core's record shows (\d+) paid$`, s.handledAndPaid)
 			sc.Step(`^the share screen shows "(\d+) served" as the headline$`, s.headlineServed)
-			sc.Step(`^it may show "(\d+) network checks" as the difference, labelled as Core checking the node$`, s.networkChecks)
+			sc.Step(`^it may show "(\d+) unbilled jobs" as the difference, labelled as Core's checks or work that did not settle$`, s.networkChecks)
 			sc.Step(`^GET /nodes/served does not answer$`, s.recordDown)
 			sc.Step(`^the share screen shows the last numbers Core gave, marked as not current$`, s.lastNumbersNotCurrent)
 			sc.Step(`^it never falls back to the node's own count as "served"$`, s.neverLocalCount)
