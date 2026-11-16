@@ -109,9 +109,8 @@ func (b *broker) toolProbeDue(nodeID, model string, now time.Time) bool {
 		if st.streak > 0 && now.Sub(st.last) < toolBackoff(st.streak) {
 			return false
 		}
-		b.toolFails[key] = toolBackoffState{streak: st.streak + 1, last: now}
 		b.toolProbeAt[key] = now
-		return true
+		return true // the miss is counted when the check is sent (toolCheckSent), not when due
 	}
 	if last, ok := b.toolProbeAt[key]; ok && now.Sub(last) < toolProbeEvery {
 		return false
@@ -119,6 +118,10 @@ func (b *broker) toolProbeDue(nodeID, model string, now time.Time) bool {
 	b.toolProbeAt[key] = now
 	return true
 }
+
+// toolBackoffKeep is how long a tool-call back-off outlives its last check: past a day's back-off,
+// so a node that reconnects continues where it was, and a node gone for good is forgotten.
+const toolBackoffKeep = 72 * time.Hour
 
 // toolBackoffState is a not-yet-verified model's tool-call back-off: checks in a row without a
 // pass, and when the last one ran.
@@ -425,6 +428,7 @@ func (b *broker) probeToolCall(node protocol.NodeRegistration, model string, aut
 	if !b.allowCheck(node.NodeID, "tools") { // the node's check budget (R4)
 		return
 	}
+	b.toolCheckSent(node.NodeID, model, time.Now())
 	nonce := newToolNonce() // fresh per probe: the model must echo it, defeating a canned reply
 	job := protocol.Job{ID: b.attemptID(protocol.NewRequestID(), 1), User: b.probePseudonym(node.NodeID), Body: toolCanaryBody(model, nonce)}
 
@@ -485,4 +489,20 @@ func (b *broker) toolsVerifiedNow(nodeID, model string) bool {
 	b.metricsMu.Lock()
 	defer b.metricsMu.Unlock()
 	return b.toolsOK[toolKey(nodeID, model)]
+}
+
+// toolCheckSent counts a tool-call check toward a not-yet-verified model's back-off: a check that
+// was due but never sent (a spent budget, no tunnel) is not a miss.
+func (b *broker) toolCheckSent(nodeID, model string, now time.Time) {
+	key := toolKey(nodeID, model)
+	b.metricsMu.Lock()
+	defer b.metricsMu.Unlock()
+	if b.toolsOK[key] {
+		return
+	}
+	if b.toolFails == nil {
+		b.toolFails = map[string]toolBackoffState{}
+	}
+	st := b.toolFails[key]
+	b.toolFails[key] = toolBackoffState{streak: st.streak + 1, last: now}
 }

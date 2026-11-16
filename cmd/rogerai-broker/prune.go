@@ -78,6 +78,14 @@ func (b *broker) pruneStaleNodes(now time.Time) int {
 	}
 	b.metricsMu.Unlock()
 
+	// Tool-call back-off for nodes long gone: kept across a reconnect, not forever.
+	b.metricsMu.Lock()
+	for key, st := range b.toolFails {
+		if now.Sub(st.last) > toolBackoffKeep {
+			delete(b.toolFails, key)
+		}
+	}
+	b.metricsMu.Unlock()
 	if len(stale) == 0 {
 		return 0
 	}

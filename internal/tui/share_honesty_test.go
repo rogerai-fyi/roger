@@ -8,6 +8,7 @@ package tui
 // larger - was not on screen at all, and the $0.27 was not money in the first place.
 
 import (
+	"io"
 	"rogerai.fm/roger/v7/internal/agent"
 	"strings"
 	"testing"
@@ -173,5 +174,24 @@ func TestTheShareViewShowsCoresRecordOnly(t *testing.T) {
 	v = stripANSI(m.shareView(140))
 	if !strings.Contains(v, "not current") || strings.Contains(v, "network checks") {
 		t.Errorf("a stale record must be said to be not current and claim no checks:\n%s", v)
+	}
+}
+
+// A LAN share has no Core: the table shows its own count, never "…", and no "not current" note.
+func TestALANShareShowsItsOwnCountInTheTable(t *testing.T) {
+	srv := fakeBroker(t)
+	m := NewWithHooks(srv.URL, "tester", nil, Hooks{})
+	m.setShareRows(freeRows(2))
+	m.width, m.height = 140, 30
+	sess := agent.StartLAN(agent.Config{NodeID: "n-lan", Model: m.shareRows[0].model}, nil, nil, io.Discard)
+	defer sess.Stop()
+	sess.RecordHandledForTest(17)
+	m.shares = map[string]*agent.Session{m.shareRows[0].model: sess}
+	v := stripANSI(m.shareView(140))
+	if strings.Contains(v, "…") || strings.Contains(v, "waiting for Core") || strings.Contains(v, "not current") {
+		t.Errorf("a LAN share waits for a Core it does not have:\n%s", v)
+	}
+	if d := stripANSI(m.shareRowDetail(m.shareRows[0], sess)); strings.Contains(d, "waiting for Core") {
+		t.Errorf("the LAN detail line waits for Core: %s", d)
 	}
 }

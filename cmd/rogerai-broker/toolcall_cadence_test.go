@@ -22,6 +22,11 @@ func TestAnUnverifiedModelIsCheckedAtOnceThenBacksOff(t *testing.T) {
 	if !b.toolProbeDue("n1", "m1", now) {
 		t.Fatal("the first tool-call check of a model did not run at once")
 	}
+	// Due but never sent (a spent budget, no tunnel) is not a miss: still due.
+	if !b.toolProbeDue("n1", "m1", now.Add(time.Second)) {
+		t.Fatal("a check that was never sent counted as a miss")
+	}
+	b.toolCheckSent("n1", "m1", now)
 	for i := 1; i < 5; i++ {
 		if b.toolProbeDue("n1", "m1", now.Add(time.Duration(i)*30*time.Second)) {
 			t.Fatalf("round %d: a model that just failed was checked again inside its back-off", i)

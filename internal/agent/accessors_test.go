@@ -3,8 +3,11 @@ package agent
 import (
 	"crypto/ed25519"
 	"encoding/hex"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -214,5 +217,48 @@ func TestAnUnreadableRecordIsNotCurrent(t *testing.T) {
 	s.cfg.Broker = "http://[::1"
 	if _, ok, _ := s.readCoreRecord(); ok {
 		t.Fatal("a malformed broker URL read a record")
+	}
+}
+
+// Audit finding: a LAN share has no Core, so it waited for Core's record forever. Its own count is
+// its record: what it handled is what it served, current, with no checks to subtract.
+func TestALANShareShowsItsOwnCount(t *testing.T) {
+	s := StartLAN(Config{NodeID: "n-lan", Model: "m"}, nil, nil, io.Discard)
+	defer s.Stop()
+	s.RecordHandledForTest(10)
+	s.RecordHandledForTest(10)
+	if reqs, toks := s.Served(); reqs != 2 || toks != 20 || !s.CoreCurrent() || !s.CoreAnswered() {
+		t.Fatalf("a LAN share shows %d/%d current=%v answered=%v, want its own 2/20, current", reqs, toks, s.CoreCurrent(), s.CoreAnswered())
+	}
+	if reqs, _ := s.ProbeStats(); reqs != 0 {
+		t.Fatalf("a LAN share claimed %d network checks", reqs)
+	}
+}
+
+// Audit finding: since was the node's clock against Core's receipt times. Core's clock, from its
+// answer, corrects it on the next read.
+func TestTheRecordIsReadSinceCoresClock(t *testing.T) {
+	var sinces []int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		v, _ := strconv.ParseInt(r.URL.Query().Get("since"), 10, 64)
+		sinces = append(sinces, v)
+		_, _ = fmt.Fprintf(w, `{"served":1,"tokens":1,"earned":0,"as_of":%d}`, time.Now().Unix()+3600) // Core is an hour ahead
+	}))
+	defer srv.Close()
+	started := time.Now()
+	s := &Session{cfg: Config{Broker: srv.URL, NodeID: "n-1"}, started: started,
+		rereg: newReregistrar(srv.URL, protocol.NodeRegistration{BridgeToken: "tok"}, nil)}
+	n, ok, _ := s.readCoreRecord()
+	if !ok {
+		t.Fatal("no record")
+	}
+	s.core.mu.Lock()
+	s.core.skew = n.skew
+	s.core.mu.Unlock()
+	if _, ok, _ := s.readCoreRecord(); !ok {
+		t.Fatal("no record")
+	}
+	if len(sinces) != 2 || sinces[0] != started.Unix() || sinces[1]-started.Unix() < 3590 {
+		t.Fatalf("since read %v, want the second corrected by Core's hour", sinces)
 	}
 }

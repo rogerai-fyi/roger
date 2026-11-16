@@ -2515,11 +2515,13 @@ func (m model) onAirPanel(w int) string {
 	// Totals sum EVERY live band, listed or folded.
 	var totReqs, totToks int64
 	var totEarn float64
+	waiting := false
 	for _, s := range live {
 		r, t := s.Served()
 		totReqs += r
 		totToks += t
 		totEarn += s.Earnings()
+		waiting = waiting || !s.CoreAnswered()
 	}
 	// Per-band rows (compact), capped at onAirMaxRows with a "+K more" fold.
 	shown := live
@@ -2537,6 +2539,11 @@ func (m model) onAirPanel(w int) string {
 	for _, s := range shown {
 		in, out := s.Price()
 		reqs, toks := s.Served()
+		counts := fmt.Sprintf(" · %d req · %d out · ", reqs, toks)
+		earned := dollars(s.Earnings())
+		if !s.CoreAnswered() {
+			counts, earned = " · waiting for Core's record · ", "…"
+		}
 		price := stLive.Render("FREE")
 		if in > 0 || out > 0 {
 			price = stEmber.Render(dollars(out) + "/1M out")
@@ -2548,7 +2555,7 @@ func (m model) onAirPanel(w int) string {
 		row := "  " + dot + " " + stKey.Render(s.Model()) +
 			stDim.Render(" · ") + stSelText.Render(elide(s.Node(), nodeCap)) +
 			stDim.Render(" · ") + price +
-			stDim.Render(fmt.Sprintf(" · %d req · %d out · ", reqs, toks)) + stEmber.Render(dollars(s.Earnings()))
+			stDim.Render(counts) + stEmber.Render(earned)
 		rows = append(rows, row)
 	}
 	if folded > 0 {
@@ -2557,7 +2564,10 @@ func (m model) onAirPanel(w int) string {
 	totals := stDim.Render("  TOTALS    ") +
 		stLive.Render(fmt.Sprintf("%d", totReqs)) +
 		stDim.Render(fmt.Sprintf(" requests · %d out tokens · ", totToks)) +
-		stEmber.Render(dollars(totEarn)) + stDim.Render("  (settles on the broker)")
+		stEmber.Render(dollars(totEarn)) + stDim.Render("  (Core's record)")
+	if waiting {
+		totals += stDim.Render(" · some bands are waiting for Core's record")
+	}
 
 	lines := []string{head}
 	lines = append(lines, rows...)

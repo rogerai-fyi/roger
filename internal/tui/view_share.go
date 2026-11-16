@@ -704,6 +704,9 @@ func (m model) shareRowDetail(row shareRow, live *agent.Session) string {
 			reqs, _ := live.Served()
 			detail = fmt.Sprintf("%s on air · %s · %s · %d served · %s",
 				glyphOnAir, name, vc.Voice, reqs, dollars(live.Earnings()))
+			if !live.CoreAnswered() {
+				detail = fmt.Sprintf("%s on air · %s · %s · waiting for Core's record", glyphOnAir, name, vc.Voice)
+			}
 		default:
 			// A voice is READY only with BOTH a DJ name AND a picked voice (the broker 400s a
 			// nameless offer), so an unnamed/voiceless row prompts the VOICE BOOTH (press p),

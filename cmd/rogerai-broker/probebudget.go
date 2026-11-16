@@ -165,8 +165,12 @@ func (b *broker) takePeerReadings(now time.Time) {
 	for node, at := range lost {
 		raw, found, err := b.shared.cacheGet(probeReadingKey(node))
 		var r probeReading
+		b.checkMu.Lock()
+		applied := b.probeApplied[node]
+		b.checkMu.Unlock()
+		// A reading this instance already took is not the one its lost round is waiting for.
 		if err != nil || !found || json.Unmarshal(raw, &r) != nil || r.By == b.instanceID ||
-			r.At < at.Add(-probeLeaseTTL).UnixMilli() {
+			r.At < at.Add(-probeLeaseTTL).UnixMilli() || r.At <= applied {
 			if now.Sub(at) > probeLeaseTTL {
 				b.forgetLost(node, at)
 			}

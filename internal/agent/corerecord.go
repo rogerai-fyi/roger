@@ -27,19 +27,26 @@ var coreRecordClient = &http.Client{Timeout: 10 * time.Second}
 type coreNumbers struct {
 	served, tokens int64
 	earned         float64
-	current        bool // Core's latest answer; false before it first answered and while it cannot
+	current        bool  // Core's latest answer; false before it first answered and while it cannot
+	skew           int64 // Core's clock minus this node's when Core answered (seconds)
 }
 
 type coreRecord struct {
 	mu       sync.Mutex
 	n        coreNumbers
-	answered bool // Core has answered at least once
+	answered bool  // Core has answered at least once
+	skew     int64 // Core's clock minus this node's, seconds, from Core's last answer
 	lastTry  time.Time
 	fetching bool
 }
 
-// read returns the last numbers Core gave and, when they are due, starts reading fresh ones.
+// read returns the last numbers Core gave and, when they are due, starts reading fresh ones. A LAN
+// share has no Core: its own count is its record, always current.
 func (c *coreRecord) read(s *Session) coreNumbers {
+	if s.lan {
+		reqs, toks := s.Handled()
+		return coreNumbers{served: reqs, tokens: toks, current: true}
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if !c.fetching && s.rereg != nil && time.Since(c.lastTry) >= coreReadEvery {
@@ -57,6 +64,7 @@ func (c *coreRecord) fetch(s *Session) {
 	switch {
 	case ok:
 		c.n, c.answered = n, true
+		c.skew = n.skew
 	case throttled:
 		// Core says it was asked inside 30 s (another read of the same node): the numbers held
 		// are no older than that, and stay as current as they were.
@@ -68,8 +76,13 @@ func (c *coreRecord) fetch(s *Session) {
 // readCoreRecord asks Core for this node's served and earned since the share went on air.
 func (s *Session) readCoreRecord() (n coreNumbers, ok, throttled bool) {
 	tok, _ := s.rereg.curToken()
+	// since is when this share went on air BY CORE'S CLOCK: Core's receipts carry its timestamps,
+	// so the node's own clock is corrected by the skew Core's last answer showed.
+	s.core.mu.Lock()
+	skew := s.core.skew
+	s.core.mu.Unlock()
 	u := s.cfg.Broker + "/nodes/served?node=" + url.QueryEscape(s.cfg.NodeID) +
-		"&since=" + strconv.FormatInt(s.started.Unix(), 10)
+		"&since=" + strconv.FormatInt(s.started.Unix()+skew, 10)
 	req, err := http.NewRequest(http.MethodGet, u, nil)
 	if err != nil {
 		return n, false, false
@@ -90,11 +103,16 @@ func (s *Session) readCoreRecord() (n coreNumbers, ok, throttled bool) {
 		Served int64   `json:"served"`
 		Tokens int64   `json:"tokens"`
 		Earned float64 `json:"earned"`
+		AsOf   int64   `json:"as_of"`
 	}
 	if json.NewDecoder(io.LimitReader(resp.Body, 1<<16)).Decode(&out) != nil {
 		return n, false, false
 	}
-	return coreNumbers{served: out.Served, tokens: out.Tokens, earned: out.Earned, current: true}, true, false
+	n = coreNumbers{served: out.Served, tokens: out.Tokens, earned: out.Earned, current: true}
+	if out.AsOf > 0 {
+		n.skew = out.AsOf - time.Now().Unix()
+	}
+	return n, true, false
 }
 
 // BridgeToken returns the node's live bridge token, the one its polls carry.
@@ -122,8 +140,12 @@ func (s *Session) SetCoreForTest(served, tokens int64, earned float64, current b
 	s.core.mu.Unlock()
 }
 
-// CoreAnswered reports whether Core has given this session any numbers yet.
+// CoreAnswered reports whether Core has given this session any numbers yet (a LAN share's own
+// count always counts as answered: it has no Core to wait for).
 func (s *Session) CoreAnswered() bool {
+	if s.lan {
+		return true
+	}
 	s.core.mu.Lock()
 	defer s.core.mu.Unlock()
 	return s.core.answered

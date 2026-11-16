@@ -170,11 +170,14 @@ type Session struct {
 	handledToks atomic.Int64 // completion tokens of those jobs
 	core        coreRecord   // what Core's record says this node served and earned (R1)
 	started     time.Time    // when this share went on air: the record is read since then
-	stop        chan struct{}
-	loops       sync.WaitGroup // the standalone Tower loops a LAN share runs (StartLAN)
-	rereg       *reregistrar   // shared self-healing re-register coordinator
-	inflight    inflightJobs   // the jobs being served now, so a broker cancel can stop them
-	link        atomic.Int32   // LinkState: is the BROKER actually acknowledging us?
+	// lan: a LAN share (StartLAN) has no Core, so no Core checks and no Core record: what it
+	// handled is what it served, and it earns nothing through Core.
+	lan      bool
+	stop     chan struct{}
+	loops    sync.WaitGroup // the standalone Tower loops a LAN share runs (StartLAN)
+	rereg    *reregistrar   // shared self-healing re-register coordinator
+	inflight inflightJobs   // the jobs being served now, so a broker cancel can stop them
+	link     atomic.Int32   // LinkState: is the BROKER actually acknowledging us?
 
 	// Private band: the broker-minted band id + the secret frequency code (the code is
 	// returned ONCE at the first register and stashed here so the caller - CLI/TUI -
