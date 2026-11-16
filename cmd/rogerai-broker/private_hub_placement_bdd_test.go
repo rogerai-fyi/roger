@@ -1212,7 +1212,7 @@ func TestAnUnreachableStationWithNowhereElseIsAnsweredAsBefore(t *testing.T) {
 	s.b.notePull(s.id("T")) // the Tower is up
 	code, raw = s.attachNode(n)
 	require.Equal(t, http.StatusOK, code, raw)
-	tw, _, _ := s.b.tower.mobility.Avoid(n.out.StationID)
+	tw, _ := s.b.tower.mobility.Avoids(n.out.StationID)
 	require.Empty(t, tw, "a Station with nowhere else to go was kept off its only Tower")
 	s.movesNow(time.Now())
 	require.Empty(t, s.moved[n.out.StationID], "a Station with nowhere else to go was moved")
@@ -1237,7 +1237,7 @@ func TestARotatedCertificateIsNotTakenForAnUnreachableHub(t *testing.T) {
 	code, raw = s.attachNode(n)
 	require.Equal(t, http.StatusOK, code, raw)
 	require.Contains(t, raw, phpPin, "the node was not handed the Tower's current pin")
-	tw, _, _ := s.b.tower.mobility.Avoid(n.out.StationID)
+	tw, _ := s.b.tower.mobility.Avoids(n.out.StationID)
 	require.Empty(t, tw, "a certificate rotation kept the Station off its Tower")
 }
 
@@ -1252,10 +1252,13 @@ func TestAnUnreachableReportIsBelievedOnlyForALivePrivateHub(t *testing.T) {
 	n, code, raw := s.attachFrom("198.51.100.77")
 	require.Equal(t, http.StatusOK, code, raw)
 	require.Equal(t, s.id("P"), n.placedOn)
-	n.body["unreachable_tower"] = s.id("P")
+	// Everything else a believed report needs is there: the Tower is pulling, and the node names its
+	// current address and pin. Only the hub being public stands in the way.
+	s.b.notePull(s.id("P"))
+	n.body["unreachable_tower"], n.body["unreachable_endpoint"], n.body["unreachable_pin"] = s.id("P"), "203.0.113.30:8444", ""
 	code, raw = s.attachNode(n)
 	require.Equal(t, http.StatusOK, code, "a public hub is Core's to check, not the Station's word: %s", raw)
-	tw, _, _ := s.b.tower.mobility.Avoid(n.out.StationID)
+	tw, _ := s.b.tower.mobility.Avoids(n.out.StationID)
 	require.Empty(t, tw, "a public hub was avoided on a Station's report")
 }
 
@@ -1286,7 +1289,7 @@ func TestAnUnreachableReportDuringAPausedMoveIsAnsweredAsBefore(t *testing.T) {
 	s.b.notePull(s.id("T")) // the Tower is up
 	code, raw = s.attachNode(n)
 	require.Equal(t, http.StatusOK, code, raw)
-	tw, _, _ := s.b.tower.mobility.Avoid(n.out.StationID)
+	tw, _ := s.b.tower.mobility.Avoids(n.out.StationID)
 	require.Empty(t, tw)
 }
 
@@ -1309,16 +1312,55 @@ func TestAnUnreachableReportIsNotBelievedForADownTowerOrAMovedHub(t *testing.T) 
 	// The Tower has not pulled: it is down, for everyone.
 	code, raw = report("192.168.1.20:8444")
 	require.Equal(t, http.StatusOK, code, raw)
-	tw, _, _ := s.b.tower.mobility.Avoid(n.out.StationID)
+	tw, _ := s.b.tower.mobility.Avoids(n.out.StationID)
 	require.Empty(t, tw, "a Tower that is not pulling had its Stations kept off")
 	// Pulling, but the node held an address the Tower no longer advertises.
 	s.b.notePull(s.id("T"))
 	code, raw = report("192.168.1.99:8444")
 	require.Equal(t, http.StatusOK, code, raw)
 	require.Contains(t, raw, "192.168.1.20:8444", "the node was not handed the Tower's current address")
-	tw, _, _ = s.b.tower.mobility.Avoid(n.out.StationID)
+	tw, _ = s.b.tower.mobility.Avoids(n.out.StationID)
 	require.Empty(t, tw)
 	// Pulling, the same address and pin: believed.
 	code, _ = report("192.168.1.20:8444")
 	require.Equal(t, http.StatusServiceUnavailable, code)
+}
+
+// A Tower whose link has closed is down, however recently it pulled: a report is not believed.
+func TestAnUnreachableReportIsNotBelievedOnceTheTowersLinkCloses(t *testing.T) {
+	s := &phpState{plcState: &plcState{t: t}, towerPeer: map[string]string{}, moved: map[string]string{}}
+	s.reset()
+	t.Cleanup(s.teardown)
+	s.b.canaryVet = vetPublicIP
+	require.NoError(t, s.openAt("T", "198.51.100.40", "192.168.1.20:8444", phpPin, true))
+	require.NoError(t, s.openAt("U", "203.0.113.30", "203.0.113.30:8444", "", true))
+	n, code, raw := s.attachFrom("198.51.100.40")
+	require.Equal(t, http.StatusOK, code, raw)
+	s.b.notePull(s.id("T"))
+	lt := s.towers["T"]
+	code, raw = lt.call(t, s.srv, "/tower/session/close", jsonOf(t, link.Frame{Network: link.PublicNetwork, Version: 1,
+		TowerID: lt.id, SessionID: s.sess["T"]}), nil)
+	require.Equal(t, http.StatusOK, code, raw)
+	n.body["unreachable_tower"], n.body["unreachable_pin"], n.body["unreachable_endpoint"] = s.id("T"), phpPin, "192.168.1.20:8444"
+	_, raw = s.attachNode(n) // answered as for any Tower with no data plane: try again shortly
+	require.NotContains(t, raw, "is being moved", "a Tower whose link closed was taken for an unreachable hub")
+	tw, _ := s.b.tower.mobility.Avoids(n.out.StationID)
+	require.Empty(t, tw, "a Tower whose link closed had its Stations kept off")
+}
+
+// Audit finding: one avoided Tower per Station meant a second report replaced the first, so a
+// Station with two unreachable private hubs on its network bounced between them. Both are kept off.
+func TestTwoUnreachableTowersAreBothKeptOff(t *testing.T) {
+	s := &phpState{plcState: &plcState{t: t}, towerPeer: map[string]string{}, moved: map[string]string{}}
+	s.reset()
+	t.Cleanup(s.teardown)
+	now := time.Now()
+	require.NoError(t, s.b.tower.mobility.SetAvoid("st-x", "tw-1", now.Add(time.Hour)))
+	require.NoError(t, s.b.tower.mobility.SetAvoid("st-x", "tw-2", now.Add(time.Hour)))
+	require.NoError(t, s.b.tower.mobility.SetAvoid("st-x", "tw-old", now.Add(-time.Minute)))
+	got := s.b.avoidFor("st-x", now)
+	require.True(t, got["tw-1"] && got["tw-2"], "both unreachable Towers are not kept off: %v", got)
+	require.False(t, got["tw-old"], "an expired avoid still kept a Tower off")
+	_, _, excl := s.b.moveOnReattach("st-x", now)
+	require.True(t, excl["tw-1"] && excl["tw-2"])
 }

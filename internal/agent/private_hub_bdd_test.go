@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -213,5 +214,29 @@ func TestAnAttachAfterAnUnreachableHubNamesTheTower(t *testing.T) {
 	if bodies[1]["unreachable_tower"] != "tw-1" || bodies[1]["unreachable_pin"] != "pin-1" ||
 		bodies[1]["unreachable_endpoint"] != "192.168.1.20:8444" {
 		t.Fatalf("the attach after an unreachable hub did not name it: %v", bodies[1])
+	}
+}
+
+// Audit finding: any hub failure counted, so a reachable hub answering errors for 90 s exiled its
+// Stations as "unreachable". Only a hub out of reach is reported: a dial, DNS, timeout, TLS or pin
+// failure, never an HTTP answer.
+func TestOnlyAHubOutOfReachIsReportedUnreachable(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"dial refused", &net.OpError{Op: "dial", Err: errors.New("connection refused")}, true},
+		{"dns", &net.DNSError{Err: "no such host", Name: "hub.example"}, true},
+		{"wrong certificate", towerhub.ErrHubCertificateUnpinned, true},
+		{"tls", &tls.CertificateVerificationError{Err: errors.New("x")}, true},
+		{"timeout", context.DeadlineExceeded, true},
+		{"wrapped dial", fmt.Errorf("%w: %w", errHubStanding, &net.OpError{Op: "dial", Err: errors.New("no route")}), true},
+		{"hub answered 503", fmt.Errorf("%w: hub answered 503", errHubStanding), false},
+		{"plain error", errors.New("something else"), false},
+	} {
+		if got := hubOutOfReach(tc.err); got != tc.want {
+			t.Errorf("%s: hubOutOfReach = %v, want %v", tc.name, got, tc.want)
+		}
 	}
 }

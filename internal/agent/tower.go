@@ -35,6 +35,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/ed25519"
+	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -551,6 +552,24 @@ func staleAdvertisement(err error) bool {
 	return true
 }
 
+// hubOutOfReach reports a hub failure that is this Station not reaching the hub at all: a dial,
+// DNS, timeout, TLS or pin failure. A hub that answered, with any status, was reached.
+func hubOutOfReach(err error) bool {
+	var op *net.OpError
+	var dns *net.DNSError
+	var cert *tls.CertificateVerificationError
+	var ne net.Error
+	switch {
+	case errors.Is(err, towerhub.ErrHubCertificateUnpinned), errors.Is(err, context.DeadlineExceeded):
+		return true
+	case errors.As(err, &op), errors.As(err, &dns), errors.As(err, &cert):
+		return true
+	case errors.As(err, &ne) && ne.Timeout():
+		return true
+	}
+	return false
+}
+
 // hubFailureStreak decides when a relay has STOPPED BEING A RELAY, as opposed to having a bad
 // minute. One error cannot draw that line and a clock must not: see the block comment above.
 //
@@ -1023,7 +1042,11 @@ func ServeTower(ctx context.Context, cfg Config, priv ed25519.PrivateKey, dir st
 			gen++
 			continue
 		case errors.Is(terr, errHubStanding):
-			gaveUp = at // said on the next attach: which Tower, at which address, with which pin
+			// Said on the next attach (which Tower, at which address, with which pin), only for a hub
+			// out of this Station's reach: a hub that answers with errors is not unreachable.
+			if hubOutOfReach(terr) {
+				gaveUp = at
+			}
 			// terr ITSELF, not errors.Unwrap(terr). A `fmt.Errorf("%w: %w", ...)` has an
 			// `Unwrap() []error`, not an `Unwrap() error`, so errors.Unwrap returns NIL on it and
 			// the cause would have been formatted as "%!w(<nil>)" - an operator handed a rendering

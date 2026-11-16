@@ -571,11 +571,17 @@ func (b *broker) recordStationFacts(stationID string, loc placement.Locality, nu
 	}
 }
 
-// avoidFor is the Towers a Station is kept off at now: the one whose hub it said it cannot reach.
+// avoidFor is the Towers a Station is kept off at now: those whose hubs it said it cannot reach.
 func (b *broker) avoidFor(stationID string, now time.Time) map[string]bool {
 	out := map[string]bool{}
-	if tw, until, err := b.tower.mobility.Avoid(stationID); err == nil && tw != "" && now.Before(until) {
-		out[tw] = true
+	avoids, err := b.tower.mobility.Avoids(stationID)
+	if err != nil {
+		return out
+	}
+	for tw, until := range avoids {
+		if now.Before(until) {
+			out[tw] = true
+		}
 	}
 	return out
 }

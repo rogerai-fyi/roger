@@ -154,34 +154,37 @@ func TestReleaseClearsTheClaimButNotTheSkip(t *testing.T) {
 	})
 }
 
-// A Tower a Station could not reach is kept apart from the facts every attach rewrites: written,
-// read back, kept through PutFacts, and forgotten with the Station (private_hub_placement.feature).
+// The Towers a Station could not reach are kept apart from the facts every attach rewrites, as a
+// set: a second report adds a Tower rather than replacing the first (private_hub_placement.feature).
 func TestAvoidIsKeptApartFromTheFacts(t *testing.T) {
 	eachStore(t, func(t *testing.T, s Store) {
-		tw, until, err := s.Avoid("st-none")
+		got, err := s.Avoids("st-none")
 		require.NoError(t, err)
-		require.Empty(t, tw)
-		require.True(t, until.IsZero())
+		require.Empty(t, got)
 
 		at := time.Now().Add(24 * time.Hour).Truncate(time.Second)
 		require.NoError(t, s.SetAvoid("st-1", "tw-1", at))
 		require.NoError(t, s.PutFacts("st-1", Facts{Locality: placement.Locality{Bucket: "b", Continent: "NA"}, Nudge: true}))
-		tw, until, err = s.Avoid("st-1")
+		require.NoError(t, s.SetAvoid("st-1", "tw-2", at.Add(time.Hour)))
+		got, err = s.Avoids("st-1")
 		require.NoError(t, err)
-		require.Equal(t, "tw-1", tw, "an attach's facts wiped the avoided Tower")
-		require.True(t, until.Equal(at), "until %v, want %v", until, at)
+		require.Len(t, got, 2, "a second unreachable Tower replaced the first")
+		require.True(t, got["tw-1"].Equal(at), "an attach's facts wiped an avoided Tower")
+		require.True(t, got["tw-2"].Equal(at.Add(time.Hour)))
 		f, ok, err := s.Facts("st-1")
 		require.NoError(t, err)
 		require.True(t, ok)
 		require.True(t, f.Nudge)
 
-		require.NoError(t, s.SetAvoid("st-1", "tw-2", at))
-		tw, _, _ = s.Avoid("st-1")
-		require.Equal(t, "tw-2", tw)
+		later := at.Add(2 * time.Hour)
+		require.NoError(t, s.SetAvoid("st-1", "tw-1", later)) // a repeat report renews that Tower only
+		got, _ = s.Avoids("st-1")
+		require.True(t, got["tw-1"].Equal(later))
+		require.Len(t, got, 2)
 
 		require.NoError(t, s.Forget([]string{"st-1"}))
-		tw, _, err = s.Avoid("st-1")
+		got, err = s.Avoids("st-1")
 		require.NoError(t, err)
-		require.Empty(t, tw)
+		require.Empty(t, got)
 	})
 }
