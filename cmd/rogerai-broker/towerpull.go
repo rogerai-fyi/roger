@@ -90,12 +90,15 @@ type pullLocal struct {
 	claimAt map[string]time.Time       // when each claim was made, for pruning
 	answers map[string]chan pullAnswer // work id -> the waiting sender
 	held    map[string]int             // tower -> pulls held
+	// pulledAt is when each Tower last held a pull (the single-instance pulledRecently).
+	pulledAt map[string]time.Time
 }
 
 func (p *pullLocal) init() {
 	if p.buf == nil {
 		p.buf, p.wake, p.claim = map[string][]pullWork{}, map[string]chan struct{}{}, map[string]string{}
 		p.answers, p.held, p.claimAt = map[string]chan pullAnswer{}, map[string]int{}, map[string]time.Time{}
+		p.pulledAt = map[string]time.Time{}
 	}
 }
 
@@ -495,6 +498,7 @@ func (b *broker) towerWorkPull(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	b.noteLinkAddr(tw.ID, clientIP(r))
+	b.notePull(tw.ID)
 	// The pull is the proof: a session an older instance opened during a rolling deploy reads
 	// as not pulling, and its work would never be queued for the pull that is waiting for it.
 	if !ts.link.Pulls(tw.ID) {
@@ -721,4 +725,33 @@ func (b *broker) towerWorkAnswer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// pullFreshFor is how recently a Tower must have held a pull to count as up. A running Tower
+// holds one every few seconds (Core answers each within pullHold), well inside a Station's 90 s
+// hub-failure window.
+const pullFreshFor = 45 * time.Second
+
+// notePull records that the Tower is holding its pulls now, for every instance.
+func (b *broker) notePull(towerID string) {
+	if b.shared != nil {
+		_ = b.shared.cacheSet("towerpulled:"+towerID, []byte{1}, pullFreshFor)
+		return
+	}
+	b.pulls.mu.Lock()
+	b.pulls.init()
+	b.pulls.pulledAt[towerID] = time.Now()
+	b.pulls.mu.Unlock()
+}
+
+// pulledRecently reports a Tower that held a pull within pullFreshFor: a Tower that is up.
+func (b *broker) pulledRecently(towerID string) bool {
+	if b.shared != nil {
+		_, found, err := b.shared.cacheGet("towerpulled:" + towerID)
+		return err == nil && found
+	}
+	b.pulls.mu.Lock()
+	defer b.pulls.mu.Unlock()
+	at, ok := b.pulls.pulledAt[towerID]
+	return ok && time.Since(at) < pullFreshFor
 }

@@ -199,8 +199,8 @@ Feature: A Tower with no public address serves the Stations on its own network
     Then Core answers with the Tower's current pin, as for a certificate the Tower rotated, and keeps nothing off
     When its node reports the hub unreachable and no other Tower can take the Station
     Then Core answers as before, with the only hub there is, and keeps nothing off
-    When its node reports the hub unreachable while the Tower's own link is down, or for a public hub
-    Then Core answers as before: a Tower that is down is down for everyone, and a public hub is Core's to check
+    When its node reports the hub unreachable while the Tower is not holding its pulls, for a public hub, or for an address the Tower no longer advertises
+    Then Core answers as before, with what the Tower advertises now: a Tower that is down is down for everyone, and a public hub is Core's to check
 
   Scenario: A Station that leaves the Tower's network is moved off, without waiting for idle
     Given a Station placed on a private-hub Tower while on the same network

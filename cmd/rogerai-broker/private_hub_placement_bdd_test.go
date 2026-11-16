@@ -1019,9 +1019,12 @@ func TestPrivateHubPlacementBDD(t *testing.T) {
 			sc.Step(`^Core answers as before, with the only hub there is, and keeps nothing off$`, func() error {
 				return runSub(t, TestAnUnreachableStationWithNowhereElseIsAnsweredAsBefore)
 			})
-			sc.Step(`^its node reports the hub unreachable while the Tower's own link is down, or for a public hub$`, func() error { return nil })
-			sc.Step(`^Core answers as before: a Tower that is down is down for everyone, and a public hub is Core's to check$`, func() error {
-				return runSub(t, TestAnUnreachableReportIsBelievedOnlyForALivePrivateHub)
+			sc.Step(`^its node reports the hub unreachable while the Tower is not holding its pulls, for a public hub, or for an address the Tower no longer advertises$`, func() error { return nil })
+			sc.Step(`^Core answers as before, with what the Tower advertises now: a Tower that is down is down for everyone, and a public hub is Core's to check$`, func() error {
+				if err := runSub(t, TestAnUnreachableReportIsBelievedOnlyForALivePrivateHub); err != nil {
+					return err
+				}
+				return runSub(t, TestAnUnreachableReportIsNotBelievedForADownTowerOrAMovedHub)
 			})
 			sc.Step(`^Core records the move trigger "left_network"$`, s.triggerLeft)
 			sc.Step(`^moves the Station to its best eligible Tower without proving it idle, because it can no longer reach the hub$`, s.movedWithoutIdle)
@@ -1151,6 +1154,8 @@ func (s *phpState) placedBehindCGNAT() error {
 func (s *phpState) cannotReachHub() error {
 	n := s.stash["n"].(*plcNode)
 	n.body["unreachable_tower"], n.body["unreachable_pin"] = s.id("T"), phpPin // the pin it was handed
+	n.body["unreachable_endpoint"] = "192.168.1.20:8444"
+	s.b.notePull(s.id("T")) // the Tower is up: it is holding its pulls
 	code, raw := s.attachNode(n)
 	s.stash["code"], s.stash["raw"] = code, raw
 	return nil
@@ -1203,6 +1208,8 @@ func TestAnUnreachableStationWithNowhereElseIsAnsweredAsBefore(t *testing.T) {
 	n, code, raw := s.attachFrom("198.51.100.40")
 	require.Equal(t, http.StatusOK, code, raw)
 	n.body["unreachable_tower"], n.body["unreachable_pin"] = s.id("T"), phpPin
+	n.body["unreachable_endpoint"] = "192.168.1.20:8444"
+	s.b.notePull(s.id("T")) // the Tower is up
 	code, raw = s.attachNode(n)
 	require.Equal(t, http.StatusOK, code, raw)
 	tw, _, _ := s.b.tower.mobility.Avoid(n.out.StationID)
@@ -1225,6 +1232,8 @@ func TestARotatedCertificateIsNotTakenForAnUnreachableHub(t *testing.T) {
 	require.Equal(t, http.StatusOK, code, raw)
 	require.Equal(t, s.id("T"), n.placedOn)
 	n.body["unreachable_tower"], n.body["unreachable_pin"] = s.id("T"), strings.Repeat("cd", 32) // an older pin
+	n.body["unreachable_endpoint"] = "192.168.1.20:8444"
+	s.b.notePull(s.id("T")) // the Tower is up
 	code, raw = s.attachNode(n)
 	require.Equal(t, http.StatusOK, code, raw)
 	require.Contains(t, raw, phpPin, "the node was not handed the Tower's current pin")
@@ -1273,8 +1282,43 @@ func TestAnUnreachableReportDuringAPausedMoveIsAnsweredAsBefore(t *testing.T) {
 	require.Equal(t, http.StatusOK, code, raw)
 	require.NoError(t, s.b.tower.mobility.FinishMove(n.out.StationID, "", time.Now().Add(time.Hour)))
 	n.body["unreachable_tower"], n.body["unreachable_pin"] = s.id("T"), phpPin
+	n.body["unreachable_endpoint"] = "192.168.1.20:8444"
+	s.b.notePull(s.id("T")) // the Tower is up
 	code, raw = s.attachNode(n)
 	require.Equal(t, http.StatusOK, code, raw)
 	tw, _, _ := s.b.tower.mobility.Avoid(n.out.StationID)
 	require.Empty(t, tw)
+}
+
+// Audit finding: a Tower that crashed still read as live for minutes, so its Stations' reports
+// (after 90 s) exiled them for a day. A report is believed only while the Tower is pulling, which a
+// running Tower does every few seconds; an address the Tower has since changed is handed out.
+func TestAnUnreachableReportIsNotBelievedForADownTowerOrAMovedHub(t *testing.T) {
+	s := &phpState{plcState: &plcState{t: t}, towerPeer: map[string]string{}, moved: map[string]string{}}
+	s.reset()
+	t.Cleanup(s.teardown)
+	s.b.canaryVet = vetPublicIP
+	require.NoError(t, s.openAt("T", "198.51.100.40", "192.168.1.20:8444", phpPin, true))
+	require.NoError(t, s.openAt("U", "203.0.113.30", "203.0.113.30:8444", "", true))
+	n, code, raw := s.attachFrom("198.51.100.40")
+	require.Equal(t, http.StatusOK, code, raw)
+	report := func(endpoint string) (int, string) {
+		n.body["unreachable_tower"], n.body["unreachable_pin"], n.body["unreachable_endpoint"] = s.id("T"), phpPin, endpoint
+		return s.attachNode(n)
+	}
+	// The Tower has not pulled: it is down, for everyone.
+	code, raw = report("192.168.1.20:8444")
+	require.Equal(t, http.StatusOK, code, raw)
+	tw, _, _ := s.b.tower.mobility.Avoid(n.out.StationID)
+	require.Empty(t, tw, "a Tower that is not pulling had its Stations kept off")
+	// Pulling, but the node held an address the Tower no longer advertises.
+	s.b.notePull(s.id("T"))
+	code, raw = report("192.168.1.99:8444")
+	require.Equal(t, http.StatusOK, code, raw)
+	require.Contains(t, raw, "192.168.1.20:8444", "the node was not handed the Tower's current address")
+	tw, _, _ = s.b.tower.mobility.Avoid(n.out.StationID)
+	require.Empty(t, tw)
+	// Pulling, the same address and pin: believed.
+	code, _ = report("192.168.1.20:8444")
+	require.Equal(t, http.StatusServiceUnavailable, code)
 }

@@ -204,13 +204,14 @@ func TestAnAttachAfterAnUnreachableHubNamesTheTower(t *testing.T) {
 	if _, _, err := AttachTower(cfg, priv, dir); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := attachTowerAvoiding(cfg, priv, dir, "tw-1", "pin-1"); err != nil {
+	if _, _, err := attachTowerAvoiding(cfg, priv, dir, TowerAttachment{TowerID: "tw-1", EndpointTLSSPKI: "pin-1", Endpoint: "192.168.1.20:8444"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, named := bodies[0]["unreachable_tower"]; named {
 		t.Fatalf("an ordinary attach named an unreachable Tower: %v", bodies[0])
 	}
-	if bodies[1]["unreachable_tower"] != "tw-1" || bodies[1]["unreachable_pin"] != "pin-1" {
+	if bodies[1]["unreachable_tower"] != "tw-1" || bodies[1]["unreachable_pin"] != "pin-1" ||
+		bodies[1]["unreachable_endpoint"] != "192.168.1.20:8444" {
 		t.Fatalf("the attach after an unreachable hub did not name it: %v", bodies[1])
 	}
 }

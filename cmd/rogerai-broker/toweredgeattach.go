@@ -183,6 +183,7 @@ func (b *broker) towerEdgeAttach(w http.ResponseWriter, r *http.Request) {
 		// makes after giving up on that hub. It only ever moves this Station off that Tower.
 		UnreachableTower string `json:"unreachable_tower"`
 		UnreachablePin   string `json:"unreachable_pin"`
+		UnreachableHub   string `json:"unreachable_endpoint"`
 		// Nudge declares that this node understands the re-attach nudge on its cancel
 		// long-poll, so Core may move it to a better Tower while it is idle
 		// (station_mobility.feature). An older node does not send it and is moved only when its
@@ -456,8 +457,13 @@ func (b *broker) towerEdgeAttach(w http.ResponseWriter, r *http.Request) {
 			// Nor inside a paused move (one that came back because the node missed its window):
 			// the mobility pass will not move it then, so a 503 would only lock it out.
 			_, paused, _ := ts.mobility.Skip(prior.StationID)
+			// And only while the Tower is up for everyone else: holding its pulls, which a running
+			// Tower does every few seconds, so a Tower that crashed is not this Station's fault.
+			// The node must have held the Tower's current address and pin, too: anything else is
+			// the Tower having moved or rotated, answered below with what it advertises now.
 			if _, elsewhere := b.chooseFrom(b.placementSnapshot(), prior.Owner, loc, excl, "", nil); has &&
-				req.UnreachablePin == plane.TLSSPKI && elsewhere && !now.Before(paused) {
+				req.UnreachablePin == plane.TLSSPKI && req.UnreachableHub == plane.Endpoint &&
+				elsewhere && !now.Before(paused) && b.pulledRecently(tw) {
 				if err := ts.mobility.SetAvoid(prior.StationID, tw, now.Add(unreachableAvoidFor)); err != nil {
 					b.towerGovUnavailable(err)
 				}
