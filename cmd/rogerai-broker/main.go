@@ -250,6 +250,8 @@ type broker struct {
 	// is the newest peer result it has taken for the node (unix ms). R2.
 	probeLost    map[string]time.Time
 	probeApplied map[string]int64
+	// ageCheckAt rate-limits looking up an ageing node's shared reading (takeAgeingReadings).
+	ageCheckAt map[string]time.Time
 	// servedReadAt throttles a node's read of its own record when no shared store answers.
 	servedReadAt map[string]time.Time
 	// toolsMerged is the cross-instance UNION of verified (node,model) tool-call bits, refreshed

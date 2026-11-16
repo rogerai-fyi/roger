@@ -112,6 +112,7 @@ func (b *broker) pruneStaleNodes(now time.Time) int {
 		delete(b.checkTimes, id)
 		delete(b.checkTimes, id+"\x00tools")
 		delete(b.servedReadAt, id)
+		delete(b.ageCheckAt, id)
 		delete(b.probeApplied, id)
 		delete(b.probeLost, id)
 	}

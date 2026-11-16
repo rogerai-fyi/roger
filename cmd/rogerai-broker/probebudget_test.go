@@ -165,3 +165,21 @@ func TestARefusedToolCheckGivesItsSlotBack(t *testing.T) {
 	defer func() { checkClock = time.Now }()
 	require.True(t, b.allowCheck("slot-node", "tools"), "refused tool checks spent the tool share")
 }
+
+// An old peer reading (a lost publish, a pruned node) is not taken for an ageing node, and a node is
+// looked up at most once a minute.
+func TestAnOldPeerReadingIsNotTakenAndLookupsAreRateLimited(t *testing.T) {
+	vs, _ := testValkeyShared(t)
+	a := adaptiveBroker(30*time.Second, 30*time.Minute)
+	a.shared, a.multiInstance, a.instanceID = vs, true, "i-a"
+	b := adaptiveBroker(30*time.Second, 30*time.Minute)
+	b.shared, b.multiInstance, b.instanceID = vs, true, "i-b"
+	b.nodes["n"] = protocol.NodeRegistration{NodeID: "n"}
+	a.publishProbe("n", trustState{probed: true, probeOK: true, ttftMs: 90}, time.Now())
+	later := time.Now().Add(2 * b.probe.freshFor())
+	b.takeAgeingReadings(later)
+	require.False(t, b.trust["n"].probed, "an old peer reading marked a node measured")
+	require.True(t, b.ageCheckDue("m", time.Now()))
+	require.False(t, b.ageCheckDue("m", time.Now().Add(30*time.Second)), "a node was looked up twice inside a minute")
+	require.True(t, b.ageCheckDue("m", time.Now().Add(ageCheckEvery+time.Second)))
+}

@@ -346,14 +346,35 @@ func (b *broker) takeAgeingReadings(now time.Time) {
 		st := b.probeSchedLocked()[id]
 		ageing := st == nil || now.Sub(st.lastMeasured) > half
 		b.metricsMu.Unlock()
-		if !ageing {
+		if !ageing || !b.ageCheckDue(id, now) {
 			continue
 		}
 		raw, found, err := b.shared.cacheGet(probeReadingKey(id))
 		var r probeReading
-		if err != nil || !found || json.Unmarshal(raw, &r) != nil || r.By == b.instanceID {
+		// Only a reading still fresh: an old one (a lost publish, a pruned node) must not mark a
+		// node measured, or a curated station skip this instance's first-sight canary.
+		if err != nil || !found || json.Unmarshal(raw, &r) != nil || r.By == b.instanceID ||
+			now.Sub(time.UnixMilli(r.At)) > b.probe.freshFor() {
 			continue
 		}
 		b.applyPeerReading(id, r) // a no-op unless newer than the one already taken
 	}
+}
+
+// ageCheckEvery is how often an ageing node's shared reading is looked up on this instance.
+const ageCheckEvery = time.Minute
+
+// ageCheckDue rate-limits takeAgeingReadings to one store read per node per ageCheckEvery, so a
+// failing or never-measured node does not cost a read on every tick.
+func (b *broker) ageCheckDue(node string, now time.Time) bool {
+	b.checkMu.Lock()
+	defer b.checkMu.Unlock()
+	if b.ageCheckAt == nil {
+		b.ageCheckAt = map[string]time.Time{}
+	}
+	if now.Sub(b.ageCheckAt[node]) < ageCheckEvery {
+		return false
+	}
+	b.ageCheckAt[node] = now
+	return true
 }
