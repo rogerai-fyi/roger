@@ -440,7 +440,11 @@ func (b *broker) towerEdgeAttach(w http.ResponseWriter, r *http.Request) {
 		// A HUB THE STATION CANNOT REACH is not named to it again: it is kept off that Tower for a
 		// day, and the mobility pass moves it (private_hub_placement.feature). A node can only
 		// ever move itself this way.
-		if req.UnreachableTower != "" && req.UnreachableTower == prior.Origin.TowerID {
+		// Only for a PRIVATE hub, which Core cannot dial to see for itself, and only while the
+		// Tower's own link is up: a Tower that restarts takes its hub down for everyone, and that
+		// is not this Station failing to reach it.
+		if req.UnreachableTower != "" && req.UnreachableTower == prior.Origin.TowerID &&
+			ts.link.HubClass(prior.Origin.TowerID) == placement.HubPrivate && ts.link.Live(prior.Origin.TowerID) {
 			if err := ts.mobility.SetAvoid(prior.StationID, prior.Origin.TowerID, time.Now().Add(unreachableAvoidFor)); err != nil {
 				b.towerGovUnavailable(err)
 			}

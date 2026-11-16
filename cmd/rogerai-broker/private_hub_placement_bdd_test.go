@@ -1177,3 +1177,38 @@ func (s *phpState) avoidedForADay() error {
 	}
 	return nil
 }
+
+// Audit finding: with no other Tower to take it, an unreachable Station was taken dark and placed
+// back every pass for the whole day. It is moved only when it has somewhere else to go.
+func TestAnUnreachableStationWithNowhereElseIsNotChurned(t *testing.T) {
+	s := &phpState{plcState: &plcState{t: t}, towerPeer: map[string]string{}, moved: map[string]string{}}
+	s.reset()
+	t.Cleanup(s.teardown)
+	s.b.canaryVet = vetPublicIP
+	require.NoError(t, s.openAt("T", "198.51.100.40", "192.168.1.20:8444", phpPin, true))
+	n, code, raw := s.attachFrom("198.51.100.40")
+	require.Equal(t, http.StatusOK, code, raw)
+	n.body["unreachable_tower"] = s.id("T")
+	code, _ = s.attachNode(n)
+	require.Equal(t, http.StatusServiceUnavailable, code)
+	s.movesNow(time.Now())
+	require.Empty(t, s.moved[n.out.StationID], "a Station with nowhere else to go was moved")
+}
+
+// Audit finding: any 90 s hub outage, a Tower restarting for one, sent every Station away for a
+// day. Only a PRIVATE hub (which Core cannot dial) on a Tower whose link is up is believed.
+func TestAnUnreachableReportIsBelievedOnlyForALivePrivateHub(t *testing.T) {
+	s := &phpState{plcState: &plcState{t: t}, towerPeer: map[string]string{}, moved: map[string]string{}}
+	s.reset()
+	t.Cleanup(s.teardown)
+	s.b.canaryVet = vetPublicIP
+	require.NoError(t, s.openAt("P", "203.0.113.30", "203.0.113.30:8444", "", true))
+	n, code, raw := s.attachFrom("198.51.100.77")
+	require.Equal(t, http.StatusOK, code, raw)
+	require.Equal(t, s.id("P"), n.placedOn)
+	n.body["unreachable_tower"] = s.id("P")
+	code, raw = s.attachNode(n)
+	require.Equal(t, http.StatusOK, code, "a public hub is Core's to check, not the Station's word: %s", raw)
+	tw, _, _ := s.b.tower.mobility.Avoid(n.out.StationID)
+	require.Empty(t, tw, "a public hub was avoided on a Station's report")
+}

@@ -237,6 +237,18 @@ func (b *broker) mobilityTower(tw admit.Tower, live []attach.Attachment, snap []
 		// A Station that said it cannot reach this Tower's hub has no idle to wait for either:
 		// it is moved off, under the pacing every move follows.
 		if b.avoidFor(at.StationID, now)[tw.ID] {
+			// Only with somewhere else to go, and not while a move that came back is paused: a
+			// Station whose only Tower is this one would otherwise be taken dark and placed back
+			// on it every pass for the whole day.
+			if _, until, err := ts.mobility.Skip(at.StationID); err == nil && now.Before(until) {
+				continue
+			}
+			f, _, _ := ts.mobility.Facts(at.StationID)
+			excl := b.avoidFor(at.StationID, now)
+			excl[tw.ID] = true
+			if _, ok := b.chooseFrom(snap, at.Owner, f.Locality, excl, "", nil); !ok {
+				continue
+			}
 			if pace.allow(tw.ID, "") && b.startMove(at, "", triggerUnreachable, now) {
 				pace.note(tw.ID, "")
 			}
@@ -284,7 +296,9 @@ func (b *broker) mobilityTower(tw admit.Tower, live []attach.Attachment, snap []
 			// a failing Tower, "somewhere" must be healthy: moving between two failing Towers
 			// would bounce the Station for as long as both fail.
 			f, _, _ := ts.mobility.Facts(at.StationID)
-			alt, ok := b.chooseFrom(snap, at.Owner, f.Locality, map[string]bool{tw.ID: true}, "", nil)
+			excl := b.avoidFor(at.StationID, now)
+			excl[tw.ID] = true
+			alt, ok := b.chooseFrom(snap, at.Owner, f.Locality, excl, "", nil)
 			if !ok || (trigger == triggerFailing && alt.cand.Tier != placement.TierA) {
 				continue
 			}
