@@ -233,6 +233,9 @@ func TestOnlyAHubOutOfReachIsReportedUnreachable(t *testing.T) {
 		{"dial timed out", &net.OpError{Op: "dial", Err: context.DeadlineExceeded}, true},
 		{"a slow hub", context.DeadlineExceeded, false},
 		{"reset after it answered", &net.OpError{Op: "read", Err: errors.New("connection reset")}, false},
+		{"something that does not speak TLS", tls.RecordHeaderError{Msg: "first record does not look like a TLS handshake"}, true},
+		{"handshake alert", &net.OpError{Op: "remote error", Err: errors.New("tls: bad certificate")}, true},
+		{"handshake timeout", handshakeTimeout{}, true},
 		{"wrapped dial", fmt.Errorf("%w: %w", errHubStanding, &net.OpError{Op: "dial", Err: errors.New("no route")}), true},
 		{"hub answered 503", fmt.Errorf("%w: hub answered 503", errHubStanding), false},
 		{"plain error", errors.New("something else"), false},
@@ -242,3 +245,10 @@ func TestOnlyAHubOutOfReachIsReportedUnreachable(t *testing.T) {
 		}
 	}
 }
+
+// handshakeTimeout is the shape of net/http's TLS handshake timeout error (unexported there).
+type handshakeTimeout struct{}
+
+func (handshakeTimeout) Error() string   { return "net/http: TLS handshake timeout" }
+func (handshakeTimeout) Timeout() bool   { return true }
+func (handshakeTimeout) Temporary() bool { return true }

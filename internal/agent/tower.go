@@ -47,6 +47,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"rogerai.fm/roger/v7/internal/netpriv"
+	"strings"
 	"sync"
 	"time"
 
@@ -553,16 +554,25 @@ func staleAdvertisement(err error) bool {
 }
 
 // hubOutOfReach reports a hub failure that is this Station not reaching the hub at all: a dial
-// (refused, no route, timed out), DNS, TLS or pin failure. A hub that answered, with any status,
-// or a connection that broke after it was made, was reached.
+// (refused, no route, timed out), DNS, or TLS failure - the pin not matching, a certificate that
+// does not verify, something at that address that does not speak TLS, a handshake alert, or a
+// handshake that timed out. (A carrier NAT can put a stranger's device, a printer say, at the
+// address the Station dials.) A hub that answered over TLS, with any status, or a connection that
+// broke after the handshake, was reached.
 func hubOutOfReach(err error) bool {
 	var op *net.OpError
 	var dns *net.DNSError
 	var cert *tls.CertificateVerificationError
+	var rec tls.RecordHeaderError
+	var ne net.Error
 	switch {
 	case errors.Is(err, towerhub.ErrHubCertificateUnpinned):
 		return true
-	case errors.As(err, &op) && op.Op == "dial", errors.As(err, &dns), errors.As(err, &cert):
+	case errors.As(err, &op) && (op.Op == "dial" || op.Op == "remote error"):
+		return true
+	case errors.As(err, &dns), errors.As(err, &cert), errors.As(err, &rec):
+		return true
+	case errors.As(err, &ne) && ne.Timeout() && strings.Contains(err.Error(), "TLS handshake timeout"):
 		return true
 	}
 	return false
