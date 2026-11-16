@@ -101,7 +101,7 @@ func (b *broker) toolProbeDue(nodeID, model string, now time.Time) bool {
 	// Never earned the bit: re-checked on a growing interval (probe_accounting.feature R3). A
 	// model that cannot do tool calls, an on-device phone model for one, used to be checked on
 	// every probe round for as long as it was online.
-	if !b.toolsOK[key] {
+	if !b.toolsOK[key] && !b.toolsMerged[key] {
 		if b.toolFails == nil {
 			b.toolFails = map[string]toolBackoffState{}
 		}
@@ -488,7 +488,8 @@ func (b *broker) applyToolVerdict(nodeID, model string, res protocol.JobResult, 
 func (b *broker) toolsVerifiedNow(nodeID, model string) bool {
 	b.metricsMu.Lock()
 	defer b.metricsMu.Unlock()
-	return b.toolsOK[toolKey(nodeID, model)]
+	key := toolKey(nodeID, model)
+	return b.toolsOK[key] || b.toolsMerged[key] // the shared verdict counts after a restart
 }
 
 // toolCheckSent counts a tool-call check toward a not-yet-verified model's back-off: a check that
@@ -497,7 +498,7 @@ func (b *broker) toolCheckSent(nodeID, model string, now time.Time) {
 	key := toolKey(nodeID, model)
 	b.metricsMu.Lock()
 	defer b.metricsMu.Unlock()
-	if b.toolsOK[key] {
+	if b.toolsOK[key] || b.toolsMerged[key] {
 		return
 	}
 	if b.toolFails == nil {

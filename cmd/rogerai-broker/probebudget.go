@@ -96,12 +96,20 @@ func (b *broker) localCheckBudget(node string, now time.Time) bool {
 	return true
 }
 
-// claimProbe takes this round's probe of a node for this instance. A lost lease is noted so
-// the peer's published reading is taken instead; a store that does not answer claims nothing
-// and every instance probes as it always did.
-func (b *broker) claimProbe(node string, now time.Time) bool {
+// claimProbe takes this round's probe of a node for this instance. A peer's reading still fresh
+// within this instance's interval for the node is taken instead of probing (the instances' rounds
+// need not collide to share); a lost lease is noted so the reading the winner is about to publish
+// is taken. A store that does not answer claims nothing and every instance probes as it did.
+func (b *broker) claimProbe(node string, now time.Time, freshFor time.Duration) bool {
 	if b.shared == nil || !b.multiInstance {
 		return true
+	}
+	if raw, found, err := b.shared.cacheGet(probeReadingKey(node)); err == nil && found {
+		var r probeReading
+		if json.Unmarshal(raw, &r) == nil && r.By != b.instanceID && now.Sub(time.UnixMilli(r.At)) < freshFor {
+			b.applyPeerReading(node, r)
+			return false
+		}
 	}
 	won, err := b.shared.setIfAbsent("probelease:"+node, b.instanceID, b.leaseTTL())
 	if err != nil || won {

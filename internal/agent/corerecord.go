@@ -27,15 +27,16 @@ var coreRecordClient = &http.Client{Timeout: 10 * time.Second}
 type coreNumbers struct {
 	served, tokens int64
 	earned         float64
-	current        bool  // Core's latest answer; false before it first answered and while it cannot
-	skew           int64 // Core's clock minus this node's when Core answered (seconds)
+	current        bool // Core's latest answer; false before it first answered and while it cannot
+	// handledReqs / handledToks are what this node had handled when it asked: the network checks
+	// are those beyond Core's answer, so a job served since is never shown as a check.
+	handledReqs, handledToks int64
 }
 
 type coreRecord struct {
 	mu       sync.Mutex
 	n        coreNumbers
-	answered bool  // Core has answered at least once
-	skew     int64 // Core's clock minus this node's, seconds, from Core's last answer
+	answered bool // Core has answered at least once
 	lastTry  time.Time
 	fetching bool
 }
@@ -64,7 +65,6 @@ func (c *coreRecord) fetch(s *Session) {
 	switch {
 	case ok:
 		c.n, c.answered = n, true
-		c.skew = n.skew
 	case throttled:
 		// Core says it was asked inside 30 s (another read of the same node): the numbers held
 		// are no older than that, and stay as current as they were.
@@ -76,13 +76,10 @@ func (c *coreRecord) fetch(s *Session) {
 // readCoreRecord asks Core for this node's served and earned since the share went on air.
 func (s *Session) readCoreRecord() (n coreNumbers, ok, throttled bool) {
 	tok, _ := s.rereg.curToken()
-	// since is when this share went on air BY CORE'S CLOCK: Core's receipts carry its timestamps,
-	// so the node's own clock is corrected by the skew Core's last answer showed.
-	s.core.mu.Lock()
-	skew := s.core.skew
-	s.core.mu.Unlock()
+	// since is when this share went on air by this node's clock, the clock its receipts carry.
+	hr, ht := s.Handled()
 	u := s.cfg.Broker + "/nodes/served?node=" + url.QueryEscape(s.cfg.NodeID) +
-		"&since=" + strconv.FormatInt(s.started.Unix()+skew, 10)
+		"&since=" + strconv.FormatInt(s.started.Unix(), 10)
 	req, err := http.NewRequest(http.MethodGet, u, nil)
 	if err != nil {
 		return n, false, false
@@ -103,16 +100,12 @@ func (s *Session) readCoreRecord() (n coreNumbers, ok, throttled bool) {
 		Served int64   `json:"served"`
 		Tokens int64   `json:"tokens"`
 		Earned float64 `json:"earned"`
-		AsOf   int64   `json:"as_of"`
 	}
 	if json.NewDecoder(io.LimitReader(resp.Body, 1<<16)).Decode(&out) != nil {
 		return n, false, false
 	}
-	n = coreNumbers{served: out.Served, tokens: out.Tokens, earned: out.Earned, current: true}
-	if out.AsOf > 0 {
-		n.skew = out.AsOf - time.Now().Unix()
-	}
-	return n, true, false
+	return coreNumbers{served: out.Served, tokens: out.Tokens, earned: out.Earned, current: true,
+		handledReqs: hr, handledToks: ht}, true, false
 }
 
 // BridgeToken returns the node's live bridge token, the one its polls carry.
@@ -135,7 +128,8 @@ func (s *Session) ExpireCoreForTest() {
 // numbers it gave (not current). Test-only seam, for tests in other packages (the TUI's).
 func (s *Session) SetCoreForTest(served, tokens int64, earned float64, current bool) {
 	s.core.mu.Lock()
-	s.core.n = coreNumbers{served: served, tokens: tokens, earned: earned, current: current}
+	hr, ht := s.Handled()
+	s.core.n = coreNumbers{served: served, tokens: tokens, earned: earned, current: current, handledReqs: hr, handledToks: ht}
 	s.core.answered, s.core.lastTry = true, time.Now()
 	s.core.mu.Unlock()
 }

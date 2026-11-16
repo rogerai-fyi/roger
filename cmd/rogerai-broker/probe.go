@@ -738,12 +738,14 @@ func (b *broker) probeOnce() {
 	// (real traffic) DEFERS the next probe instead of resetting the level, and
 	// demandProbeSoonLocked (browse/route) resets it.
 	b.metricsMu.Lock()
+	intervals := make(map[string]time.Duration, len(targets)) // each node's interval this round
 	for _, t := range targets {
 		st := sched[t.node.NodeID]
 		if st == nil {
 			st = &probeState{}
 			sched[t.node.NodeID] = st
 		}
+		intervals[t.node.NodeID] = max(b.probe.backoffInterval(st.backoff), st.probeMin)
 		st.lastProbe = now
 		st.nextDue = now.Add(max(b.probe.backoffInterval(st.backoff), st.probeMin))
 		if st.backoff < 64 { // cap the level (backoffInterval already clamps to ceiling)
@@ -760,7 +762,7 @@ func (b *broker) probeOnce() {
 	// loser does not try again next tick; it takes the winner's published reading instead.
 	claimed := targets[:0]
 	for _, t := range targets {
-		if b.claimProbe(t.node.NodeID, now) {
+		if b.claimProbe(t.node.NodeID, now, intervals[t.node.NodeID]) {
 			claimed = append(claimed, t)
 		}
 	}

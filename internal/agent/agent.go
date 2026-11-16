@@ -468,8 +468,11 @@ func (s *Session) ProbeStats() (reqs, tokens int64) {
 	if !c.current {
 		return 0, 0
 	}
-	hr, ht := s.Handled()
-	return max(0, hr-c.served), max(0, ht-c.tokens)
+	if s.lan {
+		return 0, 0 // a LAN share has no Core checking it
+	}
+	// Against what the node had handled when Core answered: a job served since is not a check.
+	return max(0, c.handledReqs-c.served), max(0, c.handledToks-c.tokens)
 }
 
 // Start registers the node and launches its outbound poll loops, returning a

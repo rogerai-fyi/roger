@@ -20,12 +20,12 @@ func TestTheProbeLeaseNeverBlocksTheNextRound(t *testing.T) {
 	b.shared, b.multiInstance, b.instanceID = vs, true, "i-b"
 	require.Less(t, a.leaseTTL(), a.probe.interval)
 	now := time.Now()
-	require.True(t, a.claimProbe("n", now))
-	require.False(t, b.claimProbe("n", now), "a peer in the same round probed too")
+	require.True(t, a.claimProbe("n", now, time.Second))
+	require.False(t, b.claimProbe("n", now, time.Second), "a peer in the same round probed too")
 	mr.FastForward(a.probe.interval)
-	require.True(t, a.claimProbe("n", now.Add(a.probe.interval)), "the holder could not probe its next round")
+	require.True(t, a.claimProbe("n", now.Add(a.probe.interval), time.Second), "the holder could not probe its next round")
 	mr.FastForward(a.probe.interval)
-	require.True(t, b.claimProbe("n", now.Add(2*a.probe.interval)), "the peer could not probe a later round")
+	require.True(t, b.claimProbe("n", now.Add(2*a.probe.interval), time.Second), "the peer could not probe a later round")
 	tiny := adaptiveBroker(time.Second, time.Minute)
 	require.Equal(t, 5*time.Second, tiny.leaseTTL(), "a lease is never under a few seconds")
 }
@@ -64,4 +64,27 @@ func TestOldToolBackoffIsPruned(t *testing.T) {
 	b.pruneStaleNodes(now)
 	require.NotContains(t, b.toolFails, "gone\x00m")
 	require.Contains(t, b.toolFails, "recent\x00m", "a back-off a reconnecting node continues was dropped")
+}
+
+// Audit finding: readings were shared only when two instances' rounds collided inside the lease;
+// rounds a few seconds further apart both probed. A peer's reading still fresh within this
+// instance's interval is taken instead of probing.
+func TestAFreshPeerReadingIsTakenInsteadOfProbing(t *testing.T) {
+	vs, _ := testValkeyShared(t)
+	a := adaptiveBroker(30*time.Second, 15*time.Minute)
+	a.shared, a.multiInstance, a.instanceID = vs, true, "i-a"
+	b := adaptiveBroker(30*time.Second, 15*time.Minute)
+	b.shared, b.multiInstance, b.instanceID = vs, true, "i-b"
+	a.publishProbe("n", trustState{probed: true, probeOK: true, ttftMs: 120}, time.Now())
+	require.False(t, b.claimProbe("n", time.Now().Add(40*time.Second), 2*time.Minute),
+		"a fresh peer reading was probed again")
+	require.Equal(t, 120.0, b.trust["n"].ttftMs, "the peer's reading was not taken")
+	require.True(t, b.claimProbe("n2", time.Now(), 2*time.Minute), "a node with no reading was not probed")
+	vs2, _ := testValkeyShared(t)
+	c := adaptiveBroker(30*time.Second, 15*time.Minute)
+	c.shared, c.multiInstance, c.instanceID = vs2, true, "i-c"
+	a2 := adaptiveBroker(30*time.Second, 15*time.Minute)
+	a2.shared, a2.multiInstance, a2.instanceID = vs2, true, "i-a"
+	a2.publishProbe("m", trustState{probed: true, probeOK: true}, time.Now().Add(-time.Hour))
+	require.True(t, c.claimProbe("m", time.Now().Add(10*time.Minute), time.Minute), "a stale reading stopped a probe")
 }

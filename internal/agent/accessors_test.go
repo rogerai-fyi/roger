@@ -3,11 +3,9 @@ package agent
 import (
 	"crypto/ed25519"
 	"encoding/hex"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"strconv"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -235,30 +233,15 @@ func TestALANShareShowsItsOwnCount(t *testing.T) {
 	}
 }
 
-// Audit finding: since was the node's clock against Core's receipt times. Core's clock, from its
-// answer, corrects it on the next read.
-func TestTheRecordIsReadSinceCoresClock(t *testing.T) {
-	var sinces []int64
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		v, _ := strconv.ParseInt(r.URL.Query().Get("since"), 10, 64)
-		sinces = append(sinces, v)
-		_, _ = fmt.Fprintf(w, `{"served":1,"tokens":1,"earned":0,"as_of":%d}`, time.Now().Unix()+3600) // Core is an hour ahead
-	}))
-	defer srv.Close()
-	started := time.Now()
-	s := &Session{cfg: Config{Broker: srv.URL, NodeID: "n-1"}, started: started,
-		rereg: newReregistrar(srv.URL, protocol.NodeRegistration{BridgeToken: "tok"}, nil)}
-	n, ok, _ := s.readCoreRecord()
-	if !ok {
-		t.Fatal("no record")
-	}
-	s.core.mu.Lock()
-	s.core.skew = n.skew
-	s.core.mu.Unlock()
-	if _, ok, _ := s.readCoreRecord(); !ok {
-		t.Fatal("no record")
-	}
-	if len(sinces) != 2 || sinces[0] != started.Unix() || sinces[1]-started.Unix() < 3590 {
-		t.Fatalf("since read %v, want the second corrected by Core's hour", sinces)
+// Audit finding: a job served after Core's last answer read as a network check until the next
+// read. The checks are what the node had handled when Core answered, beyond what Core counted.
+func TestAJobServedSinceCoresAnswerIsNotACheck(t *testing.T) {
+	s := &Session{}
+	s.RecordHandledForTest(10)
+	s.RecordHandledForTest(10)
+	s.SetCoreForTest(1, 10, 0, true) // Core counted one of the two
+	s.RecordHandledForTest(10)       // served since Core answered
+	if reqs, _ := s.ProbeStats(); reqs != 1 {
+		t.Fatalf("network checks = %d, want 1: the job served since Core answered is not a check", reqs)
 	}
 }
