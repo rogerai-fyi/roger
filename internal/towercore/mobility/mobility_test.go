@@ -153,3 +153,35 @@ func TestReleaseClearsTheClaimButNotTheSkip(t *testing.T) {
 		require.NoError(t, s.ReleaseMove("st-none"))
 	})
 }
+
+// A Tower a Station could not reach is kept apart from the facts every attach rewrites: written,
+// read back, kept through PutFacts, and forgotten with the Station (private_hub_placement.feature).
+func TestAvoidIsKeptApartFromTheFacts(t *testing.T) {
+	eachStore(t, func(t *testing.T, s Store) {
+		tw, until, err := s.Avoid("st-none")
+		require.NoError(t, err)
+		require.Empty(t, tw)
+		require.True(t, until.IsZero())
+
+		at := time.Now().Add(24 * time.Hour).Truncate(time.Second)
+		require.NoError(t, s.SetAvoid("st-1", "tw-1", at))
+		require.NoError(t, s.PutFacts("st-1", Facts{Locality: placement.Locality{Bucket: "b", Continent: "NA"}, Nudge: true}))
+		tw, until, err = s.Avoid("st-1")
+		require.NoError(t, err)
+		require.Equal(t, "tw-1", tw, "an attach's facts wiped the avoided Tower")
+		require.True(t, until.Equal(at), "until %v, want %v", until, at)
+		f, ok, err := s.Facts("st-1")
+		require.NoError(t, err)
+		require.True(t, ok)
+		require.True(t, f.Nudge)
+
+		require.NoError(t, s.SetAvoid("st-1", "tw-2", at))
+		tw, _, _ = s.Avoid("st-1")
+		require.Equal(t, "tw-2", tw)
+
+		require.NoError(t, s.Forget([]string{"st-1"}))
+		tw, _, err = s.Avoid("st-1")
+		require.NoError(t, err)
+		require.Empty(t, tw)
+	})
+}
