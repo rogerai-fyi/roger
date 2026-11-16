@@ -342,6 +342,9 @@ type probeState struct {
 	// like curated. probeMinWarned keeps the over-the-cap log line to once per node.
 	probeMin       time.Duration
 	probeMinWarned bool
+	// battery: the node said it runs on battery. After first sight it is checked at the
+	// ceiling and never pulled in by demand (probe_accounting.feature R5).
+	battery bool
 }
 
 // probeSched returns the per-node schedule map, lazily initialised. Caller holds
@@ -469,6 +472,10 @@ func (b *broker) demandProbeSoonLocked(nodeID string, now time.Time) {
 		}
 		return
 	}
+	// A battery node does not pay for being browsed: after first sight it keeps its ceiling.
+	if st.battery && !st.lastProbe.IsZero() {
+		return
+	}
 	st.backoff = 0
 	if st.nextDue.IsZero() || st.nextDue.After(now) {
 		st.nextDue = now // eligible on the next round (floor resolution)
@@ -558,6 +565,8 @@ func (c probeConfig) jitterWindow() time.Duration {
 func (b *broker) probeOnce() {
 	round := atomic.AddUint64(&b.probe.round, 1) - 1
 	fp := nextCanary(round)
+	// A peer's probe of a node this instance lost the lease for is this instance's reading too.
+	b.takePeerReadings(time.Now())
 
 	type target struct {
 		node  protocol.NodeRegistration
@@ -740,8 +749,22 @@ func (b *broker) probeOnce() {
 		if st.backoff < 64 { // cap the level (backoffInterval already clamps to ceiling)
 			st.backoff++
 		}
+		// A battery node is checked at the ceiling after first sight (R5).
+		if st.battery = t.node.Battery; st.battery && st.nextDue.Before(now.Add(b.probe.ceiling)) {
+			st.nextDue = now.Add(b.probe.ceiling)
+		}
 	}
 	b.metricsMu.Unlock()
+
+	// ONE PROBER PER NODE PER ROUND (R2). Every instance advanced its schedule above, so the
+	// loser does not try again next tick; it takes the winner's published reading instead.
+	claimed := targets[:0]
+	for _, t := range targets {
+		if b.claimProbe(t.node.NodeID, now) {
+			claimed = append(claimed, t)
+		}
+	}
+	targets = claimed
 
 	// Probe nodes concurrently: each probeNode blocks waiting for its result, so
 	// running them in parallel keeps one slow/dead node from stalling the round.
@@ -797,6 +820,10 @@ func (b *broker) probeNode(node protocol.NodeRegistration, model string, fp cana
 	// Single-instance needs a real local tunnel; multi-instance dispatches over the bus
 	// (the poller may be on a PEER instance), so a nil/stub local tunnel is fine there.
 	if t == nil && !mi {
+		return
+	}
+	// Every check draws on the node's budget (R4); a spent budget skips it, nothing queued.
+	if !b.allowCheck(node.NodeID, "canary") {
 		return
 	}
 
@@ -1378,7 +1405,12 @@ func (b *broker) recordProbe(nodeID string, outcome probeOutcome, ttftMs, tps fl
 	}
 	b.trust[nodeID] = tq
 	fails := tq.probeFails
+	var measured time.Time
+	if st := b.probeSchedLocked()[nodeID]; st != nil {
+		measured = st.lastMeasured
+	}
 	b.metricsMu.Unlock()
+	b.publishProbe(nodeID, tq, measured) // every instance routes on this reading (R2)
 
 	if alive {
 		if tps > 0 {

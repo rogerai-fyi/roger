@@ -86,6 +86,11 @@ func (b *broker) RunCanary(towerID string) reputation.Outcome {
 		// there is nothing to canary - so nothing is recorded.
 		return ""
 	}
+	// A Tower-carried canary draws on the same budget as every other check of the node behind
+	// it (probe_accounting.feature R4); a spent budget skips it and records nothing.
+	if !b.allowCheck(row.NodeID, "tower") {
+		return ""
+	}
 	// Core is the consumer for a canary, so it holds an ephemeral consumer key - fresh per
 	// probe, so a canary is not tied to a standing account. The SAME key is bound into the
 	// grant and drives the request, so the acknowledgement (if the probe made one) would

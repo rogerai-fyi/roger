@@ -479,10 +479,7 @@ func (m model) shareView(w int) string {
 		} else {
 			served, outTok, earn := "-", "-", "-"
 			if on {
-				reqs, toks := live.Served()
-				served = fmt.Sprintf("%d", reqs)
-				outTok = fmt.Sprintf("%d", toks)
-				earn = dollars(live.Earnings())
+				served, outTok, earn = coreCells(live)
 			}
 			plain = fmt.Sprintf("%s %-24s  %-9s  %-12s  %-9s  %-10s  %-9s  %s",
 				lampG, padMarquee(modelCell, nameW, off), statusTxt, priceTxt, served, outTok, earn, shareCategoryCell(row))
@@ -508,10 +505,10 @@ func (m model) shareView(w int) string {
 		}
 		served, outTok, earn := stDim.Render(pad("-", 9)), stDim.Render(pad("-", 10)), stDim.Render(pad("-", 9))
 		if on {
-			reqs, toks := live.Served()
-			served = stLive.Render(pad(fmt.Sprintf("%d", reqs), 9))
-			outTok = stDim.Render(pad(fmt.Sprintf("%d", toks), 10))
-			earn = stEmber.Render(pad(dollars(live.Earnings()), 9))
+			sv, ot, ea := coreCells(live)
+			served = stLive.Render(pad(sv, 9))
+			outTok = stDim.Render(pad(ot, 10))
+			earn = stEmber.Render(pad(ea, 9))
 		}
 		b.WriteString(truncVisible(selCarat(false)+lampS.Render(lampG)+" "+stDim.Render(pad(modelCell, nameW))+"  "+st+"  "+
 			sharePriceCell(pad(priceTxt, 12))+"  "+served+"  "+outTok+"  "+earn+"  "+stDim.Render(shareCategoryCell(row)), w) + "\n")
@@ -575,17 +572,20 @@ func (m model) shareView(w int) string {
 	}
 	// WHAT THE RIG IS BUSY WITH, when the answer is "not your traffic".
 	//
-	// Broker canaries are kept out of SERVED / OUT TOK / AT LIST above, which is right - they
-	// are unbilled work nobody asked you for. But removing them from the table without saying
-	// so anywhere replaces one confusion with another: an operator who watched a busy rig
-	// report almost nothing served would have no way to learn where the work went. Hidden is
-	// not the same as discarded, and this is the line that makes that true.
+	// SERVED / OUT TOK / AT LIST above are Core's record of what this rig served and earned
+	// (features/serving/probe_accounting.feature): Core's checks look like customers to the
+	// node, so only Core can keep them out. What the rig handled beyond that is said here,
+	// so a busy rig reporting little served can explain itself.
 	//
-	// It appears only when there ARE probes: a station nobody has checked says nothing, rather
-	// than printing a zero that would read as a measurement.
+	// It appears only when there ARE checks and Core's numbers are current: a stale record
+	// must never turn real work into "checks".
 	if preqs, ptoks := m.probeTotals(); preqs > 0 {
-		pn := stDim.Render(fmt.Sprintf("plus %d broker checks (%d tok) - reachability + speed, unbilled and not counted above",
+		pn := stDim.Render(fmt.Sprintf("plus %d network checks (%d tok) - RogerAI Core checking this node, unbilled and not counted above",
 			preqs, ptoks))
+		b.WriteString("  " + truncVisible(pn, w-4) + "\n")
+	}
+	if m.anyShareNotCurrent() {
+		pn := stDim.Render("served and earned are Core's record; not current right now - Core could not be read")
 		b.WriteString("  " + truncVisible(pn, w-4) + "\n")
 	}
 	// Cash-out hint for an earning provider (KYC / payable), under the affordance line.
@@ -617,9 +617,9 @@ func sharePriceText(in, out float64) string {
 	}
 }
 
-// probeTotals sums the unbilled broker-canary work across every live band. Separate from
-// Served() by construction (agent.Session keeps two tallies), so this can never accidentally
-// re-add probes to the operator's numbers - it can only report them beside those numbers.
+// probeTotals sums the network checks across every live band: what each rig handled beyond
+// what Core's record shows it served (agent.Session.ProbeStats), reported beside the
+// operator's numbers, never inside them.
 func (m model) probeTotals() (reqs, tokens int64) {
 	for _, r := range m.shareRows {
 		if sess := m.shares[r.model]; sess != nil {
@@ -686,6 +686,9 @@ func (m model) shareRowDetail(row shareRow, live *agent.Session) string {
 
 	// on-air served/earn suffix shared by every modality.
 	onAirTail := func(withTok bool) string {
+		if !live.CoreAnswered() {
+			return glyphOnAir + " on air · waiting for Core's record"
+		}
 		reqs, toks := live.Served()
 		s := fmt.Sprintf("%s on air · %d served", glyphOnAir, reqs)
 		if withTok {
@@ -940,4 +943,24 @@ func (m model) shareSetupView(w int) string {
 		b.WriteString("\n  " + stEmber.Render(pad("! "+m.setupErr, w-2)) + "\n")
 	}
 	return b.String()
+}
+
+// coreCells renders a live row's SERVED, OUT TOK and AT LIST from Core's record: "…" until
+// Core first answers, never the rig's own count.
+func coreCells(live *agent.Session) (served, outTok, earn string) {
+	if !live.CoreAnswered() {
+		return "…", "…", "…"
+	}
+	reqs, toks := live.Served()
+	return fmt.Sprintf("%d", reqs), fmt.Sprintf("%d", toks), dollars(live.Earnings())
+}
+
+// anyShareNotCurrent reports a live band whose numbers are the last Core gave, not current.
+func (m model) anyShareNotCurrent() bool {
+	for _, r := range m.shareRows {
+		if sess := m.shares[r.model]; sess != nil && sess.CoreAnswered() && !sess.CoreCurrent() {
+			return true
+		}
+	}
+	return false
 }

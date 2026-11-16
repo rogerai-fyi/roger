@@ -164,18 +164,17 @@ func init() { heartbeatInterval.Store(int64(10 * time.Second)) }
 // agent importing the TUI. Stop ends the poll loops. Earnings here are the
 // node's gross owner-share in credits (= dollars), summed from served receipts.
 type Session struct {
-	cfg           Config
-	accepted      acceptedJobs // job ids this node already received (node acks)
-	servedReqs    atomic.Int64
-	servedToks    atomic.Int64
-	earningsMicro atomic.Int64 // owner-share in millionths of a credit (avoid float races)
-	probeReqs     atomic.Int64 // UNBILLED broker probes served (kept out of servedReqs)
-	probeToks     atomic.Int64 // completion tokens spent on those probes
-	stop          chan struct{}
-	loops         sync.WaitGroup // the standalone Tower loops a LAN share runs (StartLAN)
-	rereg         *reregistrar   // shared self-healing re-register coordinator
-	inflight      inflightJobs   // the jobs being served now, so a broker cancel can stop them
-	link          atomic.Int32   // LinkState: is the BROKER actually acknowledging us?
+	cfg         Config
+	accepted    acceptedJobs // job ids this node already received (node acks)
+	handledReqs atomic.Int64 // every job this node answered, Core's checks included
+	handledToks atomic.Int64 // completion tokens of those jobs
+	core        coreRecord   // what Core's record says this node served and earned (R1)
+	started     time.Time    // when this share went on air: the record is read since then
+	stop        chan struct{}
+	loops       sync.WaitGroup // the standalone Tower loops a LAN share runs (StartLAN)
+	rereg       *reregistrar   // shared self-healing re-register coordinator
+	inflight    inflightJobs   // the jobs being served now, so a broker cancel can stop them
+	link        atomic.Int32   // LinkState: is the BROKER actually acknowledging us?
 
 	// Private band: the broker-minted band id + the secret frequency code (the code is
 	// returned ONCE at the first register and stashed here so the caller - CLI/TUI -
@@ -400,15 +399,29 @@ func (rr *reregistrar) finishBusy() {
 	rr.mu.Unlock()
 }
 
-// Served returns the request + completion-token counts served so far.
+// Served returns the requests and completion tokens this share served as CORE records them:
+// paid and free customer requests that settled, never Core's own checks. A check looks like a
+// customer to the node by design, so the node's own count cannot tell them apart; reading this
+// is what keeps the number current (at most every 30 s, and only while someone reads it).
 func (s *Session) Served() (reqs, tokens int64) {
-	return s.servedReqs.Load(), s.servedToks.Load()
+	c := s.core.read(s)
+	return c.served, c.tokens
 }
 
-// Earnings returns the node's accrued owner-share in credits ($).
+// Earnings returns the owner share this share earned since it went on air, from Core's record.
 func (s *Session) Earnings() float64 {
-	return float64(s.earningsMicro.Load()) / 1e6
+	return s.core.read(s).earned
 }
+
+// Handled returns every job this node answered and their completion tokens, Core's checks
+// included: the node's own count, never shown as served.
+func (s *Session) Handled() (reqs, tokens int64) {
+	return s.handledReqs.Load(), s.handledToks.Load()
+}
+
+// CoreCurrent reports whether Served and Earnings are Core's latest answer; false before Core
+// first answered and while it cannot be read, when they are the last numbers Core gave.
+func (s *Session) CoreCurrent() bool { return s.core.read(s).current }
 
 // Model / Price / Node / Upstream surface the session's offer for the panel and for
 // callers (e.g. the TUI's multi-endpoint SHARE table) that need to confirm which
@@ -431,46 +444,29 @@ func (s *Session) Stop() {
 	}
 }
 
-// record folds a served job's receipt into the session counters (called by the
-// in-process poll loop after it serves a job).
-func (s *Session) record(rec protocol.UsageReceipt, feeRate float64, unbilled bool) {
-	// A PROBE IS NOT TRAFFIC. It is the broker checking this node is alive, and it is
-	// kept out of SERVED, OUT TOK and value alike - on a quiet rig it dwarfs the real
-	// numbers (2,738 served / 48,001 tokens on the founder's station was almost entirely
-	// canary), so leaving it in the headline counters answers "how busy am I?" with a
-	// measurement of our own health checks.
-	//
-	// It is COUNTED, not discarded: ProbeServed/ProbeTokens keep it available for anyone
-	// asking whether we probe too hard, which is a real question with a real answer.
-	if unbilled {
-		s.probeReqs.Add(1)
-		s.probeToks.Add(int64(rec.CompletionTokens))
-		return
-	}
-	s.servedReqs.Add(1)
-	s.servedToks.Add(int64(rec.CompletionTokens))
-	// owner-share = cost * (1 - fee); cost is the node-priced receipt cost.
-	owner := rec.Cost() * (1 - feeRate)
-	s.earningsMicro.Add(int64(owner*1e6 + 0.5))
+// record counts one job this node answered. It is the node's own count of what it handled;
+// what it SERVED, and what that earned, come from Core's record (Served, Earnings).
+func (s *Session) record(rec protocol.UsageReceipt) {
+	s.handledReqs.Add(1)
+	s.handledToks.Add(int64(rec.CompletionTokens))
 }
 
-// RecordProbeForTest records one unbilled broker canary against this session. Test-only
-// seam, following the house convention (FailForTest, SetChildReceiptsForTest): production
-// records probes through recordIf, off the job's User field, and nothing else may add to
-// these counters. It exists so tests in OTHER packages - the TUI's, which has to prove the
-// share view reports canary work beside the operator's numbers rather than inside them -
-// can build a session that has answered probes without standing up a broker.
-func (s *Session) RecordProbeForTest(completionTokens int64) {
-	s.probeReqs.Add(1)
-	s.probeToks.Add(completionTokens)
+// RecordHandledForTest records one answered job against this session without a broker, so
+// tests in other packages (the TUI's) can build a session that has handled work. Test-only seam.
+func (s *Session) RecordHandledForTest(completionTokens int64) {
+	s.record(protocol.UsageReceipt{RequestID: "test", CompletionTokens: int(completionTokens)})
 }
 
-// ProbeStats returns the unbilled broker-probe traffic this session absorbed: requests
-// and completion tokens. Deliberately SEPARATE from Served() rather than folded into it -
-// an operator asking "how busy am I?" means real work, and an operator asking "are we
-// probing too hard?" needs this number unmixed with it.
+// ProbeStats returns the network checks this share answered: what it handled beyond what
+// Core's record shows it served. Only while Core's numbers are current; zero otherwise, so a
+// stale record never turns real work into "checks".
 func (s *Session) ProbeStats() (reqs, tokens int64) {
-	return s.probeReqs.Load(), s.probeToks.Load()
+	c := s.core.read(s)
+	if !c.current {
+		return 0, 0
+	}
+	hr, ht := s.Handled()
+	return max(0, hr-c.served), max(0, ht-c.tokens)
 }
 
 // Start registers the node and launches its outbound poll loops, returning a
@@ -525,7 +521,7 @@ func Start(cfg Config) (*Session, error) {
 	// same reg, idempotently) when the in-memory broker forgets the node after a
 	// restart. All pollers + the heartbeat read its token each iteration.
 	rereg := newReregistrar(cfg.Broker, reg, priv)
-	sess := &Session{cfg: cfg, stop: make(chan struct{}), rereg: rereg,
+	sess := &Session{cfg: cfg, stop: make(chan struct{}), rereg: rereg, started: time.Now(),
 		bandID: regRes.BandID, bandCode: regRes.BandCode, bandDisplay: regRes.BandDisplay,
 		// Adopt the broker's confidential-grant echo: a confidential request that was
 		// downgraded to standard (fail-soft) lands here as false so the CLI can warn.
@@ -626,32 +622,17 @@ func brokerForgot(status int) bool {
 		status == http.StatusForbidden
 }
 
-// ProbeUser is the User the broker stamps on an active-probe (canary) job. The probe
-// measures liveness, TTFT and clean tok/s every 30s per model, backing off to 15m while
-// idle, and the broker bills NOTHING for it: "User=\"probe\" marks it unbilled;
-// settleRequest/earnings are never touched on this path".
-const ProbeUser = "probe"
-
-// recordIf folds a served receipt into the session counters (no-op without a session).
+// recordIf counts a job the node answered (no-op without a session or a receipt).
 //
-// PROBE JOBS COUNT AS WORK, NOT AS VALUE. The node serves a canary exactly like a real
-// job, so it used to fold into every counter including the value tally - and on a quiet
-// rig the probe IS most of the traffic: a founder's station read 2,738 served and 48,001
-// output tokens, which is 17.5 tokens a request, the shape of a canary's tiny max_tokens
-// rather than of a conversation. The value column was therefore pricing work the broker
-// can never bill, at any price.
-//
-// A probe is excluded from ALL THREE operator-facing figures - served, output tokens and
-// value - not just the money-shaped one. An intermediate design kept it in served/tokens on
-// the reasoning that the machine really did the work, but that leaves the headline number an
-// operator uses to judge whether sharing is worth it inflated by work nobody paid for: on
-// one real station, 2,738 of the requests it reported. The work is not discarded - it is
-// tallied by ProbeStats and reported BESIDE those figures by both front ends.
+// PROBE JOBS ARE NOT TOLD APART HERE, AND CANNOT BE. Core's checks carry a fresh customer-style
+// pseudonym (the 2026-10-06 ruling), so the old `job.User == "probe"` filter never matched and
+// every check was counted as served and priced into earnings. The node now counts what it
+// handled, and shows served and earned from Core's record (features/serving/probe_accounting.feature).
 func recordIf(sess *Session, job protocol.Job, rec protocol.UsageReceipt) {
 	if sess == nil || rec.RequestID == "" {
 		return
 	}
-	sess.record(rec, shareFeeRate, job.User == ProbeUser)
+	sess.record(rec)
 }
 
 // heartbeatUntil heartbeats every 10s until stop is closed. The live BridgeToken

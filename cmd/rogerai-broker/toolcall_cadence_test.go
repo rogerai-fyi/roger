@@ -12,17 +12,23 @@ import (
 	"time"
 )
 
-// Earning the bit must stay fast: a model that has never passed is probed every round, so it
-// becomes publicly "tools"-capable as quickly as it always did.
-func TestAnUnverifiedModelIsNotThrottled(t *testing.T) {
+// Earning the bit starts at once: a model's first tool-call check runs on its first round. After
+// a check without a pass it waits out the back-off (probe_accounting.feature R3) instead of being
+// checked every round for as long as it is online, which is what a model that cannot do tool
+// calls, a phone's on-device model for one, used to cost.
+func TestAnUnverifiedModelIsCheckedAtOnceThenBacksOff(t *testing.T) {
 	b := adaptiveBroker(30*time.Second, 15*time.Minute)
 	now := time.Now()
-
-	for i := 0; i < 5; i++ {
-		if !b.toolProbeDue("n1", "m1", now.Add(time.Duration(i)*30*time.Second)) {
-			t.Fatalf("round %d: an unverified model was throttled - it would take longer to "+
-				"earn the tools bit than before", i)
+	if !b.toolProbeDue("n1", "m1", now) {
+		t.Fatal("the first tool-call check of a model did not run at once")
+	}
+	for i := 1; i < 5; i++ {
+		if b.toolProbeDue("n1", "m1", now.Add(time.Duration(i)*30*time.Second)) {
+			t.Fatalf("round %d: a model that just failed was checked again inside its back-off", i)
 		}
+	}
+	if !b.toolProbeDue("n1", "m1", now.Add(toolProbeEvery)) {
+		t.Fatal("the second check was not due after the 20 minute back-off")
 	}
 }
 

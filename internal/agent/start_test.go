@@ -62,21 +62,22 @@ func TestStartServesAJobAndStops(t *testing.T) {
 	// Wait until the job is served and its result posted (or time out).
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		if reqs, _ := sess.Served(); reqs >= 1 && results.Load() >= 1 {
+		if reqs, _ := sess.Handled(); reqs >= 1 && results.Load() >= 1 {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	reqs, toks := sess.Served()
+	reqs, toks := sess.Handled()
 	if reqs < 1 || toks < 11 {
-		t.Fatalf("Served = %d reqs / %d toks, want >=1 / >=11", reqs, toks)
+		t.Fatalf("Handled = %d reqs / %d toks, want >=1 / >=11", reqs, toks)
 	}
 	if results.Load() < 1 {
 		t.Error("the served job's result was never posted to the broker")
 	}
-	// Earnings accrued from the served job (cost * (1-fee), > 0).
-	if sess.Earnings() <= 0 {
-		t.Error("Earnings should be > 0 after serving a priced job")
+	// Served and earned are Core's record (probe_accounting.feature), not the node's own tally:
+	// this stub broker keeps no record, so the session must not invent one.
+	if served, _ := sess.Served(); served != 0 || sess.Earnings() != 0 {
+		t.Errorf("served %d / earned %v with no record from Core, want nothing", served, sess.Earnings())
 	}
 }
 

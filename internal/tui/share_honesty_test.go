@@ -110,12 +110,13 @@ func TestTheShareViewSaysWhatTheUnbilledWorkWas(t *testing.T) {
 
 	sess := &agent.Session{}
 	for i := 0; i < 3; i++ {
-		sess.RecordProbeForTest(17)
+		sess.RecordHandledForTest(17)
 	}
+	sess.SetCoreForTest(0, 0, 0, true) // Core's record: nothing served
 	m.shares = map[string]*agent.Session{m.shareRows[0].model: sess}
 
 	v := stripANSI(m.shareView(140))
-	if !strings.Contains(v, "3 broker checks") {
+	if !strings.Contains(v, "3 network checks") {
 		t.Errorf("the canary work is invisible: a busy rig reporting nothing served has no "+
 			"way to explain itself.\n%s", v)
 	}
@@ -133,7 +134,7 @@ func TestNoProbeLineWhenNothingHasBeenProbed(t *testing.T) {
 	m.width, m.height = 140, 30
 	m.shares = map[string]*agent.Session{m.shareRows[0].model: {}}
 
-	if strings.Contains(stripANSI(m.shareView(140)), "broker checks") {
+	if strings.Contains(stripANSI(m.shareView(140)), "network checks") {
 		t.Error("an unprobed station still reported broker checks")
 	}
 }
@@ -142,16 +143,44 @@ func TestNoProbeLineWhenNothingHasBeenProbed(t *testing.T) {
 // are separate in agent.Session precisely so this cannot happen by accident.
 func TestProbesAreReportedBesideTheNumbersNotInsideThem(t *testing.T) {
 	sess := &agent.Session{}
-	sess.RecordProbeForTest(17)
-	sess.RecordProbeForTest(17)
+	sess.RecordHandledForTest(17)
+	sess.RecordHandledForTest(17)
+	sess.RecordHandledForTest(10)
+	sess.SetCoreForTest(1, 10, 0.5, true) // Core: one request served
 
-	if reqs, toks := sess.Served(); reqs != 0 || toks != 0 {
-		t.Fatalf("probes leaked into SERVED/OUT TOK: %d reqs, %d tok", reqs, toks)
+	if reqs, toks := sess.Served(); reqs != 1 || toks != 10 {
+		t.Fatalf("SERVED/OUT TOK = %d/%d, want Core's 1/10", reqs, toks)
 	}
-	if sess.Earnings() != 0 {
-		t.Fatalf("probes accrued value: %v", sess.Earnings())
+	if sess.Earnings() != 0.5 {
+		t.Fatalf("earned %v, want Core's 0.5", sess.Earnings())
 	}
 	if pr, pt := sess.ProbeStats(); pr != 2 || pt != 34 {
-		t.Fatalf("probe tally = %d/%d, want 2/34", pr, pt)
+		t.Fatalf("network checks = %d/%d, want 2/34", pr, pt)
+	}
+}
+
+// Until Core answers, the table shows "…", never the rig's own count; a record Core could not
+// refresh is said to be not current, and claims no checks.
+func TestTheShareViewShowsCoresRecordOnly(t *testing.T) {
+	srv := fakeBroker(t)
+	m := NewWithHooks(srv.URL, "tester", nil, Hooks{})
+	m.setShareRows(freeRows(2))
+	m.width, m.height = 140, 30
+	sess := &agent.Session{}
+	for i := 0; i < 4; i++ {
+		sess.RecordHandledForTest(17)
+	}
+	m.shares = map[string]*agent.Session{m.shareRows[0].model: sess}
+	v := stripANSI(m.shareView(140))
+	if !strings.Contains(v, "…") || strings.Contains(v, "network checks") {
+		t.Errorf("before Core answered the table must show … and no checks:\n%s", v)
+	}
+	if d := stripANSI(m.shareRowDetail(m.shareRows[0], sess)); !strings.Contains(d, "waiting for Core") {
+		t.Errorf("the detail line does not say it is waiting for Core: %s", d)
+	}
+	sess.SetCoreForTest(2, 20, 0, false)
+	v = stripANSI(m.shareView(140))
+	if !strings.Contains(v, "not current") || strings.Contains(v, "network checks") {
+		t.Errorf("a stale record must be said to be not current and claim no checks:\n%s", v)
 	}
 }

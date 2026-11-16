@@ -217,14 +217,14 @@ func TestPollLoopServesStreamJob(t *testing.T) {
 
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		if reqs, toks := sess.Served(); reqs >= 1 && toks >= 9 {
+		if reqs, toks := sess.Handled(); reqs >= 1 && toks >= 9 {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	reqs, toks := sess.Served()
+	reqs, toks := sess.Handled()
 	if reqs < 1 || toks != 9 {
-		t.Fatalf("Served = %d reqs / %d toks, want 1 / 9 from the streamed usage chunk", reqs, toks)
+		t.Fatalf("Handled = %d reqs / %d toks, want 1 / 9 from the streamed usage chunk", reqs, toks)
 	}
 }
 

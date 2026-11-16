@@ -3,7 +3,11 @@ package agent
 import (
 	"crypto/ed25519"
 	"encoding/hex"
+	"net/http"
+	"net/http/httptest"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"rogerai.fm/roger/v7/internal/protocol"
 )
@@ -35,22 +39,16 @@ func TestSessionAccessors(t *testing.T) {
 		t.Errorf("Band = %q/%q/%q", id, code, disp)
 	}
 
-	// record folds a served receipt into the counters: +1 req, +completion tokens, and
-	// owner-share = cost*(1-fee).
+	// record counts what the node handled; served and earned are Core's record, never this
+	// count (features/serving/probe_accounting.feature).
 	rec := protocol.UsageReceipt{PromptTokens: 100, CompletionTokens: 50, PriceIn: 1_000_000, PriceOut: 2_000_000}
-	s.record(rec, 0.30, false)
-	reqs, toks := s.Served()
-	if reqs != 1 || toks != 50 {
-		t.Errorf("Served = %d reqs / %d toks, want 1/50", reqs, toks)
+	s.record(rec)
+	s.record(rec)
+	if reqs, toks := s.Handled(); reqs != 2 || toks != 100 {
+		t.Errorf("Handled = %d reqs / %d toks, want 2/100", reqs, toks)
 	}
-	wantEarn := rec.Cost() * (1 - 0.30)
-	if got := s.Earnings(); got < wantEarn-1e-6 || got > wantEarn+1e-6 {
-		t.Errorf("Earnings = %v, want %v (cost*(1-fee))", got, wantEarn)
-	}
-	// A second record accumulates.
-	s.record(rec, 0.30, false)
-	if reqs, _ := s.Served(); reqs != 2 {
-		t.Errorf("Served after 2 records = %d reqs, want 2", reqs)
+	if reqs, toks := s.Served(); reqs != 0 || toks != 0 || s.Earnings() != 0 || s.CoreCurrent() {
+		t.Errorf("with no word from Core, served/earned must be empty and not current, got %d/%d/%v", reqs, toks, s.Earnings())
 	}
 }
 
@@ -127,96 +125,94 @@ func TestTEEUnavailableOnTestHost(t *testing.T) {
 	}
 }
 
-// A broker PROBE is served like any job, but the broker bills nothing for it
-// ("User=\"probe\" marks it unbilled"). It must count as work and NOT as value:
-// on a quiet rig the probe is most of the traffic, so folding it into the money-shaped
-// number priced work that can never be billed at any price.
-func TestProbeJobsStayOutOfTheOperatorsNumbers(t *testing.T) {
-	s := &Session{}
-	rec := protocol.UsageReceipt{
-		RequestID: "r1", PromptTokens: 700, CompletionTokens: 18,
-		PriceIn: 0.20, PriceOut: 0.01,
-	}
-	s.record(rec, 0.30, true) // a probe
-
-	// A probe is our own health check, not traffic: it must not inflate the numbers an
-	// operator reads as "how busy am I".
-	if reqs, toks := s.Served(); reqs != 0 || toks != 0 {
-		t.Errorf("served = %d reqs / %d toks, want 0/0 - a probe is not traffic", reqs, toks)
-	}
-	if got := s.Earnings(); got != 0 {
-		t.Errorf("value = %v, want 0 - the broker never bills a probe", got)
-	}
-	// But it IS counted, so "are we probing too hard?" has an answer.
-	if r, tk := s.ProbeStats(); r != 1 || tk != 18 {
-		t.Errorf("probe stats = %d reqs / %d toks, want 1/18", r, tk)
-	}
-}
-
-// And a real job still accrues, or the exclusion has eaten the feature.
-func TestBilledJobsStillAccrueValue(t *testing.T) {
-	s := &Session{}
-	rec := protocol.UsageReceipt{
-		RequestID: "r2", PromptTokens: 1_000_000, CompletionTokens: 0,
-		PriceIn: 0.20, PriceOut: 0.01,
-	}
-	s.record(rec, 0.30, false)
-
-	// 1M prompt x $0.20/1M = $0.20 gross; owner keeps 70%
-	if got := s.Earnings(); got < 0.139 || got > 0.141 {
-		t.Errorf("value = %v, want ~0.14 (owner share of $0.20)", got)
-	}
-	if r, _ := s.ProbeStats(); r != 0 {
-		t.Error("a billed job was counted as a probe")
-	}
-	if reqs, _ := s.Served(); reqs != 1 {
-		t.Errorf("a billed job must count as served, got %d", reqs)
-	}
-}
-
-// THE TEST SEAM MUST NOT LIE.
-//
-// RecordProbeForTest exists so other packages' tests can build a session that has answered
-// broker canaries. That is only worth anything if it lands in the same place the REAL probe
-// path lands - otherwise the TUI's "canary work is reported beside your numbers" test is
-// proving something about a fiction, and the surface could be wrong in production while the
-// test stays green.
-//
-// So this pins the seam against `record` itself: same probe tally, and the same absence from
-// every operator-facing figure.
-func TestTheProbeTestSeamMatchesTheRealProbePath(t *testing.T) {
-	viaSeam := &Session{}
-	viaSeam.RecordProbeForTest(17)
-
-	viaRecord := &Session{}
-	viaRecord.record(protocol.UsageReceipt{RequestID: "p1", CompletionTokens: 17}, shareFeeRate, true)
-
-	sr, st := viaSeam.ProbeStats()
-	rr, rt := viaRecord.ProbeStats()
-	if sr != rr || st != rt {
-		t.Fatalf("the seam records %d/%d but a real probe records %d/%d - the seam is a "+
-			"fiction and every test built on it proves nothing", sr, st, rr, rt)
-	}
-
-	// And neither touches the operator's numbers.
-	for name, s := range map[string]*Session{"seam": viaSeam, "real": viaRecord} {
-		if reqs, toks := s.Served(); reqs != 0 || toks != 0 {
-			t.Errorf("%s: probe leaked into SERVED/OUT TOK (%d/%d)", name, reqs, toks)
+// Core's checks look like customers to the node, so the node cannot keep them out of its own
+// count; what it shows as served, earned and network checks comes from Core's record instead.
+func TestServedAndEarnedComeFromCoresRecord(t *testing.T) {
+	var reads atomic.Int64
+	answer := atomic.Int64{}
+	answer.Store(http.StatusOK)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reads.Add(1)
+		if r.URL.Path != "/nodes/served" || r.URL.Query().Get("node") != "n-1" || r.Header.Get("Authorization") != "Bearer tok" {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
 		}
-		if s.Earnings() != 0 {
-			t.Errorf("%s: probe accrued value (%v)", name, s.Earnings())
+		if code := int(answer.Load()); code != http.StatusOK {
+			w.WriteHeader(code)
+			return
+		}
+		_, _ = w.Write([]byte(`{"served":3,"tokens":30,"earned":0.25}`))
+	}))
+	defer srv.Close()
+	s := &Session{cfg: Config{Broker: srv.URL, NodeID: "n-1"}, started: time.Now(),
+		rereg: newReregistrar(srv.URL, protocol.NodeRegistration{BridgeToken: "tok"}, nil)}
+	for i := 0; i < 8; i++ {
+		s.RecordHandledForTest(10)
+	}
+	waitCurrent := func(want bool) {
+		t.Helper()
+		deadline := time.Now().Add(5 * time.Second)
+		for s.CoreCurrent() != want {
+			if time.Now().After(deadline) {
+				t.Fatalf("CoreCurrent never became %v", want)
+			}
+			s.ExpireCoreForTest()
+			time.Sleep(5 * time.Millisecond)
 		}
 	}
+	waitCurrent(true)
+	if reqs, toks := s.Served(); reqs != 3 || toks != 30 || s.Earnings() != 0.25 {
+		t.Fatalf("served %d/%d earned %v, want Core's 3/30/0.25", reqs, toks, s.Earnings())
+	}
+	if reqs, toks := s.ProbeStats(); reqs != 5 || toks != 50 {
+		t.Fatalf("network checks %d/%d, want handled minus served 5/50", reqs, toks)
+	}
+	// Reading is throttled: a burst of reads asks Core once at most.
+	before := reads.Load()
+	for i := 0; i < 50; i++ {
+		s.Served()
+	}
+	time.Sleep(20 * time.Millisecond)
+	if n := reads.Load() - before; n > 1 {
+		t.Fatalf("%d reads of Core's record in a burst", n)
+	}
+	// Core throttling the read keeps the numbers as they were.
+	answer.Store(http.StatusTooManyRequests)
+	s.ExpireCoreForTest()
+	s.Served()
+	time.Sleep(50 * time.Millisecond)
+	if !s.CoreCurrent() {
+		t.Fatal("a 429 marked Core's numbers not current")
+	}
+	// Core not answering keeps the last numbers, marked not current, and no checks are claimed.
+	answer.Store(http.StatusServiceUnavailable)
+	waitCurrent(false)
+	if reqs, _ := s.Served(); reqs != 3 {
+		t.Fatalf("served %d while Core cannot answer, want the last number Core gave (3)", reqs)
+	}
+	if reqs, _ := s.ProbeStats(); reqs != 0 {
+		t.Fatalf("%d network checks claimed from a stale record", reqs)
+	}
+	// An unreachable Core, and an unreadable answer, are not current either.
+	srv.Close()
+	waitCurrent(false)
+	if (&Session{}).BridgeToken() != "" {
+		t.Fatal("a session with no registration has no token")
+	}
 }
 
-// The seam accumulates rather than overwrites - a rig answers many canaries over a session,
-// and a surface reporting only the last one would understate the work by orders of magnitude.
-func TestTheProbeTestSeamAccumulates(t *testing.T) {
-	s := &Session{}
-	for i := 0; i < 5; i++ {
-		s.RecordProbeForTest(17)
+func TestAnUnreadableRecordIsNotCurrent(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`not json`))
+	}))
+	defer srv.Close()
+	s := &Session{cfg: Config{Broker: srv.URL, NodeID: "n-1"},
+		rereg: newReregistrar(srv.URL, protocol.NodeRegistration{BridgeToken: "tok"}, nil)}
+	if _, ok, throttled := s.readCoreRecord(); ok || throttled {
+		t.Fatal("an unreadable record was taken")
 	}
-	if reqs, toks := s.ProbeStats(); reqs != 5 || toks != 85 {
-		t.Fatalf("probe stats = %d/%d, want 5/85", reqs, toks)
+	s.cfg.Broker = "http://[::1"
+	if _, ok, _ := s.readCoreRecord(); ok {
+		t.Fatal("a malformed broker URL read a record")
 	}
 }

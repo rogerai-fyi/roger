@@ -98,8 +98,18 @@ func (b *broker) toolProbeDue(nodeID, model string, now time.Time) bool {
 	if b.toolProbeAt == nil {
 		b.toolProbeAt = map[string]time.Time{}
 	}
-	// Never earned the bit: probe at the full cadence so it can earn it.
+	// Never earned the bit: re-checked on a growing interval (probe_accounting.feature R3). A
+	// model that cannot do tool calls, an on-device phone model for one, used to be checked on
+	// every probe round for as long as it was online.
 	if !b.toolsOK[key] {
+		if b.toolFails == nil {
+			b.toolFails = map[string]toolBackoffState{}
+		}
+		st := b.toolFails[key]
+		if st.streak > 0 && now.Sub(st.last) < toolBackoff(st.streak) {
+			return false
+		}
+		b.toolFails[key] = toolBackoffState{streak: st.streak + 1, last: now}
 		b.toolProbeAt[key] = now
 		return true
 	}
@@ -108,6 +118,22 @@ func (b *broker) toolProbeDue(nodeID, model string, now time.Time) bool {
 	}
 	b.toolProbeAt[key] = now
 	return true
+}
+
+// toolBackoffState is a not-yet-verified model's tool-call back-off: checks in a row without a
+// pass, and when the last one ran.
+type toolBackoffState struct {
+	streak int
+	last   time.Time
+}
+
+// toolBackoff is the wait after n tool-call checks in a row without a pass: 20 minutes, doubled
+// each time up to 320, then a day from the sixth on (probe_accounting.feature R3).
+func toolBackoff(n int) time.Duration {
+	if n >= 6 {
+		return 24 * time.Hour
+	}
+	return toolProbeEvery << (n - 1)
 }
 
 // toolKey is the (node, model) verdict key for b.toolsOK. The verified bit is per-MODEL, not
@@ -262,6 +288,12 @@ func stripDeclaredTools(in []string) []string {
 // - the bug a per-instance monotonic map had). b.toolsOK stays this instance's OWN verdict,
 // which is the emission source ONLY in single-instance mode.
 func (b *broker) recordToolProbe(nodeID, model string, ok, transient, authoritative bool) {
+	if transient && !b.toolsVerifiedNow(nodeID, model) {
+		// A model still earning the bit counts the miss toward its back-off and waits it out
+		// (R3): pulling its next probe in here re-checked a model that never answers a tool
+		// call on every round, for as long as it was online.
+		return
+	}
 	if transient {
 		// A non-verdict is not evidence: it never clears and never sets the bit. It must
 		// also not CONSUME the re-verification window. toolProbeDue stamps the attempt
@@ -296,6 +328,7 @@ func (b *broker) recordToolProbe(nodeID, model string, ok, transient, authoritat
 			b.toolsOK[key] = true
 			changed = true
 		}
+		delete(b.toolFails, key)  // a pass ends the back-off
 		b.toolsMerged[key] = true // reflect our own fresh verdict at once (the sync reconciles peers)
 	case authoritative:
 		if b.toolsOK[key] {
@@ -389,6 +422,9 @@ func (b *broker) probeToolCall(node protocol.NodeRegistration, model string, aut
 	if t == nil && !mi {
 		return
 	}
+	if !b.allowCheck(node.NodeID, "tools") { // the node's check budget (R4)
+		return
+	}
 	nonce := newToolNonce() // fresh per probe: the model must echo it, defeating a canned reply
 	job := protocol.Job{ID: b.attemptID(protocol.NewRequestID(), 1), User: b.probePseudonym(node.NodeID), Body: toolCanaryBody(model, nonce)}
 
@@ -442,4 +478,11 @@ func (b *broker) applyToolVerdict(nodeID, model string, res protocol.JobResult, 
 	}
 	ok, _ := toolCallOK(res.Body, nonce)
 	b.recordToolProbe(nodeID, model, ok, false, authoritative)
+}
+
+// toolsVerifiedNow reports whether this instance holds the model's verified "tools" bit.
+func (b *broker) toolsVerifiedNow(nodeID, model string) bool {
+	b.metricsMu.Lock()
+	defer b.metricsMu.Unlock()
+	return b.toolsOK[toolKey(nodeID, model)]
 }

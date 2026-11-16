@@ -97,6 +97,16 @@ func (b *broker) pruneStaleNodes(now time.Time) int {
 		delete(b.probeSched, id)
 	}
 	b.metricsMu.Unlock()
+	// The check budget and the record-read throttle go with the node. The tool-call back-off
+	// does not: a node that reconnects continues where it was (probe_accounting.feature R3).
+	b.checkMu.Lock()
+	for _, id := range stale {
+		delete(b.checkTimes, id)
+		delete(b.servedReadAt, id)
+		delete(b.probeApplied, id)
+		delete(b.probeLost, id)
+	}
+	b.checkMu.Unlock()
 
 	// Persistent registration (outside the locks - DB I/O). Earnings/bindings untouched.
 	for _, id := range stale {
