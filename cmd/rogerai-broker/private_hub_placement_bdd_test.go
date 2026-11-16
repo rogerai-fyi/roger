@@ -1005,6 +1005,11 @@ func TestPrivateHubPlacementBDD(t *testing.T) {
 			sc.Step(`^the canary is delivered by pull and counts exactly as any canary does$`, s.canaryByPull)
 			sc.Step(`^a Station placed on a private-hub Tower while on the same network$`, s.placedSameNetwork)
 			sc.Step(`^the Station's next request to Core is observed from a different network$`, s.nextRequestElsewhere)
+			sc.Step(`^a Station placed on a private-hub Tower whose network matched by public address, behind a carrier NAT$`, s.placedBehindCGNAT)
+			sc.Step(`^the Station's node cannot reach the hub and asks Core again, naming that Tower$`, s.cannotReachHub)
+			sc.Step(`^Core does not name that hub again and tells the node to try again shortly$`, s.hubNotNamedAgain)
+			sc.Step(`^the mobility pass moves the Station off that Tower with the trigger "unreachable", under the pacing every move follows$`, s.movedUnreachable)
+			sc.Step(`^placement does not offer that Tower to the Station for 24 hours$`, s.avoidedForADay)
 			sc.Step(`^Core records the move trigger "left_network"$`, s.triggerLeft)
 			sc.Step(`^moves the Station to its best eligible Tower without proving it idle, because it can no longer reach the hub$`, s.movedWithoutIdle)
 			sc.Step(`^the move follows the existing pacing, nudge and epoch rules in station_mobility.feature$`, s.existingRules)
@@ -1109,4 +1114,66 @@ func TestAReattachFromAnotherNetworkIsNeverHandedThePrivateHub(t *testing.T) {
 	require.Len(t, moves, 1)
 	require.Equal(t, triggerLeftNetwork, moves[0].Trigger)
 	require.Equal(t, n.out.StationID, moves[0].StationID)
+}
+
+// --- a hub the Station cannot reach -----------------------------------------------------------
+
+func (s *phpState) placedBehindCGNAT() error {
+	// One public address shared by the Tower's household and an unrelated Station's, as a carrier
+	// NAT does: the networks match, the hub is still out of the Station's reach.
+	if err := s.openAt("T", "198.51.100.40", "192.168.1.20:8444", phpPin, true); err != nil {
+		return err
+	}
+	if err := s.openAt("U", "203.0.113.30", "203.0.113.30:8444", "", true); err != nil {
+		return err
+	}
+	n, code, raw := s.attachFrom("198.51.100.40")
+	if code != http.StatusOK || n.placedOn != s.id("T") {
+		return fmt.Errorf("the Station was placed on %q (%d %s), want the private-hub Tower", n.placedOn, code, raw)
+	}
+	s.stash["n"] = n
+	return nil
+}
+
+func (s *phpState) cannotReachHub() error {
+	n := s.stash["n"].(*plcNode)
+	n.body["unreachable_tower"] = s.id("T")
+	code, raw := s.attachNode(n)
+	s.stash["code"], s.stash["raw"] = code, raw
+	return nil
+}
+
+func (s *phpState) hubNotNamedAgain() error {
+	code, raw := s.stash["code"].(int), s.stash["raw"].(string)
+	if code != http.StatusServiceUnavailable || strings.Contains(raw, "192.168.") {
+		return fmt.Errorf("the re-attach answered %d %s", code, raw)
+	}
+	return nil
+}
+
+func (s *phpState) movedUnreachable() error {
+	n := s.stash["n"].(*plcNode)
+	s.movesNow(time.Now())
+	if s.moved[n.out.StationID] != triggerUnreachable {
+		return fmt.Errorf("the move trigger is %q, want %q", s.moved[n.out.StationID], triggerUnreachable)
+	}
+	return nil
+}
+
+func (s *phpState) avoidedForADay() error {
+	n := s.stash["n"].(*plcNode)
+	now := time.Now()
+	if _, _, excl := s.b.moveOnReattach(n.out.StationID, now.Add(23*time.Hour)); !excl[s.id("T")] {
+		return fmt.Errorf("the unreachable Tower is offered again within a day")
+	}
+	if s.b.avoidFor(n.out.StationID, now.Add(25*time.Hour))[s.id("T")] {
+		return fmt.Errorf("the unreachable Tower is still kept off after a day")
+	}
+	// Nor is it the "better" Tower an idle move would send the Station back to.
+	f, _, _ := s.b.tower.mobility.Facts(n.out.StationID)
+	excl := s.b.avoidFor(n.out.StationID, now.Add(time.Hour))
+	if alt, ok := s.b.chooseFrom(s.b.placementSnapshot(), "", f.Locality, excl, "", nil); ok && alt.cand.TowerID == s.id("T") {
+		return fmt.Errorf("placement chose the unreachable Tower")
+	}
+	return nil
 }

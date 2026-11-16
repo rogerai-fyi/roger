@@ -184,3 +184,33 @@ func TestPrivateHubStationBDD(t *testing.T) {
 		t.Fatal("private_hub_placement.feature (Station half) failed")
 	}
 }
+
+// Review finding: a Station that could not reach its private hub (a carrier NAT can match two
+// households by public address) went back to Core and was handed the same hub forever. The attach
+// it makes after giving up on a hub names that Tower; an ordinary attach names none.
+func TestAnAttachAfterAnUnreachableHubNamesTheTower(t *testing.T) {
+	var bodies []map[string]any
+	core := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var b map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&b)
+		bodies = append(bodies, b)
+		_ = json.NewEncoder(w).Encode(map[string]any{"station_id": "st-1", "tower_id": "tw-2",
+			"endpoint": "203.0.113.7:8444", "tower_key_hash": "ab"})
+	}))
+	defer core.Close()
+	_, priv, _ := ed25519.GenerateKey(rand.Reader)
+	dir := t.TempDir()
+	cfg := Config{Broker: core.URL, NodeID: "n-1", Model: "m"}
+	if _, _, err := AttachTower(cfg, priv, dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := attachTowerAvoiding(cfg, priv, dir, "tw-1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, named := bodies[0]["unreachable_tower"]; named {
+		t.Fatalf("an ordinary attach named an unreachable Tower: %v", bodies[0])
+	}
+	if bodies[1]["unreachable_tower"] != "tw-1" {
+		t.Fatalf("the attach after an unreachable hub did not name it: %v", bodies[1])
+	}
+}

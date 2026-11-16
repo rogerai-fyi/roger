@@ -38,7 +38,13 @@ const (
 	// triggerLeftNetwork: a Station on a private-hub Tower is no longer on that Tower's network,
 	// so it cannot reach the hub at all (private_hub_placement.feature).
 	triggerLeftNetwork = "left_network"
+	// triggerUnreachable: the Station's node said it cannot reach its Tower's hub (a carrier NAT
+	// can match two households by public address), so it is moved and kept off that Tower.
+	triggerUnreachable = "unreachable"
 )
+
+// unreachableAvoidFor is how long a Station is kept off a Tower whose hub it could not reach.
+const unreachableAvoidFor = 24 * time.Hour
 
 // The founder-approved numbers (2026-11-13) and the spec's pacing.
 const (
@@ -228,6 +234,14 @@ func (b *broker) mobilityTower(tw admit.Tower, live []attach.Attachment, snap []
 	towerLoc, towerKnown := ts.link.Locality(tw.ID)
 
 	for _, at := range live {
+		// A Station that said it cannot reach this Tower's hub has no idle to wait for either:
+		// it is moved off, under the pacing every move follows.
+		if b.avoidFor(at.StationID, now)[tw.ID] {
+			if pace.allow(tw.ID, "") && b.startMove(at, "", triggerUnreachable, now) {
+				pace.note(tw.ID, "")
+			}
+			continue
+		}
 		if private {
 			// Off the Tower's network the hub is unreachable: like a Tower that is gone, there is
 			// no idle to wait for, no streak to build, and no skip to honour.
@@ -351,7 +365,9 @@ func (b *broker) overOwnerHouseCap(byTower map[string][]attach.Attachment) map[s
 // other's streaks; the draw happens only when the node re-attaches.
 func (b *broker) observeBetter(at attach.Attachment, current string, snap []towerFacts, obsAt time.Time) string {
 	f, _, _ := b.tower.mobility.Facts(at.StationID)
-	alt, ok := b.chooseFrom(snap, at.Owner, f.Locality, map[string]bool{current: true}, "", nil)
+	excl := b.avoidFor(at.StationID, time.Now())
+	excl[current] = true
+	alt, ok := b.chooseFrom(snap, at.Owner, f.Locality, excl, "", nil)
 	better := ok && placement.StrictlyBetter(alt.cand, b.towerCandidate(snap, current, f.Locality), b.isHouseAccount(at.Owner))
 	b.moveMu.Lock()
 	defer b.moveMu.Unlock()
@@ -500,7 +516,7 @@ func (b *broker) mobilityPending(now time.Time) {
 // moveOnReattach is the attach handler's half of a move: for a dormant Station with a move in
 // progress, the Tower to prefer and the Towers to exclude.
 func (b *broker) moveOnReattach(stationID string, now time.Time) (mobility.Move, bool, map[string]bool) {
-	exclude := map[string]bool{}
+	exclude := b.avoidFor(stationID, now)
 	if tw, until, err := b.tower.mobility.Skip(stationID); err == nil && tw != "" && now.Before(until) {
 		exclude[tw] = true
 	}
@@ -545,4 +561,13 @@ func (b *broker) recordStationFacts(stationID string, loc placement.Locality, nu
 	if err := b.tower.mobility.PutFacts(stationID, mobility.Facts{Locality: loc, Nudge: nudge}); err != nil {
 		b.towerGovUnavailable(err)
 	}
+}
+
+// avoidFor is the Towers a Station is kept off at now: the one whose hub it said it cannot reach.
+func (b *broker) avoidFor(stationID string, now time.Time) map[string]bool {
+	out := map[string]bool{}
+	if tw, until, err := b.tower.mobility.Avoid(stationID); err == nil && tw != "" && now.Before(until) {
+		out[tw] = true
+	}
+	return out
 }

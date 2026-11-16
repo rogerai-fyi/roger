@@ -183,3 +183,46 @@ func TestBoundTrustsAFreshSharedRecordOverAStaleLocalCopy(t *testing.T) {
 	c.offset = c.cfg.Freshness * 2
 	require.ErrorIs(t, c.Bound(s2, "tw-2"), ErrNoSession)
 }
+
+// Review finding: during a rolling deploy an older instance writes the shared record without the
+// pull, hub class and network fields, leaving the PREVIOUS session's values in them. Those fields
+// carry the session they belong to, and fields left from another session read as unmeasured, so
+// the sweep measures the hub again rather than trusting a stale pull flag or home network.
+func TestFieldsLeftByAnotherSessionReadAsUnmeasured(t *testing.T) {
+	m := pgMirror(t)
+	a := New(mirrorCfg(m))
+	sess := openPull(t, a, "tw-1", "192.168.1.20:8444")
+	loc := placement.Locality{Bucket: "198.51.100.0/24", Continent: "NA", Home: "tag-home"}
+	require.True(t, a.SetLinkLocality("tw-1", sess, loc))
+	require.True(t, a.SetLocality("tw-1", sess, loc))
+	require.True(t, a.SetHubClass("tw-1", sess, placement.HubPrivate))
+	// An older instance opens the next session and writes only the columns it knows.
+	_, err := m.db.Exec(`INSERT INTO rogerai.tower_link_mirror (tower_id, session_id, version, last_seen, endpoint,
+            tls_spki, loc_bucket, loc_continent, loc_known, loc_link) VALUES ('tw-1','sess-old',1,now(),'10.0.0.9:8444','','','',false,'')
+        ON CONFLICT (tower_id) DO UPDATE SET session_id = EXCLUDED.session_id, version = EXCLUDED.version,
+            last_seen = EXCLUDED.last_seen, endpoint = EXCLUDED.endpoint, tls_spki = EXCLUDED.tls_spki,
+            loc_bucket = EXCLUDED.loc_bucket, loc_continent = EXCLUDED.loc_continent,
+            loc_known = EXCLUDED.loc_known, loc_link = EXCLUDED.loc_link`)
+	require.NoError(t, err)
+	for _, rec := range []Record{mustGet(t, m, "tw-1"), mustAll(t, m)["tw-1"]} {
+		require.Equal(t, "sess-old", rec.SessionID)
+		require.False(t, rec.Pull, "a pull flag from another session was trusted")
+		require.Equal(t, placement.HubNone, rec.HubClass, "a hub class from another session was trusted")
+		require.False(t, rec.LinkKnown)
+		require.Empty(t, rec.Locality.Home, "a home network from another session was trusted")
+		require.Equal(t, placement.Locality{}, rec.Link)
+	}
+}
+
+// A Tower that holds a pull is a Tower that pulls, whatever an older instance recorded: the
+// session takes the capability once, and every instance reads it.
+func TestAPullingTowerIsMarkedAsPulling(t *testing.T) {
+	m := NewMemMirror()
+	a, b := New(mirrorCfg(m)), New(mirrorCfg(m))
+	sess := openPull(t, a, "tw-1", "")
+	require.True(t, a.SetPull("tw-1", sess, false)) // as an older instance would have left it
+	require.False(t, b.Pulls("tw-1"))
+	require.True(t, a.SetPull("tw-1", sess, true))
+	require.True(t, b.Pulls("tw-1"), "the capability did not reach the other instance")
+	require.False(t, a.SetPull("tw-1", "sess-other", true))
+}

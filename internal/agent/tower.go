@@ -648,6 +648,13 @@ func waitFor(ctx context.Context, d time.Duration) bool {
 // identity under dir, the offer from cfg (model/modality/prices), the request signed with the
 // node's account-bound key. Idempotent on retry with the same identity.
 func AttachTower(cfg Config, priv ed25519.PrivateKey, dir string) (*station.Station, TowerAttachment, error) {
+	return attachTowerAvoiding(cfg, priv, dir, "")
+}
+
+// attachTowerAvoiding is AttachTower after this node gave up on a Tower's hub: unreachable names
+// that Tower, so Core moves this Station off it rather than handing back the same hub
+// (private_hub_placement.feature). It only ever moves this Station.
+func attachTowerAvoiding(cfg Config, priv ed25519.PrivateKey, dir, unreachable string) (*station.Station, TowerAttachment, error) {
 	// A PRIVATE BAND IS NEVER ATTACHED. Structural, at the network act, so the guarantee does not
 	// depend on which branch of a caller happens to reach here. See ErrPrivateShareNeverRelays.
 	if cfg.Private {
@@ -679,7 +686,7 @@ func AttachTower(cfg Config, priv ed25519.PrivateKey, dir string) (*station.Stat
 	if modality == "" {
 		modality = "chat"
 	}
-	body, err := json.Marshal(map[string]any{
+	fields := map[string]any{
 		// THE JOIN. This is the same node id `roger share` registers, heartbeats and is
 		// probed under. Sending it is what lets Core rank this station by measured health
 		// instead of guessing: reliability, TTFT and TPS are all recorded against the broker
@@ -697,7 +704,11 @@ func AttachTower(cfg Config, priv ed25519.PrivateKey, dir string) (*station.Stat
 		// This node understands the re-attach nudge on its cancel poll (tower_move.go), so
 		// Core may move it to a better relay while it is idle.
 		"nudge": true,
-	})
+	}
+	if unreachable != "" {
+		fields["unreachable_tower"] = unreachable
+	}
+	body, err := json.Marshal(fields)
 	if err != nil {
 		return nil, TowerAttachment{}, err
 	}
@@ -910,12 +921,16 @@ func ServeTower(ctx context.Context, cfg Config, priv ed25519.PrivateKey, dir st
 		firstTries          int
 		gen                 int
 		movedFrom, movedWhy string
+		unreachable         string // the Tower whose hub this node last gave up on
 	)
 	for {
 		if ctx.Err() != nil {
 			return nil
 		}
-		st, at, err := AttachTower(cfg, priv, dir)
+		st, at, err := attachTowerAvoiding(cfg, priv, dir, unreachable)
+		if err == nil {
+			unreachable = ""
+		}
 		if err != nil {
 			if gen == 0 {
 				// THE FIRST ATTACH IS RETRIED NOW, A FEW TIMES, AND THAT IS A CHANGE OF MIND.
@@ -1006,6 +1021,7 @@ func ServeTower(ctx context.Context, cfg Config, priv ed25519.PrivateKey, dir st
 			gen++
 			continue
 		case errors.Is(terr, errHubStanding):
+			unreachable = at.TowerID // said on the next attach, so Core does not hand the same hub back
 			// terr ITSELF, not errors.Unwrap(terr). A `fmt.Errorf("%w: %w", ...)` has an
 			// `Unwrap() []error`, not an `Unwrap() error`, so errors.Unwrap returns NIL on it and
 			// the cause would have been formatted as "%!w(<nil>)" - an operator handed a rendering

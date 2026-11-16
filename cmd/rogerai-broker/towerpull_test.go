@@ -656,3 +656,16 @@ func TestAWaitingSenderLooksCheaplyBeforeItReads(t *testing.T) {
 	_, err = m.cacheExists("k")
 	require.ErrorIs(t, err, errNoSharedStore)
 }
+
+// Review finding: a session an older instance opened reads as not pulling, so its work was never
+// queued for its pull. The pull itself proves the capability and records it.
+func TestAPullRecordsThatTheTowerPulls(t *testing.T) {
+	prev := pullHold
+	pullHold = 50 * time.Millisecond
+	defer func() { pullHold = prev }()
+	b, lt, sess, post := pullTower(t)
+	require.True(t, b.tower.link.SetPull(lt.id, sess, false))
+	code, raw := post("/tower/work/pull", map[string]string{"tower_id": lt.id, "session_id": sess})
+	require.Equal(t, http.StatusNoContent, code, raw)
+	require.True(t, b.tower.link.Pulls(lt.id))
+}

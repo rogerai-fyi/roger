@@ -12,6 +12,10 @@
 # network was measured, not the bucket, as placement_locality requires. Added in the build: a local
 # address, or the other address family within one session, never re-measures a Tower (a dual-stack
 # Tower must not flip its location on every request).
+# Added 2026-11-15 for re-approval (review finding, "close any holes"): a carrier-grade NAT puts
+# unrelated households behind one public IPv4, so a Station can match a private-hub Tower's network
+# and still not reach its hub. The Station that cannot reach a hub says so when it asks Core again,
+# and is moved and kept off that Tower for a day. See the scenario under mobility.
 #
 # Companion to tower_pull_dispatch.feature (change 1 of three, founder request 2026-11-14). That
 # file moves the Core-to-Tower leg onto the Tower's outbound link. This file covers the other
@@ -181,6 +185,13 @@ Feature: A Tower with no public address serves the Stations on its own network
     Then the canary is delivered by pull and counts exactly as any canary does
 
   # --- mobility -----------------------------------------------------------------------
+
+  Scenario: A Station that cannot reach its Tower's hub is moved, and not placed back for a day
+    Given a Station placed on a private-hub Tower whose network matched by public address, behind a carrier NAT
+    When the Station's node cannot reach the hub and asks Core again, naming that Tower
+    Then Core does not name that hub again and tells the node to try again shortly
+    And the mobility pass moves the Station off that Tower with the trigger "unreachable", under the pacing every move follows
+    And placement does not offer that Tower to the Station for 24 hours
 
   Scenario: A Station that leaves the Tower's network is moved off, without waiting for idle
     Given a Station placed on a private-hub Tower while on the same network

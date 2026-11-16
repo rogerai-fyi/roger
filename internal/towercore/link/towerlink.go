@@ -406,6 +406,12 @@ func (s *Sessions) SetHubClass(towerID, sessionID string, c placement.HubClass) 
 	return s.updateLocked(towerID, sessionID, func(sess *session) { sess.hubClass = c })
 }
 
+// SetPull records whether the Tower's current session pulls its work. A Tower that holds a pull
+// pulls, whatever an older instance recorded when it opened the session.
+func (s *Sessions) SetPull(towerID, sessionID string, pull bool) bool {
+	return s.updateLocked(towerID, sessionID, func(sess *session) { sess.pull = pull })
+}
+
 // updateLocked applies set to the Tower's current session, if it is sessionID, and mirrors it.
 func (s *Sessions) updateLocked(towerID, sessionID string, set func(*session)) bool {
 	s.mu.Lock()

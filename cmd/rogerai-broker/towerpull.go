@@ -495,6 +495,11 @@ func (b *broker) towerWorkPull(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	b.noteLinkAddr(tw.ID, clientIP(r))
+	// The pull is the proof: a session an older instance opened during a rolling deploy reads
+	// as not pulling, and its work would never be queued for the pull that is waiting for it.
+	if !ts.link.Pulls(tw.ID) {
+		ts.link.SetPull(tw.ID, req.SessionID, true)
+	}
 	release, ok, err := b.pullHoldSlot(tw.ID)
 	if err != nil {
 		jsonErr(w, http.StatusServiceUnavailable, "work delivery unavailable")

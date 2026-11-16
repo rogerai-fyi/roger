@@ -179,6 +179,9 @@ func (b *broker) towerEdgeAttach(w http.ResponseWriter, r *http.Request) {
 		// (byte tariff / free). Band-checked below - the same public band every offer obeys.
 		PriceInMicros  int64 `json:"price_in_micros"`
 		PriceOutMicros int64 `json:"price_out_micros"`
+		// UnreachableTower names the Tower whose hub this node could not reach, on the attach it
+		// makes after giving up on that hub. It only ever moves this Station off that Tower.
+		UnreachableTower string `json:"unreachable_tower"`
 		// Nudge declares that this node understands the re-attach nudge on its cancel
 		// long-poll, so Core may move it to a better Tower while it is idle
 		// (station_mobility.feature). An older node does not send it and is moved only when its
@@ -434,6 +437,17 @@ func (b *broker) towerEdgeAttach(w http.ResponseWriter, r *http.Request) {
 		// attach, this one included (placement_locality.feature).
 		loc := b.addrLocality(clientIP(r))
 		b.recordStationFacts(prior.StationID, loc, req.Nudge)
+		// A HUB THE STATION CANNOT REACH is not named to it again: it is kept off that Tower for a
+		// day, and the mobility pass moves it (private_hub_placement.feature). A node can only
+		// ever move itself this way.
+		if req.UnreachableTower != "" && req.UnreachableTower == prior.Origin.TowerID {
+			if err := ts.mobility.SetAvoid(prior.StationID, prior.Origin.TowerID, time.Now().Add(unreachableAvoidFor)); err != nil {
+				b.towerGovUnavailable(err)
+			}
+			jsonErr(w, http.StatusServiceUnavailable,
+				"this node cannot reach its tower and is being moved - try again shortly")
+			return
+		}
 		// A PRIVATE HUB IS NAMED ONLY ON ITS OWN NETWORK, on this answer as on a fresh one
 		// (private_hub_placement.feature). A Station whose known network now differs from the
 		// Tower's known one is told to try again; the network just recorded above is what the
