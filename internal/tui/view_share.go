@@ -393,22 +393,16 @@ func (m model) shareView(w int) string {
 		// Clamped to the terminal: the CATEGORY column made the full row wider than the
 		// widths just above the dense cut-off (taxonomy_share_layout_test.go).
 		b.WriteString(truncVisible("  "+stDim.Render(fmt.Sprintf("  %-24s  %-9s  %-12s  %-9s  %-10s  %-9s  %s",
-			"MODEL", "STATUS", "PRICE", "SERVED", "OUT TOK", "AT LIST", "CATEGORY")), w) + "\n")
+			"MODEL", "STATUS", "PRICE", "SERVED", "OUT TOK", "EARNED", "CATEGORY")), w) + "\n")
 	}
 
-	// WHY "AT LIST" AND NOT "EARNINGS".
+	// WHY "EARNED", AND WHAT IT IS.
 	//
-	// Session.Earnings() is a NODE-LOCAL tally: the node prices the work it just did with
-	// its own price card and adds the owner share. It is not the ledger, and it cannot be -
-	// the node does not learn what the broker decided to charge.
-	//
-	// The gap is not hypothetical. Consuming your OWN node is $0 by design ("signed
-	// self-use: consuming your OWN node is $0, automatically (metering only)"), so a rig
-	// serving its owner's traffic accrues a number here while the broker mints nothing. On
-	// the founder's machine this read $0.27 against a ledger of $0.00 payable, $0.00 held.
-	//
-	// Both numbers were right; only the WORD was wrong. This column is what the served work
-	// is worth at list price. Money lives on the broker, and `roger payout` is what reads it.
+	// SERVED, OUT TOK and EARNED are Core's record of this share since it went on air
+	// (features/serving/probe_accounting.feature): the settled requests and the owner share Core
+	// credited for them. The column used to be a node-local tally at list price, headed AT LIST,
+	// because the node could not know what Core charged, and Core's checks were in it. Serving
+	// your OWN traffic still credits $0, and credit is paid out after the hold: `roger payout`.
 
 	// Table width for the reverse-video bar (the highlight spans the whole row).
 	tableW := w - 4
@@ -562,17 +556,17 @@ func (m model) shareView(w int) string {
 			stKey.Render("h")+stDim.Render(" hide on a private band · ")+
 			stKey.Render("n")+stDim.Render(" rename station · ")+ph, w-2) + "\n")
 	}
-	// What AT LIST means, said once and near the number rather than left to be inferred.
+	// What EARNED means, said once and near the number rather than left to be inferred.
 	// It shows only when the column is populated - a rig with nothing on air does not need
 	// a lesson about settlement.
 	if m.anyLiveShare() {
-		note := stDim.Render("AT LIST is this work priced at your card - not settled money. "+
-			"Serving your OWN traffic is $0. Real earnings: ") + stKey.Render("roger payout")
+		note := stDim.Render("EARNED is the owner share Core credited this session, paid out after the hold. "+
+			"Serving your OWN traffic is $0. Cash out: ") + stKey.Render("roger payout")
 		b.WriteString("  " + truncVisible(note, w-4) + "\n")
 	}
 	// WHAT THE RIG IS BUSY WITH, when the answer is "not your traffic".
 	//
-	// SERVED / OUT TOK / AT LIST above are Core's record of what this rig served and earned
+	// SERVED / OUT TOK / EARNED above are Core's record of what this rig served and earned
 	// (features/serving/probe_accounting.feature): Core's checks look like customers to the
 	// node, so only Core can keep them out. What the rig handled beyond that is said here,
 	// so a busy rig reporting little served can explain itself.
@@ -632,7 +626,7 @@ func (m model) probeTotals() (reqs, tokens int64) {
 }
 
 // anyLiveShare reports whether any row is actually on air, so the settlement note is
-// shown beside a populated AT LIST column rather than an empty one.
+// shown beside a populated EARNED column rather than an empty one.
 func (m model) anyLiveShare() bool {
 	for _, r := range m.shareRows {
 		if m.shares[r.model] != nil {
@@ -945,7 +939,7 @@ func (m model) shareSetupView(w int) string {
 	return b.String()
 }
 
-// coreCells renders a live row's SERVED, OUT TOK and AT LIST from Core's record: "…" until
+// coreCells renders a live row's SERVED, OUT TOK and EARNED from Core's record: "…" until
 // Core first answers, never the rig's own count.
 func coreCells(live *agent.Session) (served, outTok, earn string) {
 	if !live.CoreAnswered() {

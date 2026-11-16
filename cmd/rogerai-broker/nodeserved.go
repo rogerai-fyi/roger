@@ -12,12 +12,8 @@ import (
 	"time"
 )
 
-const (
-	// servedReadEvery is how often a node may read its record.
-	servedReadEvery = 30 * time.Second
-	// servedReadMax bounds the settled requests one read counts; past it the answer says capped.
-	servedReadMax = 2000
-)
+// servedReadEvery is how often a node may read its record.
+const servedReadEvery = 30 * time.Second
 
 func (b *broker) nodeServed(w http.ResponseWriter, r *http.Request) {
 	if !allow(w, r, http.MethodGet) {
@@ -40,24 +36,13 @@ func (b *broker) nodeServed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	since, _ := strconv.ParseInt(q.Get("since"), 10, 64)
-	rows, err := b.db.RecentByNode(node, servedReadMax)
+	served, tokens, earned, err := b.db.ServedSince(node, since)
 	if err != nil {
 		jsonErr(w, http.StatusServiceUnavailable, "the record cannot be read right now")
 		return
 	}
-	served, tokens := 0, 0
-	earned := 0.0
-	for _, e := range rows {
-		if e.TS < since {
-			continue
-		}
-		served++
-		tokens += e.CompletionTokens
-		earned += e.OwnerShare
-	}
-	capped := len(rows) == servedReadMax && rows[len(rows)-1].TS >= since
 	writeJSON(w, http.StatusOK, map[string]any{"node": node, "since": since, "served": served,
-		"earned": round6(earned), "tokens": tokens, "capped": capped, "as_of": time.Now().Unix()})
+		"earned": round6(earned), "tokens": tokens, "as_of": time.Now().Unix()})
 }
 
 // servedReadAllowed lets a node read its record once per servedReadEvery, across instances when

@@ -42,39 +42,30 @@ func TestSharePriceCellStaysTerseWithoutAnInputPrice(t *testing.T) {
 	}
 }
 
-// The column must NOT claim to be earnings.
-//
-// Session.Earnings() is a node-local tally computed from the node's OWN price card;
-// the node never learns what the broker charged. Consuming your own node is $0 by
-// design, so a rig serving its owner accrues a number here while the ledger stays at
-// zero - which is exactly what happened ($0.27 shown, $0.00 payable and $0.00 held).
-func TestShareColumnDoesNotClaimToBeEarnings(t *testing.T) {
+// The column is Core's credit, and says so: EARNED is the owner share Core recorded for this
+// share's settled requests (probe_accounting.feature), not a node-local tally at list price,
+// which is what the old AT LIST header warned about.
+func TestShareColumnIsCoresCreditedShare(t *testing.T) {
 	srv := fakeBroker(t)
 	m := NewWithHooks(srv.URL, "tester", nil, Hooks{})
 	m.setShareRows(freeRows(2))
 	m.width, m.height = 140, 30
 	v := stripANSI(m.shareView(140))
-
-	if strings.Contains(v, "EARNINGS") {
-		t.Error("the SHARE table still heads this column EARNINGS - it is a node-local " +
-			"tally at list price, and self-use traffic makes it diverge from the ledger")
-	}
-	if !strings.Contains(v, "AT LIST") {
-		t.Error("the column has no honest header")
+	if !strings.Contains(v, "EARNED") || strings.Contains(v, "AT LIST") {
+		t.Errorf("the SHARE table does not head Core's credit EARNED:\n%s", v)
 	}
 }
 
-// And the operator must be told where real money is, beside the number rather than
-// buried in docs - otherwise the rename just moves the confusion.
+// And the operator is told what the number is and where the money is, beside the number.
 func TestShareSaysWhereRealMoneyLives(t *testing.T) {
 	srv := fakeBroker(t)
 	m := NewWithHooks(srv.URL, "tester", nil, Hooks{})
 	m.setShareRows(freeRows(2))
 	m.width, m.height = 140, 30
-	// one row live, so the AT LIST column is populated and the note applies
+	// one row live, so the EARNED column is populated and the note applies
 	m.shares = map[string]*agent.Session{m.shareRows[0].model: {}}
 	v := stripANSI(m.shareView(140))
-	for _, want := range []string{"not settled money", "roger payout"} {
+	for _, want := range []string{"Core credited", "after the hold", "roger payout"} {
 		if !strings.Contains(v, want) {
 			t.Errorf("the settlement note is missing %q", want)
 		}
@@ -91,14 +82,14 @@ func TestNoSettlementNoteWhenNothingIsOnAir(t *testing.T) {
 	m := NewWithHooks(srv.URL, "tester", nil, Hooks{})
 	m.setShareRows(freeRows(2))
 	m.width, m.height = 140, 30
-	if strings.Contains(stripANSI(m.shareView(140)), "not settled money") {
+	if strings.Contains(stripANSI(m.shareView(140)), "Core credited") {
 		t.Error("the settlement note shows with nothing on air")
 	}
 }
 
 // HIDDEN IS NOT DISCARDED.
 //
-// Keeping broker canaries out of SERVED / OUT TOK / AT LIST is right - they are unbilled
+// Keeping broker canaries out of SERVED / OUT TOK / EARNED is right - they are unbilled
 // work nobody asked for. But removing them WITHOUT SAYING SO trades one confusion for
 // another: a rig visibly busy while reporting almost nothing served, and no way to learn
 // where the work went. The numbers stay clean; the account of them appears beside.

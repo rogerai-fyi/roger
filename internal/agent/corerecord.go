@@ -17,8 +17,9 @@ import (
 	"time"
 )
 
-// coreReadEvery is how often the share screen reads Core's record; Core refuses more often.
-const coreReadEvery = 30 * time.Second
+// coreReadEvery is how often the share screen reads Core's record: just over Core's own 30 s
+// limit, so network jitter does not turn every other read into a refusal.
+const coreReadEvery = 31 * time.Second
 
 // coreRecordClient reads the record; a seam so a test can stand in for a slow network.
 var coreRecordClient = &http.Client{Timeout: 10 * time.Second}

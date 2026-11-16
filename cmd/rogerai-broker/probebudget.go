@@ -15,7 +15,9 @@ const (
 	// day: canaries, tool-call checks and Tower-carried canaries together, first sight included.
 	checkBudgetHour = 12
 	checkBudgetDay  = 60
-	// probeLeaseTTL covers one round's probe of a node: the jitter before it plus the canary.
+	// probeLeaseTTL caps how long a round's probe lease lasts. The lease is held for less than
+	// the probe floor (leaseTTL), so the next round always finds it free, whichever instance
+	// held it; a peer whose round fell in the same window found it taken.
 	probeLeaseTTL = probeJitter + 40*time.Second
 	// probeResultTTL keeps a published reading past two ceilings, so a peer that ticks late
 	// still takes it.
@@ -101,7 +103,7 @@ func (b *broker) claimProbe(node string, now time.Time) bool {
 	if b.shared == nil || !b.multiInstance {
 		return true
 	}
-	won, err := b.shared.setIfAbsent("probelease:"+node, b.instanceID, probeLeaseTTL)
+	won, err := b.shared.setIfAbsent("probelease:"+node, b.instanceID, b.leaseTTL())
 	if err != nil || won {
 		return true
 	}
@@ -218,4 +220,10 @@ func (b *broker) applyPeerReading(node string, r probeReading) {
 		st.lastProbe = lp
 	}
 	b.metricsMu.Unlock()
+}
+
+// leaseTTL is the probe lease's life: under the probe floor, so a lease never blocks the next
+// round (the holder's own included), and never under a few seconds.
+func (b *broker) leaseTTL() time.Duration {
+	return max(min(probeLeaseTTL, b.probe.interval-time.Second), 5*time.Second)
 }
