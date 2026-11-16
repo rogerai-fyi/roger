@@ -101,8 +101,8 @@ func (b *broker) localCheckBudget(node string, now time.Time) bool {
 // need not collide to share); a lost lease is noted so the reading the winner is about to publish
 // is taken. A store that does not answer claims nothing and every instance probes as it did.
 func (b *broker) claimProbe(node string, now time.Time, freshFor time.Duration) bool {
-	if b.shared == nil || !b.multiInstance {
-		return true
+	if b.shared == nil || !b.multiInstance || !b.shared.healthy() {
+		return true // no store to share through: probe as before, without waiting on it per node
 	}
 	if raw, found, err := b.shared.cacheGet(probeReadingKey(node)); err == nil && found {
 		var r probeReading
@@ -232,6 +232,9 @@ func (b *broker) applyPeerReading(node string, r probeReading) {
 		st.lastProbe = lp
 	}
 	b.metricsMu.Unlock()
+	if r.OK && r.TPS > 0 {
+		b.updateTPS(node, r.TPS) // the speed band, as the prober's own reading feeds it
+	}
 }
 
 // leaseTTL is the probe lease's life: under the probe floor, so a lease never blocks the next

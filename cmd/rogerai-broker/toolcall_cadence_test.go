@@ -10,6 +10,10 @@ package main
 import (
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
+
+	"rogerai.fm/roger/v7/internal/store"
 )
 
 // Earning the bit starts at once: a model's first tool-call check runs on its first round. After
@@ -37,9 +41,10 @@ func TestAnUnverifiedModelIsCheckedAtOnceThenBacksOff(t *testing.T) {
 	}
 }
 
-// Once earned, re-proving slows to toolProbeEvery.
-func TestAVerifiedModelIsReProvedOnItsOwnSlowerCadence(t *testing.T) {
-	b := adaptiveBroker(30*time.Second, 15*time.Minute)
+// Once earned, the full tool-call re-check runs once a day (founder ruling 2026-11-15, fitting the
+// 60-a-day check budget); between re-checks each passed canary re-asserts the verified mark.
+func TestAVerifiedModelIsReProvedOnceADay(t *testing.T) {
+	b := adaptiveBroker(30*time.Second, 30*time.Minute)
 	now := time.Now()
 
 	b.metricsMu.Lock()
@@ -49,51 +54,34 @@ func TestAVerifiedModelIsReProvedOnItsOwnSlowerCadence(t *testing.T) {
 	if !b.toolProbeDue("n1", "m1", now) {
 		t.Fatal("the first probe after verification should still run (nothing stamped yet)")
 	}
-	if b.toolProbeDue("n1", "m1", now.Add(15*time.Minute)) {
-		t.Error("a verified model was re-probed after 15m; the throttle is 20m")
+	if b.toolProbeDue("n1", "m1", now.Add(23*time.Hour)) {
+		t.Error("a verified model was fully re-checked inside a day")
 	}
-	if !b.toolProbeDue("n1", "m1", now.Add(21*time.Minute)) {
-		t.Error("a verified model was not re-probed after 21m - past the throttle it must run")
+	if !b.toolProbeDue("n1", "m1", now.Add(toolReverifyEvery)) {
+		t.Error("a verified model was not re-checked after a day")
 	}
 }
 
-// THE SAFETY BOUND. A verified model ages out of the union as UNDETERMINED unless a passing
-// canary re-marks it within toolsVerifiedTTL. The throttle must therefore stay comfortably
-// under that, WITH room for rounds landing on the 15m ceiling rather than exactly on time.
-func TestTheThrottleStaysUnderTheVerifiedTTL(t *testing.T) {
-	// Worst case: the throttle expires just after a round, so the next chance is one full
-	// ceiling later. A TRANSIENT canary on that attempt does not add another ceiling on top,
-	// because the transient path pulls the node's next probe in rather than only clearing
-	// the throttle stamp - without that the bound was 20+15+15 = 50m, PAST the 45m TTL, and
-	// a healthy model would flap to UNDETERMINED off a single timeout.
-	worst := toolProbeEvery + 15*time.Minute
-	if worst >= toolsVerifiedTTL {
-		t.Fatalf("re-verification can take up to %s but the verified bit ages out at %s - "+
-			"a healthy model would silently lose its tools capability", worst, toolsVerifiedTTL)
+// THE SAFETY BOUND. A verified model ages out of the union as UNDETERMINED unless something
+// re-marks it within toolsVerifiedTTL. Each passed canary does, and an idle node's canaries come
+// at least once a probe ceiling, so the ceiling must stay comfortably under the TTL.
+func TestTheCanaryKeepsAVerifiedMarkFresh(t *testing.T) {
+	if defaultProbeCeiling >= toolsVerifiedTTL {
+		t.Fatalf("canaries come every %s but the verified mark ages out at %s - a healthy model "+
+			"would silently lose its tools capability", defaultProbeCeiling, toolsVerifiedTTL)
 	}
-	t.Logf("re-verification lands within %s, against a %s TTL (%s margin)",
-		worst, toolsVerifiedTTL, toolsVerifiedTTL-worst)
 }
 
-// The saving, measured on the same terms as the liveness cadence work.
-func TestToolThrottleCutsCostForAMultiModelNode(t *testing.T) {
+// The cost, on the terms of the check budget: an idle node fits in a day's budget with room.
+func TestAnIdleNodeFitsTheDailyCheckBudget(t *testing.T) {
 	const day = 24 * time.Hour
-	rounds := int(day / (15 * time.Minute)) // an idle node at the ceiling
-
-	for _, models := range []int{1, 4} {
-		before := rounds * (1 + models) // liveness + one tool canary per model, every round
-		// After: a verified model is re-probed at most once per toolProbeEvery, which with
-		// 15m rounds lands every other round.
-		toolProbes := int(day/toolProbeEvery) * models
-		if toolProbes > rounds*models {
-			toolProbes = rounds * models
+	rounds := int(day / defaultProbeCeiling) // an idle node at the ceiling
+	for _, models := range []int{1, 2} {
+		checks := rounds + int(day/toolReverifyEvery)*models
+		if checks > checkBudgetDay {
+			t.Errorf("%d model(s): an idle node needs %d checks a day, over the %d budget", models, checks, checkBudgetDay)
 		}
-		after := rounds + toolProbes
-		if after >= before {
-			t.Errorf("%d models: throttle saved nothing (%d -> %d)", models, before, after)
-		}
-		t.Logf("%d shared model(s): %d -> %d unbilled requests/day (%.0f%% less)",
-			models, before, after, 100*(1-float64(after)/float64(before)))
+		t.Logf("%d shared model(s): %d checks/day against a budget of %d", models, checks, checkBudgetDay)
 	}
 }
 
@@ -167,4 +155,37 @@ func TestATransientCanaryPullsTheNextProbeForward(t *testing.T) {
 			"forward or a verified model can age past toolsVerifiedTTL having learned nothing",
 			due.Sub(now))
 	}
+}
+
+// A tool-capable model that was cold on its first check is not made to wait out the back-off: its
+// first transient miss is forgiven; a second one counts.
+func TestAFirstTransientMissIsForgiven(t *testing.T) {
+	b := adaptiveBroker(30*time.Second, 30*time.Minute)
+	now := time.Now()
+	b.toolProbeDue("n1", "m1", now)
+	b.toolCheckSent("n1", "m1", now)
+	b.recordToolProbe("n1", "m1", false, true /*transient*/, true)
+	if !b.toolProbeDue("n1", "m1", now.Add(30*time.Second)) {
+		t.Fatal("a first transient miss made a model wait out the back-off")
+	}
+	b.toolCheckSent("n1", "m1", now.Add(30*time.Second))
+	b.toolCheckSent("n1", "m1", now.Add(31*time.Second))
+	b.recordToolProbe("n1", "m1", false, true, true)
+	if b.toolProbeDue("n1", "m1", now.Add(time.Minute)) {
+		t.Fatal("repeated transient misses were all forgiven: the round-by-round loop is back")
+	}
+}
+
+// A verified model's re-check the budget refused gives its window back: it was never sent.
+func TestARefusedReCheckGivesItsWindowBack(t *testing.T) {
+	b := relayBroker(store.NewMem())
+	b.toolsOK = map[string]bool{toolKey("tnode", "m"): true}
+	probeReg(b, "tnode")
+	now := time.Now()
+	for i := 0; i < checkBudgetHour; i++ {
+		b.allowCheck("tnode", "canary")
+	}
+	require.True(t, b.toolProbeDue("tnode", "m", now))
+	b.probeToolCall(b.nodes["tnode"], "m", true) // refused by the spent budget
+	require.True(t, b.toolProbeDue("tnode", "m", now.Add(time.Minute)), "a refused re-check held the day's window")
 }

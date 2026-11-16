@@ -766,6 +766,7 @@ func (s *paState) comesOnAir() error {
 	b := s.before["b"].(*broker)
 	b.probeOnce()
 	s.before["first"] = lastProbeOf(b, "n")
+	b.recordProbe("n", probePass, 100, 10, true, true) // its first-sight canary passes
 	return nil
 }
 
@@ -793,7 +794,7 @@ func (s *paState) ceilingAfter() error {
 	due := b.probeSched["n"].nextDue
 	b.metricsMu.Unlock()
 	if due.Sub(first) < b.probe.ceiling-time.Second {
-		return fmt.Errorf("a battery node's next check is due %s after first sight, before the 15 min ceiling", due.Sub(first))
+		return fmt.Errorf("a battery node's next check is due %s after first sight, before the ceiling", due.Sub(first))
 	}
 	return nil
 }
@@ -892,7 +893,21 @@ func TestProbeAccountingBDD(t *testing.T) {
 			sc.Step(`^the phone app registers its node as running on battery$`, s.batteryNode)
 			sc.Step(`^the node comes on air$`, s.comesOnAir)
 			sc.Step(`^it receives one canary at first sight$`, s.oneAtFirstSight)
-			sc.Step(`^after that at most one check every 15 minutes, whatever consumers browse$`, s.ceilingAfter)
+			sc.Step(`^after that at most one check per probe ceiling \(30 minutes\), whatever consumers browse$`, s.ceilingAfter)
+			sc.Step(`^an idle node with one verified chat model$`, func() error { return nil })
+			sc.Step(`^its canaries come once per probe ceiling \(30 minutes\) and its tool support is fully re-checked once a day$`, func() error {
+				if defaultProbeCeiling != 30*time.Minute || toolReverifyEvery != 24*time.Hour {
+					return fmt.Errorf("ceiling %s, tool re-check %s", defaultProbeCeiling, toolReverifyEvery)
+				}
+				return nil
+			})
+			sc.Step(`^that is within its daily budget$`, func() error {
+				if n := int(24*time.Hour/defaultProbeCeiling) + 1; n > checkBudgetDay {
+					return fmt.Errorf("an idle node needs %d checks a day, budget %d", n, checkBudgetDay)
+				}
+				return nil
+			})
+			sc.Step(`^each passed canary re-asserts its verified tools mark, so neither "verified" nor "tools" ages out between checks$`, s.canaryReassertsTools)
 			sc.Step(`^consumers browse /discover or /market for the node's model every few seconds$`, s.browsedOften)
 			sc.Step(`^the node's checks stay within its cadence and its budget$`, s.withinCadenceAndBudget)
 		},
@@ -901,5 +916,50 @@ func TestProbeAccountingBDD(t *testing.T) {
 	}
 	if bddrun.Run(suite) != 0 {
 		t.Fatal("features/serving/probe_accounting.feature failed")
+	}
+}
+
+// canaryReassertsTools: on the node's poll host, a passed canary refreshes the shared tools mark
+// of its verified model, and the reading stays fresh for the whole ceiling.
+func (s *paState) canaryReassertsTools() error {
+	if defaultProbeCeiling >= toolsVerifiedTTL {
+		return fmt.Errorf("canaries every %s cannot keep a mark that lasts %s", defaultProbeCeiling, toolsVerifiedTTL)
+	}
+	vs, mr := testValkeyShared(s.xi.t)
+	b := probeMinBroker()
+	b.probe.ceiling = defaultProbeCeiling
+	b.shared, b.toolsOK = vs, map[string]bool{toolKey("n", "m"): true}
+	addNode(b, "n", 0)
+	b.localPollAt = map[string]time.Time{"n": time.Now()} // this instance hosts the node's polls
+	b.recordProbe("n", probePass, 120, 50, true, true)
+	if v := mr.HGet(toolsKey(), "n\x00m"); v == "" {
+		return fmt.Errorf("a passed canary did not re-assert the verified tools mark")
+	}
+	b.metricsMu.Lock()
+	stale := b.measurementStalenessLocked("n", time.Now().Add(defaultProbeCeiling-time.Minute))
+	b.metricsMu.Unlock()
+	if stale < 1 {
+		return fmt.Errorf("a reading went stale inside the ceiling (%.2f)", stale)
+	}
+	return nil
+}
+
+// Audit finding: the battery clamp held after a FAILED first check too, stranding the node
+// unverified for the ceiling. A failed first check keeps the adaptive retry.
+func TestABatteryNodeWhoseFirstCheckFailedIsRetriedSoon(t *testing.T) {
+	b := probeMinBroker()
+	b.db = store.NewMem()
+	addNode(b, "n", 0)
+	reg := b.nodes["n"]
+	reg.Battery = true
+	b.nodes["n"] = reg
+	b.trust["n"] = trustState{}
+	b.probeOnce()
+	b.recordProbe("n", probeDead, 0, 0, false, false)
+	b.metricsMu.Lock()
+	due := b.probeSched["n"].nextDue
+	b.metricsMu.Unlock()
+	if due.Sub(time.Now()) > time.Minute {
+		t.Fatalf("a battery node whose first check failed waits %s for a retry", due.Sub(time.Now()))
 	}
 }

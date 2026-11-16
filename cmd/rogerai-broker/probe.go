@@ -121,7 +121,10 @@ var canaryArithmetic = map[string][]string{
 // heartbeat + nodeTTL) is fully decoupled and unchanged.
 const (
 	defaultProbeInterval = 30 * time.Second // ROGERAI_PROBE_INTERVAL default - the adaptive backoff FLOOR
-	defaultProbeCeiling  = 15 * time.Minute // ROGERAI_PROBE_CEILING default - the idle backoff CAP
+	// defaultProbeCeiling is the idle backoff CAP (ROGERAI_PROBE_CEILING default). 30 minutes, so an
+	// idle node's checks fit the 60-a-day budget with a daily tool re-check on top (founder ruling
+	// 2026-11-15, features/serving/probe_accounting.feature); "verified" stays fresh as long.
+	defaultProbeCeiling = 30 * time.Minute
 	// defaultProbeCuratedEvery is the CURATED slow lane: a curated station fronts a
 	// METERED commercial API, so every canary is billed to the operator's upstream and
 	// pays them nothing. The founder's ruling (2026-09-01, watching the first live
@@ -751,8 +754,10 @@ func (b *broker) probeOnce() {
 		if st.backoff < 64 { // cap the level (backoffInterval already clamps to ceiling)
 			st.backoff++
 		}
-		// A battery node is checked at the ceiling after first sight (R5).
-		if st.battery = t.node.Battery; st.battery && st.nextDue.Before(now.Add(b.probe.ceiling)) {
+		// A battery node is checked at the ceiling once a check has PASSED (R5; recordProbe pushes
+		// it out the moment one does); one that failed keeps the adaptive retry.
+		tq := b.trust[t.node.NodeID]
+		if st.battery = t.node.Battery; st.battery && tq.probed && tq.probeOK && st.nextDue.Before(now.Add(b.probe.ceiling)) {
 			st.nextDue = now.Add(b.probe.ceiling)
 		}
 	}
@@ -1401,18 +1406,46 @@ func (b *broker) recordProbe(nodeID string, outcome probeOutcome, ttftMs, tps fl
 			sched[nodeID] = st
 		}
 		st.lastMeasured = time.Now()
+		// A battery node's first passed check is its first sight: the next is a ceiling away (R5).
+		if st.battery && st.nextDue.Before(st.lastMeasured.Add(b.probe.ceiling)) {
+			st.nextDue = st.lastMeasured.Add(b.probe.ceiling)
+		}
 	}
 	if !alive {
 		tq.probeFails++
 	}
 	b.trust[nodeID] = tq
 	fails := tq.probeFails
+	// A PASSED CANARY RE-ASSERTS A VERIFIED MODEL'S TOOLS MARK: tool-calling is a near-static
+	// property of a model and its runtime, fully re-checked once a day (toolReverifyEvery), and a
+	// live canary between those checks keeps the shared mark from ageing out (the curated lane
+	// does the same). Only the node's poll host writes it, and throttled like markMeasured.
+	var reassert []string
+	if alive && b.shared != nil && time.Since(b.lastToolMark[nodeID]) > toolsRefreshEvery {
+		pfx := nodeID + "\x00"
+		for k, ok := range b.toolsOK {
+			if ok && strings.HasPrefix(k, pfx) {
+				reassert = append(reassert, strings.TrimPrefix(k, pfx))
+			}
+		}
+		if len(reassert) > 0 {
+			if b.lastToolMark == nil {
+				b.lastToolMark = map[string]time.Time{}
+			}
+			b.lastToolMark[nodeID] = time.Now()
+		}
+	}
 	var measured time.Time
 	if st := b.probeSchedLocked()[nodeID]; st != nil {
 		measured = st.lastMeasured
 	}
 	b.metricsMu.Unlock()
 	b.publishProbe(nodeID, tq, measured) // every instance routes on this reading (R2)
+	if len(reassert) > 0 && b.authoritativeFor(nodeID, time.Now()) {
+		for _, model := range reassert {
+			_ = b.shared.markToolsVerified(nodeID, model, toolsVerifiedTTL)
+		}
+	}
 
 	if alive {
 		if tps > 0 {

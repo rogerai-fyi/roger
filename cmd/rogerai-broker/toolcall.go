@@ -89,6 +89,11 @@ const toolsRefreshEvery = 15 * time.Minute
 // so it earns "tools" as promptly as it always did. Only re-proving a settled verdict slows.
 const toolProbeEvery = 20 * time.Minute
 
+// toolReverifyEvery is how often a model that holds the tools bit is fully re-checked: once a
+// day, with each passed canary re-asserting the mark in between (founder ruling 2026-11-15, the
+// 60-a-day check budget). toolProbeEvery remains the first step of an unverified model's back-off.
+const toolReverifyEvery = 24 * time.Hour
+
 // toolProbeDue reports whether the tool-call canary should run for this (node,model) now, and
 // stamps the attempt when it says yes.
 func (b *broker) toolProbeDue(nodeID, model string, now time.Time) bool {
@@ -112,7 +117,7 @@ func (b *broker) toolProbeDue(nodeID, model string, now time.Time) bool {
 		b.toolProbeAt[key] = now
 		return true // the miss is counted when the check is sent (toolCheckSent), not when due
 	}
-	if last, ok := b.toolProbeAt[key]; ok && now.Sub(last) < toolProbeEvery {
+	if last, ok := b.toolProbeAt[key]; ok && now.Sub(last) < toolReverifyEvery {
 		return false
 	}
 	b.toolProbeAt[key] = now
@@ -294,7 +299,14 @@ func (b *broker) recordToolProbe(nodeID, model string, ok, transient, authoritat
 	if transient && !b.toolsVerifiedNow(nodeID, model) {
 		// A model still earning the bit counts the miss toward its back-off and waits it out
 		// (R3): pulling its next probe in here re-checked a model that never answers a tool
-		// call on every round, for as long as it was online.
+		// call on every round, for as long as it was online. Its FIRST miss is forgiven, so a
+		// tool-capable model that was cold on its first check tries again next round.
+		key := toolKey(nodeID, model)
+		b.metricsMu.Lock()
+		if st := b.toolFails[key]; st.streak == 1 {
+			delete(b.toolFails, key)
+		}
+		b.metricsMu.Unlock()
 		return
 	}
 	if transient {
@@ -426,6 +438,10 @@ func (b *broker) probeToolCall(node protocol.NodeRegistration, model string, aut
 		return
 	}
 	if !b.allowCheck(node.NodeID, "tools") { // the node's check budget (R4)
+		// Not sent, so not a check: the re-check window it stamped is given back.
+		b.metricsMu.Lock()
+		delete(b.toolProbeAt, toolKey(node.NodeID, model))
+		b.metricsMu.Unlock()
 		return
 	}
 	b.toolCheckSent(node.NodeID, model, time.Now())

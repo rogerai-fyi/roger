@@ -24,6 +24,10 @@
 #       instances together, first sight included.
 #   R5  A node that says it runs on battery (the phone app) is checked at the ceiling after first sight.
 #
+# Ruled 2026-11-15 ("Fit the schedule to 60/day"): the idle schedule fits the budget. The probe
+# ceiling is 30 minutes (48 canaries a day at rest), a verified model's tool support is re-asserted by
+# each passed canary and fully re-checked once a day, and "verified" stays fresh for the ceiling.
+#
 # Unchanged on purpose: a canary still looks like a customer request to the node; nothing on a job
 # tells the node it is a check before or after it serves it.
 
@@ -125,7 +129,13 @@ Feature: Core's checks are counted as checks and cost as little as possible
     Given the phone app registers its node as running on battery
     When the node comes on air
     Then it receives one canary at first sight
-    And after that at most one check every 15 minutes, whatever consumers browse
+    And after that at most one check per probe ceiling (30 minutes), whatever consumers browse
+
+  Scenario: An idle node's schedule fits the budget, and its marks never lapse
+    Given an idle node with one verified chat model
+    Then its canaries come once per probe ceiling (30 minutes) and its tool support is fully re-checked once a day
+    And that is within its daily budget
+    And each passed canary re-asserts its verified tools mark, so neither "verified" nor "tools" ages out between checks
 
   Scenario: A node does not pay for being browsed
     When consumers browse /discover or /market for the node's model every few seconds
