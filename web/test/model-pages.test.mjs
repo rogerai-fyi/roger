@@ -363,7 +363,12 @@ test("nano: the release parts are described by role, with no served name but the
   for (const role of [/chat/i, /fire sensor-reading adapter/i, /fire-decision controller adapter/i, /vision fire-confirm module/i]) {
     assert.match(parts, role, `the parts list names ${role}`);
   }
-  assert.doesNotMatch(text, /wave-nano-(?!1\.45b\b)[a-z]/i, "no roster name that is not final");
+  // Band names come from the status file (founder confirmation 2026-11-19); nothing else is named.
+  const t = status().tiers.find((x) => x.id === "nano");
+  const bands = [t.onAirBand, ...(t.alsoOnAir || [])].filter(Boolean);
+  for (const n of new Set(text.match(/wave-nano-[a-z0-9.-]*[a-z0-9]/g) || [])) assert.ok(bands.includes(n), `${n} is not a band in the status file`);
+  for (const b of bands) assert.ok(parts.includes(b), `the parts list names the band ${b}`);
+  assert.match(parts, /Fire sensor-reading adapter\.[^.]*\.[^]*?not on the band/i, "the sensor-reading adapter is not on the band, and says so");
 });
 
 test("nano: the fire testing is described as it was done, three ways for the fire-decision adapter, one installed site", () => {

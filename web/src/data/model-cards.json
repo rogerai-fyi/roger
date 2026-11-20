@@ -817,19 +817,19 @@
       "parts": [
         {
           "title": "Chat.",
-          "text": "The base model on its own: telemetry, the fleet, the fire-site rollup, and conversation."
+          "text": "The base model on its own: telemetry, the fleet, the fire-site rollup, and conversation. On air as the free band <code>wave-nano-chat</code>."
         },
         {
           "title": "Fire sensor-reading adapter.",
-          "text": "Routed per request. Reads a fire site&rsquo;s sensor frame: threat call, escalation, source, wind alignment and regime."
+          "text": "Routed per request. Reads a fire site&rsquo;s sensor frame: threat call, escalation, source, wind alignment and regime. Ships in the release; not on the band."
         },
         {
           "title": "Fire-decision controller adapter.",
-          "text": "Routed per request. Gives the site controller its decision from camera, chemistry and wind, plans its tool calls, names missing inputs, answers override requests, and steps back once a person acknowledges."
+          "text": "Routed per request. Gives the site controller its decision from camera, chemistry and wind, plans its tool calls, names missing inputs, answers override requests, and steps back once a person acknowledges. On air as the free band <code>wave-nano-fire-controller</code>."
         },
         {
           "title": "Vision fire-confirm module.",
-          "text": "Nano-VL. After the camera detector alarms, it confirms smoke on the frame and describes it."
+          "text": "Nano-VL. After the camera detector alarms, it confirms smoke on the frame and describes it. On air as the free band <code>wave-nano-fire-vision</code>."
         }
       ]
     }

@@ -231,7 +231,7 @@ test("only released artifacts present download controls", () => {
     /16K saliency calibration/,
     /On air as wave-pico-293m/,
     /Architecture and data design/,
-    /Release build gated/,
+    /On air as wave-nano-chat, wave-nano-fire-controller and wave-nano-fire-vision/,   // founder confirmation 2026-11-19
   ]) assert.match(page, stage);
   assert.doesNotMatch(page, /href="[^"]*(?:placeholder|coming-soon)[^"]*"/i);
 });
