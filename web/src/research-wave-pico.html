@@ -5,7 +5,7 @@
      mesh explainer and the wildfire watch are shared partials (wave-mesh.html,
      wave-firewatch.html), the same on every model page.
      Outward-copy rules: author RogerAI Labs; no data sources or training methods; no hosting
-     or operational detail; fire numbers are simulator-internal every time; not on Hugging Face.
+     or operational detail; every fire number says how it was tested; not on Hugging Face.
      Registered in build.mjs CSS_BUNDLES with research.css + wave-model.css. -->
 <html lang="en">
 <head>
@@ -196,12 +196,15 @@
           <p>The fire adapter is a {{card:pico.adapter-size}} LoRA adapter for this base. The
              server loads it beside the model and switches it on only for the requests that
              ask for it. It is never merged into the base, so the industrial reading stays
-             exactly as measured above.</p>
+             exactly as measured above. Tested two ways: simulated fire scenarios with known
+             answers, and the MLX build of the adapter checked item by item against the
+             reference ({{card:pico.fire-mlx}} agreement). It has not been read on real site
+             data yet.</p>
         </div>
         <ol class="wm-readouts wm-readouts--fire">
-          <li class="wm-readout" style="--v:{{card-num:pico.fire-full}}"><span class="wm-readout__label">Threat call / escalation, full sensor suite</span><b>{{card:pico.fire-full}}</b><span class="wm-readout__unit">simulator-internal</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{{card-ref:pico.fire-full}}</span></li>
-          <li class="wm-readout" style="--v:{{card-num:pico.fire-nocam}}"><span class="wm-readout__label">Threat call / escalation, without a camera</span><b>{{card:pico.fire-nocam}}</b><span class="wm-readout__unit">simulator-internal</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{{card-ref:pico.fire-nocam}}</span></li>
-          <li class="wm-readout" style="--v:{{card-num:pico.fire-gate}}"><span class="wm-readout__label">Gate lines passing, in each configuration</span><b>{{card:pico.fire-gate}}</b><span class="wm-readout__unit">simulator-internal</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{{card-ref:pico.fire-gate}}</span></li>
+          <li class="wm-readout" style="--v:{{card-num:pico.fire-full}}"><span class="wm-readout__label">Threat call / escalation, full sensor suite</span><b>{{card:pico.fire-full}}</b><span class="wm-readout__unit">simulated scenarios</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{{card-ref:pico.fire-full}}</span></li>
+          <li class="wm-readout" style="--v:{{card-num:pico.fire-nocam}}"><span class="wm-readout__label">Threat call / escalation, without a camera</span><b>{{card:pico.fire-nocam}}</b><span class="wm-readout__unit">simulated scenarios</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{{card-ref:pico.fire-nocam}}</span></li>
+          <li class="wm-readout" style="--v:{{card-num:pico.fire-gate}}"><span class="wm-readout__label">Gate lines passing, in each configuration</span><b>{{card:pico.fire-gate}}</b><span class="wm-readout__unit">simulated scenarios</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{{card-ref:pico.fire-gate}}</span></li>
         </ol>
       </div>
     </section>

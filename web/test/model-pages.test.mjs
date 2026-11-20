@@ -11,7 +11,7 @@
 //   - no number on a model page that is not in the data file
 //   - the outward-copy rules: no Hugging Face, no first/novel/state of the art, no founder names,
 //     no hosts, ports, paths or service names, no dataset names or corpus sizes, no place names
-//   - fire numbers are simulator-internal every time, in the same block as the number
+//   - every fire number says how it was tested, in the same block as the number
 //   - pre-wet is an owner-armed rule the controller executes; the model never actuates
 //   - what is served matches web/src/data/wave-status.json, and nothing more
 import { test, before } from "node:test";
@@ -253,10 +253,11 @@ function blockAt(html, at) {
 }
 
 // How a fire number was tested, said in the same block as the number. Pico keeps
-// "simulator-internal". Nano (founder review 2026-11-19) names the testing itself: simulated
+// "simulator-internal" until 2026-11-19. Both pages (founder review 2026-11-19) now name the testing itself: simulated
 // scenarios with rule-checked answers, the served builds, and, for the fire-decision adapter
 // only, recorded readings from one installed camera site.
-const FIRE_SCOPE = { pico: /simulator-internal/i, nano: /simulated (fire )?scenarios|recorded (camera )?readings from (six cameras at )?one installed (camera )?site/i };
+const FIRE_SCOPE_SIM = /simulated (fire )?scenarios/i;
+const FIRE_SCOPE = { pico: FIRE_SCOPE_SIM, nano: /simulated (fire )?scenarios|recorded (camera )?readings from (six cameras at )?one installed (camera )?site/i };
 
 test("fire: every fire number sits in a block that says how it was tested", () => {
   for (const [id, p] of Object.entries(PAGES)) {
@@ -455,4 +456,17 @@ test("comparison: the Jev field guide's Nano bar is the release build's files (R
   const chart = visible(dist("broadcasts-jev-vs-wave.html").match(/<svg[^>]*aria-label="Chart: size on disk[\s\S]*?<\/svg>/)?.[0] || "");
   assert.match(chart, /874–2,899 MB/, "the chart label carries the release files' sizes");
   assert.match(dist("broadcasts-jev-vs-wave.html"), /Wave Nano 1\.45B, 874 to 2,899 MB/, "and so does its spoken description");
+});
+
+test("pico: the fire testing is described as it was done, and Pico says plainly it was never read on real site data", () => {
+  const text = visible(main(PAGES.pico));
+  assert.doesNotMatch(text, /simulator-internal|simulation only/i, "founder review 2026-11-19: name the testing, not the caveat word");
+  const adapter = visible(sectionHtml(PAGES.pico, "adapter"));
+  assert.match(adapter, /Tested two ways: simulated fire scenarios with known answers, and the MLX build of the adapter checked item by item against the reference \(\s?[\d.]+%\s?agreement\s?\)\. It has not been read on real site data yet\./);
+  assert.doesNotMatch(text, /installed site|served build|live readings|in the field|deployed at/i, "Pico has no served fire read of the shipped adapter and no site read");
+  const limits = visible(sectionHtml(PAGES.pico, "limits"));
+  assert.match(limits, /The fire adapter has not been read on real site data yet/);
+  const pico = cards().models.find((m) => m.id === "pico");
+  const mlx = pico.measured.find((x) => x.id === "fire-mlx");
+  assert.ok(mlx && mlx.ref === "R.377" && mlx.date === "2026-10-18" && mlx.fire === true, "the MLX fire check is R.377, 2026-10-18, marked fire");
 });

@@ -76,7 +76,7 @@
           "ref": "R.378"
         },
         {
-          "text": "Fire numbers are simulator-internal until a site has recorded months of its own normal days."
+          "text": "Fire numbers come from simulated fire scenarios with known answers. The fire adapter has not been read on real site data yet, and no site has recorded months of its own normal days."
         },
         {
           "text": "The MLX build was checked on another backend. The run on a Mac with Metal is still owed.",
@@ -204,6 +204,15 @@
           "num": 100,
           "fire": true,
           "ref": "R.375",
+          "date": "2026-10-18"
+        },
+        {
+          "id": "fire-mlx",
+          "label": "Fire adapter, MLX build against the reference, item agreement with the adapter on",
+          "value": "99.6%",
+          "num": 99.6,
+          "fire": true,
+          "ref": "R.377",
           "date": "2026-10-18"
         },
         {
