@@ -317,7 +317,7 @@ const IMPLIES = {
   gated: [
     // founder ruling 2026-10-21: Nano's release build is gated, not on the band
     "GATED", "Gated", "Release build gated &middot; not on the band yet", "Scratch &middot; gated",
-    "0.83&ndash;2.9 GB &middot; gated", "Wave Nano 1.45B, 0.83 to 2.9 GB, gated",
+    "874&ndash;2,899 MB &middot; gated", "Wave Nano 1.45B, 874 to 2,899 MB, gated",
     "EDGE CLASS · WAYPOINT TRAINED", "TRAINED", "250–300M · waypoint", "WAYPOINT", "Waypoint trained",
     "WAYPOINT TRAINED", "Wave Pico has a trained waypoint build, certified against our own release gate",
     "Certifying the waypoint &middot; 300M retrain next", "Scratch &middot; waypoint trained",

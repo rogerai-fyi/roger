@@ -249,6 +249,7 @@
       "author": "RogerAI Labs",
       "builds": "GGUF",
       "vlName": "Wave Nano-VL",
+      "vlSize": "1.90B",
       "purpose": [
         "Everything Wave Pico does: one telemetry channel in, the instrument fault or the process state out, behind the same kind of calibrated escalation gate.",
         "Conversation, general questions, SQL and short technical writing, in a plain chat format.",
@@ -316,7 +317,7 @@
           "text": "The vision numbers are on held-out frames from the camera networks it learned on, from one training seed."
         },
         {
-          "text": "Every fire number is simulator-internal plus one installed stream. No site has recorded months of its own normal days yet."
+          "text": "Fire numbers come from simulated fire scenarios with known answers and from the served builds. The fire-decision adapter was also read on recorded camera readings from one installed site, with the other sensor feeds empty. No site has recorded months of its own normal days yet."
         },
         {
           "text": "The MLX build for Apple Silicon is owed."
@@ -434,6 +435,13 @@
           "hi": 2.899,
           "ref": "R.384",
           "date": "2026-10-21"
+        },
+        {
+          "id": "gguf-agree",
+          "label": "Q6_K and Q4_K_M as shipped, served through llama.cpp, against the reference weights on the public development slice of our industrial benchmark",
+          "value": "within 0.1 of the reference on each of 8 tasks (250 items each), and Q4_K_M within 1.0 of Q6_K",
+          "ref": "R.472",
+          "date": "2026-11-13"
         },
         {
           "id": "fire-full",

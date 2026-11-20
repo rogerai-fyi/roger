@@ -222,7 +222,7 @@ const BANNED = [
   [/Gulnaz|Galieva|Miguel|Quijada|\bLuis\b/i, "a founder's name"],
   [/:\d{4}\b|localhost|127\.0\.0\.1|systemd|\.service\b|\/mnt\/|~\/|hermes|hf_serve|serve-wave|workstation|computer-scientist|RogGentoo/i, "a host, port, path or service name"],
   [/FIgLib|HPWREN|pyro-?sdis|PyroNear|SKAB|\bNAB\b|ALERTCalifornia|SigLIP|Idefics|SmolLM/i, "a dataset or component name"],
-  [/\bcorpus\b|billion tokens|\b90B\b|\btokens of\b|dataset/i, "a data source or training detail"],
+  [/\bcorpus\b|billion tokens|(?<![\d.])90B\b|\btokens of\b|dataset/i, "a data source or training detail"], // (not the 90 in a size like 1.90B)
   [/San Clemente/i, "the live camera stream's location"],
   [/\bClaude\b|AI assistant/i, "an assistant credit"],
   [/revenue/i, "a revenue claim"],
@@ -252,12 +252,18 @@ function blockAt(html, at) {
   return best ? html.slice(best.open, best.close) : "";
 }
 
-test("fire: every fire number sits in a block that says simulator-internal", () => {
-  for (const p of Object.values(PAGES)) {
+// How a fire number was tested, said in the same block as the number. Pico keeps
+// "simulator-internal". Nano (founder review 2026-11-19) names the testing itself: simulated
+// scenarios with rule-checked answers, the served builds, and, for the fire-decision adapter
+// only, recorded readings from one installed camera site.
+const FIRE_SCOPE = { pico: /simulator-internal/i, nano: /simulated (fire )?scenarios|recorded (camera )?readings from (six cameras at )?one installed (camera )?site/i };
+
+test("fire: every fire number sits in a block that says how it was tested", () => {
+  for (const [id, p] of Object.entries(PAGES)) {
     const html = main(p);
     const at = [...html.matchAll(/data-fire=""/g)].map((m) => m.index);
     assert.ok(at.length >= 2, `${p} shows its fire adapter numbers`);
-    for (const i of at) assert.match(visible(blockAt(html, i)), /simulator-internal/i, `${p}: a fire number without simulator-internal`);
+    for (const i of at) assert.match(visible(blockAt(html, i)), FIRE_SCOPE[id], `${p}: a fire number without how it was tested`);
   }
   for (const m of cards().models) {
     for (const it of m.measured.filter((x) => /fire|T17/i.test(x.label))) assert.equal(it.fire, true, `${m.id}.${it.id} is marked fire`);
@@ -360,17 +366,43 @@ test("nano: the release parts are described by role, with no served name but the
   assert.doesNotMatch(text, /wave-nano-(?!1\.45b\b)[a-z]/i, "no roster name that is not final");
 });
 
-test("nano: the fire-decision adapter says simulator-internal plus one installed stream, and the limits say it too", () => {
-  const adapter = visible(sectionHtml(PAGES.nano, "adapter"));
-  assert.match(adapter, /fire-decision/i);
-  assert.match(adapter, /simulator-internal plus one installed stream/i);
-  assert.match(visible(sectionHtml(PAGES.nano, "limits")), /simulator-internal plus one installed stream/i);
+test("nano: the fire testing is described as it was done, three ways for the fire-decision adapter, one installed site", () => {
+  const text = visible(main(PAGES.nano));
+  assert.doesNotMatch(text, /simulator-internal|simulation only/i, "founder review 2026-11-19: name the testing, not the caveat word");
   const html = sectionHtml(PAGES.nano, "adapter");
+  const adapter = visible(html);
+  assert.match(adapter, /Tested three ways: simulated fire scenarios with rule-checked answers, the served builds, and recorded camera readings from one installed site\./);
+  // The sensor-reading adapter was never read on real site data: it must not borrow the third way.
+  const sensor = visible(html.slice(0, html.indexOf('id="decision"')));
+  assert.match(sensor, /Tested two ways: simulated fire scenarios with known answers, and the served build\. It has not been read on real site data yet\./);
+  assert.doesNotMatch(sensor, /installed site/i);
   const decision = html.slice(html.indexOf('id="decision"'));
   assert.ok(decision.length > 200, "the fire-decision block exists");
   for (const m of decision.matchAll(/data-fire=""/g)) {
-    assert.match(visible(blockAt(decision, m.index)), /simulator-internal plus one installed stream/i, "a fire-decision number without its scope");
+    assert.match(visible(blockAt(decision, m.index)), FIRE_SCOPE.nano, "a fire-decision number without how it was tested");
   }
+  // True to the record: one site, recorded readings, no field claim.
+  assert.doesNotMatch(text, /installed sites|several sites|multiple sites|in the field|field-tested|deployed at|live readings/i);
+  assert.match(visible(sectionHtml(PAGES.nano, "limits")), /recorded camera readings from one installed site/i);
+});
+
+test("nano: the GGUF builds against the reference, exactly what R.472 measured", () => {
+  const nano = cards().models.find((m) => m.id === "nano");
+  const it = nano.measured.find((x) => x.id === "gguf-agree");
+  assert.ok(it, "nano.gguf-agree");
+  assert.equal(it.ref, "R.472");
+  assert.equal(it.date, "2026-11-13");
+  const cap = visible(main(PAGES.nano).match(/<figcaption[^>]*id="wm-runs-cap"[\s\S]*?<\/figcaption>/)?.[0] || "");
+  assert.match(cap, /Q6_K/);
+  assert.match(cap, /Q4_K_M/);
+  assert.match(cap, /R\.472/);
+  assert.doesNotMatch(cap, /f16|Q5_K_M/, "R.472 read Q6_K and Q4_K_M only");
+});
+
+test("nano: the Nano-VL parameter count is on the page with how it was counted", () => {
+  const nano = cards().models.find((m) => m.id === "nano");
+  assert.equal(nano.vlSize, "1.90B");
+  assert.match(visible(sectionHtml(PAGES.nano, "vision")), /1\.90B parameters[^.]*counted[^.]*shipped files/i);
 });
 
 test("nano: the conversation skill is on the Nano page", () => {
@@ -409,4 +441,13 @@ test("models and status: the two model pages are one click from the hero, and no
     assert.ok(row, `${t.name} row`);
     assert.match(row, new RegExp(`class="model-lamp" data-air="${t.onAirBand ? "on" : "off"}"`), `${t.name} lamp`);
   }
+});
+
+test("comparison: the Jev field guide's Nano bar is the release build's files (R.384), not the superseded build's", () => {
+  const s = src("broadcasts-jev-vs-wave.html");
+  assert.doesNotMatch(s, /R\.381/, "no superseded Nano read on the comparison page");
+  assert.match(s, /Nano 874MB \(measured Q4_K_M, R\.384\)/, "the chart's coordinate note names the release file it was drawn from");
+  const chart = visible(dist("broadcasts-jev-vs-wave.html").match(/<svg[^>]*aria-label="Chart: size on disk[\s\S]*?<\/svg>/)?.[0] || "");
+  assert.match(chart, /874–2,899 MB/, "the chart label carries the release files' sizes");
+  assert.match(dist("broadcasts-jev-vs-wave.html"), /Wave Nano 1\.45B, 874 to 2,899 MB/, "and so does its spoken description");
 });

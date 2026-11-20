@@ -151,12 +151,12 @@
         },
         "jev-vs-wave.chart": {
           "page": "broadcasts-jev-vs-wave.html",
-          "text": "0.83&ndash;2.9 GB &middot; gated",
+          "text": "874&ndash;2,899 MB &middot; gated",
           "wired": true
         },
         "jev-vs-wave.aria": {
           "page": "broadcasts-jev-vs-wave.html",
-          "text": "Wave Nano 1.45B, 0.83 to 2.9 GB, gated",
+          "text": "Wave Nano 1.45B, 874 to 2,899 MB, gated",
           "wired": false
         }
       }

@@ -74,8 +74,8 @@
     ]
   },
   "broadcasts-jev-vs-wave.html": {
-    "sha": "020ea4c2686f820b564a108a0b27176727485e0ef1bd402b3e4ff924cd33b16a",
-    "length": 11409,
+    "sha": "e84d0eabb441b91a61186705c526f7e5ce4694d0464c368f86223399000ed994",
+    "length": 11410,
     "hrefs": [
       "/broadcasts.html",
       "/research-wave-family.html"
@@ -270,8 +270,8 @@
     ]
   },
   "research-wave-nano.html": {
-    "sha": "42e8a2f96a72094303bd096b906044df736f98718367366346dda5018a27042b",
-    "length": 16826,
+    "sha": "713b2c13668490a4bc23ea14231212c15d362660c5a01b03ae2a749dbe19257b",
+    "length": 17556,
     "hrefs": [
       "/research-models.html",
       "#measured",
@@ -283,8 +283,8 @@
     ]
   },
   "research-wave-pico.html": {
-    "sha": "757fef1d76fb8b28d18c8ac333bf902acb6b95aaf4beafe2c3a614416393d130",
-    "length": 8509,
+    "sha": "b6785f2f8400cb02ec82ceb9b97489534585e9380baf15a3c87bc1a0bc80f082",
+    "length": 8469,
     "hrefs": [
       "/research-models.html",
       "#run",

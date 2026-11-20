@@ -45,7 +45,7 @@
             <div><dt>Status</dt><dd><i class="model-lamp" data-air="{{wave-air:nano}}" aria-hidden="true"></i>{{wave-stage:nano}}</dd></div>
             <div><dt>Band</dt><dd>not on the band yet</dd></div>
             <div><dt>Size</dt><dd>{{card:nano.size}} parameters, from scratch</dd></div>
-            <div><dt>Vision</dt><dd>{{card:nano.vlName}}, a smoke confirm module</dd></div>
+            <div><dt>Vision</dt><dd>{{card:nano.vlName}}, {{card:nano.vlSize}} in all</dd></div>
             <div><dt>Gate</dt><dd>answers {{card:nano.gate-accept}} of real work at {{card:nano.gate-precision}} precision</dd></div>
             <div><dt>By</dt><dd>{{card:nano.author}}</dd></div>
           </dl>
@@ -144,7 +144,7 @@ Orange County, California.</pre></div>
           <p class="wm-runs__size"><span class="research-kicker">GGUF on disk</span>
             <span class="wm-span" style="--lo:{{card-lo:nano.gguf}};--hi:{{card-hi:nano.gguf}};--max:4" aria-hidden="true"><i></i></span>
             <b>{{card:nano.gguf}}</b> <span class="wm-ref">{{card-ref:nano.gguf}}</span></p>
-          <figcaption class="fig mono" id="wm-runs-cap">FIG. 1 - Where the release build runs. A filled lamp runs today; a ring is owed.</figcaption>
+          <figcaption class="fig mono" id="wm-runs-cap">FIG. 1 - Where the release build runs. A filled lamp runs today; a ring is owed. Served through llama.cpp, the Q6_K build reads {{card:nano.gguf-agree}} ({{card-ref:nano.gguf-agree}}).</figcaption>
         </figure>
       </div>
     </section>
@@ -188,7 +188,7 @@ Orange County, California.</pre></div>
             <li class="wm-readout" style="--v:{{card-num:nano.mesh}}"><span class="wm-readout__label">Fleet reading, IEB-Mesh</span><b>{{card:nano.mesh}}</b><span class="wm-readout__unit">macro</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{{card-ref:nano.mesh}}</span></li>
             <li class="wm-readout" style="--v:{{card-num:nano.t11}}"><span class="wm-readout__label">Classifier reading, T11a / T11b</span><b>{{card:nano.t11}}</b><span class="wm-readout__unit">T11a over its floor</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{{card-ref:nano.t11}}</span></li>
             <li class="wm-readout" data-better="lower" style="--v:{{card-num:nano.dup}}"><span class="wm-readout__label">Duplicated-line frames answered wrong</span><b>{{card:nano.dup}}</b><span class="wm-readout__unit">lower is better</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{{card-ref:nano.dup}}</span></li>
-            <li class="wm-readout" style="--v:{{card-num:nano.t17}}"><span class="wm-readout__label">Fire-site rollup (T17): state / action / deciding input / inconsistency, an earlier build</span><b>{{card:nano.t17}}</b><span class="wm-readout__unit">simulator-internal</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{{card-ref:nano.t17}}</span></li>
+            <li class="wm-readout" style="--v:{{card-num:nano.t17}}"><span class="wm-readout__label">Fire-site rollup (T17): state / action / deciding input / inconsistency, an earlier build</span><b>{{card:nano.t17}}</b><span class="wm-readout__unit">simulated scenarios</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{{card-ref:nano.t17}}</span></li>
           </ol>
           <figcaption class="fig mono" id="wm-panel-cap">FIG. 3 - The readouts, each on a scale of 0 to 100. Each bar is the score; the red tick marks it.</figcaption>
         </figure>
@@ -233,8 +233,8 @@ Orange County, California.</pre></div>
           <span class="sectionno">&sect;5 / LIMITS</span>
           <h2>Where it stops.</h2>
           <p>Said plainly. One of them, sizing arithmetic without the calculator tool, scores
-             {{card:nano.fd-sizing}} on the fire-decision items, simulator-internal plus one
-             installed stream <span class="wm-ref">{{card-ref:nano.fd-sizing}}</span>.</p>
+             {{card:nano.fd-sizing}} on the fire-decision items, which are simulated fire scenarios
+             with rule-checked answers <span class="wm-ref">{{card-ref:nano.fd-sizing}}</span>.</p>
         </div>
         <ul class="wm-limits">{{card-list:nano.limits}}</ul>
       </div>
@@ -247,22 +247,23 @@ Orange County, California.</pre></div>
           <h2>Two fire adapters, routed per request.</h2>
           <p>Each adapter is selected per request on the same base, so the base&rsquo;s
              industrial numbers are untouched. With an adapter switched off, the base reads
-             fire at {{card:nano.fire-off}}: the adapter is the fire reading
-             (simulator-internal).</p>
+             fire at {{card:nano.fire-off}} on the same simulated fire scenarios: the adapter
+             is the fire reading.</p>
         </div>
 
         <h3 class="wm-subhead">The fire sensor-reading adapter.</h3>
         <p>The same routed design as on Wave Pico, trained for this base. It reads a fire
-           site&rsquo;s sensor frame.</p>
+           site&rsquo;s sensor frame. Tested two ways: simulated fire scenarios with known
+           answers, and the served build. It has not been read on real site data yet.</p>
         <ol class="wm-readouts wm-readouts--fire">
-          <li class="wm-readout" style="--v:{{card-num:nano.fire-full}}"><span class="wm-readout__label">Threat call / escalation, full sensor suite and without a camera</span><b>{{card:nano.fire-full}}</b><span class="wm-readout__unit">simulator-internal</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{{card-ref:nano.fire-full}}</span></li>
-          <li class="wm-readout" style="--v:{{card-num:nano.fire-chem}}"><span class="wm-readout__label">Threat call / escalation, chemistry and thermal only</span><b>{{card:nano.fire-chem}}</b><span class="wm-readout__unit">simulator-internal</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{{card-ref:nano.fire-chem}}</span></li>
-          <li class="wm-readout" style="--v:{{card-num:nano.fire-gate}}"><span class="wm-readout__label">Gate lines passing, every gated configuration</span><b>{{card:nano.fire-gate}}</b><span class="wm-readout__unit">simulator-internal</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{{card-ref:nano.fire-gate}}</span></li>
+          <li class="wm-readout" style="--v:{{card-num:nano.fire-full}}"><span class="wm-readout__label">Threat call / escalation, full sensor suite and without a camera</span><b>{{card:nano.fire-full}}</b><span class="wm-readout__unit">simulated scenarios</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{{card-ref:nano.fire-full}}</span></li>
+          <li class="wm-readout" style="--v:{{card-num:nano.fire-chem}}"><span class="wm-readout__label">Threat call / escalation, chemistry and thermal only</span><b>{{card:nano.fire-chem}}</b><span class="wm-readout__unit">simulated scenarios</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{{card-ref:nano.fire-chem}}</span></li>
+          <li class="wm-readout" style="--v:{{card-num:nano.fire-gate}}"><span class="wm-readout__label">Gate lines passing, every gated configuration</span><b>{{card:nano.fire-gate}}</b><span class="wm-readout__unit">simulated scenarios</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{{card-ref:nano.fire-gate}}</span></li>
         </ol>
         <p class="wm-compare">Routed through the stock llama.cpp server, threat call,
            escalation, source class, wind alignment and regime read
            {{card:nano.fire-routed}} with the adapter on, and {{card:nano.fire-off}} with
-           it off (simulator-internal) <span class="wm-ref">{{card-ref:nano.fire-routed}}</span>.</p>
+           it off, on the simulated fire scenarios <span class="wm-ref">{{card-ref:nano.fire-routed}}</span>.</p>
 
         <div id="decision">
           <h3 class="wm-subhead">The fire-decision controller adapter.</h3>
@@ -270,14 +271,16 @@ Orange County, California.</pre></div>
              the controller&rsquo;s tool calls, calls a calculator for sizing, names every
              input that did not report, answers a person&rsquo;s override request, and takes
              no action of its own once a person acknowledges. Its answers are inputs to the
-             controller; the site owner sets what the controller may do.</p>
+             controller; the site owner sets what the controller may do. Tested three ways:
+             simulated fire scenarios with rule-checked answers, the served builds, and recorded
+             camera readings from one installed site.</p>
           <ol class="wm-readouts wm-readouts--fire wm-readouts--decision">
-            <li class="wm-readout" style="--v:{{card-num:nano.fd-fusion}}"><span class="wm-readout__label">Fusion of camera, chemistry and wind</span><b>{{card:nano.fd-fusion}}</b><span class="wm-readout__unit">simulator-internal plus one installed stream</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{{card-ref:nano.fd-fusion}}</span></li>
-            <li class="wm-readout" style="--v:{{card-num:nano.fd-plans}}"><span class="wm-readout__label">Tool plans</span><b>{{card:nano.fd-plans}}</b><span class="wm-readout__unit">simulator-internal plus one installed stream</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{{card-ref:nano.fd-plans}}</span></li>
-            <li class="wm-readout" style="--v:{{card-num:nano.fd-calc}}"><span class="wm-readout__label">Calculator tool calls</span><b>{{card:nano.fd-calc}}</b><span class="wm-readout__unit">simulator-internal plus one installed stream</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{{card-ref:nano.fd-calc}}</span></li>
-            <li class="wm-readout" style="--v:{{card-num:nano.fd-missing}}"><span class="wm-readout__label">Missing inputs named</span><b>{{card:nano.fd-missing}}</b><span class="wm-readout__unit">simulator-internal plus one installed stream</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{{card-ref:nano.fd-missing}}</span></li>
-            <li class="wm-readout" style="--v:{{card-num:nano.fd-override}}"><span class="wm-readout__label">Override requests</span><b>{{card:nano.fd-override}}</b><span class="wm-readout__unit">simulator-internal plus one installed stream</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{{card-ref:nano.fd-override}}</span></li>
-            <li class="wm-readout" style="--v:{{card-num:nano.fd-handoff}}"><span class="wm-readout__label">Acknowledgement handoff</span><b>{{card:nano.fd-handoff}}</b><span class="wm-readout__unit">simulator-internal plus one installed stream</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{{card-ref:nano.fd-handoff}}</span></li>
+            <li class="wm-readout" style="--v:{{card-num:nano.fd-fusion}}"><span class="wm-readout__label">Fusion of camera, chemistry and wind</span><b>{{card:nano.fd-fusion}}</b><span class="wm-readout__unit">simulated fire scenarios, rule-checked</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{{card-ref:nano.fd-fusion}}</span></li>
+            <li class="wm-readout" style="--v:{{card-num:nano.fd-plans}}"><span class="wm-readout__label">Tool plans</span><b>{{card:nano.fd-plans}}</b><span class="wm-readout__unit">simulated fire scenarios, rule-checked</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{{card-ref:nano.fd-plans}}</span></li>
+            <li class="wm-readout" style="--v:{{card-num:nano.fd-calc}}"><span class="wm-readout__label">Calculator tool calls</span><b>{{card:nano.fd-calc}}</b><span class="wm-readout__unit">simulated fire scenarios, rule-checked</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{{card-ref:nano.fd-calc}}</span></li>
+            <li class="wm-readout" style="--v:{{card-num:nano.fd-missing}}"><span class="wm-readout__label">Missing inputs named</span><b>{{card:nano.fd-missing}}</b><span class="wm-readout__unit">simulated fire scenarios, rule-checked</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{{card-ref:nano.fd-missing}}</span></li>
+            <li class="wm-readout" style="--v:{{card-num:nano.fd-override}}"><span class="wm-readout__label">Override requests</span><b>{{card:nano.fd-override}}</b><span class="wm-readout__unit">simulated fire scenarios, rule-checked</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{{card-ref:nano.fd-override}}</span></li>
+            <li class="wm-readout" style="--v:{{card-num:nano.fd-handoff}}"><span class="wm-readout__label">Acknowledgement handoff</span><b>{{card:nano.fd-handoff}}</b><span class="wm-readout__unit">simulated fire scenarios, rule-checked</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{{card-ref:nano.fd-handoff}}</span></li>
           </ol>
           <p class="wm-compare"><b>The safety rows.</b> It complied with {{card:nano.fd-unsafe}}
              override requests it should refuse, refused none it should allow, and took no
@@ -285,16 +288,16 @@ Orange County, California.</pre></div>
              {{card:nano.fd-macro}}; served on the Q6_K / Q5_K_M / Q4_K_M builds
              {{card:nano.fd-served}}. The two measured decision edges, the strong-chemistry
              line on PM2.5 and the camera-persistence edge, hold on every build at
-             {{card:nano.fd-edges}}. Simulator-internal plus one installed stream
+             {{card:nano.fd-edges}}. All on simulated fire scenarios with rule-checked answers
              <span class="wm-ref">{{card-ref:nano.fd-macro}}</span>.</p>
-          <p class="wm-compare"><b>On real camera ticks</b> from one installed stream, read
-             through the controller&rsquo;s own prompt builder: persistent and quiet ticks
+          <p class="wm-compare"><b>On real camera ticks:</b> recorded camera readings from one installed site, six
+             cameras with the other sensor feeds empty, read through the controller&rsquo;s own
+             prompt builder on the served build: persistent and quiet ticks
              read {{card:nano.fd-real-steady}}. A single camera tick reads
              {{card:nano.fd-real-single}} strict, and the misses are right decisions with an
              incomplete missing list when the temperature feed is null. A camera margin that
              fell below the line over-alarms {{card:nano.fd-real-falling}} of the time. A
-             retrain that covers both shapes is in training. Simulator-internal plus one
-             installed stream <span class="wm-ref">{{card-ref:nano.fd-real-single}}</span>.</p>
+             retrain that covers both shapes is in training <span class="wm-ref">{{card-ref:nano.fd-real-single}}</span>.</p>
           <p class="wm-aside">The adapter reads a tick by position, so the caller writes every
              tick in one fixed key order before it asks.</p>
         </div>
@@ -306,7 +309,9 @@ Orange County, California.</pre></div>
         <div class="section__head section__head--left">
           <span class="sectionno">&sect;7 / VISION</span>
           <h2>Nano-VL: one camera frame, confirmed for smoke.</h2>
-          <p>{{card:nano.vlName}} is Wave Nano with a vision encoder and a connector. It reads
+          <p>{{card:nano.vlName}} is Wave Nano with a vision encoder and a connector,
+             {{card:nano.vlSize}} parameters in all, counted from the tensors of the two
+             shipped files (the text model and the vision projector). It reads
              single frames: one picture in, smoke or no smoke out. The camera detector
              detects; this module confirms and describes. One seed so far.</p>
         </div>
