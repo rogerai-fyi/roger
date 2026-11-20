@@ -82,3 +82,31 @@ func TestBuiltinNotesKeepOutwardCopyRules(t *testing.T) {
 		}
 	}
 }
+
+// The two fire models are specialized models behind a market guard, not chat models (lab gate,
+// 2026-11-20). Their notes must say so, say what input they accept, say they are decision
+// support and not a listed fire alarm or a substitute for emergency services, and carry their
+// measured numbers with the date they were read.
+func TestFireNotesStateSpecializedInputAndDecisionSupport(t *testing.T) {
+	ns, err := Builtin()
+	require.NoError(t, err)
+	date := regexp.MustCompile(`\b20\d\d-\d\d-\d\d\b`)
+	number := regexp.MustCompile(`\d+(\.\d+)?%|\b0\.\d+\b`)
+	for id, input := range map[string]*regexp.Regexp{
+		"wave-nano-fire-controller": regexp.MustCompile(`(?i)\btick\b`),
+		"wave-nano-fire-vision":     regexp.MustCompile(`(?i)\bimage\b.*\byes or no\b`),
+	} {
+		n := ns[NoteID(id)]
+		require.Regexp(t, `(?i)\bnot (a )?chat\b`, n.Summary, id)
+		require.Regexp(t, input, n.Summary, id)
+		require.Regexp(t, `(?i)decision support`, n.NotFor, id)
+		require.Regexp(t, `(?i)fire alarm`, n.NotFor, id)
+		require.Regexp(t, `(?i)emergency`, n.NotFor, id)
+		if id == "wave-nano-fire-vision" { // the module does not carry over to cameras unlike its training ones yet
+			require.Regexp(t, `(?i)cameras unlike`, n.NotFor, id)
+			require.Regexp(t, `(?i)license`, n.NotFor, id)
+		}
+		require.Regexp(t, number, n.BestAt, id)
+		require.Regexp(t, date, n.BestAt, id)
+	}
+}
