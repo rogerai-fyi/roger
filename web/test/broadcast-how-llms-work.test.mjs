@@ -159,11 +159,11 @@ test("how-llms: every Wave claim says what wave-status.json says, and no more", 
   const html = read(PAGE);
   const body = text(mainOf(html));
   const pico = tier("pico"), nano = tier("nano");
-  assert.equal(pico.stage, "on-air"); assert.equal(nano.stage, "gated");   // founder ruling 2026-10-21
+  assert.equal(pico.stage, "on-air"); assert.equal(nano.stage, "on-air");   // founder confirmation 2026-11-19
   assert.match(body, /Wave Pico is on air, which means/, "the page states Pico's stage");
   assert.ok(body.includes(ledger.stages["on-air"]), "and quotes the ledger's definition of that stage, verbatim");
-  assert.match(body, /Wave Nano is gated, which means/, "the page states Nano's stage");
-  assert.ok(body.includes(ledger.stages.gated), "and quotes the ledger's definition of that stage, verbatim");
+  assert.match(body, /Wave Nano is on air, which means/, "the page states Nano's stage");
+  assert.ok(!body.includes(ledger.stages.gated), "Nano no longer carries the gated definition (no tier on this page is quoted as gated)");
   assert.ok(html.includes(`<span>${pico.onAirBand}</span>`), "the sign-off names the ledger's band");
   assert.ok(ledger.tiers.every((t) => !t.publicCheckpoint), "nothing is released, so the page claims no download");
   assert.doesNotMatch(body, /open weights|download (the )?weights|weights are (out|available|published)/i);
@@ -171,6 +171,9 @@ test("how-llms: every Wave claim says what wave-status.json says, and no more", 
   const rows = [...html.matchAll(/<li class="llm-ladder__row[^"]*"><span class="llm-ladder__name">Wave (\w+)<\/span>[\s\S]*?<span class="llm-ladder__size">([^<]*)<\/span><span class="llm-ladder__fit">[^<]*<em>([^<]*)<\/em>/g)]
     .map((m) => ({ name: m[1].toLowerCase(), size: m[2].replace(/&ndash;/g, "\u2013").replace(/&gt;/g, ">"), stage: m[3].replace(/ /g, "-") }));
   const ladder = ledger.tiers.filter((t) => t.kind === "tier");
+  // a tier on air is drawn as live, exactly the tiers the ledger has on air
+  const liveRows = [...html.matchAll(/<li class="llm-ladder__row llm-ladder__row--live"><span class="llm-ladder__name">Wave (\w+)/g)].map((m) => m[1].toLowerCase());
+  assert.deepEqual(liveRows, ladder.filter((t) => t.stage === "on-air" || t.stage === "released").map((t) => t.id), "live rows are the on-air tiers");
   assert.deepEqual(rows.map((r) => r.name), ladder.map((t) => t.id), "every ladder tier, in order");
   rows.forEach((r, i) => {
     assert.equal(r.size, ladder[i].size, `${r.name}: the ledger's size`);

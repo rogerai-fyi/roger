@@ -230,3 +230,16 @@
   .wm-readout > .wm-ref { grid-column: 2; grid-row: 2; }
   .wm-plate dl > div { grid-template-columns: 64px minmax(0, 1fr); }
 }
+
+/* The Nano page: the release parts under the purpose split, and the vision module's data credit
+   (its licence asks for it; small and quiet, but on the page). */
+.wm-parts { margin-top: var(--s-10); }
+.wm-credit { max-width: 72ch; margin: var(--s-6) 0 0; color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body); }
+.wm-subhead { margin: var(--s-10) 0 var(--s-2); }
+/* Fire-decision readouts carry a long scope unit ("simulated fire scenarios, rule-checked");
+   on a phone it takes its own row so it never runs into the R-number. */
+@media (max-width: 640px) {
+  .wm-readouts--decision .wm-readout__unit { grid-column: 1 / -1; grid-row: 2; white-space: normal; min-width: 0; }
+  .wm-readouts--decision .wm-readout > .wm-meter { grid-row: 3; }
+  .wm-readouts--decision .wm-readout > .wm-ref { grid-column: 1 / -1; grid-row: 4; }
+}

@@ -18,10 +18,10 @@
              and the sprinkler controller&rsquo;s state. Wave Nano would sit on an edge box
              with a camera smoke detector and read the whole site. A larger tier would
              weigh all of it.</p>
-          <p><b>What is measured, and where.</b> The routed fire adapters and the
-             fire-site rollup are measured in our simulator, so every fire number on this
-             page is simulator-internal. False-alarm rates at a real site over months are
-             not measured yet, and nothing here is a claim about suppression.</p>
+          <p><b>What is measured, and where.</b> Each fire number on this page sits beside
+             a note on how it was tested, in the adapter section. False-alarm rates at a real
+             site over months are not measured yet, and nothing here is a claim about
+             suppression.</p>
           <p><b>Pre-wet is the owner&rsquo;s rule.</b> The owner arms it in advance. The
              controller, not the model, executes that owner-armed rule, with its own abort
              window, and only after the escalation ladder has been tried and no person

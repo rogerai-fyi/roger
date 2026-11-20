@@ -1,6 +1,6 @@
 <script>
   // Wave Pico - a sensor reader that refuses what it cannot read
-  // Ported from web/src/research-wave-pico.html (2026-10-29); the copy is the legacy copy.
+  // Ported from web/src/research-wave-pico.html (2026-10-29); copy updated 2026-11-19 (founder review).
   import { siteHead, CSS_SHARED, CSS_ACCOUNT } from "#lib/head.js";
   import { content } from "#lib/content.js";
   import Footer from "#lib/ui/Footer.svelte";
@@ -26,7 +26,7 @@
      mesh explainer and the wildfire watch are shared partials (wave-mesh.html,
      wave-firewatch.html), the same on every model page.
      Outward-copy rules: author RogerAI Labs; no data sources or training methods; no hosting
-     or operational detail; fire numbers are simulator-internal every time; not on Hugging Face. 
+     or operational detail; every fire number says how it was tested; not on Hugging Face. 
      (the page's doc comment, from the legacy file; its sheets are the css: list above) -->
   <Rail head='RogerAI &middot; Wave Pico' rev='Rev. 2026.10 &middot; LABS' />
 
@@ -211,12 +211,15 @@
           <p>The fire adapter is a {@html facts.card('pico.adapter-size')} LoRA adapter for this base. The
              server loads it beside the model and switches it on only for the requests that
              ask for it. It is never merged into the base, so the industrial reading stays
-             exactly as measured above.</p>
+             exactly as measured above. Tested two ways: simulated fire scenarios with known
+             answers, and the MLX build of the adapter checked item by item against the
+             reference ({@html facts.card('pico.fire-mlx')} agreement). It has not been read on real site
+             data yet.</p>
         </div>
         <ol class="wm-readouts wm-readouts--fire">
-          <li class="wm-readout" style="--v:{facts.t.cardNum('pico.fire-full')}"><span class="wm-readout__label">Threat call / escalation, full sensor suite</span><b>{@html facts.card('pico.fire-full')}</b><span class="wm-readout__unit">simulator-internal</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{@html facts.cardRef('pico.fire-full')}</span></li>
-          <li class="wm-readout" style="--v:{facts.t.cardNum('pico.fire-nocam')}"><span class="wm-readout__label">Threat call / escalation, without a camera</span><b>{@html facts.card('pico.fire-nocam')}</b><span class="wm-readout__unit">simulator-internal</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{@html facts.cardRef('pico.fire-nocam')}</span></li>
-          <li class="wm-readout" style="--v:{facts.t.cardNum('pico.fire-gate')}"><span class="wm-readout__label">Gate lines passing, in each configuration</span><b>{@html facts.card('pico.fire-gate')}</b><span class="wm-readout__unit">simulator-internal</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{@html facts.cardRef('pico.fire-gate')}</span></li>
+          <li class="wm-readout" style="--v:{facts.t.cardNum('pico.fire-full')}"><span class="wm-readout__label">Threat call / escalation, full sensor suite</span><b>{@html facts.card('pico.fire-full')}</b><span class="wm-readout__unit">simulated scenarios</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{@html facts.cardRef('pico.fire-full')}</span></li>
+          <li class="wm-readout" style="--v:{facts.t.cardNum('pico.fire-nocam')}"><span class="wm-readout__label">Threat call / escalation, without a camera</span><b>{@html facts.card('pico.fire-nocam')}</b><span class="wm-readout__unit">simulated scenarios</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{@html facts.cardRef('pico.fire-nocam')}</span></li>
+          <li class="wm-readout" style="--v:{facts.t.cardNum('pico.fire-gate')}"><span class="wm-readout__label">Gate lines passing, in each configuration</span><b>{@html facts.card('pico.fire-gate')}</b><span class="wm-readout__unit">simulated scenarios</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{@html facts.cardRef('pico.fire-gate')}</span></li>
         </ol>
       </div>
     </section>

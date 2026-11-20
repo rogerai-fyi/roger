@@ -1,6 +1,6 @@
 <script>
   // Wave Nano - one model that reads telemetry, a fleet, a fire site, and talks
-  // Ported from web/src/research-wave-nano.html (2026-10-29); the copy is the legacy copy.
+  // Ported from web/src/research-wave-nano.html (2026-10-29); copy updated 2026-11-19 (founder review).
   import { siteHead, CSS_SHARED, CSS_ACCOUNT } from "#lib/head.js";
   import { content } from "#lib/content.js";
   import Footer from "#lib/ui/Footer.svelte";
@@ -23,11 +23,11 @@
 <!-- WAVE NANO, the model page (Nano-Instruct; the vision module Nano-VL is §7 of this page,
      founder ruling 2026-10-20). Every number renders from src/data/model-cards.json through a
      card token, each with its R-number and date in the Measured footnote. Served
-     status renders from wave-status.json: while Nano has no on-air band this page says it is
-     not on the band yet and offers no `roger use` command for it (test/model-pages.test.mjs).
+     status renders from wave-status.json: Nano is on air (founder confirmation 2026-11-19) and
+     the run command names its band from that file (test/model-pages.test.mjs).
      The mesh explainer and the wildfire watch are the shared partials. 
      (the page's doc comment, from the legacy file; its sheets are the css: list above) -->
-  <Rail head='RogerAI &middot; Wave Nano' rev='Rev. 2026.10 &middot; LABS' />
+  <Rail head='RogerAI &middot; Wave Nano' rev='Rev. 2026.11 &middot; LABS' />
 
   <Nav variant='marketing' home='/' current='research' />
 
@@ -58,7 +58,7 @@
           <span class="tint-panel__tag">At a glance</span>
           <dl>
             <div><dt>Status</dt><dd><i class="model-lamp" data-air="{facts.t.waveAir('nano')}" aria-hidden="true"></i>{@html facts.waveStage('nano')}</dd></div>
-            <div><dt>Band</dt><dd>not on the band yet</dd></div>
+            <div><dt>Band</dt><dd>{@html facts.waveBand('nano')}, free</dd></div>
             <div><dt>Size</dt><dd>{@html facts.card('nano.size')} parameters, from scratch</dd></div>
             <div><dt>Vision</dt><dd>{@html facts.card('nano.vlName')}, {@html facts.card('nano.vlSize')} in all</dd></div>
             <div><dt>Gate</dt><dd>answers {@html facts.card('nano.gate-accept')} of real work at {@html facts.card('nano.gate-precision')} precision</dd></div>
@@ -104,6 +104,10 @@
             <ul class="wm-list wm-list--uses">{@html facts.cardList('nano.uses')}</ul>
           </div>
         </div>
+        <div class="wm-parts">
+          <span class="research-kicker">WHAT THE RELEASE CARRIES</span>
+          <ul class="wm-list wm-list--parts">{@html facts.cardList('nano.parts')}</ul>
+        </div>
       </div>
     </section>
 
@@ -133,10 +137,14 @@ Orange County, California.</pre></div>
       <div class="wrap">
         <div class="section__head section__head--left">
           <span class="sectionno">&sect;3 / RUN</span>
-          <h2>Not on the band yet.</h2>
-          <p>Wave Nano is not on the band yet, and its weights are not published. When it
-             goes on air it is one command like every band; until then the CLI shows what is
-             on air today, Wave Pico included.</p>
+          <h2>Free on the band, one command away.</h2>
+          <p>Wave Nano is on air as three free bands, each serving the release files measured
+             on this page: <code>{@html facts.waveBand('nano')}</code> for chat,
+             <code>wave-nano-fire-controller</code> for the fire-decision controller adapter, and
+             <code>wave-nano-fire-vision</code> for the vision fire-confirm module. Its weights
+             are not published. Install the CLI, then tune in: <code>roger use</code> opens a
+             local OpenAI-compatible endpoint on your own machine. A caller of the fire
+             controller writes each tick in one fixed key order (&sect;6).</p>
         </div>
         <div class="wm-run">
           <div class="install">
@@ -144,9 +152,9 @@ Orange County, California.</pre></div>
             <InstallBox id='nanoInstall'>curl <span class="tok">-fsSL</span> https://rogerai.fm/install.sh <span class="tok">| sh</span></InstallBox>
           </div>
           <div class="install">
-            <span class="fig mono">2 &middot; See what is on air</span>
-            <InstallBox id='nanoSearch' oslock='any' label='Copy roger search command to clipboard'>roger search wave</InstallBox>
-            <p class="install__meta"><span class="research-kicker">Wave Nano</span> <i class="model-lamp" data-air="{facts.t.waveAir('nano')}" aria-hidden="true"></i> {@html facts.waveStage('nano')}</p>
+            <span class="fig mono">2 &middot; Tune in to Wave Nano</span>
+            <InstallBox id='nanoUse' oslock='any' label='Copy roger use command to clipboard'>roger use {facts.t.waveBand('nano')}</InstallBox>
+            <p class="install__meta"><code>roger search wave</code> lists every Wave band on air.</p>
           </div>
         </div>
 
@@ -155,7 +163,7 @@ Orange County, California.</pre></div>
           <p class="wm-runs__size"><span class="research-kicker">GGUF on disk</span>
             <span class="wm-span" style="--lo:{facts.t.cardLo('nano.gguf')};--hi:{facts.t.cardHi('nano.gguf')};--max:4" aria-hidden="true"><i></i></span>
             <b>{@html facts.card('nano.gguf')}</b> <span class="wm-ref">{@html facts.cardRef('nano.gguf')}</span></p>
-          <figcaption class="fig mono" id="wm-runs-cap">FIG. 1 - Where the release build runs. A filled lamp runs today; a ring is owed. f16, Q6_K and Q5_K_M reproduce the reference {@html facts.card('nano.gguf-agree')} on the stock llama.cpp server ({@html facts.cardRef('nano.gguf-agree')}).</figcaption>
+          <figcaption class="fig mono" id="wm-runs-cap">FIG. 1 - Where the release build runs. A filled lamp runs today; a ring is owed. Served through llama.cpp, the Q6_K build reads {@html facts.card('nano.gguf-agree')} ({@html facts.cardRef('nano.gguf-agree')}).</figcaption>
         </figure>
       </div>
     </section>
@@ -183,6 +191,8 @@ Orange County, California.</pre></div>
           <dl class="wm-gate__read">
             <div><dt>Real work it answers</dt><dd>{@html facts.card('nano.gate-accept')}</dd></div>
             <div><dt>Precision when it answers</dt><dd>{@html facts.card('nano.gate-precision')}</dd></div>
+            <div><dt>Worst-class coverage</dt><dd>{@html facts.card('nano.gate-coverage')}</dd></div>
+            <div><dt>Out-of-scope items refused</dt><dd>{@html facts.card('nano.gate-oos')}</dd></div>
             <div><dt>Fault leaks on out-of-scope input</dt><dd>{@html facts.card('nano.leak')}</dd></div>
           </dl>
           <figcaption class="fig mono" id="wm-gate-cap">FIG. 2 - The escalation gate, calibrated per release: a bar of real work, ordered by the model&rsquo;s own confidence. {@html facts.cardRef('nano.gate-accept')}.</figcaption>
@@ -192,11 +202,12 @@ Orange County, California.</pre></div>
           <ol class="wm-readouts">
             <li class="wm-readout" style="--v:{facts.t.cardNum('nano.t01')}"><span class="wm-readout__label">Fault identification</span><b>{@html facts.card('nano.t01')}</b><span class="wm-readout__unit">macro-F1</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{@html facts.cardRef('nano.t01')}</span></li>
             <li class="wm-readout" style="--v:{facts.t.cardNum('nano.t02')}"><span class="wm-readout__label">Process state</span><b>{@html facts.card('nano.t02')}</b><span class="wm-readout__unit">macro-F1</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{@html facts.cardRef('nano.t02')}</span></li>
+            <li class="wm-readout" style="--v:{facts.t.cardNum('nano.t05')}"><span class="wm-readout__label">Tag truthfulness</span><b>{@html facts.card('nano.t05')}</b><span class="wm-readout__unit">macro-F1</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{@html facts.cardRef('nano.t05')}</span></li>
             <li class="wm-readout" style="--v:{facts.t.cardNum('nano.general')}"><span class="wm-readout__label">General knowledge</span><b>{@html facts.card('nano.general')}</b><span class="wm-readout__unit">macro</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{@html facts.cardRef('nano.general')}</span></li>
             <li class="wm-readout" style="--v:{facts.t.cardNum('nano.mesh')}"><span class="wm-readout__label">Fleet reading, IEB-Mesh</span><b>{@html facts.card('nano.mesh')}</b><span class="wm-readout__unit">macro</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{@html facts.cardRef('nano.mesh')}</span></li>
-            <li class="wm-readout" style="--v:{facts.t.cardNum('nano.t11')}"><span class="wm-readout__label">Classifier reading, T11a / T11b</span><b>{@html facts.card('nano.t11')}</b><span class="wm-readout__unit">T11a under its floor</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{@html facts.cardRef('nano.t11')}</span></li>
+            <li class="wm-readout" style="--v:{facts.t.cardNum('nano.t11')}"><span class="wm-readout__label">Classifier reading, T11a / T11b</span><b>{@html facts.card('nano.t11')}</b><span class="wm-readout__unit">T11a over its floor</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{@html facts.cardRef('nano.t11')}</span></li>
             <li class="wm-readout" data-better="lower" style="--v:{facts.t.cardNum('nano.dup')}"><span class="wm-readout__label">Duplicated-line frames answered wrong</span><b>{@html facts.card('nano.dup')}</b><span class="wm-readout__unit">lower is better</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{@html facts.cardRef('nano.dup')}</span></li>
-            <li class="wm-readout" style="--v:{facts.t.cardNum('nano.t17')}"><span class="wm-readout__label">Fire-site rollup (T17): state / action / deciding input / inconsistency, previous build</span><b>{@html facts.card('nano.t17')}</b><span class="wm-readout__unit">simulator-internal</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{@html facts.cardRef('nano.t17')}</span></li>
+            <li class="wm-readout" style="--v:{facts.t.cardNum('nano.t17')}"><span class="wm-readout__label">Fire-site rollup (T17): state / action / deciding input / inconsistency, an earlier build</span><b>{@html facts.card('nano.t17')}</b><span class="wm-readout__unit">simulated scenarios</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{@html facts.cardRef('nano.t17')}</span></li>
           </ol>
           <figcaption class="fig mono" id="wm-panel-cap">FIG. 3 - The readouts, each on a scale of 0 to 100. Each bar is the score; the red tick marks it.</figcaption>
         </figure>
@@ -208,6 +219,25 @@ Orange County, California.</pre></div>
            {@html facts.card('nano.leak')}, and answers {@html facts.card('nano.cmp-dup')} of duplicated-line frames
            wrong against Nano&rsquo;s {@html facts.card('nano.dup')}. The comparator was read against the
            earlier Nano build, under the same protocol.</p>
+
+        <figure class="figure figure--plate wm-standard" aria-labelledby="wm-std-cap">
+          <div class="tier-scroll">
+            <table class="data-table">
+              <thead>
+                <tr><th scope="col">Public suite, read on the release build</th><th scope="col">Wave Nano</th><th scope="col">Six open 1 to 2B models, same instrument</th></tr>
+              </thead>
+              <tbody>
+                <tr><th scope="row">Five-task macro (piqa, ARC, WinoGrande, OpenBookQA)</th><td>{@html facts.card('nano.std-macro')}</td><td>{@html facts.card('nano.std-macro-class')}</td></tr>
+                <tr><th scope="row">HellaSwag</th><td>{@html facts.card('nano.std-hellaswag')}</td><td>{@html facts.card('nano.std-hellaswag-class')}</td></tr>
+                <tr><th scope="row">MMLU, 5-shot</th><td>{@html facts.card('nano.std-mmlu')}</td><td>{@html facts.card('nano.std-mmlu-class')}</td></tr>
+                <tr><th scope="row">GSM8K, 5-shot strict</th><td>{@html facts.card('nano.std-gsm8k')}</td><td>{@html facts.card('nano.std-gsm8k-class')} (four measured)</td></tr>
+                <tr><th scope="row">IFEval, prompt-level strict</th><td>{@html facts.card('nano.std-ifeval')}</td><td>{@html facts.card('nano.std-ifeval-class')} (one measured)</td></tr>
+                <tr><th scope="row">TruthfulQA MC2</th><td>{@html facts.card('nano.std-truthfulqa')}</td><td>{@html facts.card('nano.std-truthfulqa-class')}</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <figcaption class="fig mono" id="wm-std-cap">FIG. 4 - The public small-model suite, every row read here on one day on one instrument, nothing quoted from a model card. On this suite Wave Nano is last in its size class on every task but TruthfulQA, where it sits inside the class range, and at chance on MMLU and GSM8K; the industrial readouts above are where it leads. {@html facts.cardRef('nano.std-macro')}.</figcaption>
+        </figure>
 
         <aside class="wm-footnote" aria-labelledby="wm-notes-head">
           <span class="research-kicker" id="wm-notes-head">Measured</span>
@@ -221,8 +251,9 @@ Orange County, California.</pre></div>
         <div class="section__head section__head--left">
           <span class="sectionno">&sect;5 / LIMITS</span>
           <h2>Where it stops.</h2>
-          <p>Said plainly. One of them, sizing arithmetic, scores {@html facts.card('nano.new-skills')}
-             on this build <span class="wm-ref">{@html facts.cardRef('nano.new-skills')}</span>.</p>
+          <p>Said plainly. One of them, sizing arithmetic without the calculator tool, scores
+             {@html facts.card('nano.fd-sizing')} on the fire-decision items, which are simulated fire scenarios
+             with rule-checked answers <span class="wm-ref">{@html facts.cardRef('nano.fd-sizing')}</span>.</p>
         </div>
         <ul class="wm-limits">{@html facts.cardList('nano.limits')}</ul>
       </div>
@@ -232,16 +263,64 @@ Orange County, California.</pre></div>
       <div class="wrap">
         <div class="section__head section__head--left">
           <span class="sectionno">&sect;6 / ADAPTER</span>
-          <h2>The fire adapter, routed per request.</h2>
-          <p>The same routed design as on Wave Pico, trained for this base. Through the stock
-             llama.cpp server the adapter reproduces the reference read, and with it switched
-             off the base reads fire at {@html facts.card('nano.fire-off')}: the adapter is the fire
-             reading, and the base is untouched (simulator-internal).</p>
+          <h2>Two fire adapters, routed per request.</h2>
+          <p>Each adapter is selected per request on the same base, so the base&rsquo;s
+             industrial numbers are untouched. With an adapter switched off, the base reads
+             fire at {@html facts.card('nano.fire-off')} on the same simulated fire scenarios: the adapter
+             is the fire reading.</p>
         </div>
+
+        <h3 class="wm-subhead">The fire sensor-reading adapter.</h3>
+        <p>The same routed design as on Wave Pico, trained for this base. It reads a fire
+           site&rsquo;s sensor frame. Tested two ways: simulated fire scenarios with known
+           answers, and the served build. It has not been read on real site data yet.</p>
         <ol class="wm-readouts wm-readouts--fire">
-          <li class="wm-readout" style="--v:{facts.t.cardNum('nano.fire-gated')}"><span class="wm-readout__label">Threat call / escalation, gated configurations</span><b>{@html facts.card('nano.fire-gated')}</b><span class="wm-readout__unit">simulator-internal</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{@html facts.cardRef('nano.fire-gated')}</span></li>
-          <li class="wm-readout" style="--v:{facts.t.cardNum('nano.fire-gate')}"><span class="wm-readout__label">Gate lines passing</span><b>{@html facts.card('nano.fire-gate')}</b><span class="wm-readout__unit">simulator-internal</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{@html facts.cardRef('nano.fire-gate')}</span></li>
+          <li class="wm-readout" style="--v:{facts.t.cardNum('nano.fire-full')}"><span class="wm-readout__label">Threat call / escalation, full sensor suite and without a camera</span><b>{@html facts.card('nano.fire-full')}</b><span class="wm-readout__unit">simulated scenarios</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{@html facts.cardRef('nano.fire-full')}</span></li>
+          <li class="wm-readout" style="--v:{facts.t.cardNum('nano.fire-chem')}"><span class="wm-readout__label">Threat call / escalation, chemistry and thermal only</span><b>{@html facts.card('nano.fire-chem')}</b><span class="wm-readout__unit">simulated scenarios</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{@html facts.cardRef('nano.fire-chem')}</span></li>
+          <li class="wm-readout" style="--v:{facts.t.cardNum('nano.fire-gate')}"><span class="wm-readout__label">Gate lines passing, every gated configuration</span><b>{@html facts.card('nano.fire-gate')}</b><span class="wm-readout__unit">simulated scenarios</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{@html facts.cardRef('nano.fire-gate')}</span></li>
         </ol>
+        <p class="wm-compare">Routed through the stock llama.cpp server, threat call,
+           escalation, source class, wind alignment and regime read
+           {@html facts.card('nano.fire-routed')} with the adapter on, and {@html facts.card('nano.fire-off')} with
+           it off, on the simulated fire scenarios <span class="wm-ref">{@html facts.cardRef('nano.fire-routed')}</span>.</p>
+
+        <div id="decision">
+          <h3 class="wm-subhead">The fire-decision controller adapter.</h3>
+          <p>It gives the site controller a decision from camera, chemistry and wind, plans
+             the controller&rsquo;s tool calls, calls a calculator for sizing, names every
+             input that did not report, answers a person&rsquo;s override request, and takes
+             no action of its own once a person acknowledges. Its answers are inputs to the
+             controller; the site owner sets what the controller may do. Tested three ways:
+             simulated fire scenarios with rule-checked answers, the served builds, and recorded
+             camera readings from one installed site.</p>
+          <ol class="wm-readouts wm-readouts--fire wm-readouts--decision">
+            <li class="wm-readout" style="--v:{facts.t.cardNum('nano.fd-fusion')}"><span class="wm-readout__label">Fusion of camera, chemistry and wind</span><b>{@html facts.card('nano.fd-fusion')}</b><span class="wm-readout__unit">simulated fire scenarios, rule-checked</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{@html facts.cardRef('nano.fd-fusion')}</span></li>
+            <li class="wm-readout" style="--v:{facts.t.cardNum('nano.fd-plans')}"><span class="wm-readout__label">Tool plans</span><b>{@html facts.card('nano.fd-plans')}</b><span class="wm-readout__unit">simulated fire scenarios, rule-checked</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{@html facts.cardRef('nano.fd-plans')}</span></li>
+            <li class="wm-readout" style="--v:{facts.t.cardNum('nano.fd-calc')}"><span class="wm-readout__label">Calculator tool calls</span><b>{@html facts.card('nano.fd-calc')}</b><span class="wm-readout__unit">simulated fire scenarios, rule-checked</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{@html facts.cardRef('nano.fd-calc')}</span></li>
+            <li class="wm-readout" style="--v:{facts.t.cardNum('nano.fd-missing')}"><span class="wm-readout__label">Missing inputs named</span><b>{@html facts.card('nano.fd-missing')}</b><span class="wm-readout__unit">simulated fire scenarios, rule-checked</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{@html facts.cardRef('nano.fd-missing')}</span></li>
+            <li class="wm-readout" style="--v:{facts.t.cardNum('nano.fd-override')}"><span class="wm-readout__label">Override requests</span><b>{@html facts.card('nano.fd-override')}</b><span class="wm-readout__unit">simulated fire scenarios, rule-checked</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{@html facts.cardRef('nano.fd-override')}</span></li>
+            <li class="wm-readout" style="--v:{facts.t.cardNum('nano.fd-handoff')}"><span class="wm-readout__label">Acknowledgement handoff</span><b>{@html facts.card('nano.fd-handoff')}</b><span class="wm-readout__unit">simulated fire scenarios, rule-checked</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{@html facts.cardRef('nano.fd-handoff')}</span></li>
+          </ol>
+          <p class="wm-compare"><b>The safety rows.</b> It complied with {@html facts.card('nano.fd-unsafe')}
+             override requests it should refuse, refused none it should allow, and took no
+             action of its own after a person acknowledged. Macro over the seven families
+             {@html facts.card('nano.fd-macro')}; served on the Q6_K / Q5_K_M / Q4_K_M builds
+             {@html facts.card('nano.fd-served')}. The two measured decision edges, the strong-chemistry
+             line on PM2.5 and the camera-persistence edge, hold on every build at
+             {@html facts.card('nano.fd-edges')}. All on simulated fire scenarios with rule-checked answers
+             <span class="wm-ref">{@html facts.cardRef('nano.fd-macro')}</span>.</p>
+          <p class="wm-compare"><b>On real camera ticks:</b> recorded camera readings from one installed site, six
+             cameras with the other sensor feeds empty, read through the controller&rsquo;s own
+             prompt builder on the served build: persistent and quiet ticks
+             read {@html facts.card('nano.fd-real-steady')}. A single camera tick reads
+             {@html facts.card('nano.fd-real-single')} strict as served today: the misses are right decisions
+             with an incomplete missing list, caused by a start token the server adds by default.
+             With that token switched off the same ticks read {@html facts.card('nano.fd-real-single-nobos')}
+             <span class="wm-ref">{@html facts.cardRef('nano.fd-real-single-nobos')}</span>. A camera margin that
+             fell below the line over-alarms {@html facts.card('nano.fd-real-falling')} of the time <span class="wm-ref">{@html facts.cardRef('nano.fd-real-single')}</span>.</p>
+          <p class="wm-aside">The adapter reads a tick by position, so the caller writes every
+             tick in one fixed key order before it asks.</p>
+        </div>
       </div>
     </section>
 
@@ -249,26 +328,37 @@ Orange County, California.</pre></div>
       <div class="wrap">
         <div class="section__head section__head--left">
           <span class="sectionno">&sect;7 / VISION</span>
-          <h2>Nano-VL: one camera frame, read for smoke.</h2>
-          <p>{@html facts.card('nano.vlName')} is Wave Nano with a small vision encoder and a connector,
-             {@html facts.card('nano.vlSize')} parameters in all. It reads single frames: one picture in,
-             smoke or no smoke out, and it keeps Nano&rsquo;s telemetry reading.</p>
+          <h2>Nano-VL: one camera frame, confirmed for smoke.</h2>
+          <p>{@html facts.card('nano.vlName')} is Wave Nano with a vision encoder and a connector,
+             {@html facts.card('nano.vlSize')} parameters in all, counted from the tensors of the two
+             shipped files (the text model and the vision projector). It reads
+             single frames: one picture in, smoke or no smoke out. The camera detector
+             detects; this module confirms and describes. The numbers are the shipped build; a
+             second training seed of the same recipe read within 0.01 AUC of it on every list
+             (R.F75 addendum 4, 2026-10-26).</p>
         </div>
         <ol class="wm-readouts">
-          <li class="wm-readout wm-readout--range" style="--lo:{facts.t.cardLo('nano.vl-auc')};--hi:{facts.t.cardHi('nano.vl-auc')};--max:1"><span class="wm-readout__label">Smoke reading, AUC, three seeds</span><b>{@html facts.card('nano.vl-auc')}</b><span class="wm-readout__unit">scale 0 to 1</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{@html facts.cardRef('nano.vl-auc')}</span></li>
-          <li class="wm-readout wm-readout--range" data-better="lower" style="--lo:{facts.t.cardLo('nano.vl-fa')};--hi:{facts.t.cardHi('nano.vl-fa')};--max:100"><span class="wm-readout__label">False alarms on empty frames, at the field recall bar</span><b>{@html facts.card('nano.vl-fa')}</b><span class="wm-readout__unit">lower is better</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{@html facts.cardRef('nano.vl-fa')}</span></li>
-          <li class="wm-readout" style="--v:{facts.t.cardNum('nano.vl-text')}"><span class="wm-readout__label">Telemetry reading kept, sealed fault identification</span><b>{@html facts.card('nano.vl-text')}</b><span class="wm-readout__unit">macro-recall</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{@html facts.cardRef('nano.vl-text')}</span></li>
+          <li class="wm-readout wm-readout--range" style="--lo:{facts.t.cardLo('nano.vl-auc')};--hi:{facts.t.cardHi('nano.vl-auc')};--max:1"><span class="wm-readout__label">Smoke reading, held-out wide-area camera tiles, AUC</span><b>{@html facts.card('nano.vl-auc')}</b><span class="wm-readout__unit">scale 0 to 1</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{@html facts.cardRef('nano.vl-auc')}</span></li>
+          <li class="wm-readout wm-readout--range" data-better="lower" style="--lo:{facts.t.cardLo('nano.vl-fa')};--hi:{facts.t.cardHi('nano.vl-fa')};--max:100"><span class="wm-readout__label">False alarms on empty frames, wide-area tiles</span><b>{@html facts.card('nano.vl-fa')}</b><span class="wm-readout__unit">lower is better</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{@html facts.cardRef('nano.vl-fa')}</span></li>
+          <li class="wm-readout wm-readout--range" style="--lo:{facts.t.cardLo('nano.vl-second')};--hi:{facts.t.cardHi('nano.vl-second')};--max:1"><span class="wm-readout__label">Smoke reading, a second camera network, AUC</span><b>{@html facts.card('nano.vl-second')}</b><span class="wm-readout__unit">scale 0 to 1</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{@html facts.cardRef('nano.vl-second')}</span></li>
+          <li class="wm-readout wm-readout--range" style="--lo:{facts.t.cardLo('nano.vl-confirm')};--hi:{facts.t.cardHi('nano.vl-confirm')};--max:1"><span class="wm-readout__label">Confirmer on the camera detector&rsquo;s proposed crop, AUC</span><b>{@html facts.card('nano.vl-confirm')}</b><span class="wm-readout__unit">scale 0 to 1</span><i class="wm-meter" aria-hidden="true"></i><span class="wm-ref">{@html facts.cardRef('nano.vl-confirm')}</span></li>
         </ol>
         <div class="device-contract">
-          <p><b>How it was read.</b> On {@html facts.card('nano.vl-frames')} it never trained on, in
-             float32, the numerics a server computes in. Served through our llama.cpp
-             branch, its reads match the reference at a correlation of
-             {@html facts.card('nano.vl-served')} <span class="wm-ref">{@html facts.cardRef('nano.vl-served')}</span>.</p>
+          <p><b>How it was read.</b> On held-out frames, in float32, the numerics a server
+             computes in. A wide-area frame is read as tiles; one full frame reads
+             {@html facts.card('nano.vl-full')} where its tiles read {@html facts.card('nano.vl-auc')}. Served through
+             our llama.cpp branch, it reads {@html facts.card('nano.vl-served')} on the second network and
+             a full wide-area frame <span class="wm-ref">{@html facts.cardRef('nano.vl-served')}</span>.</p>
+          <p><b>With the detector.</b> The camera detector plus this confirmer reads
+             {@html facts.card('nano.vl-pair')} false alarms, where the detector alone has
+             {@html facts.card('nano.vl-det')} at the same recall
+             <span class="wm-ref">{@html facts.cardRef('nano.vl-pair')}</span>.</p>
           <p><b>A module, not a watch.</b> Nano-VL reads single frames. The full watch design
              adds persistence across frames and a per-camera baseline on top, and those are
              not part of these numbers.</p>
           <p><b>What it needs.</b> Our llama.cpp branch, until three fixes are upstream.</p>
         </div>
+        <p class="wm-credit">{@html facts.card('nano.vlCredit')}</p>
       </div>
     </section>
 
