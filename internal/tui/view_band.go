@@ -15,6 +15,7 @@ import (
 
 	"rogerai.fm/roger/v7/internal/glyphs"
 	"rogerai.fm/roger/v7/internal/pricetier"
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // BandRow is a compact private-band summary for BASE STATION (metadata only, no secret).
@@ -79,6 +80,10 @@ type band struct {
 	// it is the broker's live load, never a fabricated pulse.
 	all []offer      // every station in this band (online first)
 	tax bandTaxonomy // what the stations say the band is for (foldTaxonomy)
+	// about is what the stations (or RogerAI's notes) say the model is for, in words, and
+	// tuning/base/license the facts beside it (foldAbout, features/details).
+	about                 protocol.Details
+	tuning, base, license string
 }
 
 // confirmView is the connect-time cost confirmation (3.2): the deal + an explicit
@@ -90,8 +95,14 @@ type band struct {
 // trust) from the strongest station's offer.Terms so a user sees WHY the band scores
 // what it does. Honest-empty + privacy-bucket rules apply throughout (the same data the
 // web /models QSL card shows, so CLI and web agree).
+// bandDetailChrome is the station log's rows that are neither a station nor ABOUT (below).
+const bandDetailChrome = 19 // +1 for the purpose line (2026-09-02)
+
 func (m model) bandDetailView(w int) string {
 	bd := m.detailBand
+	if m.width > 0 && m.width < w {
+		w = m.width // the ABOUT text is read here: never wider than the real terminal
+	}
 	var b strings.Builder
 
 	// Section-tab heading, matching the TUNE IN / SHARE look.
@@ -119,11 +130,25 @@ func (m model) bandDetailView(w int) string {
 	}
 	b.WriteString("  " + truncVisible(stSelBar.Render("▌")+" "+stBrand.Render("STATION LOG")+
 		stDim.Render("   ")+stKey.Render(bd.model)+stDim.Render(" · ")+on+ctxTag+curTag, w-2) + "\n")
+	// ABOUT first: what the model is for, before who serves it (features/details). Bounded
+	// so the block never pushes the station table off the screen.
+	aboutCap := aboutMaxRows
+	if m.height > 0 {
+		aboutCap = min(aboutMaxRows, max(1, m.height-bandDetailChrome-2)) // a short screen keeps the heading only
+	}
+	aboutRowsN := 0
+	if rows := m.aboutBlock(bd, w-2, aboutCap); len(rows) > 0 {
+		for _, l := range renderAbout(rows) {
+			b.WriteString("  " + truncVisible(l, w-2) + "\n")
+		}
+		b.WriteString("\n")
+		aboutRowsN = len(rows) + 1
+	} else {
+		b.WriteString("  " + truncVisible(stDim.Render(noDescription), w-2) + "\n")
+		aboutRowsN = 1
+	}
 	// One line of purpose (founder, 2026-09-02: "what am I actually seeing?").
 	b.WriteString("  " + truncVisible(stDim.Render("every station carrying this band, with its real numbers - ◉ marks the route the switchboard dials first"), w-2) + "\n")
-	for _, line := range bandTaxonomyDetail(bd) {
-		b.WriteString("  " + truncVisible(stDim.Render(line), w-2) + "\n")
-	}
 	b.WriteString("\n")
 
 	if len(bd.all) == 0 {
@@ -139,7 +164,7 @@ func (m model) bandDetailView(w int) string {
 	// up under a fixed grid. callsign · region · marks · $in·out · t/s · ttft · ok · hw.
 	hdr := fmt.Sprintf("  %-14s  %-5s  %-3s  %-13s  %-7s  %-7s  %-7s  %s",
 		"callsign", "rgn", "", "$/M in·out", "t/s", "ttft", "ok", "hw")
-	b.WriteString(truncVisible("  "+stDim.Render(hdr), m.effWidth()) + "\n")
+	b.WriteString(truncVisible("  "+stDim.Render(hdr), w) + "\n")
 
 	// Stations: online first (bd.all is already online-first from groupBands), each on one
 	// aligned row. The cheapest station (the broker's default route) is marked with the
@@ -156,11 +181,10 @@ func (m model) bandDetailView(w int) string {
 	// header and preset bar, the STATION LOG line and its blank, the column head, the
 	// terms breakdown and its blanks, the legend, and the footer. MEASURED at 17 (a
 	// 24-row terminal fit 14 stations in a 31-row frame before this bound was right),
-	// with one row of slack.
-	const bandDetailChrome = 19 // +1 for the purpose line (2026-09-02)
+	// with one row of slack. The ABOUT block's rows come on top (aboutRowsN).
 	shown := bd.all
 	if m.height > 0 {
-		if room := m.height - bandDetailChrome; room > 0 && len(shown) > room {
+		if room := m.height - bandDetailChrome - aboutRowsN; room > 0 && len(shown) > room {
 			shown = shown[:room]
 		} else if room <= 0 && len(shown) > 1 {
 			shown = shown[:1] // a very short terminal still shows the default route
@@ -202,7 +226,7 @@ func (m model) bandDetailView(w int) string {
 			stDim.Render(hwLabelOr(o.HW)) + coolingCell(o, time.Now())
 		// The grid is ~75 cells; on a narrower terminal a wrapped row shifts every row
 		// after it (the stacked-logo mechanics), so the tail columns truncate instead.
-		b.WriteString(truncVisible(row, m.effWidth()) + "\n")
+		b.WriteString(truncVisible(row, w) + "\n")
 	}
 	// SAY WHAT WAS DROPPED. A list silently cut at the terminal's height reads as the
 	// whole list, and an operator counting stations would be counting wrong.
@@ -223,14 +247,14 @@ func (m model) bandDetailView(w int) string {
 		if terms.Congestion > 0 {
 			cong = stDim.Render(fmt.Sprintf("  (−%d%% congestion)", int(terms.Congestion*40+0.5)))
 		}
-		b.WriteString("  " + stDim.Render("signal ") + stKey.Render(fmt.Sprintf("%d", sig)) +
-			stDim.Render("/100  =  ") + stDim.Render(line) + cong + "\n")
+		b.WriteString(truncVisible("  "+stDim.Render("signal ")+stKey.Render(fmt.Sprintf("%d", sig))+
+			stDim.Render("/100  =  ")+stDim.Render(line)+cong, w) + "\n")
 	} else {
-		b.WriteString("  " + stDim.Render("signal breakdown - no live station to score (offline)") + "\n")
+		b.WriteString(truncVisible("  "+stDim.Render("signal breakdown - no live station to score (offline)"), w) + "\n")
 	}
 
 	b.WriteString("\n")
-	b.WriteString("       " + stLive.Render("enter · tune in") + "     " + stDim.Render("esc / ← · back") + "     " + stDim.Render("r · re-scan") + "\n")
+	b.WriteString(truncVisible("       "+stLive.Render("enter · tune in")+"     "+stDim.Render("esc / ← · back")+"     "+stDim.Render("r · re-scan"), w) + "\n")
 	return b.String()
 }
 
@@ -576,6 +600,7 @@ func groupBands(offers []offer, limits *LimitStore) []band {
 	for _, k := range order {
 		b := byKey[k]
 		b.tax = foldTaxonomy(b.all) // by the /market rule: online human stations vote
+		b.about, b.tuning, b.base, b.license = foldAbout(b.all)
 		out = append(out, *b)
 	}
 	sort.SliceStable(out, func(i, j int) bool {

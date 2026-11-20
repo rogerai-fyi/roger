@@ -270,5 +270,10 @@ func (s *Server) handleBrowse(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
+	// Re-canonicalized on read: the console may be pointed at any broker, and the details text
+	// is a stranger's (features/details/text_sanitization.feature).
+	for i := range offers {
+		offers[i].Taxonomy = offers[i].Taxonomy.Canonical(offers[i].Modality)
+	}
 	writeJSON(w, offers)
 }

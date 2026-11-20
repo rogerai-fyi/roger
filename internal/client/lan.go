@@ -143,6 +143,7 @@ type LANInputs struct {
 	Resolve  lanmode.Resolver   // nil = the system resolver
 	Timeout  time.Duration      // per Tower; 0 = 5 s
 	MaxBands int                // per Tower; 0 = lanDefaultMaxBands
+	offers   bool               // keep each Tower's online offers (LANOffers only)
 }
 
 const (
@@ -210,10 +211,22 @@ func LANDiscover(ctx context.Context, in LANInputs) ([]LANBand, []LANTowerStatus
 	return out, res
 }
 
+// LANOffers is every online offer the configured Towers answer with (signed, bounded, in
+// parallel, as LANDiscover reads them), for a view that needs more than a model name.
+func LANOffers(ctx context.Context, in LANInputs) []Offer {
+	in.offers = true
+	var out []Offer
+	for _, st := range lanTowers(ctx, in) {
+		out = append(out, st.offers...)
+	}
+	return out
+}
+
 type towerResult struct {
 	LANTowerStatus
 	models []string
 	files  map[string]servedfile.File // a station's report of which file a model is
+	offers []Offer                    // the online offers behind models, for `roger models <id>`
 }
 
 // lanTowers reads every configured Tower in parallel, each bounded by its own timeout.
@@ -247,7 +260,7 @@ func lanTowers(ctx context.Context, in LANInputs) []towerResult {
 		wg.Add(1)
 		go func(i int, base string) {
 			defer wg.Done()
-			out[i].State, out[i].Detail, out[i].models, out[i].files, out[i].More = readTower(ctx, in, base)
+			out[i].State, out[i].Detail, out[i].models, out[i].files, out[i].offers, out[i].More = readTower(ctx, in, base)
 			out[i].Bands = len(out[i].models)
 		}(i, base)
 	}
@@ -256,7 +269,7 @@ func lanTowers(ctx context.Context, in LANInputs) []towerResult {
 }
 
 // readTower reads one Tower's /discover, signed (the plane admits signed clients only).
-func readTower(ctx context.Context, in LANInputs, base string) (LANTowerState, string, []string, map[string]servedfile.File, bool) {
+func readTower(ctx context.Context, in LANInputs, base string) (LANTowerState, string, []string, map[string]servedfile.File, []Offer, bool) {
 	timeout := in.Timeout
 	if timeout == 0 {
 		timeout = 5 * time.Second
@@ -265,7 +278,7 @@ func readTower(ctx context.Context, in LANInputs, base string) (LANTowerState, s
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/discover", nil)
 	if err != nil {
-		return LANTowerRefused, err.Error(), nil, nil, false
+		return LANTowerRefused, err.Error(), nil, nil, nil, false
 	}
 	key := in.Key
 	if key == nil {
@@ -284,70 +297,75 @@ func readTower(ctx context.Context, in LANInputs, base string) (LANTowerState, s
 	hc = noRedirects(hc)
 	resp, err := hc.Do(req)
 	if errors.Is(err, towerpin.ErrPinMismatch) {
-		return LANTowerRefused, TowerKeyChanged(req.URL.Host), nil, nil, false
+		return LANTowerRefused, TowerKeyChanged(req.URL.Host), nil, nil, nil, false
 	}
 	if err != nil {
 		var ue *url.Error
 		if ctx.Err() != nil || (errors.As(err, &ue) && ue.Timeout()) {
-			return LANTowerWaiting, "did not answer in time", nil, nil, false
+			return LANTowerWaiting, "did not answer in time", nil, nil, nil, false
 		}
-		return LANTowerNotAnswering, err.Error(), nil, nil, false
+		return LANTowerNotAnswering, err.Error(), nil, nil, nil, false
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusUnauthorized {
-		return LANTowerNotAdmitted, NotAdmittedHint, nil, nil, false
+		return LANTowerNotAdmitted, NotAdmittedHint, nil, nil, nil, false
 	}
 	if resp.StatusCode != http.StatusOK {
-		return LANTowerBadAnswer, fmt.Sprintf("status %d", resp.StatusCode), nil, nil, false
+		return LANTowerBadAnswer, fmt.Sprintf("status %d", resp.StatusCode), nil, nil, nil, false
 	}
 	limit := in.MaxBands
 	if limit == 0 {
 		limit = lanDefaultMaxBands
 	}
-	models, files, more, err := streamOffers(io.LimitReader(resp.Body, lanMaxBody), limit)
+	models, files, offers, more, err := streamOffers(io.LimitReader(resp.Body, lanMaxBody), limit, in.offers)
 	if err != nil && len(models) == 0 {
-		return LANTowerBadAnswer, "not a /discover answer", nil, nil, false
+		return LANTowerBadAnswer, "not a /discover answer", nil, nil, nil, false
 	}
-	return LANTowerAnswering, "", models, files, more
+	return LANTowerAnswering, "", models, files, offers, more
 }
 
 // streamOffers reads {"offers":[...]} one offer at a time and stops once limit distinct online
 // models are read, so a Tower listing a hundred thousand offers costs a bounded read. A body
 // cut off by the size cap after the limit was reached is not an error.
-func streamOffers(r io.Reader, limit int) ([]string, map[string]servedfile.File, bool, error) {
+func streamOffers(r io.Reader, limit int, keep bool) ([]string, map[string]servedfile.File, []Offer, bool, error) {
 	dec := json.NewDecoder(r)
 	if t, err := dec.Token(); err != nil || t != json.Delim('{') {
-		return nil, nil, false, fmt.Errorf("not an object")
+		return nil, nil, nil, false, fmt.Errorf("not an object")
 	}
 	for dec.More() {
 		key, err := dec.Token()
 		if err != nil {
-			return nil, nil, false, err
+			return nil, nil, nil, false, err
 		}
 		if key != "offers" {
 			var skip json.RawMessage
 			if err := dec.Decode(&skip); err != nil {
-				return nil, nil, false, err
+				return nil, nil, nil, false, err
 			}
 			continue
 		}
 		if t, err := dec.Token(); err != nil || t != json.Delim('[') {
-			return nil, nil, false, fmt.Errorf("offers is not a list")
+			return nil, nil, nil, false, fmt.Errorf("offers is not a list")
 		}
 		var models []string
+		var offers []Offer
 		files := map[string]servedfile.File{}
 		seen := map[string]bool{}
 		for dec.More() {
 			var o Offer
 			if err := dec.Decode(&o); err != nil {
-				return models, files, false, err
+				return models, files, offers, false, err
 			}
 			m := cleanModelName(o.Model)
+			if keep && m != "" && o.Online && len(offers) < limit*4 { // every station's say, bounded
+				o.Model = m
+				offers = append(offers, o)
+			}
 			if m == "" || seen[m] || !o.Online {
 				continue
 			}
 			if len(models) == limit {
-				return models, files, true, nil
+				return models, files, offers, true, nil
 			}
 			seen[m] = true
 			models = append(models, m)
@@ -357,9 +375,9 @@ func streamOffers(r io.Reader, limit int) ([]string, map[string]servedfile.File,
 				}
 			}
 		}
-		return models, files, false, nil
+		return models, files, offers, false, nil
 	}
-	return nil, nil, false, nil
+	return nil, nil, nil, false, nil
 }
 
 // noRedirects returns a copy of hc that never follows a redirect: a LAN source is an address

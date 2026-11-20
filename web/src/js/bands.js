@@ -37,6 +37,7 @@
   var BROKER = "https://broker.rogerai.fm";
   // The category rules (js/taxonomy.js, loaded first): labels, filter, search, escaping.
   var RT = window.RogerTaxonomy;
+  var RD = window.RogerDetails; // what the model is for (features/details)
   var POLL_MS = 30000;
   var BARGLYPH = "▁▂▃▄▅▆▇█"; // ▁▂▃▄▅▆▇█
   var HISTORY_KEY = "roger-seen-models";
@@ -372,7 +373,12 @@
         // what the station says (or its detector guessed) the model is FOR
         category: o.category || "", subcategory: o.subcategory || "",
         taxonomy_source: o.taxonomy_source || "", tags: o.tags || [],
-        content_policy: o.content_policy || ""
+        content_policy: o.content_policy || "",
+        // what the model is for, in words (details.js cleans every one again)
+        model: o.model, modality: o.modality || "", capabilities: o.capabilities || [],
+        summary: o.summary || "", best_at: o.best_at || "", not_for: o.not_for || "",
+        details_source: o.details_source || "", page: o.page || "",
+        base_model: o.base_model || "", tuning: o.tuning || "", license: o.license || ""
       });
     });
     return Object.keys(by).map(function (k) {
@@ -636,6 +642,8 @@
       li.setAttribute("aria-label", "Open the " + b.model + " model card");
       li.dataset.band = b.model;
       li.style.setProperty("--i", i);
+      var d = RD && RD.fold(b.stations || []);
+      if (d && d.summary) li.appendChild(el("span", "band-row__about", null)).textContent = d.summary;
       listEl.appendChild(li);
     });
     markTuned();
@@ -1115,6 +1123,12 @@
     document.getElementById("qslSched").textContent = scheduleNote(b);
     var taxEl = document.getElementById("qslTax");
     if (taxEl) taxEl.textContent = taxonomyNote(b.tax);
+    var aboutEl = document.getElementById("qslAbout");
+    if (aboutEl && RD) {
+      var all = [];
+      bands.forEach(function (x) { all = all.concat(x.stations || []); });
+      RD.render(document, aboutEl, all, b.model, { caps: false, origin: "" });
+    }
 
     document.getElementById("qslCmdCode").textContent = "roger use " + b.model;
     document.getElementById("qslStamp").textContent = "RogerAI · QSL · " + b.model;

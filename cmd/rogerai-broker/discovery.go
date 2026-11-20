@@ -63,6 +63,8 @@ func parseOfferFilter(q url.Values) (offerFilter, *queryError) {
 		switch name {
 		case "category", "subcategory", "tag", "policy", "source":
 			continue // the taxonomy filters: parsed and applied by parseTaxonomyFilter
+		case "summary", "best_at", "not_for", "details_source":
+			continue // details are display text, never a filter (features/details/offer_details.feature)
 		}
 		for _, v := range vals {
 			if v == "" {

@@ -713,6 +713,9 @@
           <option value="">(none)</option><option>aligned</option><option>reduced-refusal</option><option>uncensored</option></select></label>
         <label class="field"><span>License</span><input class="inp" id="cat-license" type="text" placeholder="Apache-2.0"></label>
         <label class="field"><span>Base model</span><input class="inp" id="cat-base" type="text" placeholder="Qwen/Qwen3-VL-8B-Instruct"></label>
+        <label class="field"><span>Summary</span><input class="inp" id="cat-summary" type="text" maxlength="140" placeholder="one line: what the model is"></label>
+        <label class="field"><span>Best at</span><textarea class="inp" id="cat-best" maxlength="200" rows="2" placeholder="what it does well"></textarea></label>
+        <label class="field"><span>Not for</span><textarea class="inp" id="cat-notfor" maxlength="200" rows="2" placeholder="what it should not be used for"></textarea></label>
       </div>
       <p class="muted small">A category is your own description: consumers see whether it was declared or guessed. A content-policy grade describes the weights - RogerAI still screens every request.</p>
       <p class="err small" id="cat-err" hidden></p>
@@ -731,6 +734,7 @@
   <script src="/assets/console-edge-nearby.js" defer></script>
   <script src="/assets/console-lan.js" defer></script>
   <script src="/assets/console-towers.js" defer></script>
+  <script src="/assets/console-details.js" defer></script>
   <script src="/assets/console.js" defer></script>
 </body>
 </html>

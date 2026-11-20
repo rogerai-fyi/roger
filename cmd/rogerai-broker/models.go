@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"rogerai.fm/roger/v7/internal/about"
 	"rogerai.fm/roger/v7/internal/protocol"
 )
 
@@ -25,6 +26,9 @@ type modelEntry struct {
 	Object  string `json:"object"`
 	Created int64  `json:"created"`
 	OwnedBy string `json:"owned_by"`
+	// Description is the band's one-line summary (OpenRouter's field), omitted when no station
+	// and no curated note says what the model is for (features/details/api_cli.feature).
+	Description string `json:"description,omitempty"`
 	// The OpenRouter-compatible top-level fields SDKs read (contract §14.B4).
 	ContextLength       int                 `json:"context_length,omitempty"` // max DECLARED window
 	Pricing             map[string]string   `json:"pricing,omitempty"`        // per-token USD, ONE offer
@@ -103,6 +107,7 @@ type modelAgg struct {
 	free, confidential, verified, all bool // all: every offer cooling
 	coolUntil                         int64
 	priceIn, priceOut, priceKey       float64 // the coherent pricing offer: lowest blended cost, first wins a tie
+	ballots                           []protocol.Ballot
 }
 
 // collapseModels collapses offers into catalog entries, sorted by id.
@@ -160,6 +165,7 @@ func (b *broker) collapseModels(offers []offerView, created func(string) int64) 
 		if o.Quant != "" {
 			a.quants[o.Quant] = true
 		}
+		a.ballots = append(a.ballots, protocol.Ballot{T: o.Taxonomy, Online: true, Curated: o.Curated})
 		a.free = a.free || o.FreeNow || (o.In == 0 && o.Out == 0)
 		a.confidential = a.confidential || o.Confidential
 		a.verified = a.verified || o.Verified
@@ -221,6 +227,10 @@ func (b *broker) collapseModels(offers []offerView, created func(string) int64) 
 			src["vision"] = "declared"
 		}
 		block["attribute_sources"] = src
+		d := protocol.FoldDetails(a.ballots)
+		if !d.Empty() {
+			block["details"] = about.Block(d, a.ballots, siteOrigin())
+		}
 		params := []string{"max_tokens", "temperature", "top_p", "stop", "seed", "stream"}
 		if a.caps["tools"] { // the canary-verified bit only (a declared "tools" is stripped at register)
 			params = append(params, "tools", "tool_choice", "response_format")
@@ -230,7 +240,7 @@ func (b *broker) collapseModels(offers []offerView, created func(string) int64) 
 			input = append(input, "image")
 		}
 		data = append(data, modelEntry{
-			ID: id, Object: "model", OwnedBy: "rogerai", Created: created(id), RogerAI: block,
+			ID: id, Object: "model", OwnedBy: "rogerai", Created: created(id), RogerAI: block, Description: d.Summary,
 			ContextLength:       a.ctxMax,
 			Pricing:             map[string]string{"prompt": perTokenUSD(a.priceIn), "completion": perTokenUSD(a.priceOut)},
 			SupportedParameters: params,

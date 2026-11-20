@@ -1204,6 +1204,9 @@ func dispatch(cfg config, args []string) error {
 	}
 	switch args[0] {
 	case "search", "discover", "models":
+		if args[0] == "models" && len(args) > 1 && !strings.HasPrefix(args[1], "-") {
+			return cmdModelsInfo(cfg, args[1:])
+		}
 		if cfg.lan.LAN {
 			return cmdLANSearch(cfg, args[1:])
 		}
@@ -1386,6 +1389,27 @@ func checkProbeMin(d time.Duration) error {
 	return nil
 }
 
+// shareUsage is `roger share --help`. The details flags (--summary --best-at --not-for) are
+// in --advanced with the taxonomy flags, not here.
+const shareUsage = `roger share - go on air as a provider (auto-detects your local model)
+
+  roger share                       go on air FREE - no login needed
+  roger share <model>               expose a specific model
+  roger share --price-out 0.30      EARN: set a price (needs ` + "`roger login`" + `)
+  roger share --check               is this machine fast enough? (local, sends nothing)
+  roger login                       link GitHub - only needed to EARN
+
+  --model <name>      model to expose (default: first detected)
+  --price-out <P>     $/1M output tokens to earn (default 0 = free, no login)
+  --private           hidden band, frequency-code only (needs ` + "`roger login`" + `)
+  --check             hardware preflight: report and exit (never blocks a share)
+  --advanced          reveal: --node --region --parallel --upstream --modality --ctx --confidential --free-window --schedule --curated --upstream-price-in/out --probe-min
+                      and the model taxonomy: --category --tag --tuning --policy --license --base-model
+
+Earning needs a GitHub-linked owner: run ` + "`roger login`" + ` first. Free sharing
+needs no login. When you earn, payouts are a 30-day hold (10% reserved to day 90), $25 min, monthly.
+`
+
 func cmdShare(cfg config, args []string) error {
 	// Defaults inherit the saved onboarding share config (model + price) when set,
 	// so `roger share` after the wizard Just Works with the choices already made.
@@ -1478,26 +1502,7 @@ func cmdShare(cfg config, args []string) error {
 	meta := addShareMetaFlags(fs)
 	probeMin := fs.Duration("probe-min", 0, probeMinUsage)
 	advanced := fs.Bool("advanced", false, "show advanced flags (--node --region --parallel --upstream --modality --ctx --confidential --free-window --schedule --curated --upstream-price-in --upstream-price-out --probe-min --category --tag --tuning --policy --license --base-model)")
-	fs.Usage = func() {
-		fmt.Print(`roger share - go on air as a provider (auto-detects your local model)
-
-  roger share                       go on air FREE - no login needed
-  roger share <model>               expose a specific model
-  roger share --price-out 0.30      EARN: set a price (needs ` + "`roger login`" + `)
-  roger share --check               is this machine fast enough? (local, sends nothing)
-  roger login                       link GitHub - only needed to EARN
-
-  --model <name>      model to expose (default: first detected)
-  --price-out <P>     $/1M output tokens to earn (default 0 = free, no login)
-  --private           hidden band, frequency-code only (needs ` + "`roger login`" + `)
-  --check             hardware preflight: report and exit (never blocks a share)
-  --advanced          reveal: --node --region --parallel --upstream --modality --ctx --confidential --free-window --schedule --curated --upstream-price-in/out --probe-min
-                      and the model taxonomy: --category --tag --tuning --policy --license --base-model
-
-Earning needs a GitHub-linked owner: run ` + "`roger login`" + ` first. Free sharing
-needs no login. When you earn, payouts are a 30-day hold (10% reserved to day 90), $25 min, monthly.
-`)
-	}
+	fs.Usage = func() { fmt.Print(shareUsage) }
 	fs.Parse(rest)
 	// The preflight answers a question about the MACHINE, so it runs before anything that
 	// touches the model server or the broker: an operator asking "is this box worth it?"
@@ -1513,6 +1518,7 @@ needs no login. When you earn, payouts are a 30-day hold (10% reserved to day 90
 	}
 	if *advanced {
 		fmt.Println("advanced flags: --node --region --parallel --upstream --upstream-key --modality --ctx --confidential --free-window --schedule --curated --upstream-price-in --upstream-price-out --probe-min --category --tag --tuning --policy --license --base-model")
+		fmt.Println("model details, shown to people browsing the market: --summary (140 characters) --best-at (200) --not-for (200); any taxonomy or details flag replaces the model's saved declaration")
 	}
 	// EARN login-gate, UP FRONT (mirrors the --private pre-check below): a priced share
 	// 401s at the broker if the owner is not GitHub-linked. Fail FAST here - before any

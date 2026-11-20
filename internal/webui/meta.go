@@ -34,6 +34,9 @@ func (s *Server) handleMeta(w http.ResponseWriter, r *http.Request) {
 		BaseModel     string   `json:"base_model"`
 		ContentPolicy string   `json:"content_policy"`
 		License       string   `json:"license"`
+		Summary       string   `json:"summary"`
+		BestAt        string   `json:"best_at"`
+		NotFor        string   `json:"not_for"`
 	}
 	// ONE source of the model per method: the query for GET/DELETE, the body for POST.
 	var err error
@@ -47,7 +50,8 @@ func (s *Server) handleMeta(w http.ResponseWriter, r *http.Request) {
 		}
 		cat, sub := protocol.SplitCategory(req.Category)
 		err = s.ctrl.SetMeta(req.Model, protocol.Taxonomy{Category: cat, Subcategory: sub, Tags: req.Tags,
-			Tuning: req.Tuning, BaseModel: req.BaseModel, ContentPolicy: req.ContentPolicy, License: req.License})
+			Tuning: req.Tuning, BaseModel: req.BaseModel, ContentPolicy: req.ContentPolicy, License: req.License,
+			Summary: req.Summary, BestAt: req.BestAt, NotFor: req.NotFor})
 	case http.MethodDelete:
 		req.Model = r.URL.Query().Get("model")
 		err = s.ctrl.ClearMeta(req.Model)

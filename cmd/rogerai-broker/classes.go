@@ -91,7 +91,8 @@ func classEntries(offers []offerView, data []modelEntry) []modelEntry {
 		if caps, ok := head.RogerAI["capabilities"]; ok {
 			block["capabilities"] = caps // the head's, matching the supported_parameters it lends
 		}
-		head.ID, head.RogerAI = classPrefix+name, block
+		// A class is many models: the head's description would describe only one of them.
+		head.ID, head.RogerAI, head.Description = classPrefix+name, block, ""
 		out = append(out, head)
 	}
 	return out

@@ -1193,7 +1193,7 @@ func (c *Controller) ClearMeta(model string) error {
 // storeMeta records t (an empty one removes) and persists it through the host.
 func (c *Controller) storeMeta(model string, t protocol.Taxonomy) {
 	c.mu.Lock()
-	if t.Declared() {
+	if t.Declared() || t.DetailsDeclared() {
 		c.meta[model] = t
 	} else {
 		delete(c.meta, model)

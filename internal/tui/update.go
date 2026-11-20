@@ -742,7 +742,7 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			m.detailBand = vis[cur]
 			m.mode = modeBandDetail
-			m.status = stDim.Render("station log - every station on ") + stKey.Render(m.detailBand.model) + stDim.Render(" · esc/← back · enter tunes in")
+			m.status = stDim.Render("about + station log - every station on ") + stKey.Render(m.detailBand.model) + stDim.Render(" · esc/← back · enter tunes in")
 			return m, nil
 		case "d":
 			// Disconnect FROM THE LIST: if connected, d drops the channel right here so the

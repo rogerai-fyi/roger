@@ -8,6 +8,7 @@ import (
 	"math"
 	"net/http"
 	"rogerai.fm/roger/v7/internal/coreclient"
+	"rogerai.fm/roger/v7/internal/protocol"
 	"rogerai.fm/roger/v7/internal/servedfile"
 	"slices"
 	"sort"
@@ -87,6 +88,9 @@ type Offer struct {
 	InFlight int     `json:"in_flight"`
 	Capacity int     `json:"capacity"`
 	Radius   float64 `json:"radius"`
+	// Taxonomy is what the station (or RogerAI's notes) says the model is for, flat on the
+	// wire like /discover: read by `roger models <id>` and the console's about row.
+	protocol.Taxonomy
 }
 
 // failoverPolicy bounds the auto-recovery loop. Defaults are conservative so a

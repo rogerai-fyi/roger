@@ -25,6 +25,16 @@ type Taxonomy struct {
 	ContentPolicy  string   `json:"content_policy,omitempty"`
 	License        string   `json:"license,omitempty"`
 	TaxonomySource string   `json:"taxonomy_source,omitempty"`
+
+	// The details (features/details): what the model is, in words. Operator-authored, or
+	// RogerAI's curated note for one of its own models. DetailsSource labels the author
+	// ("declared" or "rogerai") and Page is a site path only a curated note carries; a node can
+	// send neither (Normalize strips both). Never part of the declared-vs-inferred switch.
+	Summary       string `json:"summary,omitempty"`
+	BestAt        string `json:"best_at,omitempty"`
+	NotFor        string `json:"not_for,omitempty"`
+	DetailsSource string `json:"details_source,omitempty"`
+	Page          string `json:"page,omitempty"`
 }
 
 // Claim sources. Only these two can arrive from a node.
@@ -99,11 +109,18 @@ var contentPolicies = map[string]string{
 
 // reservedTags are dropped: a tag is a public claim about intended use, and the eight-markets
 // rule (features/web/healthcare_defense_markets.feature) holds for it too - healthcare means
-// equipment and facilities, never patients; defense means sustainment, never effects.
-var reservedTags = map[string]bool{
-	"diagnosis": true, "triage": true, "dosing": true, "radiology": true, "patient": true,
-	"medical-imaging": true, "targeting": true, "target-acquisition": true, "weapons": true, "lethal": true,
-}
+// equipment and facilities, never patients; defense means sustainment, never effects. The
+// same words are reserved in a summary and a best-at (ReservedUse), reported in this order.
+var reservedOrder = []string{"diagnosis", "triage", "dosing", "radiology", "patient",
+	"medical-imaging", "targeting", "target-acquisition", "weapons", "lethal"}
+
+var reservedTags = func() map[string]bool {
+	m := make(map[string]bool, len(reservedOrder))
+	for _, w := range reservedOrder {
+		m[w] = true
+	}
+	return m
+}()
 
 const (
 	MaxTags       = 8
@@ -149,6 +166,7 @@ func (t *Taxonomy) normalize(modality string) {
 	t.BaseModel = boundedText(t.BaseModel, baseModelMax)
 	t.ContentPolicy = CanonicalContentPolicy(t.ContentPolicy)
 	t.License = boundedText(t.License, licenseTextMx)
+	t.normalizeDetails()
 
 	// Who made the claim is only meaningful when a claim survived. A voice offer's category is
 	// always the broker's own derivation from its modality (below), never anyone's claim - also
@@ -259,6 +277,9 @@ func (t Taxonomy) Validate(modality string) error {
 	if n := utf8.RuneCountInString(strings.TrimSpace(t.License)); n > licenseTextMx {
 		return fmt.Errorf("license: at most %d characters (got %d)", licenseTextMx, n)
 	}
+	if err := t.validateDetails(); err != nil {
+		return err
+	}
 	if v := normWord(t.Tuning); v != "" && !knownTunings[v] {
 		return fmt.Errorf("unknown tuning %q (valid: base, instruct, finetune, merge, quantized, adapter)", t.Tuning)
 	}
@@ -275,7 +296,7 @@ func (t Taxonomy) Declare(modality string) (Taxonomy, error) {
 		return Taxonomy{}, err
 	}
 	t = t.Canonical(modality)
-	t.TaxonomySource = ""
+	t.TaxonomySource, t.DetailsSource, t.Page = "", "", ""
 	return t, nil
 }
 
@@ -283,13 +304,18 @@ func (t Taxonomy) Declare(modality string) (Taxonomy, error) {
 // as a WHOLE, labelled declared, when a claim survives canonicalization; otherwise the inference.
 // One label, one author (founder ruling 2026-10-05). A stored entry that canonicalizes to
 // nothing - hand-edited to an unknown category, say - therefore never hides the inference.
+//
+// The details ride along either way: inference never writes text, so a declaration that is
+// only details keeps the inferred category and still carries its words.
 func (t Taxonomy) OnAir(modality string, inferred Taxonomy) Taxonomy {
-	t.TaxonomySource = ""
-	if c := t.Canonical(modality); c.TaxonomySource != "" {
+	t.TaxonomySource, t.DetailsSource, t.Page = "", "", ""
+	c := t.Canonical(modality)
+	out := inferred
+	if c.TaxonomySource != "" {
 		c.TaxonomySource = SourceDeclared
-		return c
+		out = c
 	}
-	return inferred
+	return out.WithDetailsOf(c)
 }
 
 // SplitCategory splits "cat/sub" (the form operators type) into its parts.

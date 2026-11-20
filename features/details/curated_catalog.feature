@@ -38,6 +38,7 @@ Feature: RogerAI's curated notes describe RogerAI's own models on every surface
       | demo-1b-fire-vl        | Confirms or rejects smoke or flame in a frame.  | Single camera frames, yes or no.          | Video, or deciding what to do about it.  | demo-1b    | Apache-2.0 | /research-demo-1b.html#vl  |
 
   # ---------------------------------------------------------------- stamping
+  @broker
   Scenario: A curated model's offer carries RogerAI's text
     Given a station on air with model "demo-1b-fire-decision" and no details
     When a consumer reads /discover
@@ -47,28 +48,33 @@ Feature: RogerAI's curated notes describe RogerAI's own models on every surface
     And its details source is "rogerai"
     And its page is "/research-demo-1b.html#fire"
 
+  @broker
   Scenario: Curated text overrides a station's own text for the same id
     Given a station on air with model "demo-1b-chat" and summary "Best model ever, try it."
     When a consumer reads /discover
     Then the offer for "demo-1b-chat" has summary "General chat on the demo 1B base."
     And its details source is "rogerai"
 
+  @broker
   Scenario: Curated base model and license fill the offer
     Given a station on air with model "demo-1b-fire-vl" declaring base model "someone/else" and license "MIT"
     When a consumer reads /discover
     Then the offer for "demo-1b-fire-vl" has base model "demo-1b" and license "Apache-2.0"
 
+  @broker
   Scenario: A curated note with no license leaves the station's license
     Given RogerAI's curated note for "demo-1b-chat" has no license
     And a station on air with model "demo-1b-chat" declaring license "MIT"
     When a consumer reads /discover
     Then the offer for "demo-1b-chat" has license "MIT"
 
+  @broker
   Scenario: Curated notes never change category, tags, tuning, policy or price
     Given a station on air with model "demo-1b-chat" declaring category "language/chat", tags "ops", tuning "adapter", policy "aligned" and price out 0.40
     When a consumer reads /discover
     Then the offer for "demo-1b-chat" keeps category "language/chat", tags "ops", tuning "adapter", policy "aligned" and price out 0.40
 
+  @broker
   Scenario: An id not in the notes keeps the station's text
     Given a station on air with model "someone-7b" and summary "A 7B chat model."
     When a consumer reads /discover
@@ -76,6 +82,7 @@ Feature: RogerAI's curated notes describe RogerAI's own models on every surface
     And its details source is "declared"
     And it has no page
 
+  @broker
   Scenario Outline: Curated matching is exact on the canonical model id
     Given a station on air with model "<sent>" and summary "station text"
     When a consumer reads /discover
@@ -90,16 +97,19 @@ Feature: RogerAI's curated notes describe RogerAI's own models on every surface
       | xdemo-1b-chat            | declared |
       | demo-1b-chat\u200b       | rogerai  |
 
+  @broker
   Scenario: Curated text is stamped on the cached feed, not per request
     Given a station on air with model "demo-1b-chat"
     When /discover is read 100 times within the cache window
     Then the curated notes were applied once per cache fill
 
+  @broker
   Scenario: Curated stamping applies to an offline offer too
     Given a station with model "demo-1b-chat" that is off air but still listed
     When a consumer reads /discover
     Then the offer for "demo-1b-chat" has details source "rogerai"
 
+  @broker
   Scenario: Curated notes reach /v1/models
     Given a station on air with model "demo-1b-chat"
     When a consumer reads /v1/models/demo-1b-chat
@@ -108,22 +118,26 @@ Feature: RogerAI's curated notes describe RogerAI's own models on every surface
     And the entry's rogerai.details.page is "https://rogerai.fm/research-demo-1b.html"
 
   # ---------------------------------------------------------------- honesty
+  @tui @web
   Scenario: The details view says whose description it is
     Given a station on air with model "demo-1b-chat" without verified lineage
     When the TUI, the console and the website show the details for "demo-1b-chat"
     Then each labels the text "RogerAI's description of this model"
     And each shows that the station's weights are not verified
 
+  @tui
   Scenario: Verified lineage is shown beside curated text when present
     Given a station on air with model "demo-1b-chat" with verified lineage
     When the TUI shows the details for "demo-1b-chat"
     Then the about block shows the ◆ verified lineage mark beside "RogerAI's description of this model"
 
   # ---------------------------------------------------------------- the list itself (unit-level rules, run as godog too)
+  @broker
   Scenario: The embedded notes load and validate at broker start
     When the broker starts
     Then the curated notes load with no error
 
+  @catalog
   Scenario Outline: A malformed note fails the broker test suite, never ships
     Given a notes file where <defect>
     When the notes are validated
@@ -146,16 +160,19 @@ Feature: RogerAI's curated notes describe RogerAI's own models on every surface
       | a summary uses the reserved word "diagnosis"   | reserved use              |
       | the file is not valid JSON                     | notes: invalid JSON       |
 
+  @catalog
   Scenario: Every note's page is a page the website builds
     When the notes are compared with the built website pages
     Then every note's page path, without its fragment, names a page in the build
 
+  @broker
   Scenario: The page link is absolute only on the public feed
     Given the note for "demo-1b-chat" has page "/research-demo-1b.html"
     Then /discover carries page "/research-demo-1b.html"
     And /v1/models carries page "https://rogerai.fm/research-demo-1b.html"
     And the TUI shows "rogerai.fm/research-demo-1b.html"
 
+  @broker
   Scenario: An empty notes list changes nothing
     Given RogerAI's curated notes are empty
     And a station on air with model "demo-1b-chat" and summary "station text"

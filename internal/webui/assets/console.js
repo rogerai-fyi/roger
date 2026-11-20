@@ -405,7 +405,11 @@
   // --- category modal (features/categories/console_editor.feature) ---
   function catPair(t) { return t.subcategory ? t.category + "/" + t.subcategory : t.category; }
   function catLabel(row) {
-    if (row.declared) return row.declared.category ? catPair(row.declared) : "(no category)";
+    var d = row.declared;
+    // A declaration that is only details text keeps the guess on air (features/details).
+    if (d && (d.category || (d.tags && d.tags.length) || d.tuning || d.content_policy || d.license || d.base_model)) {
+      return d.category ? catPair(d) : "(no category)";
+    }
     if (row.inferred && row.inferred.category) return catPair(row.inferred) + "~";
     return "—";
   }
@@ -431,7 +435,8 @@
     ]).then(function (res) {
       catList = (res[0] && res[0].categories) || [];
       var d = res[1] && res[1].declared, inf = res[1] && res[1].inferred;
-      var guess = !(d && (d.category || (d.tags && d.tags.length) || d.tuning || d.content_policy || d.license || d.base_model));
+      var guess = !(d && (d.category || (d.tags && d.tags.length) || d.tuning || d.content_policy || d.license || d.base_model ||
+        d.summary || d.best_at || d.not_for));
       var t = (guess ? inf : d) || {};
       show($("cat-guess"), guess);
       fillSelect($("cat-cat"), [""].concat(catList.map(function (c) { return c.name; })), t.category || "");
@@ -441,6 +446,9 @@
       $("cat-policy").value = t.content_policy || "";
       $("cat-license").value = t.license || "";
       $("cat-base").value = t.base_model || "";
+      $("cat-summary").value = (d && d.summary) || "";   // the details are never guessed
+      $("cat-best").value = (d && d.best_at) || "";
+      $("cat-notfor").value = (d && d.not_for) || "";
       modalOpen("modal-cat");
     }).catch(toastErr);
   }
@@ -456,7 +464,8 @@
     apiPost("/api/share/meta", {
       model: catModel, category: sub ? cat + "/" + sub : cat, tags: tags,
       tuning: $("cat-tuning").value, content_policy: $("cat-policy").value,
-      license: $("cat-license").value.trim(), base_model: $("cat-base").value.trim()
+      license: $("cat-license").value.trim(), base_model: $("cat-base").value.trim(),
+      summary: $("cat-summary").value.trim(), best_at: $("cat-best").value.trim(), not_for: $("cat-notfor").value.trim()
     }).then(function () {
       closeModal();
       toast("Category saved - it applies the next time the model goes on air.", "ok");
@@ -648,18 +657,26 @@
   // The market feed, held so the chat picker can be rebuilt from it without re-fetching
   // (the LOCAL half of that picker arrives on the snapshot stream, on its own schedule).
   var lastOffers = [];
+  // The one open about row, by node and model, so a refresh keeps it open while the offer is
+  // still listed (features/details/web_about.feature).
+  var aboutOpen = "";
+  function aboutKey(o) { return (o.node_id || "") + "\u0000" + (o.model || ""); }
 
   function loadBrowse() {
     var tbody = $("browse-rows");
     apiGet("/api/browse").then(function (offers) {
       tbody.innerHTML = "";
       lastOffers = Array.isArray(offers) ? offers : [];
+      if (!lastOffers.some(function (o) { return aboutKey(o) === aboutOpen; })) aboutOpen = "";
       if (!lastOffers.length) {
         var er = el("tr", "empty-row");
         var td = el("td", null, "No models on the market right now."); td.colSpan = 8;
         er.appendChild(td); tbody.appendChild(er); chatFillModels(); return;
       }
-      lastOffers.forEach(function (o) { tbody.appendChild(buildBrowseRow(o)); });
+      lastOffers.forEach(function (o) {
+        tbody.appendChild(buildBrowseRow(o));
+        if (aboutKey(o) === aboutOpen) tbody.appendChild(buildAboutRow(o));
+      });
       // One fetch feeds both surfaces - but the picker filters harder than the table
       // does (see chatFillModels): BROWSE is a market listing, and listing a band that
       // is off air is honest there. Offering it as something to talk to is not.
@@ -685,6 +702,12 @@
     m.appendChild(el("span", "model-name", o.model || "—"));
     if (o.verified) { var v = el("span", "verified", " ◆"); v.title = "verified lineage"; m.appendChild(v); }
     if (o.confidential) m.appendChild(el("span", "ctx", " · conf"));
+    // about: what the model is for, in a row under this one (one open at a time).
+    var ab = el("button", "btn ghost small about-toggle", "about");
+    ab.type = "button";
+    ab.setAttribute("aria-expanded", aboutKey(o) === aboutOpen ? "true" : "false");
+    ab.addEventListener("click", function () { toggleAbout(o, tr, ab); });
+    m.appendChild(ab);
     tr.appendChild(m);
     // node
     tr.appendChild(el("td", "mono", o.node_id || "—"));
@@ -713,6 +736,24 @@
     tr.appendChild(el("td", "num", o.ctx ? Math.round(o.ctx / 1024) + "k" : "—"));
     tr.appendChild(el("td", null, o.region || "—"));
     return tr;
+  }
+
+  function buildAboutRow(o) {
+    var tr = el("tr", "about-row"), td = el("td", "about");
+    td.colSpan = 8;
+    window.RogerDetails.render(document, td, lastOffers, o.model, { caps: true, origin: "https://rogerai.fm" });
+    tr.appendChild(td);
+    return tr;
+  }
+  function toggleAbout(o, tr, btn) {
+    var tbody = $("browse-rows"), was = aboutKey(o) === aboutOpen;
+    Array.prototype.forEach.call(tbody.querySelectorAll(".about-row"), function (r) { r.parentNode.removeChild(r); });
+    Array.prototype.forEach.call(tbody.querySelectorAll(".about-toggle"), function (b) { b.setAttribute("aria-expanded", "false"); });
+    aboutOpen = was ? "" : aboutKey(o);
+    if (!was) {
+      tr.parentNode.insertBefore(buildAboutRow(o), tr.nextSibling);
+      btn.setAttribute("aria-expanded", "true");
+    }
   }
 
   /* CHAT -------------------------------------------------------------------

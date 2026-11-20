@@ -169,6 +169,8 @@ func (o *ModelOffer) Normalize() {
 	o.Quant = CanonicalQuant(o.Quant)
 	o.Weights = CanonicalVariantText(o.Weights)
 	o.Variant = CanonicalVariantText(o.Variant)
+	// A node never authors the curated label or a page link: only the broker stamps those.
+	o.DetailsSource, o.Page = "", ""
 	o.Taxonomy.normalize(o.Modality)
 }
 

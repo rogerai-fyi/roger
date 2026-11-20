@@ -536,3 +536,9 @@
   :where(.tuner__chip) { position: relative; }
   :is(.tuner__chip)::before { content: ""; position: absolute; inset: var(--hit-inset); }
 }
+
+/* features/details: what the model is for */
+.qsl__about p { margin: 0 0 4px; overflow-wrap: anywhere; }
+.qsl__about .about__head { color: var(--ink-500); font-size: 0.85em; }
+.qsl__about .about__link { display: inline-block; margin: 2px 0 6px; }
+.band-row__about { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; color: var(--ink-500); font-size: 0.9em; }

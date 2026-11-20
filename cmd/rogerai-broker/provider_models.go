@@ -84,6 +84,9 @@ type providerModelRow struct {
 	// the node until the owner override lands). Canonicalized like /discover.
 	protocol.Taxonomy
 	MetaOverridden bool `json:"meta_overridden"` // the owner set the category from the web console
+	// CuratedNote: RogerAI's notes describe this model id, so the owner's own words show only
+	// where the note does not (features/details/declaration.feature).
+	CuratedNote bool `json:"curated_note,omitempty"`
 }
 
 // providerModelsList returns every model on every node bound to this owner account.
@@ -108,7 +111,8 @@ func (b *broker) providerModelsList(w http.ResponseWriter, o store.Owner) {
 				Schedule: scheduleOrEmpty(off.Schedule),
 				// the price comes from an override iff the store holds one we authored
 				ActiveIn: ain, ActiveOut: aout, ActiveFree: afree,
-				Taxonomy: off.Taxonomy.Canonical(offerModality(off.Modality)),
+				Taxonomy:    off.Taxonomy.Canonical(offerModality(off.Modality)),
+				CuratedNote: b.notes.Has(off.Model),
 			})
 		}
 	}

@@ -250,7 +250,7 @@ func (b *broker) enrichOffersForNode(out []offerView, n protocol.NodeRegistratio
 			Quant:    protocol.CanonicalQuant(o.Quant),
 			Weights:  protocol.CanonicalVariantText(o.Weights),
 			Variant:  protocol.CanonicalVariantText(o.Variant),
-			Taxonomy: publishedTaxonomy(o, n.Curated),
+			Taxonomy: b.notes.Apply(o.Model, publishedTaxonomy(o, n.Curated)),
 			In:       pin, Out: pout, Ctx: o.Ctx, CtxEstimated: o.CtxEstimated, Online: online,
 			Confidential: b.confidential[n.NodeID], FreeNow: free, Scheduled: len(o.Schedule) > 0,
 			TPS:    tps,

@@ -205,7 +205,8 @@ func publishedTaxonomy(o protocol.ModelOffer, curated bool) protocol.Taxonomy {
 	if t.TaxonomySource != "" || curated {
 		return t
 	}
-	return detect.InferTaxonomy(o.Model, modality, protocol.CanonicalCapabilities(o.Capabilities))
+	// The details are never inferred: a station's words ride on its inferred category.
+	return detect.InferTaxonomy(o.Model, modality, protocol.CanonicalCapabilities(o.Capabilities)).WithDetailsOf(t)
 }
 
 // taxonomyVotes accumulates what one model's online stations say it is for (/market).

@@ -33,6 +33,7 @@
 Feature: Details text is bounded, stripped of control and spoofing characters, and inert everywhere
 
   # ---------------------------------------------------------------- length, strict
+  @protocol
   Scenario Outline: The strict layer refuses over-length text and accepts the boundary
     When the operator declares <field> as a string of <n> "<char>" characters
     Then the declaration is <result>
@@ -50,17 +51,20 @@ Feature: Details text is bounded, stripped of control and spoofing characters, a
       | not_for | 200 | a    | accepted                                             |
       | not_for | 201 | a    | refused with "not for: at most 200 characters (got 201)" |
 
+  @protocol
   Scenario: Length is measured after trimming surrounding whitespace
     When the operator declares summary as "   " followed by 140 "a" characters followed by "   "
     Then the declaration is accepted
     And the saved summary has 140 characters
 
+  @protocol
   Scenario: Whitespace-only text is no text
     When the operator declares summary "      "
     Then the declaration is accepted
     And the saved declaration has no summary
 
   # ---------------------------------------------------------------- length, lenient
+  @protocol
   Scenario Outline: The broker cuts over-length text from a node to the cap
     Given an offer whose <field> is a string of <n> "a" characters
     When the broker normalizes the offer
@@ -73,11 +77,13 @@ Feature: Details text is bounded, stripped of control and spoofing characters, a
       | best_at | 201   | 200  |
       | not_for | 65536 | 200  |
 
+  @protocol
   Scenario: A cut never splits a multi-byte character
     Given an offer whose summary is 200 "火" characters
     When the broker normalizes the offer
     Then the offer's summary is valid UTF-8 with 140 characters
 
+  @protocol
   Scenario: Invalid UTF-8 from a node is replaced, not passed through
     Given an offer whose summary bytes are "ok \xff\xfe ok"
     When the broker normalizes the offer
@@ -85,6 +91,7 @@ Feature: Details text is bounded, stripped of control and spoofing characters, a
     And the offer's summary starts with "ok" and ends with "ok"
 
   # ---------------------------------------------------------------- control and spoofing characters
+  @protocol
   Scenario Outline: Control and spoofing characters are dropped at both layers
     Given a summary "<raw>"
     When it is declared by the operator
@@ -108,12 +115,14 @@ Feature: Details text is bounded, stripped of control and spoofing characters, a
       | sep\u2028line\u2029para               | sep line para              |
       | many     spaces   inside              | many spaces inside         |
 
+  @tui
   Scenario: ESC is dropped, so no ANSI sequence can reach a terminal
     Given an offer whose best_at contains "\u001b[2J\u001b[H" and "\u001b]52;c;aGk=\u0007"
     When the TUI renders the band's about block
     Then the rendered block contains no byte 0x1b
     And the rendered block contains no byte 0x07
 
+  @tui @cli @webui
   Scenario: Text is re-canonicalized on read, not only at the broker
     Given a broker that does not normalize details (an older or third-party broker)
     And its /discover offer for "demo-1b-chat" has summary "x\u001b[31my"
@@ -121,6 +130,7 @@ Feature: Details text is bounded, stripped of control and spoofing characters, a
     Then each shows the summary "x[31my"
 
   # ---------------------------------------------------------------- markup is text
+  @web
   Scenario Outline: Markup in details is shown as literal text in every web surface
     Given an on-air offer for "demo-1b-chat" with summary "<raw>"
     When the local console BROWSE details and the website QSL card show it
@@ -138,14 +148,17 @@ Feature: Details text is bounded, stripped of control and spoofing characters, a
       | &lt;b&gt;already escaped&lt;/b&gt;         |
       | ${alert(1)}                                |
 
+  @webui
   Scenario: The console details code never assigns markup
     When the console's details source is inspected
     Then it contains no "innerHTML =", "insertAdjacentHTML" or "outerHTML"
 
+  @web
   Scenario: The website details code never renders raw HTML
     When the website's QSL details source is inspected
     Then it contains no "{@html" and assigns details only through textContent
 
+  @web
   Scenario: A URL in operator text is never a link
     Given an on-air offer for "demo-1b-chat" with best_at "see https://example.invalid/free-credits"
     When the console and the website show the details
@@ -153,6 +166,7 @@ Feature: Details text is bounded, stripped of control and spoofing characters, a
     And no anchor element points at "example.invalid"
 
   # ---------------------------------------------------------------- reserved intended use
+  @protocol
   Scenario Outline: A reserved use in summary or best_at is refused at declare
     When the operator declares <field> "<text>"
     Then the declaration is refused with "reserved use \"<word>\""
@@ -166,6 +180,7 @@ Feature: Details text is bounded, stripped of control and spoofing characters, a
       | best_at | weapons guidance                       | weapons   |
       | summary | Radiology report drafting.             | radiology |
 
+  @protocol
   Scenario Outline: A reserved word inside a longer word is not a match
     When the operator declares summary "<text>"
     Then the declaration is accepted
@@ -175,10 +190,12 @@ Feature: Details text is bounded, stripped of control and spoofing characters, a
       | Reads outpatient-building HVAC alarms. |
       | Weaponsmith is a game character name.  |
 
+  @protocol
   Scenario: A reserved use in not_for is allowed
     When the operator declares not_for "Not for diagnosis, triage or dosing."
     Then the declaration is accepted
 
+  @protocol
   Scenario: A reserved use in summary from a node is dropped by the broker
     Given an offer whose summary is "Patient triage from photos." and best_at is "Reads gauges."
     When the broker normalizes the offer
@@ -186,11 +203,13 @@ Feature: Details text is bounded, stripped of control and spoofing characters, a
     And the offer's best_at is "Reads gauges."
 
   # ---------------------------------------------------------------- other limits
+  @protocol
   Scenario: The details add at most 540 characters to an offer
     Given an offer whose summary, best_at and not_for are each 100000 characters
     When the broker normalizes the offer
     Then the three fields together hold at most 540 characters
 
+  @broker
   Scenario: An oversized registration body is still refused by the existing body limit
     Given a registration body larger than the broker's registration limit because of details text
     When the broker reads it

@@ -127,7 +127,7 @@ func (c *Controller) Snapshot() Snapshot {
 			Weights:      r.Weights,
 			Variant:      r.Variant,
 		}
-		if d := c.meta[r.Model]; d.Declared() {
+		if d := c.meta[r.Model]; d.Declared() || d.DetailsDeclared() {
 			rv.Declared = &d
 		}
 		if inf := r.Inferred; inf.Declared() {

@@ -23,6 +23,7 @@ Feature: /v1/models and `roger models <id>` carry what a model is for
     And RogerAI's curated notes describe "demo-1b-fire-decision" as in curated_catalog.feature
 
   # ---------------------------------------------------------------- /v1/models
+  @broker
   Scenario: A curated model's entry carries description and details
     When a consumer reads /v1/models/demo-1b-fire-decision
     Then the entry's "description" is "Picks one fire-defense action from site state."
@@ -37,6 +38,7 @@ Feature: /v1/models and `roger models <id>` carry what a model is for
       | license    | Apache-2.0                                           |
       | page       | https://rogerai.fm/research-demo-1b.html#fire        |
 
+  @broker
   Scenario: A declared model's entry uses the band vote
     When a consumer reads /v1/models/someone-7b
     Then the entry's "description" is "A 7B chat model."
@@ -45,32 +47,39 @@ Feature: /v1/models and `roger models <id>` carry what a model is for
     And the entry's rogerai.details.stations is 3
     And the entry's rogerai.details has no "page"
 
+  @broker
   Scenario: A model with no text has no description and no details block
     When a consumer reads /v1/models/mystery-m
     Then the entry has no "description" key
     And the entry's rogerai block has no "details" key
 
+  @broker
   Scenario: Entries without details are unchanged from today
     Given the same offers with every details field removed
     When a consumer reads /v1/models
     Then the response is byte-identical to the response before this change
 
+  @broker
   Scenario: The list and the single-id endpoint agree
     When a consumer reads /v1/models and /v1/models/someone-7b
     Then the "someone-7b" entry is identical in both
 
+  @broker
   Scenario: Filters still apply and keep details
     When a consumer reads /v1/models?category=language
     Then every returned entry with text carries its description
 
+  @broker
   Scenario: Class entries (@class/...) carry no description
     When a consumer reads /v1/models
     Then no "@class/" entry has a "description" key
 
+  @broker
   Scenario: The cached catalog is not recomputed per request for details
     When /v1/models is read 100 times within the cache window
     Then the details were computed once per cache fill
 
+  @broker
   Scenario: A JSON consumer receives the text escaped, never raw markup
     Given an on-air offer for "x-model" with summary "</script><script>alert(1)</script>"
     When a consumer reads /v1/models/x-model
@@ -78,6 +87,7 @@ Feature: /v1/models and `roger models <id>` carry what a model is for
     And the "description" decodes to exactly "</script><script>alert(1)</script>"
 
   # ---------------------------------------------------------------- roger models <id>
+  @cli
   Scenario: roger models with an id prints the details
     When the user runs "roger models demo-1b-fire-decision"
     Then the output is:
@@ -94,39 +104,47 @@ Feature: /v1/models and `roger models <id>` carry what a model is for
       """
     And the exit code is 0
 
+  @cli
   Scenario: Piped output has no colour or control bytes
     When the user runs "roger models someone-7b" with stdout not a terminal
     Then the output contains no byte 0x1b
 
+  @cli
   Scenario: --json prints the details block
     When the user runs "roger models someone-7b --json"
     Then the output is one JSON object equal to the /v1/models rogerai.details for "someone-7b" plus "id"
 
+  @cli
   Scenario: An id that is not on air is a clear error
     When the user runs "roger models nope-9b"
     Then the output says "nope-9b is not on air - roger models lists what is"
     And the exit code is 1
 
+  @cli
   Scenario: A near-miss id suggests the on-air ids that contain it
     When the user runs "roger models fire"
     Then the output says "fire is not on air"
     And the output lists "demo-1b-fire-decision" as a close match
 
+  @cli
   Scenario: roger models with no id is unchanged
     When the user runs "roger models"
     Then the output is the same listing as "roger search" before this change
 
+  @cli
   Scenario: The listing shows each model's summary when there is room
     When the user runs "roger models" in a 120-column terminal
     Then the "someone-7b" line ends with "A 7B chat model." cut to fit
     And the "mystery-m" line has no summary
 
+  @cli
   Scenario: roger models <id> in LAN mode reads the LAN tower
     Given the CLI is in LAN mode
     When the user runs "roger models someone-7b"
     Then the details are read from the LAN tower's /discover
 
   # ---------------------------------------------------------------- docs
+  @web
   Scenario: The manual documents the details
     When the manual is built
     Then the share section documents "--summary", "--best-at" and "--not-for" with their limits

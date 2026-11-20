@@ -26,11 +26,13 @@ Feature: The local console and the website show what a model is for
     And RogerAI's curated notes describe "demo-1b-fire-decision" and "demo-1b-fire-vl" as in curated_catalog.feature
 
   # ---------------------------------------------------------------- local console BROWSE
+  @web
   Scenario: Each BROWSE row has an about toggle
     When the operator opens the console BROWSE tab
     Then every row's model cell has a button labelled "about"
     And the button has aria-expanded "false"
 
+  @web
   Scenario: The about toggle opens a details row under the offer
     When the operator clicks "about" on the "demo-1b-fire-decision" row
     Then a details row appears directly under it spanning all 8 columns
@@ -43,64 +45,77 @@ Feature: The local console and the website show what a model is for
     And the details row shows "License: Apache-2.0"
     And the details row has a link "Model page" to "https://rogerai.fm/research-demo-1b.html#fire"
 
+  @web
   Scenario: The vision adapter reads as image in
     When the operator clicks "about" on the "demo-1b-fire-vl" row
     Then the details row shows "Kind: text and image in, text out · adapter on demo-1b"
 
+  @web
   Scenario: Sibling models on the same base are named
     When the operator clicks "about" on the "demo-1b-fire-decision" row
     Then the details row shows "Same base: demo-1b-fire-vl"
 
+  @web
   Scenario: Declared text is labelled as the station's own words, with no link
     When the operator clicks "about" on the "someone-7b" row
     Then the details row shows "The station's own words"
     And the details row shows "A 7B chat model."
     And the details row has no link
 
+  @web
   Scenario: An offer with nothing to say says so
     When the operator clicks "about" on the "mystery-m" row
     Then the details row shows "No description yet. The station has not said what this model is for."
 
+  @web
   Scenario: Only one details row is open at a time
     Given the details row for "someone-7b" is open
     When the operator clicks "about" on the "demo-1b-fire-vl" row
     Then only the "demo-1b-fire-vl" details row is open
 
+  @web
   Scenario: Clicking about again closes the row
     Given the details row for "someone-7b" is open
     When the operator clicks "about" on the "someone-7b" row
     Then no details row is open
     And the button has aria-expanded "false"
 
+  @web
   Scenario: The open row survives a refresh when the offer is still listed
     Given the details row for "someone-7b" on node "n3" is open
     When the operator clicks refresh
     Then the details row for "someone-7b" on node "n3" is open
 
+  @web
   Scenario: The open row closes when the offer leaves the market
     Given the details row for "someone-7b" on node "n3" is open
     When node "n3" goes off the market and the operator clicks refresh
     Then no details row is open
 
+  @web
   Scenario: The toggle is keyboard reachable
     When the operator tabs to the "about" button on the "someone-7b" row and presses Enter
     Then the details row for "someone-7b" is open
 
+  @web
   Scenario: The empty-market and broker-down rows have no toggle
     Given the market is empty
     When the operator opens the console BROWSE tab
     Then no "about" button is shown
 
+  @web
   Scenario: The details row wraps long text and never scrolls the page sideways
     Given an offer whose best_at is 200 characters with no spaces
     When the operator opens its details row at 360 pixels wide
     Then the page has no horizontal scroll
 
+  @webui
   Scenario: The console API passes the fields through unchanged
     When a client reads /api/browse
     Then each offer carries "summary", "best_at", "not_for", "details_source" and "page" when the broker sent them
 
   # ---------------------------------------------------------------- public website QSL card
+  @web
   Scenario: The QSL card's CATEGORY block becomes ABOUT
     When a visitor opens the QSL card for "demo-1b-fire-decision" on /models
     Then the card has a block headed "ABOUT"
@@ -113,38 +128,45 @@ Feature: The local console and the website show what a model is for
     And the ABOUT block shows the existing category line
     And the ABOUT block links "model page" to "/research-demo-1b.html#fire"
 
+  @web
   Scenario: The QSL card uses the band vote
     Given three on-air stations for "someone-7b", two with summary "A 7B chat model." and one with "Other words."
     When a visitor opens the QSL card for "someone-7b"
     Then the ABOUT block shows "A 7B chat model."
     And the ABOUT block shows "the station's own words · 2 of 3 stations"
 
+  @web
   Scenario: The QSL card for a band with nothing to say keeps a plain line
     When a visitor opens the QSL card for "mystery-m"
     Then the ABOUT block shows "no description yet"
 
+  @web
   Scenario: Switching QSL cards never leaves the previous model's text
     Given a visitor opened the QSL card for "someone-7b"
     When the visitor opens the QSL card for "mystery-m"
     Then the ABOUT block does not show "A 7B chat model."
     And the ABOUT block has no "model page" link
 
+  @web
   Scenario: The band list row carries a one-line summary under the name
     When a visitor views the band list on /models
     Then the "demo-1b-fire-decision" row shows its summary in a secondary line, cut with an ellipsis at one line
     And the "mystery-m" row shows no secondary line
 
+  @web
   Scenario: The /models page keeps working against a broker without details
     Given a broker whose /discover offers carry no details fields
     When a visitor opens /models
     Then the band list and QSL cards render with no script error
     And every ABOUT block shows "no description yet" or the category line
 
+  @web
   Scenario: The website ABOUT block passes the contrast and phone-width checks
     When the /models page is checked at 360 pixels wide in light and dark themes
     Then the ABOUT block has no horizontal overflow
     And its text meets the site's existing contrast test
 
+  @web
   Scenario: The QSL "model page" link is only ever a same-origin site path
     Given a /discover offer carrying page "https://example.invalid/x" (a hostile or broken broker)
     When a visitor opens its QSL card

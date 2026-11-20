@@ -33,6 +33,9 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
+
+	"github.com/charmbracelet/x/term"
 
 	"rogerai.fm/roger/v7/internal/glyphs"
 	"rogerai.fm/roger/v7/internal/netbind"
@@ -97,6 +100,7 @@ func Search(broker string) error {
 			FreeNow      bool    `json:"free_now"`
 			TPS          float64 `json:"tps"`
 			Signal       int     `json:"signal"`
+			Summary      string  `json:"summary"`
 		} `json:"offers"`
 	}
 	if err := getJSON(broker, "/discover", "", &d); err != nil {
@@ -111,6 +115,7 @@ func Search(broker string) error {
 	// the STATUS cell, a ▁▂▃▄▅▆▇ SIGNAL tower driven by tok/s, the broker's neutral
 	// $-TIER right beside the out-price, and the verified ◆ in FLAGS. Plain text (no
 	// color), so it degrades cleanly under NO_COLOR / a pipe.
+	width := listWidth()
 	fmt.Printf("%-8s %-12s %-22s %-9s %-9s %-13s %-7s %-7s %-7s %-7s %s\n",
 		"STATUS", "SIGNAL", "MODEL", "$/1M in", "$/1M out", "TIER", "TOK/S", "CTX", "REGION", "NODE", "FLAGS")
 	for _, o := range d.Offers {
@@ -129,11 +134,42 @@ func Search(broker string) error {
 		if o.FreeNow {
 			flags += "FREE-now"
 		}
-		fmt.Printf("%-8s %-12s %-22s %-9.2f %-9.2f %-13s %-7s %-7d %-7s %-7s %s\n",
+		row := fmt.Sprintf("%-8s %-12s %-22s %-9.2f %-9.2f %-13s %-7s %-7d %-7s %-7s %s",
 			status, signalTower(o.Signal, o.TPS, o.Online), o.Model, o.PriceIn, o.PriceOut,
 			pricetier.Label(o.PriceTier, o.PriceOut), tps, o.Ctx, o.Region, o.NodeID, flags)
+		fmt.Println(withSummary(row, o.Summary, width))
 	}
 	return nil
+}
+
+// listWidth is the terminal width a listing may fill: $COLUMNS when set, else the width of a
+// terminal on stdout, else 0 (piped: nothing is added that the plain listing did not have).
+func listWidth() int {
+	if c, err := strconv.Atoi(os.Getenv("COLUMNS")); err == nil && c > 0 {
+		return c
+	}
+	if w, _, err := term.GetSize(os.Stdout.Fd()); err == nil && term.IsTerminal(os.Stdout.Fd()) {
+		return w
+	}
+	return 0
+}
+
+// withSummary ends a listing row with the station's one-line summary when the terminal has
+// room for some of it (features/details/api_cli.feature), cut with "…" to fit.
+func withSummary(row, summary string, width int) string {
+	s := protocol.DetailsText(summary, protocol.SummaryMax)
+	if s == "" || width <= 0 {
+		return row
+	}
+	row = strings.TrimRight(row, " ")
+	room := width - utf8.RuneCountInString(row) - len("  ·  ")
+	if room < 8 {
+		return row
+	}
+	if r := []rune(s); len(r) > room {
+		s = strings.TrimRight(string(r[:room-1]), " ") + "…"
+	}
+	return row + "  ·  " + s
 }
 
 // The CLI band table's $-tier cell is the shared canonical render (internal/pricetier.Label),

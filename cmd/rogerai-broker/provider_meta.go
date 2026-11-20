@@ -50,6 +50,9 @@ func (b *broker) providerMeta(w http.ResponseWriter, r *http.Request) {
 		BaseModel     string   `json:"base_model"`
 		ContentPolicy string   `json:"content_policy"`
 		License       string   `json:"license"`
+		Summary       string   `json:"summary"`
+		BestAt        string   `json:"best_at"`
+		NotFor        string   `json:"not_for"`
 		Clear         bool     `json:"clear"`
 	}
 	if json.Unmarshal(body, &req) != nil || req.Node == "" || req.Model == "" {
@@ -62,8 +65,9 @@ func (b *broker) providerMeta(w http.ResponseWriter, r *http.Request) {
 	}
 	cat, sub := protocol.SplitCategory(req.Category)
 	t, err := protocol.Taxonomy{Category: cat, Subcategory: sub, Tags: req.Tags, Tuning: req.Tuning,
-		BaseModel: req.BaseModel, ContentPolicy: req.ContentPolicy, License: req.License}.Declare(b.liveModality(req.Node, req.Model))
-	if req.Clear || (err == nil && !t.Declared()) {
+		BaseModel: req.BaseModel, ContentPolicy: req.ContentPolicy, License: req.License,
+		Summary: req.Summary, BestAt: req.BestAt, NotFor: req.NotFor}.Declare(b.liveModality(req.Node, req.Model))
+	if req.Clear || (err == nil && !t.Declared() && !t.DetailsDeclared()) {
 		if _, err := b.db.ClearMetaOverride(o.Pubkey, req.Node, req.Model); err != nil {
 			jsonErr(w, http.StatusInternalServerError, "store error")
 			return

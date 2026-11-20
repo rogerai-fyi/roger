@@ -27,6 +27,7 @@ import (
 	"os"
 	"os/signal"
 	"rogerai.fm/roger/v7/internal/buildinfo"
+	"rogerai.fm/roger/v7/internal/catalog"
 	"rogerai.fm/roger/v7/internal/tokenizer"
 	"strconv"
 	"strings"
@@ -52,6 +53,10 @@ var version = buildinfo.Version
 var openapiSpec string
 
 type broker struct {
+	// notes is RogerAI's curated descriptions of its own models (internal/catalog notes.json),
+	// stamped onto every published offer of a noted model id (features/details).
+	notes catalog.Notes
+
 	// devices is the broker-mediated device-login state machine (see deviceauth.go).
 	// Pending logins live in the shared store when one is wired (see devicestore.go), so
 	// a login survives a restart and completes across instances; otherwise in-process.
@@ -827,6 +832,7 @@ const shutdownGrace = 30 * time.Second
 // b.shared (nil in tests) - nor does it serve, so a test can construct + drive it.
 func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, lock time.Duration) *broker {
 	b := &broker{
+		notes:   mustNotes(),
 		devices: newDeviceFlow(),
 		nodes:   map[string]protocol.NodeRegistration{}, tunnels: map[string]*nodeTunnel{},
 		lastSeen: map[string]time.Time{}, confidential: map[string]bool{},

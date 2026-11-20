@@ -976,6 +976,7 @@ func (m model) helpView() string {
 		{"t", "YOUR BANDS: switch the dial between OPEN MARKET and your own PRIVATE bands. A private band is hidden from the public list - including from you - so this is where you find it. ⏎ on one whose model runs here opens a DIRECT channel (no broker, no meter); n mints a new code, f clears a revoked row"},
 		{"~", "PRIVATE FREQ: enter SOMEONE ELSE'S frequency code to tune onto their hidden band - esc returns to OPEN MARKET"},
 		{"b", "BAND CARD: every setting for the band under the cursor in one place - on air, public/private, its dial, its price, what was detected about it, your spend caps"},
+		{"i", "about + station log: what the model under the cursor is for (best at, not for, base, license, its model page), then every station carrying it"},
 		{"s", "SORT cycle (strongest / cheapest / fastest / most-stations)"},
 		{"F/C/O", "filters: free-now / confidential / on-air"},
 		{"G", "CATEGORY filter: show only one category (vision, retrieval…). A category is the station's own description, or a guess marked ~ - not verified"},

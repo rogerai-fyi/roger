@@ -371,6 +371,7 @@
                   <tr><td><kbd>Enter</kbd></td><td>tune in to the selected station (opens the cost-confirm); on the connected row, jump into chat</td></tr>
                   <tr><td><kbd>d</kbd></td><td>disconnect the open channel without entering it</td></tr>
                   <tr><td><kbd>c</kbd> · <kbd>tab</kbd></td><td>jump into the open channel</td></tr>
+                  <tr><td><kbd>i</kbd></td><td><b>about + station log</b>: what the model under the cursor is for (summary, best at, not for, kind, base, license, its model page), then every station carrying it</td></tr>
                   <tr><td><kbd>b</kbd></td><td>the <b>band card</b>: every setting for the band under the cursor in one place - on air, public/private, its dial, its price, your spend caps (&sect;5)</td></tr>
                   <tr><td><kbd>t</kbd></td><td>switch the dial between <b>OPEN MARKET</b> and <b>PRIVATE</b> - your own bands (&sect;5). Your private bands are hidden from the public list by design, so this tab is where you find them</td></tr>
                   <tr><td><kbd>f</kbd></td><td>live name filter - type to search models (re-opens to edit, esc clears)</td></tr>
@@ -827,7 +828,16 @@
               <div class="man-plate__row"><span class="man-plate__k">--policy</span><span class="man-plate__v">the content-policy grade of the weights: <code>aligned</code>, <code>reduced-refusal</code> or <code>uncensored</code></span></div>
               <div class="man-plate__row"><span class="man-plate__k">--license</span><span class="man-plate__v">the model's license, e.g. <code>Apache-2.0</code></span></div>
               <div class="man-plate__row"><span class="man-plate__k">--base-model</span><span class="man-plate__v">what it was derived from, e.g. <code>Qwen/Qwen3-VL-8B-Instruct</code></span></div>
+              <div class="man-plate__row"><span class="man-plate__k">--summary</span><span class="man-plate__v">one line: what the model is, at most 140 characters</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">--best-at</span><span class="man-plate__v">what it does well, at most 200 characters</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">--not-for</span><span class="man-plate__v">what it should not be used for, at most 200 characters</span></div>
             </div>
+            <p class="man-note">The details (<code>--summary</code>, <code>--best-at</code>,
+              <code>--not-for</code>) are shown to people browsing the market, in the TUI's
+              station log (<kbd>i</kbd>), the console and the Models page. They are the
+              station's own words and are not verified. Any taxonomy or details flag replaces
+              the model's saved declaration as a whole. For RogerAI's own models the band shows
+              RogerAI's description instead.</p>
             <p class="man-note">A category is your station's own description: it is
               <b>not verified</b>, and every surface says whether it was declared or
               guessed. A content-policy grade describes your weights; it
@@ -854,7 +864,8 @@
               <code>--ctx</code>, <code>--confidential</code>, <code>--free-window</code>,
               <code>--schedule</code>, <code>--probe-min</code>, and the category flags
               (<code>--category</code>, <code>--tag</code>, <code>--tuning</code>,
-              <code>--policy</code>, <code>--license</code>, <code>--base-model</code>).</p>
+              <code>--policy</code>, <code>--license</code>, <code>--base-model</code>) and the
+              details (<code>--summary</code>, <code>--best-at</code>, <code>--not-for</code>).</p>
             <p>If every request to your upstream costs real money, <code>--probe-min 6h</code>
               (or <code>"probe_min": "6h"</code> under the model in <code>share_prices</code>)
               tells the broker to send its verification probes at most that often, capped at
@@ -1821,6 +1832,15 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre></div>
               request to a model can be routed to any of them. An unknown value matches
               nothing.</p>
             <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">$</span> curl 'https://broker.rogerai.fm/market?category=vision&amp;subcategory=ocr&amp;tag=manufacturing'</pre></div>
+            <h3>What a model is for</h3>
+            <p>Each <code>/v1/models</code> entry carries a <code>description</code> (the band's
+              one-line summary) and a <code>rogerai.details</code> block: <code>source</code>,
+              <code>summary</code>, <code>best_at</code>, <code>not_for</code>,
+              <code>base_model</code>, <code>tuning</code>, <code>license</code>, and a
+              <code>page</code> for RogerAI's own models. Station text is the station's own words
+              and is not verified; <code>source</code> says <code>rogerai</code> only for
+              RogerAI's description of its own models. From the command line:
+              <code>roger models &lt;id&gt;</code> (add <code>--json</code> for the block).</p>
             <p class="man-lead" style="margin-top:32px">Roger that. The band is open.</p>
           </section>
 

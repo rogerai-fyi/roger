@@ -30,6 +30,10 @@
   let policy = $state(untrack(() => m.content_policy || ""));
   let license = $state(untrack(() => m.license || ""));
   let baseModel = $state(untrack(() => m.base_model || ""));
+  // The details (features/details/declaration.feature): shown to people browsing the market.
+  let summary = $state(untrack(() => m.summary || ""));
+  let bestAt = $state(untrack(() => m.best_at || ""));
+  let notFor = $state(untrack(() => m.not_for || ""));
   let busy = $state(false);
   let ready = $state(false);
   let msg = $state({ cls: "", text: "" });
@@ -58,6 +62,7 @@
     category: subcategory ? category + "/" + subcategory : category,
     tags: tags.split(",").map((s) => s.trim()).filter(Boolean),
     tuning, content_policy: policy, license: license.trim(), base_model: baseModel.trim(),
+    summary: summary.trim(), best_at: bestAt.trim(), not_for: notFor.trim(),
   });
   const clear = () => send({ node: m.node, model: m.model, clear: true });
 </script>
@@ -82,6 +87,10 @@
     </select></label>
   <label class="md-catrow"><span class="md-lbl">License</span><input class="md-cattext" type="text" placeholder="license (e.g. Apache-2.0)" bind:value={license} /></label>
   <label class="md-catrow"><span class="md-lbl">Base model</span><input class="md-cattext" type="text" placeholder="base model" bind:value={baseModel} /></label>
+  <label class="md-catrow"><span class="md-lbl">Summary</span><input class="md-cattext" type="text" maxlength="140" placeholder="one line: what the model is" bind:value={summary} /></label>
+  <label class="md-catrow"><span class="md-lbl">Best at</span><textarea class="md-cattext" maxlength="200" rows="2" placeholder="what it does well" bind:value={bestAt}></textarea></label>
+  <label class="md-catrow"><span class="md-lbl">Not for</span><textarea class="md-cattext" maxlength="200" rows="2" placeholder="what it should not be used for" bind:value={notFor}></textarea></label>
+  {#if m.curated_note}<p class="fine">RogerAI describes this model; your text shows only where it does not.</p>{/if}
   <p class="fine">Your own description, shown as declared. A content-policy grade describes the weights; RogerAI still screens every request.</p>
   <div class="md-foot">
     <button class="primary" type="button" disabled={busy || !ready} onclick={save}>Save category</button>

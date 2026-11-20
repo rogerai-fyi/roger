@@ -11,6 +11,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"rogerai.fm/roger/v7/internal/protocol"
@@ -239,6 +240,9 @@ const (
 	mtFieldPolicy
 	mtFieldLicense
 	mtFieldBase
+	mtFieldSummary
+	mtFieldBestAt
+	mtFieldNotFor
 	mtFieldCount
 )
 
@@ -246,6 +250,7 @@ const (
 type metaEditor struct {
 	mtModel, mtModality                                                string
 	mtCat, mtSub, mtTags, mtTuning, mtPolicy, mtLicense, mtBase, mtErr string
+	mtSummary, mtBestAt, mtNotFor                                      string // the details (features/details)
 	mtField                                                            int
 	mtGuess                                                            bool // prefilled from detection, not a declaration
 }
@@ -301,6 +306,9 @@ func (m model) enterShareMeta() (tea.Model, tea.Cmd) {
 		mtModel: row.model, mtModality: row.modality, mtGuess: guess,
 		mtCat: src.Category, mtSub: src.Subcategory, mtTags: strings.Join(src.Tags, ", "),
 		mtTuning: src.Tuning, mtPolicy: src.ContentPolicy, mtLicense: src.License, mtBase: src.BaseModel,
+		// The details are never guessed: always the declaration's own (a details-only one
+		// leaves the guess above in place).
+		mtSummary: d.Summary, mtBestAt: d.BestAt, mtNotFor: d.NotFor,
 	}
 	if m.isVoiceMeta() {
 		m.mtCat, m.mtSub = "audio", row.modality
@@ -318,8 +326,48 @@ func (m *model) mtText() *string {
 		return &m.mtLicense
 	case mtFieldBase:
 		return &m.mtBase
+	case mtFieldSummary:
+		return &m.mtSummary
+	case mtFieldBestAt:
+		return &m.mtBestAt
+	case mtFieldNotFor:
+		return &m.mtNotFor
 	}
 	return nil
+}
+
+// mtCap is a details field's character cap, 0 for any other field.
+func mtCap(field int) int {
+	switch field {
+	case mtFieldSummary:
+		return protocol.SummaryMax
+	case mtFieldBestAt, mtFieldNotFor:
+		return protocol.DetailMax
+	}
+	return 0
+}
+
+// typedDetails is typed or pasted text as a details field may hold it: line breaks and tabs
+// become spaces, every control, bidi and zero-width character is dropped, and the field stops
+// at its cap. It does not trim, so a space typed between words survives.
+func typedDetails(cur, add string, cap int) string {
+	n := utf8.RuneCountInString(cur)
+	var b strings.Builder
+	b.WriteString(cur)
+	for _, r := range add {
+		if n >= cap {
+			break
+		}
+		switch {
+		case r == ' ' || r == '\n' || r == '\r' || r == '\t' || r == 0x2028 || r == 0x2029:
+			r = ' '
+		case protocol.DetailsText(string(r), 1) == "":
+			continue
+		}
+		b.WriteRune(r)
+		n++
+	}
+	return b.String()
 }
 
 // onShareMetaKey drives the category editor.
@@ -376,7 +424,13 @@ func (m *model) onShareMetaKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	// A terminal sends a space as its own key (tea.KeySpace), not as a rune.
 	if p := m.mtText(); p != nil && (k.Type == tea.KeyRunes || k.Type == tea.KeySpace) {
-		if k.Type == tea.KeySpace {
+		if c := mtCap(m.mtField); c > 0 {
+			add := " "
+			if k.Type == tea.KeyRunes {
+				add = string(k.Runes)
+			}
+			*p = typedDetails(*p, add, c)
+		} else if k.Type == tea.KeySpace {
 			*p += " "
 		} else {
 			*p += string(k.Runes)
@@ -396,7 +450,8 @@ func (m *model) commitShareMeta() {
 	}
 	onAir := m.shares[m.mtModel] != nil
 	err := m.ctrl.SetMeta(m.mtModel, protocol.Taxonomy{Category: m.mtCat, Subcategory: m.mtSub, Tags: tags,
-		Tuning: m.mtTuning, ContentPolicy: m.mtPolicy, License: m.mtLicense, BaseModel: m.mtBase})
+		Tuning: m.mtTuning, ContentPolicy: m.mtPolicy, License: m.mtLicense, BaseModel: m.mtBase,
+		Summary: m.mtSummary, BestAt: m.mtBestAt, NotFor: m.mtNotFor})
 	if err != nil {
 		m.mtErr = err.Error()
 		return
@@ -433,6 +488,16 @@ func (m model) shareMetaView(w int) string {
 				v = val + "_"
 			}
 		}
+		if c := mtCap(field); c > 0 {
+			v += stDim.Render(fmt.Sprintf("  %d/%d", utf8.RuneCountInString(val), c))
+		}
+		// A long value scrolls inside its row: the end being typed stays in view.
+		room := max(8, w-2-2-13)
+		if field == m.mtField {
+			v = truncVisibleTail(v, room)
+		} else {
+			v = truncVisible(v, room)
+		}
 		b.WriteString("  " + mark + stDim.Render(pad(label, 13)) + stKey.Render(v) + "\n")
 	}
 	row(mtFieldCat, "category", none(m.mtCat), true)
@@ -442,15 +507,18 @@ func (m model) shareMetaView(w int) string {
 	row(mtFieldPolicy, "policy", none(m.mtPolicy), true)
 	row(mtFieldLicense, "license", m.mtLicense, false)
 	row(mtFieldBase, "base model", m.mtBase, false)
+	row(mtFieldSummary, "summary", m.mtSummary, false)
+	row(mtFieldBestAt, "best at", m.mtBestAt, false)
+	row(mtFieldNotFor, "not for", m.mtNotFor, false)
 	if m.isVoiceMeta() {
-		b.WriteString("\n  " + stDim.Render("a "+m.mtModality+" model is always audio/"+m.mtModality) + "\n")
+		b.WriteString("\n  " + truncVisible(stDim.Render("a "+m.mtModality+" model is always audio/"+m.mtModality), w-2) + "\n")
 	}
 	if m.mtPolicy == "uncensored" || m.mtPolicy == "reduced-refusal" {
-		b.WriteString("\n  " + stDim.Render("the grade describes the weights - "+screeningNote) + "\n")
+		b.WriteString("\n  " + truncVisible(stDim.Render("the grade describes the weights - "+screeningNote), w-2) + "\n")
 	}
 	if m.mtErr != "" {
-		b.WriteString("\n  " + stEmber.Render(m.mtErr) + "\n")
+		b.WriteString("\n  " + truncVisible(stEmber.Render(m.mtErr), w-2) + "\n")
 	}
-	b.WriteString("\n  " + stDim.Render("a category is your own description - consumers see whether it was declared or guessed") + "\n")
+	b.WriteString("\n  " + truncVisible(stDim.Render("a category is your own description - consumers see whether it was declared or guessed"), w-2) + "\n")
 	return b.String()
 }

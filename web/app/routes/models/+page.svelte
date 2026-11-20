@@ -249,7 +249,8 @@
               <p class="mono qsl__line" id="qslSched">schedule: continuous</p>
             </div>
             <div class="qsl__block">
-              <span class="qsl__bk mono">CATEGORY</span>
+              <span class="qsl__bk mono">ABOUT</span>
+              <div class="qsl__about" id="qslAbout"></div>
               <p class="mono qsl__line" id="qslTax">category: -</p>
             </div>
             <div class="qsl__block">
