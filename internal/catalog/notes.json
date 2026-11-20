@@ -9,17 +9,17 @@
   },
   {
     "id": "wave-nano-fire-controller",
-    "summary": "Fire-decision adapter on Wave Nano 1.45B. Reads one fire-site tick and returns an alert decision.",
-    "best_at": "From a canonicalized fire-site tick: the alert level, who to notify, missing inputs and tool plans. Refuses unsafe overrides and hands off after an acknowledgement.",
-    "not_for": "Chat, or ticks the caller has not canonicalized. Tested on simulated fire scenarios, the served build and recorded readings from one installed site; not yet proven across many sites.",
+    "summary": "Fire-site decision model, not a chat model. Takes one fire controller tick (a JSON sensor block) and returns one JSON alert decision.",
+    "best_at": "Specialized: only ticks in the controller's prompt format. On 1,200 recorded ticks from one site, read 2026-11-20: no missed alarms, persistent smoke 100%, 97.1% across tick types.",
+    "not_for": "Chat or free text, which get a usage note. Decision support only: not a listed fire alarm, not a substitute for emergency services. In a fire, call your local emergency number.",
     "base_model": "Wave Nano 1.45B",
     "page": "/research-wave-nano.html"
   },
   {
     "id": "wave-nano-fire-vision",
-    "summary": "Wave Nano-VL fire module. Confirms or rules out smoke in one camera frame or crop.",
-    "best_at": "A yes or no smoke check on a single frame, or on the crop a tile detector flagged.",
-    "not_for": "Video, or deciding what to do on its own. It does not carry over yet to cameras unlike the ones it learned on. Read the license note on the model page before commercial use.",
+    "summary": "Specialized smoke check, not a chat model. Takes one camera image with one fixed question and answers yes or no.",
+    "best_at": "Confirming or ruling out smoke in one frame or a detector's crop. On 1,129 held-out frames from the camera network it learned on, read 2026-11-20: AUC 0.969, finds 93.7% of smoke frames.",
+    "not_for": "Chat, video, acting alone, or cameras unlike the ones it learned on. Decision support only: not a listed fire alarm or emergency services. See the license note before commercial use.",
     "base_model": "Wave Nano 1.45B",
     "page": "/research-wave-nano.html"
   },
