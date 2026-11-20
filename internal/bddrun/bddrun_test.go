@@ -1,8 +1,11 @@
 package bddrun
 
 import (
+	"os"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 
 	"github.com/cucumber/godog"
 )
@@ -72,4 +75,14 @@ func TestRunWithoutTestingTReportsOnStderr(t *testing.T) {
 	if code := Run(godog.TestSuite{Options: &godog.Options{Format: "progress", Paths: []string{"testdata/sample.feature"}, Tags: "@nothing"}}); code == 0 {
 		t.Fatal("a suite with no initializer and no matching scenario passed")
 	}
+}
+
+func TestScenariosSelectsByTitle(t *testing.T) {
+	dir := t.TempDir()
+	f := dir + "/x.feature"
+	require.NoError(t, os.WriteFile(f, []byte("Feature: x\n\n  Scenario: one\n    Given a\n  Scenario Outline: two <n>\n    Given b\n"), 0o600))
+	require.Equal(t, []string{f + ":3", f + ":5"}, Scenarios(f, func(string) bool { return true }))
+	require.Equal(t, []string{f + ":3"}, Scenarios(f, Titled(false, "one")))
+	require.Equal(t, []string{f + ":5"}, Scenarios(f, Titled(true, "one")))
+	require.Nil(t, Scenarios(dir+"/missing.feature", Titled(false)))
 }

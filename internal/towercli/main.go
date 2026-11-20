@@ -440,6 +440,12 @@ func printCoreStatus(st *tower.State, out io.Writer) error {
 			fmt.Fprintf(out, "  routable:      %s %s (%s, capacity %d)\n",
 				s.StationID, s.Model, s.Modality, s.Capacity)
 		}
+		if tw.Work != "" {
+			fmt.Fprintf(out, "  work:          %s\n", tw.Work)
+		}
+		if tw.HubReach != "" {
+			fmt.Fprintf(out, "  hub serves:    %s\n", tw.HubReach)
+		}
 		if tr := tw.Trust; tr != nil && tr.Stage != "" {
 			fmt.Fprintf(out, "  trust stage:   %s (%s)\n", tr.Stage, stageAllows(tr.CommunityStations, tr.HouseStations))
 			if tr.Next != "" {

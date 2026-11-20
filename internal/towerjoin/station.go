@@ -49,6 +49,10 @@ type TowerStatus struct {
 	// an afternoon on the wrong one.
 	CarriesTraffic bool   `json:"carries_traffic"`
 	Note           string `json:"note"`
+	// Work says how work reaches the Tower ("pulled over the link" or "dialed by Roger Core")
+	// and HubReach who its hub can serve. Absent from an older Core, or for a Tower not linked.
+	Work     string `json:"work,omitempty"`
+	HubReach string `json:"hub_reach,omitempty"`
 	// Trust is the Tower's trust stage as Core computed it from its own record, what that
 	// stage allows, and what the next one still needs. Absent from an older Core.
 	Trust *struct {

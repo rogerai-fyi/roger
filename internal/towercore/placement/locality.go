@@ -6,11 +6,12 @@
 package placement
 
 // Locality is where Core observed a party to be: a coarse network bucket (an IPv4 /24 or an
-// IPv6 /32) and a continent from the operator's table. Either may be empty (unknown). It is
-// never taken from anything a Tower or a Station says about itself.
+// IPv6 /32), a continent from the operator's table, and the same-network key (HomeKey). Any may
+// be empty (unknown). It is never taken from anything a Tower or a Station says about itself.
 type Locality struct {
 	Bucket    string
 	Continent string
+	Home      string
 }
 
 // Class is the locality relation between a Station and a Tower. Lower is better.
@@ -52,7 +53,7 @@ func FromAddr(addr string, bucketOf, continentOf func(string) string) Locality {
 	if b == "" || b == localBucket {
 		return Locality{}
 	}
-	return Locality{Bucket: b, Continent: continentOf(addr)}
+	return Locality{Bucket: b, Continent: continentOf(addr), Home: HomeKey(addr)}
 }
 
 // FromAddrs is a Tower's locality from every address its hub host resolved to, cross-checked
@@ -79,6 +80,9 @@ func FromAddrs(addrs []string, linkContinent string, bucketOf, continentOf func(
 		}
 		if l.Continent != out.Continent {
 			out.Continent = ""
+		}
+		if l.Home != out.Home {
+			out.Home = ""
 		}
 	}
 	if linkContinent != "" && out.Continent != "" && linkContinent != out.Continent {

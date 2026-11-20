@@ -36,6 +36,9 @@ const RunStaleAfter = 15 * time.Minute
 const (
 	SourceHubCheck = "hub_check"
 	SourceCanary   = "canary"
+	// SourcePull is a hub check delivered over the Tower's own pull, for a Tower whose hub
+	// Core does not dial (features/tower/tower_pull_dispatch.feature).
+	SourcePull = "pull"
 )
 
 // Check is one health-check result. Slot is the canary interval it belongs to (the broker

@@ -157,6 +157,9 @@ func (r *mobRig) openSession(lt linkTower, srv *httptest.Server, endpoint, pin s
 		Capabilities: mandatoryCaps(), RelayEndpoint: endpoint, RelayTLSSPKI: pin,
 	}), &acc)
 	require.Equal(r.t, http.StatusOK, code, raw)
+	if srv == r.srv {
+		awaitHubClassed(r.t, r.b, lt.id, endpoint)
+	}
 	return acc.SessionID
 }
 

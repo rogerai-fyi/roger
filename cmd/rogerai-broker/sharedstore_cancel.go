@@ -56,41 +56,64 @@ func (v *valkeyStore) cancelCapGet(node string) (int64, error) {
 // cancelPush publishes entry to node's held cancel poll; when nobody is listening it is kept on
 // the node's buffer list (TTL ttl) for its next poll.
 func (v *valkeyStore) cancelPush(node string, entry []byte, ttl time.Duration) error {
+	return v.bufPush("cancelPush", cancelBufPrefix+node, busCancelPrefix+node, entry, entry, ttl, 0)
+}
+
+// cancelDrain removes and returns every buffered entry for node.
+func (v *valkeyStore) cancelDrain(node string) ([][]byte, error) {
+	return v.bufDrain("cancelDrain", cancelBufPrefix+node)
+}
+
+// bufPush appends entry to the buffer list at key (TTL ttl), then publishes wake on bus.
+// ALWAYS buffered first: a poll drains the buffer on every wake, so an entry published while a
+// poll was answering another one (still subscribed) is not lost.
+//
+// maxLen > 0 keeps only the newest maxLen entries, so a list nobody drains stays bounded.
+func (v *valkeyStore) bufPush(op, key, bus string, entry, wake []byte, ttl time.Duration, maxLen int64) error {
 	if v == nil || v.rdb == nil {
 		return errNoSharedStore
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), busPublishTimeout)
+	return v.bufPushOn(v.rdb, busPublishTimeout, op, key, bus, entry, wake, ttl, maxLen)
+}
+
+// bufPushOn is bufPush on client c, bounded by timeout.
+func (v *valkeyStore) bufPushOn(c redis.UniversalClient, timeout time.Duration, op, key, bus string, entry, wake []byte, ttl time.Duration, maxLen int64) error {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	// ALWAYS buffered, then a wake-up published: a poll drains the buffer on every wake, so a
-	// cancel published while a poll was answering another one (still subscribed) is not lost.
-	key := cancelBufPrefix + node
-	pipe := v.rdb.TxPipeline()
+	pipe := c.TxPipeline()
 	pipe.RPush(ctx, key, entry)
+	if maxLen > 0 {
+		pipe.LTrim(ctx, key, -maxLen, -1)
+	}
 	pipe.Expire(ctx, key, ttl)
 	if _, err := pipe.Exec(ctx); err != nil {
-		v.noteErr("cancelPush", err)
+		v.noteErr(op, err)
 		return err
 	}
-	if err := v.rdb.Publish(ctx, busCancelPrefix+node, entry).Err(); err != nil {
-		v.noteErr("cancelPush", err) // buffered all the same: the next poll drains it
+	if err := c.Publish(ctx, bus, wake).Err(); err != nil {
+		v.noteErr(op, err) // buffered all the same: the next poll drains it
 	}
 	v.setUp(true)
 	return nil
 }
 
-// cancelDrain removes and returns every buffered entry for node.
-func (v *valkeyStore) cancelDrain(node string) ([][]byte, error) {
+// bufDrain removes and returns every entry on the buffer list at key, atomically.
+func (v *valkeyStore) bufDrain(op, key string) ([][]byte, error) {
 	if v == nil || v.rdb == nil {
 		return nil, errNoSharedStore
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	return v.bufDrainOn(v.rdb, sharedOpTimeout, op, key)
+}
+
+// bufDrainOn is bufDrain on client c, bounded by timeout.
+func (v *valkeyStore) bufDrainOn(c redis.UniversalClient, timeout time.Duration, op, key string) ([][]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	key := cancelBufPrefix + node
-	pipe := v.rdb.TxPipeline()
+	pipe := c.TxPipeline()
 	lr := pipe.LRange(ctx, key, 0, -1)
 	pipe.Del(ctx, key)
 	if _, err := pipe.Exec(ctx); err != nil && err != redis.Nil {
-		v.noteErr("cancelDrain", err)
+		v.noteErr(op, err)
 		return nil, err
 	}
 	v.setUp(true)

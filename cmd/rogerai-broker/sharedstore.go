@@ -58,6 +58,12 @@ type sharedStore interface {
 	cancelPush(node string, entry []byte, ttl time.Duration) error
 	cancelDrain(node string) ([][]byte, error)
 	cancelSubscribe(ctx context.Context, node string) (<-chan []byte, func(), error)
+	// Tower pull dispatch (towerpull.go, features/tower/tower_pull_dispatch.feature): the
+	// per-Tower work buffer and its wake-up channel, plus a read of a setIfAbsent claim.
+	towerWorkPush(tower string, entry []byte, ttl time.Duration) error
+	towerWorkDrain(tower string) ([][]byte, error)
+	towerWorkSubscribe(ctx context.Context, tower string) (<-chan []byte, func(), error)
+	stringGet(key string) (val string, found bool, err error)
 
 	// Pair cooldowns (paircool.go, contract §14.2): pairCoolExtend raises one (node|model)
 	// field of a payer's cooldown hash to untilMs - atomically, never lowering it - and keeps
@@ -126,6 +132,13 @@ type sharedStore interface {
 	// non-fatal - the caller already served the freshly computed value, so a failed
 	// SET only means the next request recomputes. ttl<=0 is a no-op.
 	cacheSet(key string, val []byte, ttl time.Duration) error
+	// bulkSet / bulkGet are cacheSet / cacheGet (same key namespace) for payloads of up to tens
+	// of megabytes: on the bulk pool, with a deadline sized to the payload.
+	bulkSet(key string, val []byte, ttl time.Duration) error
+	bulkGet(key string) (val []byte, found bool, err error)
+	// cacheExists reports whether a cache key is set, on the hot path and without its value: the
+	// cheap look before a bulkGet.
+	cacheExists(key string) (bool, error)
 
 	// cacheDel removes a cached entry so the NEXT read misses and re-resolves from the
 	// source of truth. Used to invalidate an immutable-binding cache on a bind WRITE, so
@@ -594,6 +607,9 @@ type valkeyStore struct {
 	// rdb is one Valkey, a client-side ring of independent Valkeys, or a Valkey Cluster
 	// (valkeyTopology). Every hot-path command touches ONE key, so all three work unchanged.
 	rdb redis.UniversalClient
+	// bulk is a small pool over the same topology for large payloads, its sockets bounded by
+	// each call's deadline (bulkTimeout); nil falls back to rdb.
+	bulk redis.UniversalClient
 	// dial builds a fresh client over the SAME topology with its own small pool and the
 	// given read timeout. The dispatch plane's inbox reader uses it so its held XREAD never
 	// occupies a pooled connection other calls need (DISPATCH-SCALE-DESIGN section 3.7).
@@ -730,6 +746,12 @@ func valkeyTopologyFromEnv() (valkeyTopology, bool) {
 var valkeyDialerRetries int
 
 func (tp valkeyTopology) build(readTimeout time.Duration, poolSize int) (redis.UniversalClient, int, error) {
+	return tp.buildWith(readTimeout, sharedOpTimeout, poolSize, false)
+}
+
+// buildWith is build with the write timeout too, and with ctxDeadlines the sockets follow each
+// call's context deadline instead of the fixed timeouts (the bulk pool, whose calls size it).
+func (tp valkeyTopology) buildWith(readTimeout, writeTimeout time.Duration, poolSize int, ctxDeadlines bool) (redis.UniversalClient, int, error) {
 	if len(tp.urls) == 0 {
 		return nil, 0, fmt.Errorf("no valkey url")
 	}
@@ -741,7 +763,8 @@ func (tp valkeyTopology) build(readTimeout time.Duration, poolSize int) (redis.U
 		}
 		opt.DialTimeout = 2 * time.Second
 		opt.ReadTimeout = readTimeout
-		opt.WriteTimeout = sharedOpTimeout
+		opt.WriteTimeout = writeTimeout
+		opt.ContextTimeoutEnabled = ctxDeadlines
 		opt.MaxRetries = 1
 		if valkeyDialerRetries > 0 {
 			opt.DialerRetries = valkeyDialerRetries
@@ -767,7 +790,7 @@ func (tp valkeyTopology) build(readTimeout time.Duration, poolSize int) (redis.U
 		return redis.NewClusterClient(&redis.ClusterOptions{
 			Addrs: addrs, Username: o.Username, Password: o.Password, TLSConfig: o.TLSConfig,
 			DialTimeout: o.DialTimeout, ReadTimeout: o.ReadTimeout, WriteTimeout: o.WriteTimeout,
-			MaxRetries: o.MaxRetries, PoolSize: o.PoolSize, DialerRetries: o.DialerRetries,
+			ContextTimeoutEnabled: o.ContextTimeoutEnabled, MaxRetries: o.MaxRetries, PoolSize: o.PoolSize, DialerRetries: o.DialerRetries,
 		}), eff, nil
 	default:
 		byAddr := map[string]*redis.Options{}
@@ -797,7 +820,11 @@ func newValkeyStoreTopology(tp valkeyTopology) (*valkeyStore, error) {
 	if err != nil {
 		return nil, err
 	}
-	vs := &valkeyStore{rdb: rdb, poolSize: pool, closed: make(chan struct{})}
+	// Pull payloads (features/tower/tower_pull_dispatch.feature) can be tens of megabytes; they get
+	// a small pool of their own whose deadlines grow with the payload (bulkTimeout), so they
+	// neither time out at the hot path's 750 ms nor hold its connections while they transfer.
+	bulk, _, _ := tp.buildWith(bulkOpMax, bulkOpMax, bulkPoolSize, true) // tp parsed above
+	vs := &valkeyStore{rdb: rdb, bulk: bulk, poolSize: pool, closed: make(chan struct{})}
 	vs.dial = func(readTimeout time.Duration) redis.UniversalClient {
 		c, _, _ := tp.build(readTimeout, 2) // tp already parsed once above, so no error here
 		return c
@@ -902,6 +929,9 @@ func (v *valkeyStore) Close() error {
 	}
 	if v.closed != nil {
 		v.closeOnce.Do(func() { close(v.closed) })
+	}
+	if v.bulk != nil {
+		_ = v.bulk.Close()
 	}
 	return v.rdb.Close()
 }

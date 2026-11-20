@@ -44,7 +44,12 @@ type Record struct {
 	// Locality is the hub's measured locality; LocalityKnown says it has been measured.
 	Locality      placement.Locality
 	LocalityKnown bool
-	LinkContinent string
+	// Link is the locality of the address the link connected from; LinkKnown says it was recorded.
+	Link      placement.Locality
+	LinkKnown bool
+	// Pull says the session takes its work by pull; HubClass is the hub address's kind.
+	Pull     bool
+	HubClass placement.HubClass
 }
 
 // ErrMirrorDown is a mirror that cannot answer. Callers fall back to what they can

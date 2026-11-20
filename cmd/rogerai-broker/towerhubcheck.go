@@ -7,10 +7,14 @@ package main
 
 import (
 	"context"
+	"errors"
+	"net/http"
 	"time"
 
 	"rogerai.fm/roger/v7/internal/towercore/admit"
 	"rogerai.fm/roger/v7/internal/towercore/health"
+	"rogerai.fm/roger/v7/internal/towercore/link"
+	"rogerai.fm/roger/v7/internal/towercore/placement"
 	"rogerai.fm/roger/v7/internal/towercore/reputation"
 	"rogerai.fm/roger/v7/internal/towerhub"
 )
@@ -39,6 +43,13 @@ func (b *broker) towerHubCheckOnce(now time.Time) {
 			// advertise a hub, so a Tower without one has nothing a health tier would protect.
 			continue
 		}
+		pulls, class := ts.link.Pulls(tw.ID), ts.link.HubClass(tw.ID)
+		if !pulls && class != placement.HubPublic {
+			// Core never dials a private (or not yet classed) hub, and a Tower that cannot pull
+			// is placed nowhere, so there is nothing to check and nothing to fail
+			// (private_hub_placement.feature).
+			continue
+		}
 		b.hubCheckMu.Lock()
 		last := b.hubCheckAt[tw.ID]
 		// Never more often than the interval (tower_trust_ramp.feature). A tick that lands a
@@ -52,28 +63,56 @@ func (b *broker) towerHubCheckOnce(now time.Time) {
 		}
 		b.hubCheckMu.Unlock()
 		if due {
-			b.hubCheck(tw, plane.Endpoint, plane.TLSSPKI, now)
+			b.hubCheck(tw, plane, pulls, class, now)
 		}
 	}
 }
 
-func (b *broker) hubCheck(tw admit.Tower, endpoint, pin string, now time.Time) {
+func (b *broker) hubCheck(tw admit.Tower, plane link.RelayPlane, pulls bool, class placement.HubClass, now time.Time) {
 	start := time.Now()
-	reason, remote, rtt := "unreachable", "", time.Duration(0)
-	base, hc, err := towerhub.ReachVetted(endpoint, pin, b.canaryVet)
-	if err == nil {
-		hc.Timeout = hubCheckTimeout
+	reason, remote, rtt := "", "", time.Duration(0)
+	source := health.SourceHubCheck
+	if pulls && b.shared != nil && !b.shared.healthy() {
+		return // Core's own store is down: a pull check now would blame the Tower for it
+	}
+	if pulls {
+		// Delivered by pull, like any other work for this Tower (tower_pull_dispatch.feature).
+		base, hc := b.pullClient(tw.ID)
+		rec := &errRecorder{rt: hc.Transport}
+		hc.Transport = rec
 		ctx, cancel := context.WithTimeout(context.Background(), hubCheckTimeout)
-		rtt, remote, reason = towerhub.CheckHub(ctx, hc, base, tw.ID, tw.KeyHash)
+		rtt, _, reason = towerhub.CheckHub(ctx, hc, base, tw.ID, tw.KeyHash)
 		cancel()
-		if tr, ok := hc.Transport.(interface{ CloseIdleConnections() }); ok {
-			tr.CloseIdleConnections()
+		if errors.Is(rec.err, errPullUnavailable) {
+			return // Core's own store failed the check: nothing is known about the Tower
+		}
+		if class != placement.HubPublic {
+			source = health.SourcePull
+		}
+	}
+	if class == placement.HubPublic && reason == "" {
+		// A public hub is also dialed from outside, because remote Stations depend on reaching
+		// it: a failure there counts even when the pull check passed.
+		var dialRTT time.Duration
+		reason, remote, dialRTT = "unreachable", "", 0
+		base, hc, err := towerhub.ReachVetted(plane.Endpoint, plane.TLSSPKI, b.canaryVet)
+		if err == nil {
+			hc.Timeout = hubCheckTimeout
+			ctx, cancel := context.WithTimeout(context.Background(), hubCheckTimeout)
+			dialRTT, remote, reason = towerhub.CheckHub(ctx, hc, base, tw.ID, tw.KeyHash)
+			cancel()
+			if tr, ok := hc.Transport.(interface{ CloseIdleConnections() }); ok {
+				tr.CloseIdleConnections()
+			}
+		}
+		if !pulls {
+			rtt = dialRTT
 		}
 	}
 	// Stamped when the check FINISHED (the pass's time plus how long this check took), so a
 	// slow check never lands as older than a canary that finished before it.
 	done := now.Add(time.Since(start))
-	b.recordHealthCheck(tw.ID, health.Check{OK: reason == "", At: done, Source: health.SourceHubCheck, RTT: rtt,
+	b.recordHealthCheck(tw.ID, health.Check{OK: reason == "", At: done, Source: source, RTT: rtt,
 		Slot: b.slotFor(now), MinGap: healthMinGap})
 	if reason == "" && remote != "" {
 		// Where the hub is, from the address that just proved the Tower's identity - not from
@@ -129,4 +168,16 @@ func (b *broker) recordHealthCheck(towerID string, c health.Check) {
 	if !c.OK {
 		b.noteHealthStreak(towerID)
 	}
+}
+
+// errRecorder keeps the last transport error, which towerhub.CheckHub folds into "unreachable".
+type errRecorder struct {
+	rt  http.RoundTripper
+	err error
+}
+
+func (e *errRecorder) RoundTrip(r *http.Request) (*http.Response, error) {
+	resp, err := e.rt.RoundTrip(r)
+	e.err = err
+	return resp, err
 }

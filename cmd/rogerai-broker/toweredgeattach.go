@@ -42,6 +42,7 @@ import (
 	"rogerai.fm/roger/v7/internal/towercore/admit"
 	"rogerai.fm/roger/v7/internal/towercore/attach"
 	"rogerai.fm/roger/v7/internal/towercore/link"
+	"rogerai.fm/roger/v7/internal/towercore/placement"
 )
 
 // newHubToken mints the bearer token a self-attached node USED to present to its tower's hub.
@@ -178,6 +179,11 @@ func (b *broker) towerEdgeAttach(w http.ResponseWriter, r *http.Request) {
 		// (byte tariff / free). Band-checked below - the same public band every offer obeys.
 		PriceInMicros  int64 `json:"price_in_micros"`
 		PriceOutMicros int64 `json:"price_out_micros"`
+		// UnreachableTower names the Tower whose hub this node could not reach, on the attach it
+		// makes after giving up on that hub. It only ever moves this Station off that Tower.
+		UnreachableTower string `json:"unreachable_tower"`
+		UnreachablePin   string `json:"unreachable_pin"`
+		UnreachableHub   string `json:"unreachable_endpoint"`
 		// Nudge declares that this node understands the re-attach nudge on its cancel
 		// long-poll, so Core may move it to a better Tower while it is idle
 		// (station_mobility.feature). An older node does not send it and is moved only when its
@@ -431,7 +437,54 @@ func (b *broker) towerEdgeAttach(w http.ResponseWriter, r *http.Request) {
 		// and asks again, and the operator is told once rather than never.
 		// Where it attaches from, and whether it can hear a nudge, are refreshed on every
 		// attach, this one included (placement_locality.feature).
-		b.recordStationFacts(prior.StationID, b.addrLocality(clientIP(r)), req.Nudge)
+		loc := b.addrLocality(clientIP(r))
+		b.recordStationFacts(prior.StationID, loc, req.Nudge)
+		// A HUB THE STATION CANNOT REACH is not named to it again: it is kept off that Tower for a
+		// day, and the mobility pass moves it (private_hub_placement.feature). A node can only
+		// ever move itself this way.
+		// Only for a PRIVATE hub, which Core cannot dial to see for itself, and only while the
+		// Tower's own link is up: a Tower that restarts takes its hub down for everyone, and that
+		// is not this Station failing to reach it.
+		// And only when it can help: a pin the node holds that is not the Tower's current one is a
+		// certificate the Tower rotated (the answer below hands over the new pin), and a Station
+		// with nowhere else to go is answered as before rather than told to wait out the day.
+		if tw := prior.Origin.TowerID; req.UnreachableTower != "" && req.UnreachableTower == tw &&
+			ts.link.HubClass(tw) == placement.HubPrivate && ts.link.Live(tw) {
+			plane, has := ts.link.RelayPlane(tw)
+			now := time.Now()
+			excl := b.avoidFor(prior.StationID, now)
+			excl[tw] = true
+			// Nor inside a paused move (one that came back because the node missed its window):
+			// the mobility pass will not move it then, so a 503 would only lock it out.
+			_, paused, _ := ts.mobility.Skip(prior.StationID)
+			// And only while the Tower is up for everyone else: holding its pulls, which a running
+			// Tower does every few seconds, so a Tower that crashed is not this Station's fault.
+			// The node must have held the Tower's current address and pin, too: anything else is
+			// the Tower having moved or rotated, answered below with what it advertises now.
+			if _, elsewhere := b.chooseFrom(b.placementSnapshot(), prior.Owner, loc, excl, "", nil); has &&
+				req.UnreachablePin == plane.TLSSPKI && req.UnreachableHub == plane.Endpoint &&
+				elsewhere && !now.Before(paused) && b.pulledRecently(tw) {
+				if err := ts.mobility.SetAvoid(prior.StationID, tw, now.Add(unreachableAvoidFor)); err != nil {
+					b.towerGovUnavailable(err)
+				}
+				jsonErr(w, http.StatusServiceUnavailable,
+					"this node cannot reach its tower and is being moved - try again shortly")
+				return
+			}
+		}
+		// A PRIVATE HUB IS NAMED ONLY ON ITS OWN NETWORK, on this answer as on a fresh one
+		// (private_hub_placement.feature). A Station whose known network now differs from the
+		// Tower's known one is told to try again; the network just recorded above is what the
+		// mobility pass moves it on (left_network), under the pacing every move follows. An
+		// unmeasured network on either side is not evidence it left.
+		if ts.link.HubClass(prior.Origin.TowerID) == placement.HubPrivate {
+			if towerLoc, known := ts.link.Locality(prior.Origin.TowerID); known && towerLoc.Home != "" &&
+				loc.Home != "" && !placement.SameHome(loc, towerLoc) {
+				jsonErr(w, http.StatusServiceUnavailable,
+					"this node is no longer on its tower's network and is being moved - try again shortly")
+				return
+			}
+		}
 		plane, has := ts.link.RelayPlane(prior.Origin.TowerID)
 		if !has {
 			jsonErr(w, http.StatusServiceUnavailable,

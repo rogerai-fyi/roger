@@ -45,6 +45,7 @@ import (
 	"rogerai.fm/roger/v7/internal/towercore/link"
 	"rogerai.fm/roger/v7/internal/towercore/mobility"
 	"rogerai.fm/roger/v7/internal/towercore/origin"
+	"rogerai.fm/roger/v7/internal/towercore/placement"
 	"rogerai.fm/roger/v7/internal/towercore/policy"
 	"rogerai.fm/roger/v7/internal/towercore/reputation"
 )
@@ -767,6 +768,41 @@ func (b *broker) towerEnroll(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// towerReachView adds how work reaches a live Tower and who its hub can serve
+// (tower_pull_dispatch.feature, "Tower status says how work reaches the Tower"). An older Tower
+// that cannot pull and has no address Core may hand out carries nothing, and its status says
+// why in the note every version of `roger tower status` prints.
+func (b *broker) towerReachView(towerID string, entry map[string]any) {
+	ts := b.tower
+	if !ts.link.Live(towerID) {
+		return
+	}
+	pulls := ts.link.Pulls(towerID)
+	if pulls {
+		entry["work"] = "pulled over the link"
+	} else {
+		entry["work"] = "dialed by Roger Core"
+	}
+	plane, _ := ts.link.RelayPlane(towerID)
+	class := ts.link.HubClass(towerID)
+	switch class {
+	case placement.HubPublic:
+		entry["hub_reach"] = "public, at " + plane.Endpoint
+	case placement.HubPrivate:
+		entry["hub_reach"] = "this network only"
+	case placement.HubLoopback:
+		entry["hub_reach"] = "this machine only, so no Station is placed here"
+	default:
+		entry["hub_reach"] = "no hub advertised"
+	}
+	if !pulls && (class == placement.HubPrivate || class == placement.HubLoopback) {
+		entry["carries_traffic"] = false
+		entry["note"] = "This tower cannot pull its work and its hub address is not public, so Roger Core " +
+			"places no Station on it. Upgrade (`roger upgrade`) so it pulls its work over its link: " +
+			"a hub on a home network then serves the Stations on that network."
+	}
+}
+
 // towerStatus handles GET /tower/status: what an operator's Towers are doing. Read-only,
 // and scoped to the caller's own account.
 func (b *broker) towerStatus(w http.ResponseWriter, r *http.Request) {
@@ -847,6 +883,7 @@ func (b *broker) towerStatus(w http.ResponseWriter, r *http.Request) {
 			"from the Payouts page like a serving node's. Volume is early - the figure is $0 "+
 			"until consumers route work through your hub.",
 			b.conn.policy.HoldDays, b.conn.policy.MinPayout)
+		b.towerReachView(tw.ID, entry)
 		out = append(out, entry)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"towers": out})

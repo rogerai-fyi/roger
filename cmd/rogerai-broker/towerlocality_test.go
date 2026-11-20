@@ -176,7 +176,9 @@ func TestNoTableMeansOnlyABucketIsKnown(t *testing.T) {
 
 func TestAStationsLocalityComesFromItsOwnAddress(t *testing.T) {
 	b := &broker{netTable: testNetTable(t)}
-	require.Equal(t, placement.Locality{Bucket: "198.51.100.0/24", Continent: "EU"}, b.addrLocality("198.51.100.20"))
+	require.Equal(t, placement.Locality{Bucket: "198.51.100.0/24", Continent: "EU",
+		Home: b.homeTag("198.51.100.20")}, b.addrLocality("198.51.100.20"))
+	require.NotContains(t, b.addrLocality("198.51.100.20").Home, "198.51.100", "the same-network key is never the address")
 	require.Equal(t, placement.Locality{}, b.addrLocality("192.168.1.5"))
 	require.Equal(t, placement.Locality{}, b.addrLocality("not an address"))
 	require.True(t, strings.HasPrefix(b.addrLocality("2001:db8::5").Bucket, "2001:db8::"))
@@ -279,4 +281,45 @@ func TestAFailedFirstLookupStillKeepsTheLinkContinent(t *testing.T) {
 	withHubResolver(t, func(context.Context, string) ([]string, error) { return nil, errors.New("the Tower made its DNS fail") })
 	b.measureTowerLocality(lt.id, acc.SessionID, "hub.example:7443", "198.51.100.9")
 	require.Equal(t, "EU", b.tower.link.LinkContinent(lt.id))
+}
+
+// private_hub_placement.feature, "A private-hub Tower whose link address changes is
+// re-measured" - and only then: a local address, or a request over the other address family on
+// a dual-stack connection, is not a move (found while building the executable spec: a Tower's
+// own pulls from a local address wiped its location).
+func TestALinkAddressChangeReMeasuresOnlyARealMove(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	b.netTable = testNetTable(t)
+	op := signedInOperator(t, b, "octocat")
+	lt := enrolledTower(t, b, op.login)
+	call := func(p string, body []byte, out any) (int, string) { return lt.call(t, srv, p, body, out) }
+	acc := openSessionOf(t, srv.URL, lt, call)
+	require.True(t, b.tower.link.SetHubClass(lt.id, acc.SessionID, placement.HubPrivate))
+	b.noteLinkAddr(lt.id, "198.51.100.40")
+	want := b.addrLocality("198.51.100.40")
+	got, _ := b.tower.link.Locality(lt.id)
+	require.Equal(t, want, got, "the first public address places a private-hub Tower")
+
+	for _, quiet := range []string{"127.0.0.1", "192.168.1.5", "not an address", "", "2001:db8::5"} {
+		b.noteLinkAddr(lt.id, quiet)
+		got, _ = b.tower.link.Locality(lt.id)
+		require.Equal(t, want, got, "%q is not a move", quiet)
+	}
+	b.noteLinkAddr(lt.id, "198.51.100.77")
+	got, _ = b.tower.link.Locality(lt.id)
+	require.Equal(t, b.addrLocality("198.51.100.77"), got, "a new address in the same family is a move")
+	b.noteLinkAddr("tw-unknown", "198.51.100.77") // no session: nothing to do
+}
+
+// awaitHubClassed waits for the asynchronous measurement that classes a Tower's hub after its
+// session opens. Until it lands the hub check skips the Tower and placement does not offer it, by
+// design; a test that checks or attaches straight after opening would otherwise race it.
+func awaitHubClassed(t *testing.T, b *broker, towerID, endpoint string) {
+	t.Helper()
+	host, _, err := net.SplitHostPort(endpoint)
+	if err != nil || net.ParseIP(host) == nil {
+		return // no hub, or a name: nothing a test can wait on
+	}
+	require.Eventually(t, func() bool { return b.tower.link.HubClass(towerID) != placement.HubNone },
+		10*time.Second, 5*time.Millisecond, "the hub at %s was never classed", endpoint)
 }

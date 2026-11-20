@@ -47,6 +47,12 @@ type Store interface {
 	Pending() ([]Move, error)
 	// Forget drops everything kept about Stations whose attachments were reaped.
 	Forget(stationIDs []string) error
+	// SetAvoid keeps a Station off a Tower until a time: a Tower whose hub the Station said it
+	// cannot reach (private_hub_placement.feature). A Station can be kept off several; a repeat
+	// report renews that Tower. Kept apart from the facts every attach rewrites.
+	SetAvoid(stationID, tower string, until time.Time) error
+	// Avoids is every Tower the Station is kept off and until when, expired ones included.
+	Avoids(stationID string) (map[string]time.Time, error)
 }
 
 type skip struct {
@@ -60,10 +66,11 @@ type MemStore struct {
 	facts map[string]Facts
 	moves map[string]Move
 	skips map[string]skip
+	avoid map[string]map[string]time.Time
 }
 
 func NewMemStore() *MemStore {
-	return &MemStore{facts: map[string]Facts{}, moves: map[string]Move{}, skips: map[string]skip{}}
+	return &MemStore{facts: map[string]Facts{}, moves: map[string]Move{}, skips: map[string]skip{}, avoid: map[string]map[string]time.Time{}}
 }
 
 func (m *MemStore) PutFacts(id string, f Facts) error {
@@ -154,6 +161,7 @@ func (m *MemStore) Forget(ids []string) error {
 		delete(m.facts, id)
 		delete(m.moves, id)
 		delete(m.skips, id)
+		delete(m.avoid, id)
 	}
 	return nil
 }
@@ -167,6 +175,13 @@ CREATE TABLE IF NOT EXISTS rogerai.station_facts (
     loc_bucket    TEXT NOT NULL DEFAULT '',
     loc_continent TEXT NOT NULL DEFAULT '',
     nudge         BOOLEAN NOT NULL DEFAULT false
+);
+ALTER TABLE rogerai.station_facts ADD COLUMN IF NOT EXISTS loc_home TEXT NOT NULL DEFAULT '';
+CREATE TABLE IF NOT EXISTS rogerai.station_avoid (
+    station_id TEXT NOT NULL,
+    tower_id   TEXT NOT NULL,
+    until_at   TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (station_id, tower_id)
 );
 CREATE TABLE IF NOT EXISTS rogerai.station_moves (
     station_id  TEXT PRIMARY KEY,
@@ -190,17 +205,18 @@ func NewPGStore(db *sql.DB) (*PGStore, error) {
 }
 
 func (p *PGStore) PutFacts(id string, f Facts) error {
-	_, err := p.db.Exec(`INSERT INTO rogerai.station_facts (station_id, loc_bucket, loc_continent, nudge)
-        VALUES ($1,$2,$3,$4) ON CONFLICT (station_id) DO UPDATE
-        SET loc_bucket=EXCLUDED.loc_bucket, loc_continent=EXCLUDED.loc_continent, nudge=EXCLUDED.nudge`,
-		id, f.Locality.Bucket, f.Locality.Continent, f.Nudge)
+	_, err := p.db.Exec(`INSERT INTO rogerai.station_facts (station_id, loc_bucket, loc_continent, nudge, loc_home)
+        VALUES ($1,$2,$3,$4,$5) ON CONFLICT (station_id) DO UPDATE
+        SET loc_bucket=EXCLUDED.loc_bucket, loc_continent=EXCLUDED.loc_continent, nudge=EXCLUDED.nudge,
+            loc_home=EXCLUDED.loc_home`,
+		id, f.Locality.Bucket, f.Locality.Continent, f.Nudge, f.Locality.Home)
 	return err
 }
 
 func (p *PGStore) Facts(id string) (Facts, bool, error) {
 	var f Facts
-	err := p.db.QueryRow(`SELECT loc_bucket, loc_continent, nudge FROM rogerai.station_facts WHERE station_id=$1`, id).
-		Scan(&f.Locality.Bucket, &f.Locality.Continent, &f.Nudge)
+	err := p.db.QueryRow(`SELECT loc_bucket, loc_continent, nudge, loc_home FROM rogerai.station_facts WHERE station_id=$1`, id).
+		Scan(&f.Locality.Bucket, &f.Locality.Continent, &f.Nudge, &f.Locality.Home)
 	if err == sql.ErrNoRows {
 		return Facts{}, false, nil
 	}
@@ -303,6 +319,9 @@ func (p *PGStore) Forget(ids []string) error {
 	if _, err := p.db.Exec(`DELETE FROM rogerai.station_facts WHERE station_id = ANY($1)`, ids); err != nil {
 		return err
 	}
+	if _, err := p.db.Exec(`DELETE FROM rogerai.station_avoid WHERE station_id = ANY($1)`, ids); err != nil {
+		return err
+	}
 	_, err := p.db.Exec(`DELETE FROM rogerai.station_moves WHERE station_id = ANY($1)`, ids)
 	return err
 }
@@ -310,4 +329,48 @@ func (p *PGStore) Forget(ids []string) error {
 func (p *PGStore) ReleaseMove(id string) error {
 	_, err := p.db.Exec(`UPDATE rogerai.station_moves SET started_at=NULL, nudges=0, last_nudge=NULL WHERE station_id=$1`, id)
 	return err
+}
+
+func (m *MemStore) SetAvoid(id, tower string, until time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.avoid[id] == nil {
+		m.avoid[id] = map[string]time.Time{}
+	}
+	m.avoid[id][tower] = until.UTC()
+	return nil
+}
+
+func (m *MemStore) Avoids(id string) (map[string]time.Time, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := map[string]time.Time{}
+	for tw, until := range m.avoid[id] {
+		out[tw] = until
+	}
+	return out, nil
+}
+
+func (p *PGStore) SetAvoid(id, tower string, until time.Time) error {
+	_, err := p.db.Exec(`INSERT INTO rogerai.station_avoid (station_id, tower_id, until_at) VALUES ($1,$2,$3)
+        ON CONFLICT (station_id, tower_id) DO UPDATE SET until_at=EXCLUDED.until_at`, id, tower, until.UTC())
+	return err
+}
+
+func (p *PGStore) Avoids(id string) (map[string]time.Time, error) {
+	rows, err := p.db.Query(`SELECT tower_id, until_at FROM rogerai.station_avoid WHERE station_id=$1`, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]time.Time{}
+	for rows.Next() {
+		var tw string
+		var until time.Time
+		if err := rows.Scan(&tw, &until); err != nil {
+			return nil, err
+		}
+		out[tw] = until
+	}
+	return out, rows.Err()
 }

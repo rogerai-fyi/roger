@@ -227,6 +227,9 @@ func ReachVetted(endpoint, pin string, vet func(net.IP) error) (string, *http.Cl
 		tr = http.DefaultTransport.(*http.Transport).Clone()
 		tr.ForceAttemptHTTP2 = false
 	}
+	// DIRECT, NEVER PROXIED: through a proxy the dialer below would vet the proxy's address and
+	// the proxy would resolve the hub itself, unvetted.
+	tr.Proxy = nil
 	inner := tr.DialContext
 	if inner == nil {
 		inner = (&net.Dialer{}).DialContext
