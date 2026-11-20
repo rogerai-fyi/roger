@@ -121,7 +121,10 @@ var canaryArithmetic = map[string][]string{
 // heartbeat + nodeTTL) is fully decoupled and unchanged.
 const (
 	defaultProbeInterval = 30 * time.Second // ROGERAI_PROBE_INTERVAL default - the adaptive backoff FLOOR
-	defaultProbeCeiling  = 15 * time.Minute // ROGERAI_PROBE_CEILING default - the idle backoff CAP
+	// defaultProbeCeiling is the idle backoff CAP (ROGERAI_PROBE_CEILING default). 30 minutes, so an
+	// idle node's checks fit the 60-a-day budget with a daily tool re-check on top (founder ruling
+	// 2026-11-15, features/serving/probe_accounting.feature); "verified" stays fresh as long.
+	defaultProbeCeiling = 30 * time.Minute
 	// defaultProbeCuratedEvery is the CURATED slow lane: a curated station fronts a
 	// METERED commercial API, so every canary is billed to the operator's upstream and
 	// pays them nothing. The founder's ruling (2026-09-01, watching the first live
@@ -261,14 +264,20 @@ func (c probeConfig) curatedHold(st *probeState, verified bool, now time.Time) b
 	return now.Before(st.lastProbe.Add(c.curatedEvery))
 }
 
+// freshFor is how long a measurement counts as fresh: the ceiling plus half again. An idle node
+// is probed once a ceiling, so its next canary always lands before its reading goes stale; a
+// window equal to the ceiling went stale for a moment every cycle, and a browse in that moment
+// restarted the probe ramp and spent the node's check budget (probe_accounting.feature).
+func (c probeConfig) freshFor() time.Duration { return c.ceiling + c.ceiling/2 }
+
 // measurementStale reports whether a node's last measurement (probe or real traffic)
-// is old enough to count as "not recently verified": older than the ceiling, the
-// horizon an idle node backs off to. A never-measured node (zero time) is stale.
+// is old enough to count as "not recently verified": older than freshFor. A
+// never-measured node (zero time) is stale.
 func (c probeConfig) measurementStale(lastMeasured, now time.Time) bool {
 	if lastMeasured.IsZero() {
 		return true
 	}
-	return now.Sub(lastMeasured) > c.ceiling
+	return now.Sub(lastMeasured) > c.freshFor()
 }
 
 // stalenessFactor is a gentle recency/confidence multiplier (0.7..1.0) on the
@@ -279,11 +288,11 @@ func (c probeConfig) measurementStale(lastMeasured, now time.Time) bool {
 // measurement restores it to 1.0 immediately. A zero ceiling (probe off) => 1.0 (no
 // staleness notion). age is now - lastMeasured.
 func (c probeConfig) stalenessFactor(age time.Duration) float64 {
-	if c.ceiling <= 0 || age <= c.ceiling {
+	if c.ceiling <= 0 || age <= c.freshFor() {
 		return 1.0
 	}
 	const floor = 0.7
-	over := float64(age-c.ceiling) / float64(c.ceiling) // 0 at the horizon, 1 a ceiling later
+	over := float64(age-c.freshFor()) / float64(c.ceiling) // 0 at the horizon, 1 a ceiling later
 	if over > 1 {
 		over = 1
 	}
@@ -342,6 +351,9 @@ type probeState struct {
 	// like curated. probeMinWarned keeps the over-the-cap log line to once per node.
 	probeMin       time.Duration
 	probeMinWarned bool
+	// battery: the node said it runs on battery. After first sight it is checked at the
+	// ceiling and never pulled in by demand (probe_accounting.feature R5).
+	battery bool
 }
 
 // probeSched returns the per-node schedule map, lazily initialised. Caller holds
@@ -469,7 +481,16 @@ func (b *broker) demandProbeSoonLocked(nodeID string, now time.Time) {
 		}
 		return
 	}
-	st.backoff = 0
+	// A battery node does not pay for being browsed: after first sight it keeps its ceiling.
+	if st.battery && !st.lastProbe.IsZero() {
+		return
+	}
+	// A healthy node's next probe is pulled in, but its ramp is not restarted: restarting it on
+	// every browse cost an idle node about 160 canaries a day against a budget of 60. A node that
+	// is failing (or never passed) does start over, so it can recover quickly.
+	if tq := b.trust[nodeID]; !(tq.probed && tq.probeOK) {
+		st.backoff = 0
+	}
 	if st.nextDue.IsZero() || st.nextDue.After(now) {
 		st.nextDue = now // eligible on the next round (floor resolution)
 	}
@@ -558,6 +579,8 @@ func (c probeConfig) jitterWindow() time.Duration {
 func (b *broker) probeOnce() {
 	round := atomic.AddUint64(&b.probe.round, 1) - 1
 	fp := nextCanary(round)
+	// A peer's probe of a node this instance lost the lease for is this instance's reading too.
+	b.takePeerReadings(time.Now())
 
 	type target struct {
 		node  protocol.NodeRegistration
@@ -729,19 +752,37 @@ func (b *broker) probeOnce() {
 	// (real traffic) DEFERS the next probe instead of resetting the level, and
 	// demandProbeSoonLocked (browse/route) resets it.
 	b.metricsMu.Lock()
+	intervals := make(map[string]time.Duration, len(targets)) // each node's interval this round
 	for _, t := range targets {
 		st := sched[t.node.NodeID]
 		if st == nil {
 			st = &probeState{}
 			sched[t.node.NodeID] = st
 		}
+		intervals[t.node.NodeID] = max(b.probe.backoffInterval(st.backoff), st.probeMin)
 		st.lastProbe = now
 		st.nextDue = now.Add(max(b.probe.backoffInterval(st.backoff), st.probeMin))
 		if st.backoff < 64 { // cap the level (backoffInterval already clamps to ceiling)
 			st.backoff++
 		}
+		// A battery node is checked at the ceiling once a check has PASSED (R5; recordProbe pushes
+		// it out the moment one does); one that failed keeps the adaptive retry.
+		tq := b.trust[t.node.NodeID]
+		if st.battery = t.node.Battery; st.battery && tq.probed && tq.probeOK && st.nextDue.Before(now.Add(b.probe.ceiling)) {
+			st.nextDue = now.Add(b.probe.ceiling)
+		}
 	}
 	b.metricsMu.Unlock()
+
+	// ONE PROBER PER NODE PER ROUND (R2). Every instance advanced its schedule above, so the
+	// loser does not try again next tick; it takes the winner's published reading instead.
+	claimed := targets[:0]
+	for _, t := range targets {
+		if b.claimProbe(t.node.NodeID, now, intervals[t.node.NodeID]) {
+			claimed = append(claimed, t)
+		}
+	}
+	targets = claimed
 
 	// Probe nodes concurrently: each probeNode blocks waiting for its result, so
 	// running them in parallel keeps one slow/dead node from stalling the round.
@@ -797,6 +838,11 @@ func (b *broker) probeNode(node protocol.NodeRegistration, model string, fp cana
 	// Single-instance needs a real local tunnel; multi-instance dispatches over the bus
 	// (the poller may be on a PEER instance), so a nil/stub local tunnel is fine there.
 	if t == nil && !mi {
+		return
+	}
+	// Every check draws on the node's budget (R4); a spent budget skips it, nothing queued.
+	if !b.allowCheck(node.NodeID, "canary") {
+		b.releaseProbe(node.NodeID)
 		return
 	}
 
@@ -1372,13 +1418,46 @@ func (b *broker) recordProbe(nodeID string, outcome probeOutcome, ttftMs, tps fl
 			sched[nodeID] = st
 		}
 		st.lastMeasured = time.Now()
+		// A battery node's first passed check is its first sight: the next is a ceiling away (R5).
+		if st.battery && st.nextDue.Before(st.lastMeasured.Add(b.probe.ceiling)) {
+			st.nextDue = st.lastMeasured.Add(b.probe.ceiling)
+		}
 	}
 	if !alive {
 		tq.probeFails++
 	}
 	b.trust[nodeID] = tq
 	fails := tq.probeFails
+	// A PASSED CANARY RE-ASSERTS A VERIFIED MODEL'S TOOLS MARK: tool-calling is a near-static
+	// property of a model and its runtime, fully re-checked once a day (toolReverifyEvery), and a
+	// live canary between those checks keeps the shared mark from ageing out (the curated lane
+	// does the same). Only the node's poll host writes it, and throttled like markMeasured.
+	var reassert []string
+	if alive && b.shared != nil && time.Since(b.lastToolMark[nodeID]) > toolsRefreshEvery {
+		pfx := nodeID + "\x00"
+		for k, ok := range b.toolsOK {
+			if ok && strings.HasPrefix(k, pfx) {
+				reassert = append(reassert, strings.TrimPrefix(k, pfx))
+			}
+		}
+		if len(reassert) > 0 {
+			if b.lastToolMark == nil {
+				b.lastToolMark = map[string]time.Time{}
+			}
+			b.lastToolMark[nodeID] = time.Now()
+		}
+	}
+	var measured time.Time
+	if st := b.probeSchedLocked()[nodeID]; st != nil {
+		measured = st.lastMeasured
+	}
 	b.metricsMu.Unlock()
+	b.publishProbe(nodeID, tq, measured) // every instance routes on this reading (R2)
+	if len(reassert) > 0 && b.authoritativeFor(nodeID, time.Now()) {
+		for _, model := range reassert {
+			_ = b.shared.markToolsVerified(nodeID, model, toolsVerifiedTTL)
+		}
+	}
 
 	if alive {
 		if tps > 0 {

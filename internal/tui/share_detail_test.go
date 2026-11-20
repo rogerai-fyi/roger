@@ -107,6 +107,7 @@ func TestShareRowDetail_Text(t *testing.T) {
 					t.Fatalf("agent.Start: %v", err)
 				}
 				defer sess.Stop()
+				sess.SetCoreForTest(0, 0, 0, true) // Core's record has answered
 				mm.ctrl.Adopt(tc.row.model, sess)
 				live = sess
 			} else {

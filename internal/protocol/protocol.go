@@ -469,6 +469,10 @@ type NodeRegistration struct {
 	// currently verified. Rides regSigningBytes like Curated (only Sig is excluded; omitempty
 	// keeps old nodes' signatures byte-identical).
 	ProbeMinSeconds int `json:"probe_min_s,omitempty"`
+	// Battery says the node runs on battery (the phone app). Core checks it at its probe
+	// ceiling after first sight and never pulls a check in because consumers browse
+	// (features/serving/probe_accounting.feature R5).
+	Battery bool `json:"battery,omitempty"`
 	// TS (unix seconds) + Sig prove possession of PubKey's private key and bound the
 	// registration to a moment (the broker rejects stale ones to stop replay). Sig is
 	// hex(ed25519 sign over regSigningBytes), verified against PubKey on register.

@@ -239,6 +239,23 @@ type broker struct {
 	// the verdict itself: the verdict says what we believe, this says when we last checked.
 	// Guarded by metricsMu. Keyed by toolKey(node, model).
 	toolProbeAt map[string]time.Time
+	// toolFails is the tool-call back-off of a model that has not earned "tools": how many
+	// checks in a row went without a pass, and when the last one ran (probe_accounting.feature
+	// R3). Kept across a node's prune and re-register. Guarded by metricsMu, keyed by toolKey.
+	toolFails map[string]toolBackoffState
+	// checkMu guards the single-instance check budget and the probe-sharing state below.
+	checkMu sync.Mutex
+	// checkTimes is this instance's own window of checks sent per node, the budget when no
+	// shared store answers (probe_accounting.feature R4).
+	checkTimes map[string][]time.Time
+	// probeLost is when this instance last lost a node's probe lease to a peer; probeApplied
+	// is the newest peer result it has taken for the node (unix ms). R2.
+	probeLost    map[string]time.Time
+	probeApplied map[string]int64
+	// ageCheckAt rate-limits looking up an ageing node's shared reading (takeAgeingReadings).
+	ageCheckAt map[string]time.Time
+	// servedReadAt throttles a node's read of its own record when no shared store answers.
+	servedReadAt map[string]time.Time
 	// toolsMerged is the cross-instance UNION of verified (node,model) tool-call bits, refreshed
 	// from the shared store on the sync loop (syncToolsVerified) - the EMISSION source in
 	// multi-instance mode. Keeping it a merged snapshot (not the raw shared read) keeps the hot
@@ -1165,6 +1182,7 @@ func (b *broker) routes() *http.ServeMux {
 	mux.HandleFunc("/nodes/register", b.register)
 	mux.HandleFunc("/nodes/challenge", b.attestChallenge) // TEE attestation nonce (anti-replay binding)
 	mux.HandleFunc("/nodes/heartbeat", b.heartbeat)
+	mux.HandleFunc("/nodes/served", b.nodeServed)    // a node's own record of what it served and earned
 	mux.HandleFunc("/agent/cancels", b.agentCancels) // cancel-capable nodes long-poll for jobs to stop
 	mux.HandleFunc("/agent/poll", b.agentPoll)       // node dials out, long-polls for jobs
 	mux.HandleFunc("/agent/result", b.agentResult)   // node posts the served result

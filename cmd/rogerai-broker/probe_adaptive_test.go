@@ -305,8 +305,8 @@ func TestStalenessFactorDiscountsAndRestores(t *testing.T) {
 	if f := c.stalenessFactor(10 * time.Minute); f != 1.0 {
 		t.Errorf("fresh staleness = %.3f, want 1.0", f)
 	}
-	// Just past the ceiling: a small haircut, still strong.
-	mild := c.stalenessFactor(16 * time.Minute)
+	// Just past the freshness window: a small haircut, still strong.
+	mild := c.stalenessFactor(c.freshFor() + time.Minute)
 	if mild >= 1.0 || mild < 0.95 {
 		t.Errorf("mildly-stale factor = %.3f, want a small haircut in [0.95,1.0)", mild)
 	}

@@ -440,7 +440,7 @@ func (s *df2State) df2AgedVerified(name string) error {
 		ps = &probeState{}
 		sched[st.id] = ps
 	}
-	aged := time.Now().Add(-s.b.probe.ceiling - time.Minute)
+	aged := time.Now().Add(-s.b.probe.freshFor() - time.Minute)
 	ps.lastMeasured, ps.lastProbe = aged, aged
 	s.b.metricsMu.Unlock()
 	s.df2FlushCache()
