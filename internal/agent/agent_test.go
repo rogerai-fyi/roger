@@ -225,7 +225,8 @@ func newTestReregistrar(broker string) *reregistrar {
 
 // TestReregisterSingleFlight: N pollers that all observe the same generation and
 // call recover() concurrently trigger EXACTLY ONE re-register, and afterward the
-// shared token holder hands out the fresh token at the new generation.
+// shared token holder hands out the SAME token at the new generation (a re-register is
+// idempotent: features/multinode/rereg_loop.feature, "recover re-sends the current token").
 func TestReregisterSingleFlight(t *testing.T) {
 	var regs int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -254,8 +255,8 @@ func TestReregisterSingleFlight(t *testing.T) {
 	if gen1 != gen0+1 {
 		t.Errorf("generation should advance by 1: gen0=%d gen1=%d", gen0, gen1)
 	}
-	if tok1 == tok0 {
-		t.Error("token should be refreshed after re-register")
+	if tok1 != tok0 {
+		t.Error("the token must NOT rotate on a re-register (it re-poisons lagging broker instances)")
 	}
 }
 

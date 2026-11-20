@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 func TestCancelPollBacksOffOnFailures(t *testing.T) {
@@ -27,7 +29,7 @@ func TestCancelPollBacksOffOnFailures(t *testing.T) {
 	cancelRetry, cancelBackoff = 10*time.Millisecond, 160*time.Millisecond
 	defer func() { cancelRetry, cancelBackoff = prevRetry, prevBack }()
 
-	r := &reregistrar{token: "tok"}
+	r := &reregistrar{reg: protocol.NodeRegistration{BridgeToken: "tok"}}
 	r.cond = sync.NewCond(&r.mu)
 	sess := &Session{stop: make(chan struct{}), rereg: r}
 	done := make(chan struct{})

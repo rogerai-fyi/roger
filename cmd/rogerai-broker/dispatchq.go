@@ -1135,7 +1135,7 @@ func (b *broker) agentAck(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusNotFound, "unknown node")
 		return
 	}
-	if !authNode(r, tok) {
+	if !b.authNodeFresh(r, node, tok) {
 		jsonErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}

@@ -256,39 +256,40 @@ func (s *Session) setLink(st LinkState) {
 	}
 }
 
-// reregistrar is the node's self-healing coordinator. The broker is in-memory:
-// a redeploy/restart wipes its node registry, after which every poll/heartbeat
-// gets 404 "unknown node" (or 401/403 once the token no longer matches). This
-// holds the CURRENT bridge token (refreshed on every re-register, since each
-// register issues a new one) behind a mutex so all pollers + the heartbeat read
-// the live token each iteration, and single-flights the re-register so N
-// concurrent workers hitting 404 cause exactly ONE re-register, not N.
+// reregistrar is the node's self-healing coordinator. When the broker forgets the node
+// (404 "unknown node") or refuses its token (401/403) it re-registers, single-flight, so N
+// concurrent workers hitting a refusal cause exactly ONE re-register, not N.
+//
+// A re-register is IDEMPOTENT: it re-sends the token this process has used all along. It
+// used to mint a fresh one each time, and with more than one broker instance that was the
+// re-registration loop of 2026-11 (features/multinode/rereg_loop.feature): an instance that
+// had not yet seen the newest register refused it, the node rotated again, and every rotation
+// made some other instance stale. A fresh token is minted only when a process starts.
 type reregistrar struct {
 	broker string
 	reg    protocol.NodeRegistration
 	priv   ed25519.PrivateKey
 
-	mu    sync.Mutex
-	cond  *sync.Cond
-	token string // the live bridge token (workers read this every iteration)
-	gen   uint64 // bumped on every successful re-register
-	busy  bool   // a re-register is in flight (single-flight gate)
+	mu   sync.Mutex
+	cond *sync.Cond
+	gen  uint64    // bumped on every successful re-register
+	busy bool      // a re-register is in flight (single-flight gate)
+	last time.Time // when the last re-register succeeded (pacing)
 }
 
 func newReregistrar(broker string, reg protocol.NodeRegistration, priv ed25519.PrivateKey) *reregistrar {
-	rr := &reregistrar{broker: broker, reg: reg, priv: priv, token: reg.BridgeToken}
+	rr := &reregistrar{broker: broker, reg: reg, priv: priv}
 	rr.cond = sync.NewCond(&rr.mu)
 	return rr
 }
 
-// curToken returns the live bridge token plus the generation it belongs to
-// (workers call this every iteration so a refreshed token after a re-register is
-// picked up immediately; the generation is passed back into recover so the
-// single-flight gate knows which re-register a 404 is reacting to).
+// curToken returns the bridge token (fixed for the life of the process) plus the current
+// generation; the generation is passed back into recover so the single-flight gate knows which
+// re-register a refusal is reacting to.
 func (rr *reregistrar) curToken() (string, uint64) {
 	rr.mu.Lock()
 	defer rr.mu.Unlock()
-	return rr.token, rr.gen
+	return rr.reg.BridgeToken, rr.gen
 }
 
 // recover re-registers the node after the broker forgot it (404/401/403). It is
@@ -297,12 +298,10 @@ func (rr *reregistrar) curToken() (string, uint64) {
 // callers that observed the SAME generation block until it completes, then
 // return without re-registering again. seenGen is the generation the caller last
 // observed via curToken; if the generation has already advanced, another worker
-// already recovered and we return immediately so the caller picks up the fresh
-// token on its next iteration. Respects stop.
+// already recovered and we return immediately so the caller simply retries. Respects stop.
 func (rr *reregistrar) recover(seenGen uint64, stop <-chan struct{}) {
 	rr.mu.Lock()
-	// Someone already re-registered past the generation we last saw - a fresh
-	// token is already available; just let the caller re-read it.
+	// Someone already re-registered past the generation we last saw: just retry.
 	if rr.gen != seenGen {
 		rr.mu.Unlock()
 		return
@@ -318,10 +317,24 @@ func (rr *reregistrar) recover(seenGen uint64, stop <-chan struct{}) {
 	rr.busy = true
 	rr.mu.Unlock()
 
-	// Re-register with the SAME reg (idempotent on the broker; re-sends the same
-	// offers/HW so the node reappears identically in /market + /discover). The
-	// only mutated fields are a fresh anti-replay timestamp + signature and a
-	// fresh bridge token, so the broker's tunnel adopts the token we will now use.
+	// PACING: a refusal right after a successful re-register is most likely a broker instance
+	// that has not caught up yet, so wait out the rest of reregisterMinInterval first (holding
+	// the gate, so callers ride this one re-register) instead of hammering the broker.
+	rr.mu.Lock()
+	wait := time.Until(rr.last.Add(reregisterMinInterval))
+	rr.mu.Unlock()
+	if wait > 0 {
+		select {
+		case <-stop:
+			rr.finishBusy()
+			return
+		case <-time.After(wait):
+		}
+	}
+
+	// Re-register with the SAME reg and the SAME token (idempotent on the broker; re-sends the
+	// same offers/HW so the node reappears identically in /market + /discover). The only
+	// mutated fields are a fresh anti-replay timestamp + signature.
 	attempt := 0
 	for {
 		select {
@@ -330,9 +343,7 @@ func (rr *reregistrar) recover(seenGen uint64, stop <-chan struct{}) {
 			return
 		default:
 		}
-		newTok := randHex(16)
 		reg := rr.reg
-		reg.BridgeToken = newTok
 		// Re-attestation: a confidential node must present a FRESH nonce-bound quote on
 		// every re-register (the broker spends the nonce single-use and lapses stale
 		// attestations). Fetch a new nonce + quote here so the badge survives a broker
@@ -353,15 +364,19 @@ func (rr *reregistrar) recover(seenGen uint64, stop <-chan struct{}) {
 		// A re-register of a PRIVATE node returns only band_id (never the code again),
 		// so the result is intentionally ignored here - the secret is shown only at the
 		// initial mint in Start.
-		if _, err := register(rr.broker, reg); err == nil {
+		_, err := register(rr.broker, reg)
+		if err == nil {
 			rr.mu.Lock()
-			rr.token = newTok
 			rr.gen++
+			rr.last = time.Now()
 			rr.busy = false
 			rr.cond.Broadcast()
 			rr.mu.Unlock()
 			log.Printf("broker restarted - re-registered node %s", rr.reg.NodeID)
 			return
+		}
+		if attempt == 0 {
+			log.Printf("re-register of node %s failed, retrying: %v", rr.reg.NodeID, err)
 		}
 		d := backoffFor(attempt)
 		attempt++
@@ -379,6 +394,11 @@ func (rr *reregistrar) recover(seenGen uint64, stop <-chan struct{}) {
 // var only so a test can shorten it - the house shellTimeout / ProbeTimeout idiom -
 // because a test that races the real seconds is a test that flakes on a loaded runner.
 var reregisterBackoff = []time.Duration{1 * time.Second, 2 * time.Second, 5 * time.Second, 10 * time.Second}
+
+// reregisterMinInterval is the least time between two successful re-registers (a var only so a
+// test can shorten it). It bounds the worst case at one re-register per interval per node, and
+// gives a broker instance that is behind a moment to catch up before the node asks again.
+var reregisterMinInterval = 2 * time.Second
 
 // backoffFor is the pure schedule: the delay before the attempt AFTER this one. Past the
 // end of the table it holds at the last (longest) value rather than growing without bound

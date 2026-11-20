@@ -120,6 +120,12 @@ type xiNode struct {
 	station  string
 	private  bool // register as a --private band (owner-signed, separate mirror namespace)
 
+	// ts pins the registration's signed timestamp (0 = now) for the ordering scenarios.
+	ts int64
+	// legacyRotate makes beat's recover mint a NEW token, as `roger share` did up to v7.1.1
+	// (still in the field). The default mirrors today's agent: re-register with the SAME token.
+	legacyRotate bool
+
 	ownerPriv ed25519.PrivateKey // set when the register is owner-signed
 	ownerPub  string
 
@@ -150,6 +156,9 @@ func (n *xiNode) register(t *testing.T, inst *xiInst) error {
 		Station: n.station, Private: n.private,
 		Offers: []protocol.ModelOffer{{Model: n.model, PriceOut: n.priceOut, Ctx: 4096}},
 	}
+	if n.ts != 0 {
+		reg.TS = n.ts
+	}
 	reg.SignRegistration(n.priv)
 	body, _ := json.Marshal(reg)
 	req, _ := http.NewRequest(http.MethodPost, inst.url()+"/nodes/register", bytes.NewReader(body))
@@ -173,8 +182,9 @@ func (n *xiNode) register(t *testing.T, inst *xiInst) error {
 }
 
 // beat sends one heartbeat to inst with the LIVE token. On 404/401/403 it does what
-// reregistrar.recover does: rotate the token, re-register (against the same instance
-// the failing request hit - the LB gives no other choice), count the re-register.
+// reregistrar.recover does: re-register with the SAME token (a legacyRotate node mints a
+// new one first, as pre-fix agents did) against the same instance the failing request hit
+// (the LB gives no other choice), and counts the re-register.
 func (n *xiNode) beat(t *testing.T, inst *xiInst) int {
 	t.Helper()
 	body, _ := json.Marshal(map[string]string{"node_id": n.id})
@@ -191,7 +201,9 @@ func (n *xiNode) beat(t *testing.T, inst *xiInst) int {
 	if brokerForgotXI(resp.StatusCode) {
 		n.mu.Lock()
 		n.reregs++
-		n.token = fmt.Sprintf("tok-rot-%d-%s", n.reregs, xiNonce())
+		if n.legacyRotate {
+			n.token = fmt.Sprintf("tok-rot-%d-%s", n.reregs, xiNonce())
+		}
 		n.mu.Unlock()
 		if err := n.register(t, inst); err != nil {
 			t.Fatalf("recover re-register: %v", err)
@@ -607,6 +619,7 @@ func (s *xiState) graceLapsedOn(inst string) error {
 
 func (s *xiState) reregistersRotatedOn(inst string) error {
 	s.node.mu.Lock()
+	s.node.legacyRotate = true // these scenarios pin field agents that still rotate on recover
 	s.node.token = "tok-rot-manual-" + s.nonce
 	s.node.mu.Unlock()
 	if err := s.node.register(s.t, s.inst[inst]); err != nil {

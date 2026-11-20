@@ -35,7 +35,14 @@ const teeSEVSNP teeKind = "sev-snp"
 
 // detectTEE reports the TEE backend available on this machine, or "" if none. It is
 // set by the build-tagged generateQuote implementation.
-func detectTEE() teeKind { return teeAvailable() }
+func detectTEE() teeKind { return teeDetect() }
+
+// teeDetect / teeQuote are the build-tagged backends, held in vars ONLY so a test can stand in a
+// TEE and prove re-attestation rides every re-register (no test host has SEV-SNP hardware).
+var (
+	teeDetect = teeAvailable
+	teeQuote  = generateQuote
+)
 
 // ErrNoTEEDevice is the typed preflight failure for a host that is not an AMD SEV-SNP
 // confidential VM (no /dev/sev-guest). The CLI surfaces it verbatim so an operator who
@@ -116,7 +123,7 @@ func attestForRegistration(broker string, priv ed25519.PrivateKey, reg *protocol
 	if err != nil {
 		return err
 	}
-	quote, err := generateQuote(rd)
+	quote, err := teeQuote(rd)
 	if err != nil {
 		return fmt.Errorf("generate %s quote: %w", kind, err)
 	}

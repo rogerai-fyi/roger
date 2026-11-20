@@ -16,6 +16,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 func TestAttachDeclaresTheReattachNudge(t *testing.T) {
@@ -47,7 +49,7 @@ func TestTheCancelPollHandsTheNudgeToTheRelayLoop(t *testing.T) {
 		}
 	}))
 	defer srv.Close()
-	r := &reregistrar{token: "tok"}
+	r := &reregistrar{reg: protocol.NodeRegistration{BridgeToken: "tok"}}
 	r.cond = sync.NewCond(&r.mu)
 	sess := &Session{stop: make(chan struct{}), rereg: r}
 	go cancelLoop(Config{Broker: srv.URL, NodeID: "n-move"}, sess)

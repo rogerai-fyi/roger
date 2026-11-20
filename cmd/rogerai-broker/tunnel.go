@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -560,6 +561,16 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusForbidden, "node_id already bound to a different key")
 		return
 	}
+	// ORDER: registrations are totally ordered by their node-signed TS. One STRICTLY OLDER
+	// than a registration THIS instance took moments ago (inside the local grace) is an
+	// out-of-order delivery and must not regress the bridge token: refuse it. Outside that
+	// window an older TS is let through, because the likeliest cause is the node's clock having
+	// stepped back (NTP after a power outage) and refusing would keep a real node off air.
+	if prev, ok := b.nodes[reg.NodeID]; ok && reg.TS < prev.TS && time.Since(b.localRegAt[reg.NodeID]) < syncLocalRegisterGrace {
+		b.mu.Unlock()
+		jsonErr(w, http.StatusConflict, "registration is older than the one already held for this node - check this machine's clock")
+		return
+	}
 	// HARD per-owner on-air cap (the server backstop): an owner account may have at
 	// most maxNodesPerOwner nodes SIMULTANEOUSLY on air across all their machines. Count
 	// the owner's currently-live on-air nodes (within nodeTTL) EXCLUDING this node id, so
@@ -1063,18 +1074,18 @@ func (b *broker) applyRegistry(regs, pregs map[string][]byte) (graced map[string
 		b.private = map[string]bool{}
 	}
 	for id, raw := range regs {
+		var reg protocol.NodeRegistration
+		if json.Unmarshal(raw, &reg) != nil {
+			continue
+		}
 		// Trust our OWN just-(re)registered token over the shared read for a short grace
 		// window: the shared key is written right after register's unlock, so an in-flight
 		// sync that read the shared registry a moment before that write must not clobber the
-		// fresh local token back to the previous one. After the grace we reconcile this node
-		// from the shared registry like any other, so a token rotated on a PEER instance
-		// (authority migration) reconverges here instead of pinning a stale token -> 401s.
-		if at, ok := b.localRegAt[id]; ok && time.Since(at) < syncLocalRegisterGrace {
+		// fresh local token back to the previous one. A STRICTLY NEWER shared registration is
+		// never such a read, so the grace never holds it back (rereg_loop.feature). After the
+		// grace we reconcile this node from the shared registry like any other.
+		if b.graceHoldsLocked(id, reg) {
 			graced[id] = true
-			continue
-		}
-		var reg protocol.NodeRegistration
-		if json.Unmarshal(raw, &reg) != nil {
 			continue
 		}
 		if reg.Private {
@@ -1090,39 +1101,24 @@ func (b *broker) applyRegistry(regs, pregs map[string][]byte) (graced map[string
 			}
 			continue
 		}
-		b.nodes[id] = reg
 		// This node is in the PUBLIC registry, so it is public: clear any stale private flag
 		// from a prior mirror (a node that flipped private->public must stop being hidden).
-		b.private[id] = false
-		b.confidential[id] = reg.Confidential
-		// Seed the re-attestation clock for mirrored confidential nodes, exactly as
-		// register() does (tunnel.go:359). Without this the clock is zero on the mirror,
-		// so confidential cross-instance routing would treat the node as never-attested.
-		if reg.Confidential {
-			if b.attestedAt == nil {
-				b.attestedAt = map[string]time.Time{}
-			}
-			if _, ok := b.attestedAt[id]; !ok {
-				b.attestedAt[id] = time.Now()
-			}
-		}
-		if b.tunnels[id] == nil {
-			b.tunnels[id] = &nodeTunnel{jobs: make(chan protocol.Job, 64), waiters: map[string]chan protocol.JobResult{}, token: reg.BridgeToken}
-		} else {
-			b.tunnels[id].token = reg.BridgeToken
-		}
+		b.adoptRegLocked(id, reg, false)
 	}
 	// PRIVATE band mirror: the SAME learn as above, but from the separate private namespace
 	// and flagged b.private[id]=true so the node is resolvable + freq-routable on this
 	// instance yet stays OUT of /discover + the public market + a public pick (those all gate
 	// on b.private). The band CODE is never here - only the node reg (offers + bridge token).
 	for id, raw := range pregs {
-		if at, ok := b.localRegAt[id]; ok && time.Since(at) < syncLocalRegisterGrace {
+		var reg protocol.NodeRegistration
+		if json.Unmarshal(raw, &reg) != nil {
+			continue
+		}
+		if b.graceHoldsLocked(id, reg) {
 			graced[id] = true
 			continue
 		}
-		var reg protocol.NodeRegistration
-		if json.Unmarshal(raw, &reg) != nil || !reg.Private {
+		if !reg.Private {
 			continue // private namespace is private-only; ignore a mis-tagged entry defensively
 		}
 		if reg.NodeID == "" {
@@ -1135,22 +1131,7 @@ func (b *broker) applyRegistry(regs, pregs map[string][]byte) (graced map[string
 			}
 			continue
 		}
-		b.nodes[id] = reg
-		b.private[id] = true
-		b.confidential[id] = reg.Confidential
-		if reg.Confidential {
-			if b.attestedAt == nil {
-				b.attestedAt = map[string]time.Time{}
-			}
-			if _, ok := b.attestedAt[id]; !ok {
-				b.attestedAt[id] = time.Now()
-			}
-		}
-		if b.tunnels[id] == nil {
-			b.tunnels[id] = &nodeTunnel{jobs: make(chan protocol.Job, 64), waiters: map[string]chan protocol.JobResult{}, token: reg.BridgeToken}
-		} else {
-			b.tunnels[id].token = reg.BridgeToken
-		}
+		b.adoptRegLocked(id, reg, true)
 	}
 	b.mu.Unlock()
 	// HEAL the shared registry outside the lock (network I/O): re-publish each fresher
@@ -1166,6 +1147,177 @@ func (b *broker) applyRegistry(regs, pregs map[string][]byte) (graced map[string
 		}
 	}
 	return graced
+}
+
+// graceHoldsLocked reports whether this instance's local-register grace holds back a shared
+// registration for id: only inside the grace, and only when the shared copy is not strictly
+// newer than the one held here. Caller holds b.mu.
+func (b *broker) graceHoldsLocked(id string, reg protocol.NodeRegistration) bool {
+	at, ok := b.localRegAt[id]
+	if !ok || time.Since(at) >= syncLocalRegisterGrace {
+		return false
+	}
+	cur, have := b.nodes[id]
+	return !have || reg.TS <= cur.TS
+}
+
+// tokenReadThroughInterval bounds the token-mismatch read-through to one shared read per node
+// per interval. A var only so a test can change it.
+var tokenReadThroughInterval = time.Second
+
+// sharedRead is one node's shared registration as last read through (found=false: unknown on
+// every instance), kept for tokenReadThroughInterval so every presented token in that window is
+// checked against it without another store round trip. done is non-nil while the read is in
+// flight; concurrent mismatches wait on it and use its result.
+type sharedRead struct {
+	at      time.Time
+	reg     protocol.NodeRegistration
+	private bool
+	found   bool
+	done    chan struct{}
+}
+
+// authNodeFresh authorizes a node-facing request against tok, this instance's cached bridge
+// token for node. On a MISMATCH, an instance with a shared registry checks the node's shared
+// registration (read at most once per node per tokenReadThroughInterval) and adopts it when it
+// is not older than the one held here AND its token is the one presented: the rotation already
+// landed on a peer and this instance is merely behind (features/multinode/rereg_loop.feature).
+// Anything else stays refused - a forged or superseded token is never accepted, and there is no
+// window in which a previous token is honoured. A shared copy OLDER than ours is re-published.
+//
+// The read is cached rather than merely throttled, so a caller guessing tokens for a node id
+// cannot spend the node's read and lock out the node's real token: the real token is still
+// checked, against a shared read at most one interval old.
+func (b *broker) authNodeFresh(r *http.Request, node, tok string) bool {
+	if authNode(r, tok) {
+		return true
+	}
+	presented, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	if !ok || presented == "" || b.shared == nil {
+		return false
+	}
+	// tok is a snapshot: a register on THIS instance may have installed the presented token
+	// since, so re-check the live one before touching the shared store.
+	b.mu.Lock()
+	t := b.tunnels[node]
+	live := t != nil && tokenEqual(t.token, presented)
+	b.mu.Unlock()
+	if live {
+		return true
+	}
+	sr, fresh := b.sharedReadFor(node)
+	if !sr.found {
+		return false
+	}
+	b.mu.Lock()
+	cur, have := b.nodes[node]
+	if have && cur.TS > sr.reg.TS {
+		b.mu.Unlock()
+		if fresh {
+			b.mirrorRegistration(cur) // heal the stale shared copy with the newer one held here
+		}
+		return false
+	}
+	if !tokenEqual(sr.reg.BridgeToken, presented) {
+		b.mu.Unlock()
+		return false
+	}
+	b.adoptRegLocked(node, sr.reg, sr.private || sr.reg.Private)
+	b.mu.Unlock()
+	return true
+}
+
+// sharedReadFor returns node's shared registration, reading the store only when the cached
+// read is older than tokenReadThroughInterval (fresh reports that it just did). The read is
+// single-flight: a mismatch arriving while it is in flight waits for it rather than being
+// refused, so two pollers presenting the same new token both get the answer. A store error
+// caches a miss for the interval, so an outage costs one bounded attempt per node per interval.
+func (b *broker) sharedReadFor(node string) (sharedRead, bool) {
+	b.metricsMu.Lock()
+	if b.readThroughAt == nil {
+		b.readThroughAt = map[string]sharedRead{}
+	}
+	sr, ok := b.readThroughAt[node]
+	if ok && sr.done != nil {
+		b.metricsMu.Unlock()
+		<-sr.done
+		b.metricsMu.Lock()
+		sr = b.readThroughAt[node]
+		b.metricsMu.Unlock()
+		return sr, false
+	}
+	if ok && time.Since(sr.at) < tokenReadThroughInterval {
+		b.metricsMu.Unlock()
+		return sr, false
+	}
+	claim := sharedRead{at: time.Now(), done: make(chan struct{})}
+	b.readThroughAt[node] = claim
+	b.metricsMu.Unlock()
+
+	sr = sharedRead{at: time.Now()}
+	sr.reg, sr.private, sr.found = b.readSharedReg(node)
+	b.metricsMu.Lock()
+	b.readThroughAt[node] = sr
+	b.metricsMu.Unlock()
+	close(claim.done)
+	return sr, true
+}
+
+// readSharedReg reads node's registration from the shared registry: the public namespace
+// first, then the SEPARATE private-band namespace (private=true). found=false on a miss
+// everywhere or a store error; an error stops at the first read, so an outage costs one
+// bounded store timeout, not one per namespace.
+func (b *broker) readSharedReg(node string) (reg protocol.NodeRegistration, private, found bool) {
+	raw, ok, err := b.shared.getNode(node)
+	if err != nil {
+		return reg, false, false
+	}
+	if !ok {
+		praw, pok, perr := b.shared.getPrivateNode(node)
+		if perr != nil || !pok {
+			return reg, false, false
+		}
+		raw, private = praw, true
+	}
+	if json.Unmarshal(raw, &reg) != nil {
+		return reg, false, false
+	}
+	if reg.NodeID == "" {
+		reg.NodeID = node
+	}
+	return reg, private, true
+}
+
+// tokenEqual compares two bridge tokens in constant time (an empty token never matches).
+func tokenEqual(a, b string) bool {
+	return a != "" && subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
+}
+
+// adoptRegLocked installs a registration learned from the shared registry as this instance's
+// view of node: the registry entry, its public/private namespace, the confidential verdict
+// (seeding the re-attestation clock as register does: without it a mirrored confidential node
+// would read as never-attested) and the tunnel's bridge token. Shared by the registry sync, the
+// lazy learn in tunnelFor and the token read-through. Caller holds b.mu.
+func (b *broker) adoptRegLocked(id string, reg protocol.NodeRegistration, private bool) {
+	b.nodes[id] = reg
+	if b.private == nil {
+		b.private = map[string]bool{}
+	}
+	b.private[id] = private
+	b.confidential[id] = reg.Confidential
+	if reg.Confidential {
+		if b.attestedAt == nil {
+			b.attestedAt = map[string]time.Time{}
+		}
+		if _, ok := b.attestedAt[id]; !ok {
+			b.attestedAt[id] = time.Now()
+		}
+	}
+	if b.tunnels[id] == nil {
+		b.tunnels[id] = &nodeTunnel{jobs: make(chan protocol.Job, 64), waiters: map[string]chan protocol.JobResult{}, token: reg.BridgeToken}
+	} else {
+		b.tunnels[id].token = reg.BridgeToken
+	}
 }
 
 // tunnelFor returns the node's tunnel + a SNAPSHOT of its bridge token, LAZILY
@@ -1194,49 +1346,18 @@ func (b *broker) tunnelFor(node string) (*nodeTunnel, string) {
 	if t != nil || b.shared == nil {
 		return t, tok
 	}
-	raw, ok, err := b.shared.getNode(node)
-	private := false
-	if err != nil || !ok {
-		// Public miss: try the SEPARATE private-band namespace. A --private/--freq node that
-		// dialed a PEER must still be able to poll/result on THIS instance (no re-register
-		// storm), so we learn it here too - flagged private so it stays out of /discover.
-		praw, pok, perr := b.shared.getPrivateNode(node)
-		if perr != nil || !pok {
-			return nil, ""
-		}
-		raw, private = praw, true
-	}
-	var reg protocol.NodeRegistration
-	if json.Unmarshal(raw, &reg) != nil {
+	reg, private, found := b.readSharedReg(node)
+	if !found {
 		return nil, ""
-	}
-	if reg.NodeID == "" {
-		reg.NodeID = node
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if t := b.tunnels[node]; t != nil {
 		return t, t.token // another concurrent request just learned it
 	}
-	b.nodes[node] = reg
-	b.confidential[node] = reg.Confidential
-	if private || reg.Private {
-		if b.private == nil {
-			b.private = map[string]bool{}
-		}
-		b.private[node] = true // keep a lazily-learned band OUT of /discover + public pick
-	}
-	if reg.Confidential {
-		if b.attestedAt == nil {
-			b.attestedAt = map[string]time.Time{}
-		}
-		if _, ok := b.attestedAt[node]; !ok {
-			b.attestedAt[node] = time.Now()
-		}
-	}
-	nt := &nodeTunnel{jobs: make(chan protocol.Job, 64), waiters: map[string]chan protocol.JobResult{}, token: reg.BridgeToken}
-	b.tunnels[node] = nt
-	return nt, reg.BridgeToken
+	// private keeps a lazily-learned band OUT of /discover + public pick.
+	b.adoptRegLocked(node, reg, private || reg.Private)
+	return b.tunnels[node], reg.BridgeToken
 }
 
 // rehydrateNodes loads the persisted node registry into the in-memory maps at
@@ -1474,7 +1595,7 @@ func (b *broker) heartbeat(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusNotFound, "unknown node")
 		return
 	}
-	if !authNode(r, tok) {
+	if !b.authNodeFresh(r, m.NodeID, tok) {
 		jsonErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
@@ -1494,7 +1615,7 @@ func (b *broker) agentPoll(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusNotFound, "unknown node")
 		return
 	}
-	if !authNode(r, tok) {
+	if !b.authNodeFresh(r, node, tok) {
 		jsonErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
@@ -1681,7 +1802,7 @@ func (b *broker) agentResult(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusNotFound, "unknown node")
 		return
 	}
-	if !authNode(r, tok) {
+	if !b.authNodeFresh(r, node, tok) {
 		jsonErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
@@ -5364,7 +5485,7 @@ func (b *broker) agentStream(w http.ResponseWriter, r *http.Request) {
 	// Pinned by features/multinode/cross_instance_relay.feature ("stream chunks posted
 	// to the instance that never saw the node").
 	t, tok := b.tunnelFor(nodeID)
-	if t == nil || !authNode(r, tok) {
+	if t == nil || !b.authNodeFresh(r, nodeID, tok) {
 		jsonErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
@@ -6177,7 +6298,8 @@ func (b *broker) updateTPS(node string, sample float64) {
 // authNode checks a node-facing request's Bearer token against the node's
 // registered BridgeToken (empty token never authorizes).
 func authNode(r *http.Request, token string) bool {
-	return token != "" && r.Header.Get("Authorization") == "Bearer "+token
+	presented, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	return ok && tokenEqual(token, presented)
 }
 
 func parseFloat(s string) float64 {

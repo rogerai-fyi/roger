@@ -106,7 +106,10 @@ type broker struct {
 	// lastSharedSeen throttles the shared-state (Valkey) liveness write-through per
 	// node, on its own clock so it works even when b.db is nil. Guarded by metricsMu.
 	lastSharedSeen map[string]time.Time
-	inflight       map[string]int // in-flight (active) requests per node
+	// readThroughAt caches the token-mismatch read-through (authNodeFresh) per node, so token
+	// guessing cannot turn into one shared-store read per request. Guarded by metricsMu.
+	readThroughAt map[string]sharedRead
+	inflight      map[string]int // in-flight (active) requests per node
 	// edgeInflight maps an OPEN edge attempt id to the node it was placed on and the account
 	// that opened it, so the counters below can be decremented exactly once when the attempt
 	// closes. The edge path has no dispatch loop to bracket - Core authorizes, the payload goes

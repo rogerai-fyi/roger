@@ -371,7 +371,7 @@ func (s *clState) registeredOnBRecently(name string) error {
 
 func (s *clState) bAppliesEntryFromA() error {
 	reg, _ := s.known("B", s.node("n1").id)
-	if err := s.logFromA("n1", reg.TS+5, "tok-from-A"); err != nil {
+	if err := s.logFromA("n1", reg.TS, "tok-from-A"); err != nil { // equal TS: the grace decides
 		return err
 	}
 	return s.tickLog("B")
@@ -382,7 +382,7 @@ func (s *clState) bKeepsOwn() error {
 	if reg.BridgeToken != s.graceTok {
 		return fmt.Errorf("instance B replaced its own fresh registration inside the grace window")
 	}
-	// And the entry is not lost: once the grace has passed it is applied (its TS is newer).
+	// And the entry is not lost: once the grace has passed it is applied (equal TS is adopted).
 	b := s.inst("B")
 	b.mu.Lock()
 	b.localRegAt[s.node("n1").id] = time.Now().Add(-2 * syncLocalRegisterGrace)
@@ -391,7 +391,7 @@ func (s *clState) bKeepsOwn() error {
 		return err
 	}
 	if reg, _ := s.known("B", s.node("n1").id); reg.BridgeToken != "tok-from-A" {
-		return fmt.Errorf("the deferred newer entry was never applied after the grace (token %q)", reg.BridgeToken)
+		return fmt.Errorf("the deferred entry was never applied after the grace (token %q)", reg.BridgeToken)
 	}
 	return nil
 }
@@ -646,7 +646,7 @@ func clInitScenarios(t *testing.T) func(sc *godog.ScenarioContext) {
 		sc.Step(`^instance B keeps its fresher registration$`, s.bKeepsFresher)
 		sc.Step(`^the shared registry is healed to the fresher one$`, s.sharedHealed)
 		sc.Step(`^node "([^"]*)" registered on instance B 2 s ago$`, s.registeredOnBRecently)
-		sc.Step(`^instance B applies an entry for "n1" from instance A$`, s.bAppliesEntryFromA)
+		sc.Step(`^instance B applies an entry for "n1" from instance A with the same timestamp$`, s.bAppliesEntryFromA)
 		sc.Step(`^instance B keeps its own registration$`, s.bKeepsOwn)
 		sc.Step(`^instance B applies the same registration entry twice$`, s.appliesSameTwice)
 		sc.Step(`^instance B's registry holds one copy of the node$`, s.oneCopy)

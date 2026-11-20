@@ -87,9 +87,12 @@ Feature: Instances share registry changes through a change log, not a full re-re
     Then instance B keeps its fresher registration
     And the shared registry is healed to the fresher one
 
-  Scenario: A registration inside the local grace window is not overwritten by the log
+  # Amended 2026-11-19 (founder re-approval, rereg_loop.feature): the grace holds back only an
+  # entry that is NOT newer than B's own. A strictly newer entry is never a stale read and is
+  # applied at once ("the local register grace never blocks a strictly newer peer registration").
+  Scenario: A registration inside the local grace window is not overwritten by an equally old log entry
     Given node "n1" registered on instance B 2 s ago
-    When instance B applies an entry for "n1" from instance A
+    When instance B applies an entry for "n1" from instance A with the same timestamp
     Then instance B keeps its own registration
 
   Scenario: Applying the same entry twice changes nothing

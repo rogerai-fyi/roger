@@ -30,7 +30,9 @@ func TestChangeSnapshotFailureKeepsPosition(t *testing.T) {
 }
 
 // A registration a snapshot skips only for the local grace window is kept and applied once
-// the grace has passed, so a peer's newer token is not lost until the next reconcile.
+// the grace has passed, so a peer's token is not lost until the next reconcile. The grace
+// holds back only an entry that is NOT newer than the local one (equal TS here); a strictly
+// newer one is applied at once (features/multinode/rereg_loop.feature).
 func TestChangeSnapshotDefersGracedRegistration(t *testing.T) {
 	mr := miniredis.RunT(t)
 	_, priv, _ := ed25519.GenerateKey(nil)
@@ -40,7 +42,7 @@ func TestChangeSnapshotDefersGracedRegistration(t *testing.T) {
 	b.nodes["n1"] = local
 	b.localRegAt["n1"] = time.Now()
 	peer := local
-	peer.BridgeToken, peer.TS = "peer", local.TS+5
+	peer.BridgeToken = "peer" // same TS as local
 	raw, _ := json.Marshal(peer)
 	if err := b.shared.putNode("n1", raw, livenessTTL); err != nil {
 		t.Fatal(err)
@@ -52,6 +54,6 @@ func TestChangeSnapshotDefersGracedRegistration(t *testing.T) {
 	b.localRegAt["n1"] = time.Now().Add(-2 * syncLocalRegisterGrace)
 	b.syncChanges() // an ordinary tick after the grace
 	if got := b.nodes["n1"].BridgeToken; got != "peer" {
-		t.Fatalf("the peer's newer registration was lost after the grace (token %q)", got)
+		t.Fatalf("the peer's registration was lost after the grace (token %q)", got)
 	}
 }
