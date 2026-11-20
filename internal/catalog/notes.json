@@ -11,7 +11,7 @@
     "id": "wave-nano-fire-controller",
     "summary": "Fire-decision adapter on Wave Nano 1.45B. Reads one fire-site tick and returns an alert decision.",
     "best_at": "From a canonicalized fire-site tick: the alert level, who to notify, missing inputs and tool plans. Refuses unsafe overrides and hands off after an acknowledgement.",
-    "not_for": "Chat, or ticks the caller has not canonicalized. Its fire numbers are simulator-internal; it is not validated in the field.",
+    "not_for": "Chat, or ticks the caller has not canonicalized. Tested on simulated fire scenarios, the served build and recorded readings from one installed site; not yet proven across many sites.",
     "base_model": "Wave Nano 1.45B",
     "page": "/research-wave-nano.html"
   },
