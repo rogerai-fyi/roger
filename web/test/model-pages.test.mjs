@@ -478,8 +478,15 @@ test("nano: the fire-decision copy is current with the lab record (R.460, R.473)
   assert.doesNotMatch(text, /retrain[^.]*in training/i, "R.460 (2026-11-09): both retrain seeds failed and nothing launched");
   assert.doesNotMatch(text, /temperature feed is null/i, "R.473 (2026-11-14): the missing-list misses came from the default start token, not the null temperature");
   const nano = cards().models.find((m) => m.id === "nano");
-  const nobos = nano.measured.find((x) => x.id === "fd-real-single-nobos");
-  assert.ok(nobos && nobos.ref === "R.473" && nobos.date === "2026-11-14" && nobos.fire === true);
+  // The live band runs with the start token off since 2026-11-19 (lab log, live read on the 1,200 frozen ticks):
+  // the single-tick number on the page is the live band's 97.0, under R.473, and every error is an over-alarm.
+  const single = nano.measured.find((x) => x.id === "fd-real-single");
+  assert.ok(single && single.value === "97.0" && single.ref === "R.473" && single.fire === true, "the live single-tick read, under R.473");
+  assert.match(single.label, /live band read 97\.0 on 2026-11-19/, "the label dates the live read");
+  assert.ok(!nano.measured.some((x) => x.id === "fd-real-single-nobos"), "one single-tick number, the live one");
+  const adapter = visible(sectionHtml(PAGES.nano, "adapter"));
+  assert.match(adapter, /Every error is an over-alarm; none is missed\./);
+  assert.doesNotMatch(text, /84\.3/, "the pre-switch number is not shown as the band's");
   for (const l of nano.limits) assert.notEqual(l.ref, "R.459", "no limit rests on the failed retrain");
   // TruthfulQA 41.2 sits inside the class range 36.6 to 52.2 (R.462): "last on every task" is not true.
   assert.doesNotMatch(text, /last in its size class on every task(?! but TruthfulQA)/, "the TruthfulQA exception is stated");

@@ -312,12 +312,12 @@ Orange County, California.</pre></div>
           <p class="wm-compare"><b>On real camera ticks:</b> recorded camera readings from one installed site, six
              cameras with the other sensor feeds empty, read through the controller&rsquo;s own
              prompt builder on the served build: persistent and quiet ticks
-             read {@html facts.card('nano.fd-real-steady')}. A single camera tick reads
-             {@html facts.card('nano.fd-real-single')} strict as served today: the misses are right decisions
-             with an incomplete missing list, caused by a start token the server adds by default.
-             With that token switched off the same ticks read {@html facts.card('nano.fd-real-single-nobos')}
-             <span class="wm-ref">{@html facts.cardRef('nano.fd-real-single-nobos')}</span>. A camera margin that
-             fell below the line over-alarms {@html facts.card('nano.fd-real-falling')} of the time <span class="wm-ref">{@html facts.cardRef('nano.fd-real-single')}</span>.</p>
+             read {@html facts.card('nano.fd-real-steady')} <span class="wm-ref">{@html facts.cardRef('nano.fd-real-steady')}</span>.
+             A single camera tick reads {@html facts.card('nano.fd-real-single')} strict on the live band, read on
+             2026-11-19 with the server&rsquo;s default start token switched off, as R.473 found it
+             should be <span class="wm-ref">{@html facts.cardRef('nano.fd-real-single')}</span>. Every error is an
+             over-alarm; none is missed. A camera margin that fell below the line over-alarms
+             {@html facts.card('nano.fd-real-falling')} of the time <span class="wm-ref">{@html facts.cardRef('nano.fd-real-falling')}</span>.</p>
           <p class="wm-aside">The adapter reads a tick by position, so the caller writes every
              tick in one fixed key order before it asks.</p>
         </div>
