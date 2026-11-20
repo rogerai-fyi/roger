@@ -3,27 +3,24 @@
     "id": "wave-nano-chat",
     "summary": "Wave Nano 1.45B in a plain chat format, for questions about industrial telemetry, equipment and plant systems.",
     "best_at": "Conversation about industrial telemetry and equipment, SQL, and short technical writing.",
-    "not_for": "General knowledge and trivia. It is weak there at this size and last in its class on public benchmarks.",
+    "not_for": "General knowledge and trivia: it is weak there at this size.",
     "base_model": "Wave Nano 1.45B",
-    "license": "Apache-2.0",
     "page": "/research-wave-nano.html"
   },
   {
     "id": "wave-nano-fire-controller",
-    "summary": "Fire-decision adapter (A22 seed 1) on Wave Nano 1.45B. Reads one fire-site tick and returns an alert decision.",
+    "summary": "Fire-decision adapter on Wave Nano 1.45B. Reads one fire-site tick and returns an alert decision.",
     "best_at": "From a canonicalized fire-site tick: the alert level, who to notify, missing inputs and tool plans. Refuses unsafe overrides and hands off after an acknowledgement.",
-    "not_for": "Chat, or ticks the caller has not canonicalized. Its fire numbers are simulator-internal plus one installed stream, not field-validated.",
+    "not_for": "Chat, or ticks the caller has not canonicalized. Its fire numbers are simulator-internal; it is not validated in the field.",
     "base_model": "Wave Nano 1.45B",
-    "license": "Apache-2.0",
     "page": "/research-wave-nano.html"
   },
   {
     "id": "wave-nano-fire-vision",
     "summary": "Wave Nano-VL fire module. Confirms or rules out smoke in one camera frame or crop.",
     "best_at": "A yes or no smoke check on a single frame, or on the crop a tile detector flagged.",
-    "not_for": "Video, or deciding what to do. Trained in part on HPWREN data (CC BY-NC 4.0, commercial use by HPWREN permission), which is not meant for decision-making.",
+    "not_for": "Video, or deciding what to do on its own. It does not carry over yet to cameras unlike the ones it learned on. Read the license note on the model page before commercial use.",
     "base_model": "Wave Nano 1.45B",
-    "license": "Apache-2.0",
     "page": "/research-wave-nano.html"
   },
   {

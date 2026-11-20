@@ -306,7 +306,9 @@ func (t Taxonomy) Declare(modality string) (Taxonomy, error) {
 // nothing - hand-edited to an unknown category, say - therefore never hides the inference.
 //
 // The details ride along either way: inference never writes text, so a declaration that is
-// only details keeps the inferred category and still carries its words.
+// only details keeps the inferred category and still carries its words; a declaration with no
+// details keeps whatever words the other side carries (an owner's category-only override never
+// blanks the node's own summary).
 func (t Taxonomy) OnAir(modality string, inferred Taxonomy) Taxonomy {
 	t.TaxonomySource, t.DetailsSource, t.Page = "", "", ""
 	c := t.Canonical(modality)
@@ -314,6 +316,9 @@ func (t Taxonomy) OnAir(modality string, inferred Taxonomy) Taxonomy {
 	if c.TaxonomySource != "" {
 		c.TaxonomySource = SourceDeclared
 		out = c
+	}
+	if !c.DetailsDeclared() {
+		return out.WithDetailsOf(inferred)
 	}
 	return out.WithDetailsOf(c)
 }

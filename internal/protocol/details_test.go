@@ -84,6 +84,16 @@ func TestOnAirAttachesDetails(t *testing.T) {
 	require.Equal(t, "words", got.Summary)
 	require.Equal(t, SourceDeclared, got.DetailsSource)
 	require.Equal(t, inf, Taxonomy{}.OnAir("", inf))
+
+	// a category-only override keeps the node's own words (the broker re-applies overrides
+	// with the node's taxonomy as the second argument)
+	node := Taxonomy{Category: "language", Subcategory: "chat", Summary: "node words", DetailsSource: SourceDeclared}
+	got = Taxonomy{Category: "vision", Subcategory: "ocr"}.OnAir("", node)
+	require.Equal(t, "vision", got.Category)
+	require.Equal(t, "node words", got.Summary)
+	// an override that does not survive (unknown category) keeps them too
+	got = Taxonomy{Category: "nonsense"}.OnAir("", node)
+	require.Equal(t, node, got)
 }
 
 func TestFoldDetails(t *testing.T) {

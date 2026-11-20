@@ -1,6 +1,9 @@
 package catalog
 
 import (
+	"encoding/json"
+	"os"
+	"regexp"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -52,4 +55,30 @@ func TestNoteRejectsStrayWhitespace(t *testing.T) {
 	require.ErrorContains(t, err, "control character or stray whitespace")
 	_, err = ParseNotes([]byte(`[{"id":"a","summary":"s","license":"MIT\n"}]`))
 	require.ErrorContains(t, err, "control character")
+}
+
+// The shipped notes are outward copy: they keep the model pages' rules
+// (web/test/model-pages.test.mjs BANNED) and carry no build or run identifier.
+func TestBuiltinNotesKeepOutwardCopyRules(t *testing.T) {
+	banned := []*regexp.Regexp{
+		regexp.MustCompile(`(?i)hugging\s?face`),
+		regexp.MustCompile(`(?i)\b(first|novel|unprecedented)\b|state[- ]of[- ]the[- ]art`),
+		regexp.MustCompile(`(?i):\d{4}\b|localhost|127\.0\.0\.1|systemd|\.service\b|/mnt/|~/|hermes|hf_serve|serve-wave|workstation`),
+		regexp.MustCompile(`(?i)FIgLib|HPWREN|pyro-?sdis|PyroNear|SKAB|\bNAB\b|ALERTCalifornia|SigLIP|Idefics|SmolLM`),
+		regexp.MustCompile(`(?i)\bcorpus\b|billion tokens|\b90B\b|\btokens of\b|dataset`),
+		regexp.MustCompile(`(?i)\bClaude\b|AI assistant|revenue`),
+		regexp.MustCompile(`\b[A-Z]\d{2,}\b|\bv\d+[a-z]\b|\bseed \d|\bR\.\d+`), // run ids, build versions, R-numbers
+		regexp.MustCompile(`[\x{2013}\x{2014}]`),                               // no en or em dashes
+	}
+	b, err := os.ReadFile("notes.json")
+	require.NoError(t, err)
+	var list []Note
+	require.NoError(t, json.Unmarshal(b, &list))
+	for _, n := range list {
+		for _, v := range []string{n.Summary, n.BestAt, n.NotFor, n.BaseModel, n.License} {
+			for _, re := range banned {
+				require.False(t, re.MatchString(v), "%s: %q matches %s", n.ID, v, re)
+			}
+		}
+	}
 }
