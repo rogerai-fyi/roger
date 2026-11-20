@@ -159,10 +159,10 @@ test("how-llms: every Wave claim says what wave-status.json says, and no more", 
   const html = read(PAGE);
   const body = text(mainOf(html));
   const pico = tier("pico"), nano = tier("nano");
-  assert.equal(pico.stage, "on-air"); assert.equal(nano.stage, "on-air");   // founder confirmation 2026-11-19
+  assert.equal(pico.stage, "on-air"); assert.equal(nano.stage, "gated");   // founder 2026-11-19 22:54 PT: Nano off the market
   assert.match(body, /Wave Pico is on air, which means/, "the page states Pico's stage");
   assert.ok(body.includes(ledger.stages["on-air"]), "and quotes the ledger's definition of that stage, verbatim");
-  assert.match(body, /Wave Nano is on air, which means/, "the page states Nano's stage");
+  assert.match(body, /Wave Nano is temporarily off the market while safety checks and guards are added\./, "the page states Nano's state, with no return date");
   assert.ok(!body.includes(ledger.stages.gated), "Nano no longer carries the gated definition (no tier on this page is quoted as gated)");
   assert.ok(html.includes(`<span>${pico.onAirBand}</span>`), "the sign-off names the ledger's band");
   assert.ok(ledger.tiers.every((t) => !t.publicCheckpoint), "nothing is released, so the page claims no download");

@@ -525,7 +525,7 @@ test("deck: the brain is named honestly and no benchmark figures leak", () => {
   assert.ok(htmlFlat.includes("targets 0.8&ndash;1.5B") || htmlFlat.includes("targets 0.8–1.5B"),
     "Wave Nano's locked tier band must be stated");
   // founder confirmation 2026-11-19: Nano's 1.45B release build is on air; its size is stated, never guessed
-  assert.ok(htmlFlat.includes("1.45B scratch build is on air as the free band wave-nano-chat"), "Nano's build is stated as on air, with its band");
+  assert.ok(htmlFlat.includes("1.45B scratch build is temporarily off the market while safety checks and guards are added"), "Nano's build is stated as off the market, with no return date");
   assert.ok(htmlFlat.includes("edge tier that runs on a Pi"),
     "Wave Pico must be named as the Pi-class edge tier");
   assert.ok(!/MCU-class edge tier/.test(htmlFlat),

@@ -50,8 +50,8 @@
   ]
  },
  "broadcasts-how-llms-work.html": {
-  "sha": "33c5cddc623a525314b55ec20f38f546833df35a94f9da2cd1a4b3b012a7a5a3",
-  "length": 11695,
+  "sha": "f43859ff9128ebddd3d02a2486fa165ebc97c88a8c2568cd2ec2f006e79c2533",
+  "length": 11729,
   "hrefs": [
    "/broadcasts.html",
    "/research-wave-family.html",
@@ -74,8 +74,8 @@
   ]
  },
  "broadcasts-jev-vs-wave.html": {
-  "sha": "b464b6dd75e0963e475b96ba760223b4841b5a197160cc033dfeb4b3edbfa6da",
-  "length": 11198,
+  "sha": "36788882c1cc14a78d6ee4e4e33badda66a9450fbfc30623be1f2979ac9f4ce2",
+  "length": 12136,
   "hrefs": [
    "/broadcasts.html",
    "/research-wave-family.html"
@@ -181,8 +181,8 @@
   ]
  },
  "research-hardware.html": {
-  "sha": "0bd153115d8a95b0598d89add8e2f7c533ad4174551fa61303da3de653f26004",
-  "length": 8508,
+  "sha": "58ecef3972eb241886b60b078e658abc71a54c84b2ec8d3b6c36ffda8d6f3bf9",
+  "length": 8475,
   "hrefs": [
    "/research.html",
    "/research-models.html",
@@ -207,8 +207,8 @@
   ]
  },
  "research-industry.html": {
-  "sha": "aa54da7a8002dfcdb22656ca16b0ccb2feb1356f380b825b02ff6fc43f1b829d",
-  "length": 8822,
+  "sha": "2f287abdcbec3ba45a850916c240776029839c49c850e688875ac84edc9b153b",
+  "length": 8880,
   "hrefs": [
    "/research.html",
    "#market-oilgas",
@@ -236,8 +236,8 @@
   ]
  },
  "research-models.html": {
-  "sha": "1bc40ab1e1385a119f33976c6f0d05ef282dc97de53a230f97605a877c5feb72",
-  "length": 6455,
+  "sha": "c4d64baab7db71850bff2add36165e0307f572d2facd3f0af6a91ebf11b23140",
+  "length": 6431,
   "hrefs": [
    "/research.html",
    "/research-wave-pico.html",
@@ -256,7 +256,7 @@
   ]
  },
  "research-wave-family.html": {
-  "sha": "5ba4214e5044ce5f66a6912e5648dad74b009ce46a915b6aae68196e16733ac7",
+  "sha": "b68e57314c0de6c5095af9baa5624ae48d55a5131a6cd7c43af52f157c221e2d",
   "length": 17303,
   "hrefs": [
    "/research.html",
@@ -270,8 +270,8 @@
   ]
  },
  "research-wave-nano.html": {
-  "sha": "8d22479f399a08457137549e0ed0616f1a927be77e1456dd73c26d264ae2bded",
-  "length": 18148,
+  "sha": "59af1265532d0b161b5bfc79e9daab28ab3f5b3653d4d343b65183c6adeae2fb",
+  "length": 17826,
   "hrefs": [
    "/research-models.html",
    "#measured",
@@ -296,7 +296,7 @@
   ]
  },
  "research.html": {
-  "sha": "953a69e2fd404261213364d2e49db70e758a6d1a96ea238839aff1b8bb17d51f",
+  "sha": "da6ad3030eedde7e609b306ac105931dae0079eae0eab40f9f165bf3f20c4d07",
   "length": 5301,
   "hrefs": [
    "/research-models.html",

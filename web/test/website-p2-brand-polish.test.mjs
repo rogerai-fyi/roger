@@ -37,7 +37,7 @@ test("homepage puts Wave Labs proof before the install action without adding a h
   assert.ok(proof > 0 && proof < install, "the Labs plate precedes install in the first hero flow");
   // The plate states program status, not a licence or a version it cannot back. The
   // status words are the ledger stages (test/wave-status.test.mjs holds them to the data).
-  assert.match(hero, /PICO ON AIR · NANO ON AIR/);   // founder confirmation 2026-11-19
+  assert.match(hero, /PICO ON AIR · NANO GATED/);   // founder 2026-11-19 22:54 PT: Nano off the market
   assert.doesNotMatch(hero, /APACHE-2\.0|v1\.0|AVAILABLE/);
   for (const marker of ["hero__eyebrow", "hero__title", "hero__sub", "hero__proof", 'class="install"']) {
     const tag = hero.match(new RegExp(`<[^>]*class="[^"]*${marker.replace('class="', "")}[^"]*"[^>]*>`))?.[0] || "";

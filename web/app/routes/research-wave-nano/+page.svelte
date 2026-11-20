@@ -23,8 +23,9 @@
 <!-- WAVE NANO, the model page (Nano-Instruct; the vision module Nano-VL is §7 of this page,
      founder ruling 2026-10-20). Every number renders from src/data/model-cards.json through a
      card token, each with its R-number and date in the Measured footnote. Served
-     status renders from wave-status.json: Nano is on air (founder confirmation 2026-11-19) and
-     the run command names its band from that file (test/model-pages.test.mjs).
+     status renders from wave-status.json: Nano's bands were taken off the market on 2026-11-19
+     (22:54 PT, safety) while safety checks and guards are added; the page says so, offers no
+     `roger use` command for it and gives no return date (test/model-pages.test.mjs).
      The mesh explainer and the wildfire watch are the shared partials. 
      (the page's doc comment, from the legacy file; its sheets are the css: list above) -->
   <Rail head='RogerAI &middot; Wave Nano' rev='Rev. 2026.11 &middot; LABS' />
@@ -58,7 +59,7 @@
           <span class="tint-panel__tag">At a glance</span>
           <dl>
             <div><dt>Status</dt><dd><i class="model-lamp" data-air="{facts.t.waveAir('nano')}" aria-hidden="true"></i>{@html facts.waveStage('nano')}</dd></div>
-            <div><dt>Band</dt><dd>{@html facts.waveBand('nano')}, free</dd></div>
+            <div><dt>Band</dt><dd>temporarily off the market</dd></div>
             <div><dt>Size</dt><dd>{@html facts.card('nano.size')} parameters, from scratch</dd></div>
             <div><dt>Vision</dt><dd>{@html facts.card('nano.vlName')}, {@html facts.card('nano.vlSize')} in all</dd></div>
             <div><dt>Gate</dt><dd>answers {@html facts.card('nano.gate-accept')} of real work at {@html facts.card('nano.gate-precision')} precision</dd></div>
@@ -137,14 +138,11 @@ Orange County, California.</pre></div>
       <div class="wrap">
         <div class="section__head section__head--left">
           <span class="sectionno">&sect;3 / RUN</span>
-          <h2>Free on the band, one command away.</h2>
-          <p>Wave Nano is on air as three free bands, each serving the release files measured
-             on this page: <code>{@html facts.waveBand('nano')}</code> for chat,
-             <code>wave-nano-fire-controller</code> for the fire-decision controller adapter, and
-             <code>wave-nano-fire-vision</code> for the vision fire-confirm module. Its weights
-             are not published. Install the CLI, then tune in: <code>roger use</code> opens a
-             local OpenAI-compatible endpoint on your own machine. A caller of the fire
-             controller writes each tick in one fixed key order (&sect;6).</p>
+          <h2>Temporarily off the market.</h2>
+          <p>Wave Nano and its fire bands are temporarily off the market while safety checks
+             and guards are added. Its weights are not published. The CLI shows what is on air
+             today, Wave Pico included. A caller of the fire controller writes each tick in one
+             fixed key order (&sect;6).</p>
         </div>
         <div class="wm-run">
           <div class="install">
@@ -152,9 +150,9 @@ Orange County, California.</pre></div>
             <InstallBox id='nanoInstall'>curl <span class="tok">-fsSL</span> https://rogerai.fm/install.sh <span class="tok">| sh</span></InstallBox>
           </div>
           <div class="install">
-            <span class="fig mono">2 &middot; Tune in to Wave Nano</span>
-            <InstallBox id='nanoUse' oslock='any' label='Copy roger use command to clipboard'>roger use {facts.t.waveBand('nano')}</InstallBox>
-            <p class="install__meta"><code>roger search wave</code> lists every Wave band on air.</p>
+            <span class="fig mono">2 &middot; See what is on air</span>
+            <InstallBox id='nanoSearch' oslock='any' label='Copy roger search command to clipboard'>roger search wave</InstallBox>
+            <p class="install__meta"><span class="research-kicker">Wave Nano</span> <i class="model-lamp" data-air="{facts.t.waveAir('nano')}" aria-hidden="true"></i> {@html facts.waveStage('nano')}</p>
           </div>
         </div>
 
@@ -313,7 +311,7 @@ Orange County, California.</pre></div>
              cameras with the other sensor feeds empty, read through the controller&rsquo;s own
              prompt builder on the served build: persistent and quiet ticks
              read {@html facts.card('nano.fd-real-steady')} <span class="wm-ref">{@html facts.cardRef('nano.fd-real-steady')}</span>.
-             A single camera tick reads {@html facts.card('nano.fd-real-single')} strict on the live band, read on
+             A single camera tick reads {@html facts.card('nano.fd-real-single')} strict on the served band, read on
              2026-11-19 with the server&rsquo;s default start token switched off, as R.473 found it
              should be <span class="wm-ref">{@html facts.cardRef('nano.fd-real-single')}</span>. Every error is an
              over-alarm; none is missed. A camera margin that fell below the line over-alarms

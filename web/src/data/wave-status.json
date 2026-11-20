@@ -120,47 +120,43 @@
       "name": "Wave Nano",
       "kind": "tier",
       "size": "0.8–1.5B",
-      "stage": "on-air",
+      "stage": "gated",
       "publicCheckpoint": false,
-      "onAirBand": "wave-nano-chat",
-      "alsoOnAir": [
-        "wave-nano-fire-controller",
-        "wave-nano-fire-vision"
-      ],
+      "onAirBand": null,
       "labels": {
         "research.scope": {
           "page": "research.html",
-          "text": "On air",
+          "text": "Gated",
           "wired": true
         },
         "research-models.chip": {
           "page": "research-models.html",
-          "text": "ON AIR",
+          "text": "GATED",
           "wired": true
         },
         "research-models.stage": {
           "page": "research-models.html",
-          "text": "On air as wave-nano-chat, wave-nano-fire-controller and wave-nano-fire-vision",
+          "text": "Temporarily off the market for safety checks",
           "wired": false
         },
         "wave-family.recipe": {
           "page": "research-wave-family.html",
-          "text": "Scratch &middot; on air",
+          "text": "Scratch &middot; gated",
           "wired": true
         },
         "research-hardware.card": {
           "page": "research-hardware.html",
-          "text": "On air as wave-nano-chat, wave-nano-fire-controller and wave-nano-fire-vision",
+          "text": "Temporarily off the market for safety checks",
           "wired": true
         },
         "jev-vs-wave.chart": {
           "page": "broadcasts-jev-vs-wave.html",
-          "text": "874&ndash;2,899 MB &middot; on air",
+          "text": "874&ndash;2,899 MB &middot; off the market",
           "wired": true
         },
         "jev-vs-wave.aria": {
           "page": "broadcasts-jev-vs-wave.html",
-          "text": "Wave Nano 1.45B, 874 to 2,899 MB, on air",
+          "text": "Wave Nano 1.45B, 874 to 2,899 MB, temporarily off the market",
           "wired": false
         }
       }

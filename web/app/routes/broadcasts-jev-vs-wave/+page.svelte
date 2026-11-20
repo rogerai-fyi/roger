@@ -275,7 +275,7 @@
           <figure class="figure figure--plate figure--chart" data-reveal>
             <div class="scroll-box scroll-box--diagram">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 470" role="img"
-                 aria-label="Chart: size on disk of each Wave tier, quantized, on a log scale from 100 MB to 1 TB. Wave Pico 270 to 562 MB, on air. Wave Nano 1.45B, 874 to 2,899 MB, on air. Wave Micro in training. Wave Giga 16.5 GB at Q4_K_M, built on Qwen3.8-27B. Wave Tera about 60 GB at 100B, base being selected. Wave Peta about 105 GB and Wave Exa about 170 GB, planned. Jev has no bar: hosted only, parameter count undisclosed.">
+                 aria-label="Chart: size on disk of each Wave tier, quantized, on a log scale from 100 MB to 1 TB. Wave Pico 270 to 562 MB, on air. Wave Nano 1.45B, 874 to 2,899 MB, temporarily off the market. Wave Micro in training. Wave Giga 16.5 GB at Q4_K_M, built on Qwen3.8-27B. Wave Tera about 60 GB at 100B, base being selected. Wave Peta about 105 GB and Wave Exa about 170 GB, planned. Jev has no bar: hosted only, parameter count undisclosed.">
               {@html `<style>
                 .l-hair{stroke:currentColor;opacity:.18}.l-tick{stroke:currentColor;opacity:.30;stroke-dasharray:2 4}
                 .l-bar{fill:currentColor;opacity:.82}.l-plan{fill:currentColor;opacity:.28}.l-built{fill:var(--live)}
@@ -465,6 +465,28 @@
             </div>
             <figcaption class="fig mono">FIG. 5 &middot; SIDE BY SIDE, NO SPIN.</figcaption>
           </figure>
+
+          <!-- The Nimble comparison, R.479 (2026-11-20), as the lab proposed it (founder approved 2026-11-20).
+               Jev's numbers are vendor-reported; every number read here carries R.479 and its date. -->
+          <aside class="tint-panel" id="measured-nimble" aria-labelledby="measured-nimble-head" data-reveal>
+            <span class="tint-panel__tag" id="measured-nimble-head">Measured against the closest open model</span>
+            <p>Jev is closed. The closest open model is Bespoke Labs&rsquo; Nimble 9B. On 13 public
+              decision datasets Bespoke reports Jev at 76.0 and Nimble at 74.8 (vendor-reported,
+              Bespoke Labs, September 2026). We re-ran Nimble on the same records and got 74.8
+              (R.479, 2026-11-20).</p>
+            <p>Wave Nano and Wave Pico are not general decision models. On those 13 datasets they
+              score 32.0 and 34.1, below always picking the most common answer (50.0). Trained on
+              Nimble&rsquo;s own 2,676 examples, Wave Nano still scores 33.8 against Nimble&rsquo;s 74.8
+              (R.479, 2026-11-20).</p>
+            <p>Wave&rsquo;s job is industrial telemetry. On our sealed fault-identification set, Wave
+              Nano reads 73.0% and Nimble 9B, with no examples of our data, 22.7% (R.479, 2026-11-20).
+              Wave was trained on this kind of data and Nimble was not, so this shows fit for our
+              job, not a better decision model.</p>
+            <p>Size and speed on one machine: Wave Nano is 1.19 GB (Q6_K) and Nimble 9B 5.63 GB
+              (Q4_K_M). On 16 CPU threads Nano reads a 512-token prompt 2.8 times faster and Wave
+              Pico 10.3 times faster (R.479, 2026-11-20).</p>
+            <p>Designed by RogerAI in Orange County, California.</p>
+          </aside>
         </section>
 
         <!-- §6 FAQ -->

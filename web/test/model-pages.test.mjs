@@ -315,7 +315,7 @@ test("served: what a page says is served is exactly what the status file says", 
   if (nano.onAirBand) {
     assert.match(nanoText, new RegExp(`roger use ${nano.onAirBand}`));
   } else {
-    assert.match(nanoText, /not on the band yet/i, "Nano says it is not on the band");
+    assert.match(nanoText, /temporarily off the market/i, "Nano says it is off the market (founder 2026-11-19 22:54 PT)");
     assert.doesNotMatch(nanoText, /roger use wave-nano/i, "and offers no command for a band that is not on air");
   }
   // No version number is claimed as served.
@@ -366,11 +366,20 @@ test("nano: the release parts are described by role, with no served name but the
   for (const role of [/chat/i, /fire sensor-reading adapter/i, /fire-decision controller adapter/i, /vision fire-confirm module/i]) {
     assert.match(parts, role, `the parts list names ${role}`);
   }
-  // Band names come from the status file (founder confirmation 2026-11-19); nothing else is named.
+  // Band names come from the status file; nothing else is named (none while Nano is off the market).
   const t = status().tiers.find((x) => x.id === "nano");
   const bands = [t.onAirBand, ...(t.alsoOnAir || [])].filter(Boolean);
   for (const n of new Set(text.match(/wave-nano-[a-z0-9.-]*[a-z0-9]/g) || [])) assert.ok(bands.includes(n), `${n} is not a band in the status file`);
   for (const b of bands) assert.ok(parts.includes(b), `the parts list names the band ${b}`);
+  if (!t.onAirBand) {
+    assert.match(text, /temporarily off the market while safety checks and guards are added/i, "founder 2026-11-19 22:54 PT");
+    assert.doesNotMatch(text, /\bon air\b[^.]*(chat|fire|band)|free band/i, "no on-air wording for Nano");
+    // what follows "off the market", up to the end of its sentence or clause, names no date or time
+    for (const m of text.matchAll(/off the market[^.;]{0,80}/gi)) {
+      const tail = m[0].replace(/ Size \d[\s\S]*$/, "");   // the hero plate's next row is not part of it
+      assert.doesNotMatch(tail, /\d|\buntil\b|\bback\b|\breturns?\b|\bby (the )?(end|next|week|month)/i, `no return date: "${tail}"`);
+    }
+  }
   assert.match(parts, /Fire sensor-reading adapter\.[^.]*\.[^]*?not on the band/i, "the sensor-reading adapter is not on the band, and says so");
 });
 
@@ -496,4 +505,29 @@ test("nano: the fire-decision copy is current with the lab record (R.460, R.473)
 test("nano: the GSM8K class cell says four of the six were measured, as the IFEval cell does", () => {
   const row = main(PAGES.nano).match(/<tr><th scope="row">GSM8K[\s\S]*?<\/tr>/)?.[0] || "";
   assert.match(visible(row), /\(four measured\)/);
+});
+
+// Founder 2026-11-20: the Jev field guide carries the R.479 comparison with Nimble 9B (the open model
+// closest to Jev), as R.479 proposed it. Jev's numbers are vendor-reported; every number we read carries
+// "R.479, 2026-11-20"; decision quality is never described as a win or a match.
+test("comparison: the Jev field guide states R.479 plainly, vendor numbers labelled, no win claimed", () => {
+  const html = main("broadcasts-jev-vs-wave.html");
+  const block = html.match(/<aside[^>]*id="measured-nimble"[\s\S]*?<\/aside>/)?.[0] || "";
+  assert.ok(block, "the comparison block exists");
+  const t = visible(block);
+  const paras = [...block.matchAll(/<p[\s\S]*?<\/p>/g)].map((m) => visible(m[0]));
+  // (a) vendor-reported Jev and Nimble, and our re-run
+  assert.match(t, /Bespoke reports Jev at 76\.0 and Nimble at 74\.8 \(vendor-reported, Bespoke Labs, September 2026\)\. We re-ran Nimble on the same records and got 74\.8 \(R\.479, 2026-11-20\)\./);
+  // (b) not general decision models
+  assert.match(t, /Wave Nano and Wave Pico are not general decision models\. On those 13 datasets they score 32\.0 and 34\.1, below always picking the most common answer \(50\.0\)\. Trained on Nimble['’]s own 2,676 examples, Wave Nano still scores 33\.8 against Nimble['’]s 74\.8 \(R\.479, 2026-11-20\)\./);
+  // (c) our job, fit not quality
+  assert.match(t, /On our sealed fault-identification set, Wave Nano reads 73\.0% and Nimble 9B, with no examples of our data, 22\.7% \(R\.479, 2026-11-20\)\./);
+  assert.match(t, /this shows fit for our job, not a better decision model\./);
+  // (d) size and speed
+  assert.match(t, /Wave Nano is 1\.19 GB \(Q6_K\) and Nimble 9B 5\.63 GB \(Q4_K_M\)\. On 16 CPU threads Nano reads a 512-token prompt 2\.8 times faster and Wave Pico 10\.3 times faster \(R\.479, 2026-11-20\)\./);
+  // every paragraph with a number we read carries the tag
+  for (const p of paras.filter((x) => /\d/.test(x) && !/Designed by RogerAI/.test(x))) assert.match(p, /R\.479, 2026-11-20/, `untagged numbers: "${p.slice(0, 80)}"`);
+  assert.doesNotMatch(t, /\bbeats?\b|\bmatch(es|ed)?\b|a sixth of the size|outperform|better than Nimble/i, "no win or match wording");
+  assert.doesNotMatch(block, /\u2014/, "no em dash");
+  assert.match(paras[paras.length - 1], /^Designed by RogerAI in Orange County, California\.$/, "the block ends with the RogerAI line");
 });

@@ -92,7 +92,7 @@
             <span class="model-page__go">Wave Pico model page</span>
           </a>
           <a class="tint-panel model-page" href="/research-wave-nano.html">
-            <span class="model-page__status"><i class="model-lamp" data-air="{facts.t.waveAir('nano')}" aria-hidden="true"></i>{@html facts.waveStage('nano')} &middot; three free bands</span>
+            <span class="model-page__status"><i class="model-lamp" data-air="{facts.t.waveAir('nano')}" aria-hidden="true"></i>{@html facts.waveStage('nano')} &middot; temporarily off the market</span>
             <b class="model-page__name">Wave Nano <span>{@html facts.card('nano.size')}</span></b>
             <span class="model-page__line">Reads telemetry, a fleet and a fire site, and talks. Carries the Nano-VL vision module for camera frames.</span>
             <span class="model-page__go">Wave Nano model page</span>
@@ -144,7 +144,7 @@
                  by discovery. Scratch if the data program allows; a base-and-specialize
                  fallback is held as the control.</p>
               <div class="model-row__actions">
-                <span class="model-stage">On air as wave-nano-chat, wave-nano-fire-controller and wave-nano-fire-vision</span>
+                <span class="model-stage">Temporarily off the market for safety checks</span>
                 <a class="model-note" href="/research-wave-nano.html">Model page</a>
               </div>
             </div>

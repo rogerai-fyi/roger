@@ -88,7 +88,7 @@
         { "text": "A check on the training data found that about a third of the ARC prompts and a quarter of the IFEval prompts of the public suite had appeared, with answers, in the chat portion of the training data. On the prompts that had not appeared the readings sit within sampling error of the full-set numbers (IFEval 12.6 strict, ARC-Challenge 29.2), so the table keeps the full sets, which is what the other models were read on.", "ref": "R.462" },
         { "text": "Sizing arithmetic without the calculator tool reads 17 to 20. The fire-decision adapter calls the calculator instead.", "ref": "R.448" },
         { "text": "On real camera ticks, a camera margin that was over the line and fell below it over-alarms about 10% of the time, a tick shape the training set never held.", "ref": "R.453" },
-        { "text": "On the live band, read on 2026-11-19, a single camera tick reads 97.0 strict. Every error on the real camera ticks is an over-alarm; none is missed.", "ref": "R.473" },
+        { "text": "On the served band, read on 2026-11-19, a single camera tick reads 97.0 strict. Every error on the real camera ticks is an over-alarm; none is missed.", "ref": "R.473" },
         { "text": "The fire-decision adapter reads a tick by position. The caller writes every tick in one fixed key order before it asks.", "ref": "R.452" },
         { "text": "The vision module reads single frames. The full watch design adds persistence and a per-camera baseline on top." },
         { "text": "The vision numbers are on held-out frames from the camera networks it learned on. They are the shipped build; a second training seed of the same recipe read within 0.01 AUC of it on every list (R.F75 addendum 4, 2026-10-26).", "ref": "R.F75" },
@@ -156,10 +156,10 @@
       ],
       "vlCredit": "Data credit. The vision module and the camera smoke detector it works with were trained in part on HPWREN archived data (CC BY-NC 4.0; commercial use under HPWREN&rsquo;s no-fee Commercial Use Permission, registration filed by RogerAI). Data courtesy of HPWREN, University of California San Diego. FIgLib: Dewangan et al. (2022), Remote Sensing 14(4), 1007. HPWREN data are not intended for decision-making. The fire-decision adapter uses no HPWREN data.",
       "parts": [
-        { "title": "Chat.", "text": "The base model on its own: telemetry, the fleet, the fire-site rollup, and conversation. On air as the free band <code>wave-nano-chat</code>." },
+        { "title": "Chat.", "text": "The base model on its own: telemetry, the fleet, the fire-site rollup, and conversation." },
         { "title": "Fire sensor-reading adapter.", "text": "Routed per request. Reads a fire site&rsquo;s sensor frame: threat call, escalation, source, wind alignment and regime. Ships in the release; not on the band." },
-        { "title": "Fire-decision controller adapter.", "text": "Routed per request. Gives the site controller its decision from camera, chemistry and wind, plans its tool calls, names missing inputs, answers override requests, and steps back once a person acknowledges. On air as the free band <code>wave-nano-fire-controller</code>." },
-        { "title": "Vision fire-confirm module.", "text": "Nano-VL. After the camera detector alarms, it confirms smoke on the frame and describes it. On air as the free band <code>wave-nano-fire-vision</code>." }
+        { "title": "Fire-decision controller adapter.", "text": "Routed per request. Gives the site controller its decision from camera, chemistry and wind, plans its tool calls, names missing inputs, answers override requests, and steps back once a person acknowledges." },
+        { "title": "Vision fire-confirm module.", "text": "Nano-VL. After the camera detector alarms, it confirms smoke on the frame and describes it." }
       ]
     }
   ]
