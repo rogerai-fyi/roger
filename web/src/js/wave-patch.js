@@ -5626,7 +5626,7 @@
     return {
       kind: "reading",
       who: "THE BENCH · from the recorded window",
-      offAir: "a recount of the recorded window - a hosted Wave Nano will take this over; not yet on air",
+      offAir: "a recount of the recorded window - the bench is not wired to the hosted Wave Nano yet",
       tag: w.tag || r.node_id,
       meanLine: "reads mean " + fmtN(w.mean) + (u ? " " + u : "") + " over the recorded window",
       detail: w.n + " samples · " + fmtN(w.lo) + " … " + fmtN(w.hi) + (u ? " " + u : "") +
@@ -5646,7 +5646,7 @@
     var t = f.totals;
     return { kind: "fleetread",
       who: "THE BENCH · the recorded fleet under your settings",
-      offAir: "a recount of the 120 recorded records - a hosted Wave Nano will take this over; not yet on air",
+      offAir: "a recount of the 120 recorded records - the bench is not wired to the hosted Wave Nano yet",
       lead: "Across the recorded fleet at " + f.policy + ": " + t.n + " channels, " +
         t.faults + " recorded faults - " + t.caught + " caught, " + t.missed + " missed" +
         (t.deadEnd ? " (" + t.deadEnd + " escalation" + (t.deadEnd === 1 ? "" : "s") + " unheard)" : "") +
@@ -5857,7 +5857,7 @@
       stack.appendChild(el("p", "sn-para sn-ping__text" + (rep.kind === "pingwait" ? " is-wait" : ""),
         rep.kind === "pingwait" ? "…asking Ping" : rep.text));
       var sub = el("p", "sn-sub sn-ping__sub",
-        "Ping is the concierge answering live - not a Wave model; a hosted Wave Nano is the goal.");
+        "Ping is the concierge answering live - not a Wave model; wiring this to the hosted Wave Nano is the goal.");
       sub.title = "a real reply from a real endpoint, shown verbatim - declines included";
       stack.appendChild(sub);
       // the recorded recount always rides beneath the live voice: the

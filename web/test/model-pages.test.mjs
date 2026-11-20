@@ -125,7 +125,7 @@ test("resolver: a card token renders the value, a num token the bare number", ()
   assert.equal(resolveCardTokens("{{card:m.name}} {{card:m.size}}", "x.html", FIXTURE), "Wave M 1M");
 });
 
-test("resolver: a fire number is marked, so the page can be held to simulator-internal", () => {
+test("resolver: a fire number is marked, so the page can be held to saying how it was tested", () => {
   assert.equal(resolveCardTokens("{{card:m.c}}", "x.html", FIXTURE), '<span data-fire="">99.4</span>');
 });
 
@@ -299,7 +299,7 @@ test("fire: design tense, no site, no place, no company, no protection claim", (
     assert.match(fire, /camera/i, "the camera detector is a component of the design");
     // (its own section label and figure label are furniture, not numbers: the page-wide
     // number test strips them the same way)
-    assert.doesNotMatch(fire.replace(/simulator-internal/gi, "").replace(/\u00a7\s?\d+|FIG\.\s?\d+/g, ""), /\d/,
+    assert.doesNotMatch(fire.replace(/\u00a7\s?\d+|FIG\.\s?\d+/g, ""), /\d/,
       `${p}: the design section carries no numbers`);
   }
 });
@@ -469,4 +469,17 @@ test("pico: the fire testing is described as it was done, and Pico says plainly 
   const pico = cards().models.find((m) => m.id === "pico");
   const mlx = pico.measured.find((x) => x.id === "fire-mlx");
   assert.ok(mlx && mlx.ref === "R.377" && mlx.date === "2026-10-18" && mlx.fire === true, "the MLX fire check is R.377, 2026-10-18, marked fire");
+});
+
+test("nano: the fire-decision copy is current with the lab record (R.460, R.473) and the public suite is stated exactly", () => {
+  const text = visible(main(PAGES.nano));
+  assert.doesNotMatch(text, /retrain[^.]*in training/i, "R.460 (2026-11-09): both retrain seeds failed and nothing launched");
+  assert.doesNotMatch(text, /temperature feed is null/i, "R.473 (2026-11-14): the missing-list misses came from the default start token, not the null temperature");
+  const nano = cards().models.find((m) => m.id === "nano");
+  const nobos = nano.measured.find((x) => x.id === "fd-real-single-nobos");
+  assert.ok(nobos && nobos.ref === "R.473" && nobos.date === "2026-11-14" && nobos.fire === true);
+  for (const l of nano.limits) assert.notEqual(l.ref, "R.459", "no limit rests on the failed retrain");
+  // TruthfulQA 41.2 sits inside the class range 36.6 to 52.2 (R.462): "last on every task" is not true.
+  assert.doesNotMatch(text, /last in its size class on every task(?! but TruthfulQA)/, "the TruthfulQA exception is stated");
+  assert.match(visible(main(PAGES.nano).match(/<figcaption[^>]*id="wm-std-cap"[\s\S]*?<\/figcaption>/)[0]), /every task but TruthfulQA/);
 });

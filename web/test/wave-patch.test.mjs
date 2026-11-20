@@ -947,7 +947,7 @@ test("shim: conversation reaches Ping, labelled - never a Wave model", () => {
   assert.ok(/never reaches a Wave model/.test(js), "the fallback states the boundary plainly");
   assert.ok(/answered by this interface, from the faceplate/i.test(js),
     "and the off-air fallback still answers from the faceplate");
-  assert.ok(/not a Wave model; a hosted Wave Nano is the goal/.test(js),
+  assert.ok(/not a Wave model; wiring this to the hosted Wave Nano is the goal/.test(js),
     "the live card signs Ping as the concierge, never as a Wave model");
   assert.ok(/PING · LIVE over the Tower relay/.test(js),
     "and the one live surface is labelled LIVE, not replay");
@@ -1246,7 +1246,8 @@ test("prompt: a reading question is answered by THE BENCH, never signed as a mod
   assert.equal(rep.kind, "reading");
   assert.ok(/THE BENCH/.test(rep.who), "signed by the bench");
   assert.ok(/from the recorded window/.test(rep.who), "with its source named");
-  assert.ok(/not yet on air/.test(rep.offAir), "and the live seam is stated, not faked");
+  assert.ok(/not wired to the hosted Wave Nano yet/.test(rep.offAir), "and the live seam is stated, not faked (Nano is on air since 2026-11-19; the bench is not wired to it)");
+  assert.ok(!/not yet on air/.test(js), "nothing in the bench still says Nano is off air");
   const r = measured.records[h.state.types.find((t) => t.key === "temp").recIdx.drifting];
   assert.ok(rep.tag === r.window.tag, "the answer is about the live selection");
   assert.ok(rep.meanLine.includes("mean"), "and reads out the recorded mean");

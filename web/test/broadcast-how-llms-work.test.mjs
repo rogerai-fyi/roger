@@ -170,6 +170,9 @@ test("how-llms: every Wave claim says what wave-status.json says, and no more", 
   const rows = [...html.matchAll(/<li class="llm-ladder__row[^"]*"><span class="llm-ladder__name">Wave (\w+)<\/span>[\s\S]*?<span class="llm-ladder__size">([^<]*)<\/span><span class="llm-ladder__fit">[^<]*<em>([^<]*)<\/em>/g)]
     .map((m) => ({ name: m[1].toLowerCase(), size: m[2].replace(/&ndash;/g, "\u2013").replace(/&gt;/g, ">"), stage: m[3].replace(/ /g, "-") }));
   const ladder = ledger.tiers.filter((t) => t.kind === "tier");
+  // a tier on air is drawn as live, exactly the tiers the ledger has on air
+  const liveRows = [...html.matchAll(/<li class="llm-ladder__row llm-ladder__row--live"><span class="llm-ladder__name">Wave (\w+)/g)].map((m) => m[1].toLowerCase());
+  assert.deepEqual(liveRows, ladder.filter((t) => t.stage === "on-air" || t.stage === "released").map((t) => t.id), "live rows are the on-air tiers");
   assert.deepEqual(rows.map((r) => r.name), ladder.map((t) => t.id), "every ladder tier, in order");
   rows.forEach((r, i) => {
     assert.equal(r.size, ladder[i].size, `${r.name}: the ledger's size`);

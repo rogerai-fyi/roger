@@ -381,9 +381,9 @@ test("ledger: the pending set today (update this when the founder rules)", () =>
     ["giga", "exa"]);
 });
 
-// Founder ruling 2026-10-21: Pico is on air (the v6 release, wave-pico-293m) and Nano's
-// release build is gated. Both rulings are recorded, so neither tier is pending, and no page
-// may still describe the old stage.
+// Founder ruling 2026-10-21: Pico is on air (the v6 release, wave-pico-293m). Founder
+// confirmation 2026-11-19: Nano is on air on three bands. Both are recorded, so neither tier is
+// pending, and no page may still describe an old stage.
 test("rulings 2026-10-21 and 2026-11-19: Pico on air, Nano on air on three bands, and no page still says otherwise", () => {
   assert.equal(tierById("pico").stage, "on-air");
   assert.equal(tierById("pico").onAirBand, "wave-pico-293m");

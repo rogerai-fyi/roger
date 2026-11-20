@@ -296,7 +296,7 @@
           "ref": "R.384"
         },
         {
-          "text": "On the public small-model suite (MMLU, GSM8K, HellaSwag, IFEval and the rest) it is last in its size class on every task and at chance on MMLU and GSM8K. The industrial numbers above are where it leads; general knowledge, arithmetic and free-form instruction following are not.",
+          "text": "On the public small-model suite (MMLU, GSM8K, HellaSwag, IFEval and the rest) it is last in its size class on every task but TruthfulQA, where it sits inside the class range, and at chance on MMLU and GSM8K. The industrial numbers above are where it leads; general knowledge, arithmetic and free-form instruction following are not.",
           "ref": "R.462"
         },
         {
@@ -308,12 +308,12 @@
           "ref": "R.448"
         },
         {
-          "text": "On real camera ticks, a camera margin that was over the line and fell below it over-alarms about 10% of the time, a tick shape the training set never held. A retrain that covers it is in training.",
-          "ref": "R.459"
+          "text": "On real camera ticks, a camera margin that was over the line and fell below it over-alarms about 10% of the time, a tick shape the training set never held.",
+          "ref": "R.453"
         },
         {
-          "text": "On real single camera ticks the misses are right decisions with an incomplete missing list, when the temperature feed is null.",
-          "ref": "R.454"
+          "text": "As served today, a single camera tick reads 84.3 strict because the server adds a start token by default. With that token switched off the same ticks read 97.3.",
+          "ref": "R.473"
         },
         {
           "text": "The fire-decision adapter reads a tick by position. The caller writes every tick in one fixed key order before it asks.",
@@ -643,6 +643,15 @@
           "fire": true,
           "ref": "R.453",
           "date": "2026-11-07"
+        },
+        {
+          "id": "fd-real-single-nobos",
+          "label": "Fire-decision adapter on real camera ticks, a single camera tick, strict, with the server's default start token switched off",
+          "value": "97.3",
+          "num": 97.3,
+          "fire": true,
+          "ref": "R.473",
+          "date": "2026-11-14"
         },
         {
           "id": "fd-real-falling",

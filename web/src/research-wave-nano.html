@@ -221,7 +221,7 @@ Orange County, California.</pre></div>
               </tbody>
             </table>
           </div>
-          <figcaption class="fig mono" id="wm-std-cap">FIG. 4 - The public small-model suite, every row read here on one day on one instrument, nothing quoted from a model card. On this suite Wave Nano is last in its size class on every task and at chance on MMLU and GSM8K; the industrial readouts above are where it leads. {{card-ref:nano.std-macro}}.</figcaption>
+          <figcaption class="fig mono" id="wm-std-cap">FIG. 4 - The public small-model suite, every row read here on one day on one instrument, nothing quoted from a model card. On this suite Wave Nano is last in its size class on every task but TruthfulQA, where it sits inside the class range, and at chance on MMLU and GSM8K; the industrial readouts above are where it leads. {{card-ref:nano.std-macro}}.</figcaption>
         </figure>
 
         <aside class="wm-footnote" aria-labelledby="wm-notes-head">
@@ -298,10 +298,11 @@ Orange County, California.</pre></div>
              cameras with the other sensor feeds empty, read through the controller&rsquo;s own
              prompt builder on the served build: persistent and quiet ticks
              read {{card:nano.fd-real-steady}}. A single camera tick reads
-             {{card:nano.fd-real-single}} strict, and the misses are right decisions with an
-             incomplete missing list when the temperature feed is null. A camera margin that
-             fell below the line over-alarms {{card:nano.fd-real-falling}} of the time. A
-             retrain that covers both shapes is in training <span class="wm-ref">{{card-ref:nano.fd-real-single}}</span>.</p>
+             {{card:nano.fd-real-single}} strict as served today: the misses are right decisions
+             with an incomplete missing list, caused by a start token the server adds by default.
+             With that token switched off the same ticks read {{card:nano.fd-real-single-nobos}}
+             <span class="wm-ref">{{card-ref:nano.fd-real-single-nobos}}</span>. A camera margin that
+             fell below the line over-alarms {{card:nano.fd-real-falling}} of the time <span class="wm-ref">{{card-ref:nano.fd-real-single}}</span>.</p>
           <p class="wm-aside">The adapter reads a tick by position, so the caller writes every
              tick in one fixed key order before it asks.</p>
         </div>
