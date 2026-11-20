@@ -74,6 +74,7 @@ func TestOnSharesDetectedPending(t *testing.T) {
 	// An empty re-scan in the wizard with shareRescan set writes the "give it a moment" note.
 	w := New("http://broker.local", "tester")
 	w.width, w.height = 100, 30
+	w.mode = modeShareSetup // the re-scan was pressed from inside the wizard
 	w.setupOnEmpty = true
 	w.shareRescan = true
 	wm, _ := w.onSharesDetected(nil, nil)

@@ -27,6 +27,9 @@ func (m model) compactHeader(w int) string {
 	brand := stBrand.Render("ROGER") + stTag.Render("·AI")
 	sep := stDim.Render(" · ")
 	hint := stDim.Render("m:expand")
+	if nh := m.navHint(); nh != "" {
+		hint = nh // the ←/→ section countdown takes the hint slot while it runs
+	}
 
 	var mid string
 	var narrower []string // shorter connected strips, tried in order before a hard cut

@@ -21,7 +21,7 @@ import (
 func TestPaletteTokenHues(t *testing.T) {
 	cases := []struct {
 		name        string
-		got         lipgloss.AdaptiveColor
+		got         paletteSlot
 		light, dark string
 	}{
 		{"cLive", cLive, "#C8391A", "#FF5636"},
@@ -58,7 +58,7 @@ func TestLampResolvesPerMode(t *testing.T) {
 
 	cases := []struct {
 		role       paletteRole
-		full, mono lipgloss.AdaptiveColor
+		full, mono lipgloss.TerminalColor
 	}{
 		{roleLive, cLive, cLive},        // the one red survives the collapse
 		{roleSignal, cSignal, cBody},    // green -> ink
@@ -93,9 +93,9 @@ func TestMonoCollapseHasNoLampHues(t *testing.T) {
 		"#42608C": true, "#7EA6D8": true, // dial blue
 	}
 	for _, r := range []paletteRole{roleLive, roleSignal, roleDialGlow, roleDial} {
-		c := lamp(r)
-		if banned[c.Light] || banned[c.Dark] {
-			t.Errorf("mono: lamp(%v) leaked a lamp hue: %v", r, c)
+		light, dark := colorArms(lamp(r))
+		if banned[light] || banned[dark] {
+			t.Errorf("mono: lamp(%v) leaked a lamp hue: %v", r, lamp(r))
 		}
 	}
 }
@@ -154,4 +154,16 @@ func TestSetPalette(t *testing.T) {
 	if paletteMono {
 		t.Error(`SetPalette("") should default to full`)
 	}
+}
+
+// colorArms reads the light/dark hex of a palette token, whether it is a live
+// paletteSlot or a plain AdaptiveColor.
+func colorArms(c lipgloss.TerminalColor) (light, dark string) {
+	switch v := c.(type) {
+	case paletteSlot:
+		return v.Light, v.Dark
+	case lipgloss.AdaptiveColor:
+		return v.Light, v.Dark
+	}
+	return "", ""
 }

@@ -186,7 +186,7 @@ func (m model) setupLoginScene(cw int) string {
 // fixed-width block, so a sentence that wraps on a narrow terminal hangs cleanly under its own
 // title instead of colliding with the mast. The carat is the NO_COLOR tell; the glow is the game.
 func edgeSetupCard(cw int, selected bool, mast []string, title string, body []string) string {
-	border, carat, titleSt := cRule, "  ", stDim
+	border, carat, titleSt := lipgloss.TerminalColor(cRule), "  ", stDim
 	if selected {
 		border, carat, titleSt = cLive, lampStyle(roleLive).Render("▶ "), stKey
 	}
@@ -293,7 +293,7 @@ func (m model) setupCodeScene(cw int) string {
 // edgeSetupPlate is a labelled input plate. The active one glows and carries a blinking-style
 // carat; the resting one shows its value quietly.
 func edgeSetupPlate(cw int, label, val string, active bool) string {
-	border, labelSt := cRule, stDim
+	border, labelSt := lipgloss.TerminalColor(cRule), stDim
 	cursor := ""
 	if active {
 		border, labelSt, cursor = cLive, stKey, lampStyle(roleLive).Render("▏")

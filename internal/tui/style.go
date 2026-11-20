@@ -38,7 +38,8 @@ var (
 	// pure red per the founder (design overhaul §3). Light #C8391A / dark #FF5636.
 	// Used as a signal glint (beacon, selection, verified ◆) and the brand lockup;
 	// aliased to cLive (see palette.go) so the single warm red does triple duty.
-	cRed = lipgloss.AdaptiveColor{Light: "#C8391A", Dark: "#FF5636"}
+	// A paletteSlot (palette.go) so the color-blind boards can retint it live.
+	cRed = newSlot(boardFull.live)
 
 	// The monochrome ink ramp (warm near-black on paper / warm off-white on ink),
 	// tracking the web's --ink-900 / --ink-500 / --ink-400 / --hairline tokens.
