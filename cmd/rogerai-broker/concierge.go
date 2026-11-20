@@ -719,7 +719,7 @@ func conciergeCORS(w http.ResponseWriter) {
 //     record (a forged IP there poisons a legal report, 18 USC 2258A). When CF is in
 //     front this is authoritative.
 //  2. X-Forwarded-For (first hop) - the fallback when CF is absent (a non-CF proxy
-//     such as DO App Platform's edge). This IS client-appendable, so it is used ONLY
+//     such as a hosting platform's load balancer). This IS client-appendable, so it is used ONLY
 //     when CF-Connecting-IP is missing - never preferred over it.
 //  3. RemoteAddr - the raw TCP peer when no proxy header is present (direct/dev).
 //

@@ -323,7 +323,7 @@ func localError(msg string) []byte {
 // standalone station with ServeLocalTower and registers with nothing. The session is on air at
 // once (no broker acknowledges a LAN share) and Stop ends every Tower's loop.
 func StartLAN(cfg Config, towers []string, priv ed25519.PrivateKey, out io.Writer) *Session {
-	s := &Session{cfg: cfg, stop: make(chan struct{})}
+	s := &Session{cfg: cfg, stop: make(chan struct{}), lan: true}
 	s.link.Store(int32(LinkOnAir))
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() { <-s.stop; cancel() }()

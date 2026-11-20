@@ -966,6 +966,12 @@ func (p *Postgres) RecentByNode(node string, limit int) ([]Entry, error) {
 	return p.recent(`node`, node, limit)
 }
 
+func (p *Postgres) ServedSince(node string, since int64) (served, tokens int64, earned float64, err error) {
+	err = p.db.QueryRow(`SELECT COUNT(*), COALESCE(SUM(completion_tokens),0), COALESCE(SUM(owner_share),0)
+		FROM rogerai.receipts WHERE node=$1 AND ts>=$2`, node, since).Scan(&served, &tokens, &earned)
+	return served, tokens, earned, err
+}
+
 // recent returns the most-recent receipts where `col` (a trusted literal column
 // name, usr|node) equals val, newest first. limit<=0 defaults to 50.
 func (p *Postgres) recent(col, val string, limit int) ([]Entry, error) {

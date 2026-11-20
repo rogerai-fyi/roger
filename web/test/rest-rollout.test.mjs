@@ -18,7 +18,7 @@ import path from "node:path";
 
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const dist = (p) => readFileSync(path.join(WEB, "dist", p), "utf8");
-const src = (p) => readFileSync(path.join(WEB, "src", p), "utf8");
+const src = source;   // a page's source, legacy or app route (test/_html.mjs)
 const stripCss = (s) => s.replace(/\/\*[\s\S]*?\*\//g, "");
 const fixture = JSON.parse(readFileSync(path.join(WEB, "test/fixtures/rest-pages-text.json"), "utf8"));
 
@@ -31,16 +31,22 @@ const NEW_TUNER = new Set(["app.html"]);
 function mains(page) {
   let html = dist(page).replace(/<!--[\s\S]*?-->/g, "");
   const m = [...html.matchAll(/<main\b[\s\S]*?<\/main>/g)].map((x) => x[0]).join("\n") || html;
-  let out = m.replace(/<script\b[\s\S]*?<\/script>/g, "");
+  let out = m.replace(/<script\b[\s\S]*?<\/script>/g, "").replace(/<style\b[\s\S]*?<\/style>/g, "");   // a stub's shell: not copy
   if (NEW_TUNER.has(page)) out = out.replace(/<nav\b[^>]*data-tuner[\s\S]*?<\/nav>/g, "");
   return out;
 }
-const squash = (h) => h.replace(/<[^>]+>/g, " ").replace(/\s+/g, "");
+import { squashText, decodeText, source } from "./_html.mjs";
+import { siteHead, RUNTIME_SRC } from "../app/lib/head.js";
+import { runtimeScripts } from "./_html.mjs";
+
+const RUNTIME = runtimeScripts();   // the scripts app/runtime.js bundles into js/runtime.js, in order
+// entities decoded on both sides (test/_html.mjs): the two renderers spell them differently
+const squash = (h) => squashText(h);
 
 for (const page of Object.keys(fixture)) {
   test(`(a) ${page}: the words and links are the pre-rollout copy`, () => {
     const m = mains(page);
-    assert.equal(squash(m), fixture[page].text, `${page}: visible text changed; the rollout moves words, never edits them`);
+    assert.equal(squash(m), squash(fixture[page].text), `${page}: visible text changed; the rollout moves words, never edits them`);
     assert.deepEqual([...m.matchAll(/href="([^"]*)"/g)].map((x) => x[1]), fixture[page].hrefs, `${page}: links changed`);
   });
 }
@@ -105,38 +111,30 @@ test("the rolled-out marketing pages drop the page-local dot texture and use sha
 const PRODUCT = ["login.html", "account.html", "billing.html", "keys.html", "console.html", "dashboard.html",
   "device.html", "stations.html", "payouts.html", "usage.html", "private.html", "r.html", "confidential.html"];
 
-test("(c) every product surface ships the shared runtime, every script deferred", () => {
+test("(c) every product surface ships the shared runtime as the one module, every script deferred", () => {
   for (const page of PRODUCT) {
     const html = dist(page);
-    const body = html.slice(html.indexOf("<body"));
-    const scripts = [...body.matchAll(/<script\b[^>]*\bsrc="([^"]+)"[^>]*>/g)];
+    const scripts = [...html.matchAll(/<script\b[^>]*\bsrc="([^"]+)"[^>]*>/g)].filter(([, src]) => !/theme-init\.js/.test(src));
     assert.ok(scripts.length, `${page} has scripts`);
-    for (const [tag] of scripts) assert.match(tag, /\sdefer\b/, `${page}: ${tag} is deferred like every other page's`);
-    for (const js of ["site", "session", "tuner", "scrub", "anchor-hold", "range-twin", "cycle"]) {
-      assert.match(body, new RegExp(`<script src="/?js/${js}\\.js\\?v=`), `${page} ships js/${js}.js`);
-    }
+    for (const [tag] of scripts) assert.match(tag, /\sdefer\b|type="module"/, `${page}: ${tag} is deferred like every other page's (a module script is deferred by the spec)`);
+    assert.equal((html.match(/<script type="module" src="js\/runtime\.js\?v=[0-9a-f]+">/g) || []).length, 1, `${page} ships js/runtime.js once`);
+    for (const js of RUNTIME) assert.doesNotMatch(html, new RegExp(`src="/?js/${js}\\.js`), `${page} loads js/${js}.js only inside the runtime bundle`);
   }
 });
 
 test("(c) a page's own scripts keep their order relative to each other and to the runtime", () => {
-  // the account pages ran their page script BEFORE site.js (sync); with everything
-  // deferred the order is the document order, so the source order must be unchanged
-  const order = (page) => [...dist(page).matchAll(/<script\b[^>]*\bsrc="\/?js\/([\w-]+)\.js/g)].map((m) => m[1])
-    .filter((n) => !["easter-egg", "lets-talk", "promo", "tuner", "scrub", "anchor-hold", "range-twin", "cycle", "session"].includes(n));
-  assert.deepEqual(order("login.html"), ["theme-init", "fmt", "auth", "site", "login-next", "email-login"]);
-  assert.deepEqual(order("account.html"), ["theme-init", "fmt", "account", "site"]);
-  assert.deepEqual(order("billing.html"), ["theme-init", "fmt", "billing", "billing-help", "site"]);
-  assert.deepEqual(order("keys.html"), ["theme-init", "account-keys", "keys", "site"]);
-  assert.deepEqual(order("private.html"), ["theme-init", "site", "private"]);
-  assert.deepEqual(order("r.html"), ["theme-init", "site", "r"]);
-  assert.deepEqual(order("device.html"), ["theme-init", "auth", "device", "site"]);
-  assert.deepEqual(order("stations.html"), ["theme-init", "fmt", "auth", "stations", "site"]);
+  // the account pages ran their page script BEFORE site.js (sync); with everything deferred the
+  // order is the document order: the no-flash theme setter, the runtime, then a page's islands
+  const order = (page) => [...dist(page).matchAll(/<script\b[^>]*\bsrc="\/?js\/([\w-]+)\.js/g)].map((m) => m[1]).filter((n) => n !== "easter-egg");
+  for (const page of PRODUCT) assert.deepEqual(order(page), ["theme-init", "runtime"], page);   // an island page's logic is js/islands/<name>.js, a module after these
 });
 
-test("(c) the page runtime partial has one form: deferred", () => {
-  const partial = src("_partials/site-js.html");
-  assert.doesNotMatch(partial, /sync=1/, "no blocking variant");
-  for (const m of partial.matchAll(/<script\b[^>]*>/g)) assert.match(m[0], /\sdefer\b/, m[0]);
+test("(c) the page runtime has one form: one module, the shared scripts in their order", () => {
+  // app/lib/head.js emits the runtime where a page puts its { runtime: true } entry
+  const head = siteHead({ title: "x", scripts: [{ runtime: true }] });
+  assert.equal((head.match(new RegExp(`<script type="module" src="${RUNTIME_SRC}"><\\/script>`, "g")) || []).length, 1, "the runtime ships once, as a module");
+  for (const m of head.matchAll(/<script src="js\/[^"]+"[^>]*>/g)) if (!/theme-init/.test(m[0])) assert.match(m[0], /\sdefer\b/, m[0]);
+  assert.deepEqual(RUNTIME, ["fmt", "lets-talk", "site", "session", "promo", "tuner", "scrub", "anchor-hold", "range-twin", "cycle"], "app/runtime.js bundles the shared scripts in the order they ran, the formatter first");
 });
 
 /* ---- (d) tokens ---------------------------------------------------------------------- */

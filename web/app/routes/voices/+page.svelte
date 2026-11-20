@@ -1,0 +1,124 @@
+<script>
+  // Voices - RogerAI voice directory
+  // Ported from web/src/voices.html (2026-10-29); the copy is the legacy copy.
+  import { siteHead, CSS_SHARED, CSS_ACCOUNT } from "#lib/head.js";
+  import Footer from "#lib/ui/Footer.svelte";
+  import Nav from "#lib/ui/Nav.svelte";
+  import OnAir from "#lib/ui/OnAir.svelte";
+  import Rail from "#lib/ui/Rail.svelte";
+  const head = siteHead({
+    title: 'Voices - RogerAI voice directory',
+    desc: 'The live RogerAI voice directory: on-air text-to-speech voices, each one an operator\'s station. Read the roster, pick a voice, pay by the character on the CLI or in the app. Real data only - no station, no voice.',
+    canonical: 'https://rogerai.fm/voices.html',
+    css: [...CSS_SHARED, 'voices.css'],
+    scripts: [{ runtime: true }, { page: "voices" }],
+  });
+</script>
+<svelte:head>{@html head}</svelte:head>
+  <!-- ===== running head: this page is one bound document ===== -->
+  <Rail head='RogerAI · Voice Directory' rev='Rev. 2026.06 · ((•))' orange />
+
+  <!-- ============================ NAV ============================ -->
+  <Nav variant='marketing' home='/' current='voices' />
+
+  <main id="top">
+
+  <!-- ============================ HERO ============================ -->
+  <section class="bands-hero">
+    <div class="wrap bands-hero__inner">
+
+      <span class="hero__eyebrow" data-reveal>
+        <OnAir />
+        <span class="hero__callsign">THE VOICES</span>
+        <span class="hero__sep" aria-hidden="true">·</span>
+        the on-air roster
+      </span>
+
+      <h1 class="bands-hero__title" data-reveal data-reveal-delay="60">
+        Pick a voice.
+      </h1>
+
+      <p class="bands-hero__sub" data-reveal data-reveal-delay="120">
+        Every voice is an operator's <b>station on air</b> - a home text-to-speech
+        rig (Kokoro, Piper, and friends) put on the band. Read the roster, then
+        speak with any of them by the character on the CLI or in the app. This
+        directory is <b>live, real data only</b> - we list every voice on air,
+        cheapest first; operators stay a <b>@callsign</b>, nothing more. No node
+        address ever leaves the broker.
+      </p>
+
+    </div>
+  </section>
+
+  <!-- ============================ DIRECTORY ============================ -->
+  <!-- INK PANEL: the roster and how to speak, one moment (components.css .tone-zone). -->
+  <div class="tone-zone" data-tone="ink">
+  <section class="section bands-dir" id="directory">
+    <div class="wrap">
+      <div class="section__head section__head--left" data-reveal>
+        <span class="sectionno">§1 / THE ROSTER · LIVE</span>
+        <h2>Read the roster.</h2>
+        <p>The live voice directory, mirroring <code class="inline">roger voices</code> and
+          the broker's <code class="inline">/voices</code> picker. Real data only - if no
+          voice is on air, the band is quiet. Cheapest first. Auto-refreshes every 30s.</p>
+        <p class="dir-sibling"><span>Also on the network:</span>
+          <a href="/models.html">Models <span aria-hidden="true">&rarr;</span></a>
+          <a href="/tower.html">The Tower <span aria-hidden="true">&rarr;</span></a></p>
+      </div>
+
+      <!-- ---- roster status + table ---- -->
+      <div class="bands-panel" data-reveal data-reveal-delay="80">
+        <div class="bands-panel__bar">
+          <span class="bands-panel__status" id="voiceStatus">
+            <span class="beacon" aria-hidden="true">((<span class="beacon__dot"></span>))</span>
+            <span id="voiceStatusText">tuning in to the broker&hellip;</span>
+          </span>
+          <button class="market__refresh" id="voiceRefresh" type="button" aria-label="Refresh the roster">refresh</button>
+        </div>
+
+        <div class="voice-row voice-row--head" aria-hidden="true">
+          <span class="voice-cell voice-cell--name">voice · operator</span>
+          <span class="voice-cell voice-cell--lang">language</span>
+          <span class="voice-cell voice-cell--lat">latency</span>
+          <span class="voice-cell voice-cell--price">$ / 1k chars</span>
+        </div>
+
+        <ul class="voice-list" id="voiceList" aria-live="polite">
+          <li class="voice-skel" aria-hidden="true"></li>
+          <li class="voice-skel" aria-hidden="true"></li>
+          <li class="voice-skel" aria-hidden="true"></li>
+          <li class="voice-skel" aria-hidden="true"></li>
+        </ul>
+
+        <!-- honest empty state: shown when nothing real is on air (no fake voices) -->
+        <div class="bands-panel__quiet" id="voiceQuiet" hidden>
+          <p class="bands-panel__quiet-head mono"><span class="beacon" aria-hidden="true">((<span class="beacon__dot"></span>))</span> the band is quiet - no voices on air right now.</p>
+          <p class="bands-panel__quiet-sub mono">put your TTS rig on air: <code class="inline">roger share</code></p>
+        </div>
+
+        <p class="market__foot mono" id="voiceFoot">
+          <span class="ember">◉</span> on air · <span class="band-tag band-tag--free">FREE</span> no charge right now ·
+          voices are metered by the character · prices in $ / 1k chars · real data only
+        </p>
+      </div>
+
+      <!-- ---- how to tune in ---- -->
+      <div class="voice-tune" data-reveal data-reveal-delay="120">
+        <span class="fig" aria-hidden="true">FIG. 1 - HOW TO SPEAK</span>
+        <p class="voice-tune__lead mono">Pick a voice above, then speak with it from the CLI:</p>
+        <button class="install__box voice-tune__cmd" id="voiceCmd" type="button" data-os-lock="any"
+                aria-label="Copy the say command to clipboard">
+          <span class="install__prompt" aria-hidden="true">$</span>
+          <code class="install__code" id="voiceCmdCode">roger say --voice @&lt;station&gt;/&lt;voice&gt; "roger that"</code>
+          <span class="install__copy" aria-hidden="true">copy</span>
+        </button>
+        <p class="voice-tune__note mono">The broker proxies every voice - a node's address, host and IP never leave it.</p>
+      </div>
+    </div>
+  </section>
+  </div><!-- /tone-zone -->
+
+  </main>
+
+  <!-- ============================ FOOTER ============================ -->
+  <Footer anchors='/' />

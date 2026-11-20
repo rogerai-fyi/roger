@@ -4,10 +4,11 @@
 // Run: node --test test/account-nav.test.mjs
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { src } from "./_pagevm.mjs";
+import { component, source } from "./_html.mjs";
+const src = source;   // a page or a script as authored (test/_html.mjs)
 
 const menu = [...src("js/session.js").matchAll(/href: "(\/[a-z]+\.html)"/g)].map((m) => m[1]);
-const subnav = [...src("_partials/accountnav.html").matchAll(/<a href="(\/[a-z]+\.html)"/g)].map((m) => m[1]);
+const subnav = [...component("AccountNav").matchAll(/"(\/[a-z]+\.html)"/g)].map((m) => m[1]);   // the component's page list, in order
 
 test("Stations is in the account dropdown", () => assert.ok(menu.includes("/stations.html")));
 test("Stations is in the footer sub-nav", () => assert.ok(subnav.includes("/stations.html")));

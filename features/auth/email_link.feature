@@ -116,7 +116,7 @@ Feature: A signed-in person adds a verified email to their account
   Scenario: The account page shows which sign-ins are linked and offers to add one
     Then the account page lists GitHub / Apple / email as linked or not
     And offers "Add an email" only to a provider session
-    # test: web/test/account-link.test.mjs
+    # test: web/test/unit/account.test.js
 
   Scenario: A link token can never be replayed as a session cookie
     Given an attacker who can sign in chooses an address containing "|" to shape the token's payload
@@ -135,7 +135,7 @@ Feature: A signed-in person adds a verified email to their account
     When the contact email is patched to a different address
     Then the server refuses it, so the verification is never silently dropped
     And re-saving the same address (any case) is fine, and the page locks the field at once
-    # test: TestPatchingAVerifiedAddressIsRefused,TestPatchingAVerifiedAddressToEmptyOrGarbageDoesNotDropIt,web/test/account-link.test.mjs
+    # test: TestPatchingAVerifiedAddressIsRefused,TestPatchingAVerifiedAddressToEmptyOrGarbageDoesNotDropIt,web/test/unit/account.test.js
 
   Scenario: Flow namespaces cannot collide through an address that contains a pipe
     Given "|" is legal in an address

@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"rogerai.fm/roger/v7/internal/agent"
 	"rogerai.fm/roger/v7/internal/glyphs"
 	"rogerai.fm/roger/v7/internal/node"
@@ -96,6 +97,22 @@ func (m model) presetButtons() []presetKey {
 // the two modes unmistakable. Compact + NO_COLOR-safe: under a narrow width it drops
 // to just key glyphs ([1][2][3][L][?]) so it never overflows.
 func (m model) presetBar(w int) string {
+	bar := m.presetBank()
+	// The ←/→ section countdown rides after the bank while the arrow window is open, when
+	// there is room. When there is not (the full bank is 87 columns, so any terminal
+	// from 73 to 94 wide), presetSpacer puts it on the blank row under the bank instead.
+	if nh := m.navHint(); nh != "" && navHintFits(bar, nh, w) {
+		bar += "  " + nh
+	}
+	// CLIPPED to the terminal. Below ~80 columns the full bank is wider than the screen
+	// and wrapped, which cost a row and - now that the frame is painted on a deck ground
+	// - broke the ground's rectangle where it spilled. Every other row on this screen
+	// already clips; this one was the exception.
+	return truncVisible(bar, w)
+}
+
+// presetBank is the bank's buttons on one row, with its two-column indent, unclipped.
+func (m model) presetBank() string {
 	btns := m.presetButtons()
 	narrow := m.narrow()
 	parts := make([]string, 0, len(btns))
@@ -120,12 +137,23 @@ func (m model) presetBar(w int) string {
 		}
 		parts = append(parts, cell)
 	}
-	bar := strings.Join(parts, stPreset.Render(" "))
-	// CLIPPED to the terminal. Below ~80 columns the full bank is wider than the screen
-	// and wrapped, which cost a row and - now that the frame is painted on a deck ground
-	// - broke the ground's rectangle where it spilled. Every other row on this screen
-	// already clips; this one was the exception.
-	return truncVisible("  "+bar, w)
+	return "  " + strings.Join(parts, stPreset.Render(" "))
+}
+
+func navHintFits(bar, hint string, w int) bool {
+	return lipgloss.Width(bar)+2+lipgloss.Width(hint) <= w
+}
+
+// presetSpacer is the blank row between the preset bank and the brand lockup. While the
+// arrow window is open and its countdown did not fit beside the bank, the countdown
+// sits here, so it shows at every width (an 80-column terminal included) and the frame
+// keeps the same number of rows.
+func (m model) presetSpacer(w int) string {
+	nh := m.navHint()
+	if nh == "" || navHintFits(m.presetBank(), nh, w) {
+		return ""
+	}
+	return truncVisible("  "+nh, w)
 }
 
 func (m model) presetForKey(key string) (tea.Model, tea.Cmd, bool) {
@@ -138,10 +166,14 @@ func (m model) presetForKey(key string) (tea.Model, tea.Cmd, bool) {
 		// / limits-not-editing / help), so left/right inherit that exact guard and never
 		// steal a cursor move in the schedule editor's window sub-fields, the command
 		// palette, chat, the AGENT prompt, the `f` filter, or a numeric field.
-		return m.cyclePreset(+1)
+		// The jump also opens the 2s arrow window (arrownav.go), so the NEXT arrow keeps
+		// moving even when this one lands on AGENT's prompt. EDGE keeps its arrows.
+		nm, cmd := m.stepPreset(+1)
+		return nm, cmd, true
 	case "left":
 		// Previous preset (wraps the other way: 0 -> ? -> L -> 4 -> 3 -> 2 -> 1 -> 0).
-		return m.cyclePreset(-1)
+		nm, cmd := m.stepPreset(-1)
+		return nm, cmd, true
 	case "m":
 		// COMPACT (the "windowshade"): toggle the calm, dense, animation-free view. Lives
 		// alongside the preset jumps so it works in every non-text-entry context (browse /
@@ -158,7 +190,7 @@ func (m model) presetForKey(key string) (tea.Model, tea.Cmd, bool) {
 	case "1":
 		// TUNE IN: leave any SHARE/limits screen, back to the band browser. A live
 		// channel stays open (tab/c returns to it).
-		if m.inShareSection() || m.mode == modeLimits || m.mode == modeEdge {
+		if m.inShareSection() || m.mode == modeLimits || m.mode == modeEdge || m.mode == modeHelp {
 			m.mode = modeBrowse
 			m.status = stDim.Render("TUNE IN - browse the band, enter to tune in")
 		}
@@ -393,22 +425,16 @@ func (m model) shareView(w int) string {
 		// Clamped to the terminal: the CATEGORY column made the full row wider than the
 		// widths just above the dense cut-off (taxonomy_share_layout_test.go).
 		b.WriteString(truncVisible("  "+stDim.Render(fmt.Sprintf("  %-24s  %-9s  %-12s  %-9s  %-10s  %-9s  %s",
-			"MODEL", "STATUS", "PRICE", "SERVED", "OUT TOK", "AT LIST", "CATEGORY")), w) + "\n")
+			"MODEL", "STATUS", "PRICE", "SERVED", "OUT TOK", "EARNED", "CATEGORY")), w) + "\n")
 	}
 
-	// WHY "AT LIST" AND NOT "EARNINGS".
+	// WHY "EARNED", AND WHAT IT IS.
 	//
-	// Session.Earnings() is a NODE-LOCAL tally: the node prices the work it just did with
-	// its own price card and adds the owner share. It is not the ledger, and it cannot be -
-	// the node does not learn what the broker decided to charge.
-	//
-	// The gap is not hypothetical. Consuming your OWN node is $0 by design ("signed
-	// self-use: consuming your OWN node is $0, automatically (metering only)"), so a rig
-	// serving its owner's traffic accrues a number here while the broker mints nothing. On
-	// the founder's machine this read $0.27 against a ledger of $0.00 payable, $0.00 held.
-	//
-	// Both numbers were right; only the WORD was wrong. This column is what the served work
-	// is worth at list price. Money lives on the broker, and `roger payout` is what reads it.
+	// SERVED, OUT TOK and EARNED are Core's record of this share since it went on air
+	// (features/serving/probe_accounting.feature): the settled requests and the owner share Core
+	// credited for them. The column used to be a node-local tally at list price, headed AT LIST,
+	// because the node could not know what Core charged, and Core's checks were in it. Serving
+	// your OWN traffic still credits $0, and credit is paid out after the hold: `roger payout`.
 
 	// Table width for the reverse-video bar (the highlight spans the whole row).
 	tableW := w - 4
@@ -479,10 +505,7 @@ func (m model) shareView(w int) string {
 		} else {
 			served, outTok, earn := "-", "-", "-"
 			if on {
-				reqs, toks := live.Served()
-				served = fmt.Sprintf("%d", reqs)
-				outTok = fmt.Sprintf("%d", toks)
-				earn = dollars(live.Earnings())
+				served, outTok, earn = coreCells(live)
 			}
 			plain = fmt.Sprintf("%s %-24s  %-9s  %-12s  %-9s  %-10s  %-9s  %s",
 				lampG, padMarquee(modelCell, nameW, off), statusTxt, priceTxt, served, outTok, earn, shareCategoryCell(row))
@@ -508,10 +531,10 @@ func (m model) shareView(w int) string {
 		}
 		served, outTok, earn := stDim.Render(pad("-", 9)), stDim.Render(pad("-", 10)), stDim.Render(pad("-", 9))
 		if on {
-			reqs, toks := live.Served()
-			served = stLive.Render(pad(fmt.Sprintf("%d", reqs), 9))
-			outTok = stDim.Render(pad(fmt.Sprintf("%d", toks), 10))
-			earn = stEmber.Render(pad(dollars(live.Earnings()), 9))
+			sv, ot, ea := coreCells(live)
+			served = stLive.Render(pad(sv, 9))
+			outTok = stDim.Render(pad(ot, 10))
+			earn = stEmber.Render(pad(ea, 9))
 		}
 		b.WriteString(truncVisible(selCarat(false)+lampS.Render(lampG)+" "+stDim.Render(pad(modelCell, nameW))+"  "+st+"  "+
 			sharePriceCell(pad(priceTxt, 12))+"  "+served+"  "+outTok+"  "+earn+"  "+stDim.Render(shareCategoryCell(row)), w) + "\n")
@@ -565,27 +588,30 @@ func (m model) shareView(w int) string {
 			stKey.Render("h")+stDim.Render(" hide on a private band · ")+
 			stKey.Render("n")+stDim.Render(" rename station · ")+ph, w-2) + "\n")
 	}
-	// What AT LIST means, said once and near the number rather than left to be inferred.
+	// What EARNED means, said once and near the number rather than left to be inferred.
 	// It shows only when the column is populated - a rig with nothing on air does not need
 	// a lesson about settlement.
 	if m.anyLiveShare() {
-		note := stDim.Render("AT LIST is this work priced at your card - not settled money. "+
-			"Serving your OWN traffic is $0. Real earnings: ") + stKey.Render("roger payout")
+		note := stDim.Render("EARNED is the owner share Core credited this session, paid out after the hold. "+
+			"Serving your OWN traffic is $0. Cash out: ") + stKey.Render("roger payout")
 		b.WriteString("  " + truncVisible(note, w-4) + "\n")
 	}
 	// WHAT THE RIG IS BUSY WITH, when the answer is "not your traffic".
 	//
-	// Broker canaries are kept out of SERVED / OUT TOK / AT LIST above, which is right - they
-	// are unbilled work nobody asked you for. But removing them from the table without saying
-	// so anywhere replaces one confusion with another: an operator who watched a busy rig
-	// report almost nothing served would have no way to learn where the work went. Hidden is
-	// not the same as discarded, and this is the line that makes that true.
+	// SERVED / OUT TOK / EARNED above are Core's record of what this rig served and earned
+	// (features/serving/probe_accounting.feature): Core's checks look like customers to the
+	// node, so only Core can keep them out. What the rig handled beyond that is said here,
+	// so a busy rig reporting little served can explain itself.
 	//
-	// It appears only when there ARE probes: a station nobody has checked says nothing, rather
-	// than printing a zero that would read as a measurement.
+	// It appears only when there ARE checks and Core's numbers are current: a stale record
+	// must never turn real work into "checks".
 	if preqs, ptoks := m.probeTotals(); preqs > 0 {
-		pn := stDim.Render(fmt.Sprintf("plus %d broker checks (%d tok) - reachability + speed, unbilled and not counted above",
+		pn := stDim.Render(fmt.Sprintf("plus %d unbilled jobs (%d tok) - RogerAI Core's checks, or work that did not settle; not counted above",
 			preqs, ptoks))
+		b.WriteString("  " + truncVisible(pn, w-4) + "\n")
+	}
+	if m.anyShareNotCurrent() {
+		pn := stDim.Render("served and earned are Core's record; not current right now - Core could not be read")
 		b.WriteString("  " + truncVisible(pn, w-4) + "\n")
 	}
 	// Cash-out hint for an earning provider (KYC / payable), under the affordance line.
@@ -617,9 +643,9 @@ func sharePriceText(in, out float64) string {
 	}
 }
 
-// probeTotals sums the unbilled broker-canary work across every live band. Separate from
-// Served() by construction (agent.Session keeps two tallies), so this can never accidentally
-// re-add probes to the operator's numbers - it can only report them beside those numbers.
+// probeTotals sums the unbilled jobs (Core's checks, and work that did not settle) across every live band: what each rig handled beyond
+// what Core's record shows it served (agent.Session.ProbeStats), reported beside the
+// operator's numbers, never inside them.
 func (m model) probeTotals() (reqs, tokens int64) {
 	for _, r := range m.shareRows {
 		if sess := m.shares[r.model]; sess != nil {
@@ -632,7 +658,7 @@ func (m model) probeTotals() (reqs, tokens int64) {
 }
 
 // anyLiveShare reports whether any row is actually on air, so the settlement note is
-// shown beside a populated AT LIST column rather than an empty one.
+// shown beside a populated EARNED column rather than an empty one.
 func (m model) anyLiveShare() bool {
 	for _, r := range m.shareRows {
 		if m.shares[r.model] != nil {
@@ -686,6 +712,9 @@ func (m model) shareRowDetail(row shareRow, live *agent.Session) string {
 
 	// on-air served/earn suffix shared by every modality.
 	onAirTail := func(withTok bool) string {
+		if !live.CoreAnswered() {
+			return glyphOnAir + " on air · waiting for Core's record"
+		}
 		reqs, toks := live.Served()
 		s := fmt.Sprintf("%s on air · %d served", glyphOnAir, reqs)
 		if withTok {
@@ -707,6 +736,9 @@ func (m model) shareRowDetail(row shareRow, live *agent.Session) string {
 			reqs, _ := live.Served()
 			detail = fmt.Sprintf("%s on air · %s · %s · %d served · %s",
 				glyphOnAir, name, vc.Voice, reqs, dollars(live.Earnings()))
+			if !live.CoreAnswered() {
+				detail = fmt.Sprintf("%s on air · %s · %s · waiting for Core's record", glyphOnAir, name, vc.Voice)
+			}
 		default:
 			// A voice is READY only with BOTH a DJ name AND a picked voice (the broker 400s a
 			// nameless offer), so an unnamed/voiceless row prompts the VOICE BOOTH (press p),
@@ -940,4 +972,24 @@ func (m model) shareSetupView(w int) string {
 		b.WriteString("\n  " + stEmber.Render(pad("! "+m.setupErr, w-2)) + "\n")
 	}
 	return b.String()
+}
+
+// coreCells renders a live row's SERVED, OUT TOK and EARNED from Core's record: "…" until
+// Core first answers, never the rig's own count.
+func coreCells(live *agent.Session) (served, outTok, earn string) {
+	if !live.CoreAnswered() {
+		return "…", "…", "…"
+	}
+	reqs, toks := live.Served()
+	return fmt.Sprintf("%d", reqs), fmt.Sprintf("%d", toks), dollars(live.Earnings())
+}
+
+// anyShareNotCurrent reports a live band whose numbers are the last Core gave, not current.
+func (m model) anyShareNotCurrent() bool {
+	for _, r := range m.shareRows {
+		if sess := m.shares[r.model]; sess != nil && sess.CoreAnswered() && !sess.CoreCurrent() {
+			return true
+		}
+	}
+	return false
 }

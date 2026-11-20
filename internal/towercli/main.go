@@ -236,7 +236,13 @@ func cmdInit(args []string, out io.Writer) error {
 		return err
 	}
 	fmt.Fprintf(out, "initialized %s Tower in %s\n", st.Mode, *dir)
-	fmt.Fprintf(out, "tower id: %s\n", st.TowerID)
+	if st.Mode == tower.ModeJoined {
+		// Not the id to quote: Core allocates that at registration (see cmdStatus).
+		fmt.Fprintf(out, "local id: %s\n", st.TowerID)
+		fmt.Fprint(out, "RogerAI assigns this Tower's id when you run `roger tower register`; `roger tower status` shows it.\n")
+	} else {
+		fmt.Fprintf(out, "tower id: %s\n", st.TowerID)
+	}
 	if st.LocalNetworkID != "" {
 		fmt.Fprintf(out, "local network: %s (separate from the public RogerAI network)\n", st.LocalNetworkID)
 	}
@@ -359,7 +365,18 @@ func cmdStatus(args []string, out io.Writer) error {
 		return err
 	}
 	fmt.Fprintf(out, "mode: %s\n", st.Mode)
-	fmt.Fprintf(out, "tower id: %s\n", st.TowerID)
+	if st.LocalNetworkID == "" {
+		// A joined Tower has two ids: the one init minted locally, and the one Core
+		// allocated at enrollment, which is the one the admin email and the dashboard name.
+		// The first outside operator wrote in quoting the local one, labelled "tower id",
+		// and nothing on screen matched it to the Tower waiting for approval.
+		if adm, ok := towerjoin.LoadAdmission(st.Dir()); ok && adm.TowerID != "" {
+			fmt.Fprintf(out, "tower id: %s (quote this id to RogerAI)\n", adm.TowerID)
+		}
+		fmt.Fprintf(out, "local id: %s\n", st.TowerID)
+	} else {
+		fmt.Fprintf(out, "tower id: %s\n", st.TowerID)
+	}
 	if st.LocalNetworkID != "" {
 		fmt.Fprintf(out, "local network: %s\n", st.LocalNetworkID)
 		if fp, err := st.JoinFingerprint(); err == nil {
@@ -423,6 +440,18 @@ func printCoreStatus(st *tower.State, out io.Writer) error {
 			fmt.Fprintf(out, "  routable:      %s %s (%s, capacity %d)\n",
 				s.StationID, s.Model, s.Modality, s.Capacity)
 		}
+		if tw.Work != "" {
+			fmt.Fprintf(out, "  work:          %s\n", tw.Work)
+		}
+		if tw.HubReach != "" {
+			fmt.Fprintf(out, "  hub serves:    %s\n", tw.HubReach)
+		}
+		if tr := tw.Trust; tr != nil && tr.Stage != "" {
+			fmt.Fprintf(out, "  trust stage:   %s (%s)\n", tr.Stage, stageAllows(tr.CommunityStations, tr.HouseStations))
+			if tr.Next != "" {
+				fmt.Fprintf(out, "  next stage:    %s\n", tr.Next)
+			}
+		}
 		if tw.State == "quarantine" {
 			// The most common state, and the most commonly misread. Nothing is broken.
 			fmt.Fprint(out, "\nQuarantine is the state a Tower is admitted INTO. It is not a fault:\n"+
@@ -435,6 +464,20 @@ func printCoreStatus(st *tower.State, out io.Writer) error {
 		}
 	}
 	return nil
+}
+
+// stageAllows says, in plain words, what a trust stage lets a Tower hold. "RogerAI Stations"
+// are the platform's own, which reach a community Tower only as failover.
+func stageAllows(community, house int) string {
+	c := fmt.Sprintf("up to %d community Stations", community)
+	if community < 0 {
+		c = "community Stations up to capacity"
+	}
+	h := "no RogerAI Stations"
+	if house > 0 {
+		h = fmt.Sprintf("up to %d RogerAI Stations as failover", house)
+	}
+	return c + ", " + h
 }
 
 // cmdInvite mints the one-time bootstrap code that turns the first local client into

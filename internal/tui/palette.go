@@ -16,6 +16,7 @@ package tui
 //   cDial     - fluorescent/CRT dial blue-white: focus / info / selection.
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -31,9 +32,10 @@ var (
 	// The three new lamp hues. AdaptiveColor so light/dark flips with the terminal
 	// background; lipgloss auto-downsamples hex->256->16 for colored text, so only
 	// Background() tint bands need canTint() gating (see below), never these.
-	cSignal   = lipgloss.AdaptiveColor{Light: "#43801F", Dark: "#84C255"} // magic-eye green
-	cDialGlow = lipgloss.AdaptiveColor{Light: "#92640F", Dark: "#F5A623"} // amber dial glow
-	cDial     = lipgloss.AdaptiveColor{Light: "#42608C", Dark: "#7EA6D8"} // dial blue-white
+	// They are paletteSlots so the color-blind boards can retint them live.
+	cSignal   = newSlot(boardFull.signal)   // magic-eye green
+	cDialGlow = newSlot(boardFull.dialGlow) // amber dial glow
+	cDial     = newSlot(boardFull.dial)     // dial blue-white
 
 	// cBand is the FAINT neutral warm tint band behind a USER turn + the input (catalog
 	// per §8.6) - a barely-there warm lift over the paper that marks "your line" as a zone
@@ -79,7 +81,7 @@ var (
 	// cLiveSurface is the solid but restrained red-wine plate behind a truthfully
 	// broker-acknowledged ON AIR provider panel. The text still says ON AIR; color
 	// improves hierarchy but never carries state alone.
-	cLiveSurface = lipgloss.AdaptiveColor{Light: "#F6E4E1", Dark: "#291412"}
+	cLiveSurface = newSlot(boardFull.liveSurface)
 
 	// cTubeGlow is the FAINT tube-glow WASH behind the brand lockup while a session is
 	// live (catalog #10) - the dim end of cDialGlow, a Background() only. Full cDialGlow
@@ -114,7 +116,8 @@ func SetPalette(mode string) { paletteMono = mode == "mono" }
 // deckGround gates the painted ground. On by default - it is the product's look - and
 // one config flip (`roger config set deck off`) or the mono escape hatch turns it off,
 // which is the same reversibility rule the lamp board follows: no visual layer may be
-// unremovable.
+// unremovable. A forced light/dark theme is the one thing deck off does not undo: its
+// text is drawn for its own page, so the page stays (see paintDeck). Mono removes both.
 var deckGround = true
 
 // SetDeck points the painted-ground switch from the resolved config/env.
@@ -127,8 +130,20 @@ func SetDeck(on bool) { deckGround = on }
 //
 // OFF under mono and at any profile that cannot tint, which is also every headless
 // render - so tests, pipes and dumb terminals produce exactly the frame they always did.
+//
+// A forced light/dark theme (`/theme`, `roger config set theme`) paints even with the
+// deck switched off: its text is drawn for that ground, so the terminal's own one must
+// not show through. It also sets the ink, so plain text is dark on the light page and
+// light on the dark one. Mono is the escape hatch and drops the forced theme entirely
+// (themeForced), and a profile with no color at all skips it.
 func paintDeck(frame string, width int) string {
-	if !deckGround || paletteMono || !canTint(lipgloss.DefaultRenderer().ColorProfile()) {
+	p := lipgloss.DefaultRenderer().ColorProfile()
+	forced := themeForced()
+	if forced {
+		if quiet || p == termenv.Ascii {
+			return frame
+		}
+	} else if !deckGround || paletteMono || !canTint(p) {
 		return frame
 	}
 	lines := strings.Split(frame, "\n")
@@ -137,14 +152,18 @@ func paintDeck(frame string, width int) string {
 			lines[i] = ln + strings.Repeat(" ", pad)
 		}
 	}
-	return solidBackground(strings.Join(lines, "\n"), cDeck)
+	ground := lipgloss.NewStyle().Background(cDeck)
+	if forced {
+		ground = ground.Foreground(cInk)
+	}
+	return solidPaint(strings.Join(lines, "\n"), ground)
 }
 
 // lamp resolves a semantic role to its color for the active palette mode. In full
 // mode each role is its own lamp hue; in mono every lamp but the one red collapses
 // into the ink ramp (green->ink, amber->dim, blue->ink), so color only ever means
 // "something is energized" and mono+red is a single-flip revert.
-func lamp(r paletteRole) lipgloss.AdaptiveColor {
+func lamp(r paletteRole) lipgloss.TerminalColor {
 	if paletteMono {
 		switch r {
 		case roleLive:
@@ -201,7 +220,14 @@ func tintComposerLines(lines []string, width int) []string {
 // foreground styles emit SGR resets, which otherwise punch holes in an outer
 // Background style and leave a visually mottled card.
 func solidBackground(block string, color lipgloss.TerminalColor) string {
-	probe := lipgloss.NewStyle().Background(color).Render("X")
+	return solidPaint(block, lipgloss.NewStyle().Background(color))
+}
+
+// solidPaint opens every line on ground's SGR and re-applies it after every reset, so
+// a nested span never punches a hole in it. With a foreground in ground, unstyled text
+// takes that ink instead of the terminal's default.
+func solidPaint(block string, ground lipgloss.Style) string {
+	probe := ground.Render("X")
 	i := strings.Index(probe, "X")
 	if i <= 0 {
 		return block
@@ -266,4 +292,145 @@ func spectrumStyle(i int) lipgloss.Style {
 	}
 	n := len(waveSpectrum)
 	return lipgloss.NewStyle().Foreground(waveSpectrum[((i%n)+n)%n])
+}
+
+// ---- live palette slots: color-blind boards + forced light/dark themes ----
+//
+// lipgloss styles copy a color VALUE when they are built, and most of this package's
+// styles are built once at init. A paletteSlot embeds a POINTER to an AdaptiveColor,
+// so every style built from a slot reads the slot's current value at render time.
+// Writing through the pointer (applyBoard) retints every style live, with no rebuild
+// and no call-site changes. The embedded type supplies lipgloss.TerminalColor.
+
+// paletteSlot is a hue token that the color-blind boards can retint at runtime.
+type paletteSlot struct{ *lipgloss.AdaptiveColor }
+
+func newSlot(c lipgloss.AdaptiveColor) paletteSlot { return paletteSlot{&c} }
+
+// paletteBoard is one full set of the retintable hues.
+type paletteBoard struct {
+	live, signal, dialGlow, dial, liveSurface lipgloss.AdaptiveColor
+}
+
+var (
+	// boardFull is the default lamp board (the researched radio-room hues).
+	boardFull = paletteBoard{
+		live:        lipgloss.AdaptiveColor{Light: "#C8391A", Dark: "#FF5636"},
+		signal:      lipgloss.AdaptiveColor{Light: "#43801F", Dark: "#84C255"},
+		dialGlow:    lipgloss.AdaptiveColor{Light: "#92640F", Dark: "#F5A623"},
+		dial:        lipgloss.AdaptiveColor{Light: "#42608C", Dark: "#7EA6D8"},
+		liveSurface: lipgloss.AdaptiveColor{Light: "#F6E4E1", Dark: "#291412"},
+	}
+	// boardRedGreen serves protanopia and deuteranopia. Red and green collapse onto
+	// one yellow-brown axis for these viewers, so the accent moves to blue (the hue
+	// both see most reliably), "ok" moves off green to cyan, caution stays amber (the
+	// opposite side of the axis they do see) and info moves to violet. Checked with
+	// the Machado 2009 CVD model: the accent/caution and ok/caution pairs that sat at
+	// dE76 5-6 on the full board are all 20+ here. Every hue keeps >= 5.7:1 contrast
+	// on white and >= 7:1 on the warm-black.
+	boardRedGreen = paletteBoard{
+		live:        lipgloss.AdaptiveColor{Light: "#0B5CC9", Dark: "#4F9DFF"},
+		signal:      lipgloss.AdaptiveColor{Light: "#00727F", Dark: "#8EE3EF"},
+		dialGlow:    lipgloss.AdaptiveColor{Light: "#8F5A00", Dark: "#F5A623"},
+		dial:        lipgloss.AdaptiveColor{Light: "#7A4FB0", Dark: "#C3A3F0"},
+		liveSurface: lipgloss.AdaptiveColor{Light: "#E3ECF9", Dark: "#0F1B2E"},
+	}
+	// boardTritan serves tritanopia (blue-yellow). Red stays clear for these viewers,
+	// so the accent keeps its red; only the blue info lamp, which reads as the green
+	// signal lamp, moves to magenta.
+	boardTritan = paletteBoard{
+		live:        boardFull.live,
+		signal:      boardFull.signal,
+		dialGlow:    boardFull.dialGlow,
+		dial:        lipgloss.AdaptiveColor{Light: "#A23B8C", Dark: "#E58AD3"},
+		liveSurface: boardFull.liveSurface,
+	}
+)
+
+// ThemeModes and ColorblindModes are the accepted settings, in /theme and /colorblind
+// cycle order, with the default first. They are the one list: the slash commands, the
+// help text, `roger config set` and the ROGER_THEME / ROGER_COLORBLIND env vars all
+// read them, so a new mode is one entry here.
+var (
+	ThemeModes      = []string{"auto", "light", "dark"}
+	ColorblindModes = []string{"off", "protan", "deutan", "tritan"}
+)
+
+// ParseTheme reads a theme setting, ignoring case and surrounding blanks. ok is false
+// for anything that is not in ThemeModes.
+func ParseTheme(s string) (mode string, ok bool) { return parseMode(ThemeModes, s) }
+
+// ParseColorblind reads a colorblind setting the same way, against ColorblindModes.
+func ParseColorblind(s string) (mode string, ok bool) { return parseMode(ColorblindModes, s) }
+
+func parseMode(modes []string, s string) (string, bool) {
+	s = strings.ToLower(strings.TrimSpace(s))
+	if slices.Contains(modes, s) {
+		return s, true
+	}
+	return modes[0], false
+}
+
+// modeChoices is a mode list as usage text: "auto | light | dark".
+func modeChoices(modes []string) string { return strings.Join(modes, " | ") }
+
+// colorblindMode is the active color-vision board ("off" = the full lamp board).
+var colorblindMode = "off"
+
+// SetColorblind points the hue slots at the color-vision board for mode: "protan"
+// and "deutan" share the red-green board, "tritan" the blue-yellow one, and anything
+// else restores the full board. Pure memory, safe to call at any time.
+func SetColorblind(mode string) {
+	colorblindMode, _ = ParseColorblind(mode)
+	switch colorblindMode {
+	case "protan", "deutan":
+		applyBoard(boardRedGreen)
+	case "tritan":
+		applyBoard(boardTritan)
+	default:
+		applyBoard(boardFull)
+	}
+}
+
+func applyBoard(b paletteBoard) {
+	*cRed.AdaptiveColor = b.live // cLive aliases the same slot
+	*cSignal.AdaptiveColor = b.signal
+	*cDialGlow.AdaptiveColor = b.dialGlow
+	*cDial.AdaptiveColor = b.dial
+	*cLiveSurface.AdaptiveColor = b.liveSurface
+}
+
+// themeMode is the requested theme: "auto" follows the terminal background; "light"
+// and "dark" force the matching color arm and paint the whole frame (paintDeck).
+var themeMode = "auto"
+
+// themeDetected / themeDetectedDark remember the terminal's real background from
+// before a forced theme overrode the renderer, so switching back to auto restores it.
+var themeDetected, themeDetectedDark bool
+
+// SetTheme records the requested theme. It does no terminal I/O; applyTheme puts it
+// into effect when a TUI launches (and on a live /theme switch).
+func SetTheme(mode string) { themeMode, _ = ParseTheme(mode) }
+
+// themeForced reports a theme that overrides the terminal: light or dark, and not
+// under the mono escape hatch, which reverts the whole color layer in one flip.
+func themeForced() bool { return themeMode != "auto" && !paletteMono }
+
+// applyTheme forces lipgloss's light/dark arm for a forced theme, or restores the
+// detected background for auto. The first force reads the terminal's background
+// once; launchTUI calls this before Bubble Tea owns the terminal, so that query never
+// races the program's input reader. Inside a running program the value is already
+// cached by the first render, so a live switch never queries the terminal.
+func applyTheme() {
+	r := lipgloss.DefaultRenderer()
+	if themeForced() && !themeDetected {
+		themeDetectedDark = r.HasDarkBackground()
+		themeDetected = true
+	}
+	switch {
+	case themeForced():
+		r.SetHasDarkBackground(themeMode == "dark")
+	case themeDetected:
+		r.SetHasDarkBackground(themeDetectedDark)
+	}
 }

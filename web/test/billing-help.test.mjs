@@ -11,13 +11,16 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { WEB, source } from "./_html.mjs";
 
 const SRC = path.join(path.dirname(fileURLToPath(import.meta.url)), "../src");
-const read = (p) => readFileSync(path.join(SRC, p), "utf8");
+const read = source;  // a page's source, legacy or app route (test/_html.mjs)
 
 const account = read("account.html");
 const billing = read("billing.html");
-const helpJs = read("js/billing-help.js");
+// the modal is the billing island's LedgerHelp component (app/lib/billing/LedgerHelp.svelte);
+// its behavior (focus, Esc, backdrop, Tab trap, aria-expanded, the video) is test/unit/ledger-help.test.js
+const helpJs = readFileSync(path.join(WEB, "app", "lib", "billing", "LedgerHelp.svelte"), "utf8");
 const manual = read("manual.html");
 
 test("account: the wallet balance is a prominent hero, with a single #balance", () => {
@@ -39,8 +42,8 @@ test("billing: a '?' affordance near Wallet opens the modal, keyboard-reachable"
   assert.match(billing, /aria-haspopup="dialog"/, "trigger announces a dialog");
   // a secondary, more discoverable text trigger too.
   assert.match(billing, /class="bx-help-link"[^>]*data-help-open/, "fine-print trigger");
-  // the script is wired (deferred, like every page script since the 2026-09 rollout).
-  assert.match(billing, /<script src="js\/billing-help\.js"(?: defer)?>/, "billing-help.js loaded");
+  // the island's module ships in the built page (a module script is deferred by the spec)
+  assert.match(readFileSync(path.join(WEB, "dist", "billing.html"), "utf8"), /<script type="module" src="js\/islands\/billing\.js\?v=[0-9a-f]+">/, "the billing island loaded");
 });
 
 test("billing: the modal is an accessible dialog", () => {
@@ -82,8 +85,7 @@ test("billing: the #ledger-demo video is lazy - no eager poster/preload on first
   assert.match(vid, /<img[^>]*class="bx-demo__gif"[^>]*loading="lazy"|<img[^>]*loading="lazy"[^>]*class="bx-demo__gif"/,
     "gif <img> fallback is loading=lazy");
   // billing-help.js swaps the deferred poster in.
-  assert.match(helpJs, /data-poster|dataset\.poster|getAttribute\(["']data-poster["']\)/,
-    "billing-help.js promotes data-poster -> poster");
+  assert.match(helpJs, /getAttribute\("data-poster"\)/, "LedgerHelp promotes data-poster -> poster");
 });
 
 test("billing: the modal explains the flow and the two confused numbers", () => {
@@ -115,17 +117,17 @@ test("fair billing: 'you only pay for quality tokens' in BOTH the modal and the 
   }
 });
 
-test("billing-help.js: focus trap, Esc, backdrop and aria-expanded sync", () => {
+test("LedgerHelp: focus trap, Esc, backdrop and aria-expanded sync (behavior: test/unit/ledger-help.test.js)", () => {
   assert.match(helpJs, /"Escape"/, "Esc closes");
   assert.match(helpJs, /"Tab"/, "Tab is trapped");
   assert.match(helpJs, /aria-expanded/, "syncs aria-expanded on triggers");
-  assert.match(helpJs, /lastFocus/, "restores focus to the opener on close");
+  assert.match(helpJs, /opener/, "restores focus to the opener on close");
   assert.match(helpJs, /data-help-open/, "delegated open on any trigger");
 });
 
-test("billing-help.js: the explainer video plays on open, pauses on close, reduced-motion-safe", () => {
+test("LedgerHelp: the explainer video plays on open, pauses on close, reduced-motion-safe", () => {
   // motion only while the modal is open; never under reduced-motion (poster frame).
-  assert.match(helpJs, /#ledger-demo video|getElementById\(["']ledger-demo["']\)/, "grabs the demo video");
+  assert.match(helpJs, /bind:this=\{video\}/, "holds the demo video");
   assert.match(helpJs, /\.play\(/, "plays it on open");
   assert.match(helpJs, /\.pause\(/, "pauses it on close");
   assert.match(helpJs, /prefers-reduced-motion/, "gated on prefers-reduced-motion");

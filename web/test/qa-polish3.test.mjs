@@ -8,11 +8,12 @@ import { readFileSync, readdirSync } from "node:fs";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { allPages, source } from "./_html.mjs";
 
 const WEB = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (f) => readFileSync(path.join(WEB, f), "utf8");
 const css = (f) => read(path.join("src/styles", f)).replace(/\/\*[\s\S]*?\*\//g, "");
-const PAGES = readdirSync(path.join(WEB, "src")).filter((f) => f.endsWith(".html")).sort();
+const PAGES = allPages();
 const dist = (p) => read(path.join("dist", p));
 before(() => execFileSync("node", ["build.mjs"], { cwd: WEB }));
 
@@ -62,7 +63,7 @@ test("headings: the glue never touches script, style, pre, textarea or comment t
 
 test("headings: the glue never changes a heading's words", () => {
   for (const p of ["broadcasts.html", "broadcasts-run-a-tower.html", "manual.html", "tos.html"]) {
-    const src = read(path.join("src", p));
+    const src = source(p);
     for (const m of dist(p).matchAll(TITLE_RE)) {
       const t = textOf(m[2] ?? m[3]).trim();
       if (/ - /.test(t)) assert.ok(textOf(src).includes(t.split(" - ")[0].split(" ").pop() + " - "), `${p}: ${t}`);
@@ -134,7 +135,7 @@ test("app: every screenshot has a smaller derived copy, the master's shape, fewe
 
 test("app: every screenshot <img> offers the small copy through srcset + sizes", async () => {
   const { APP_DIR, APP_SHOTS, appNarrow, webpSize } = await import("../scripts/derive-webp.mjs");
-  const html = read("src/app.html");
+  const html = source("app.html");
   const tags = [...html.matchAll(/<img\b[^>]*src="assets\/app\/([\w-]+)\.webp"[^>]*>/g)];
   assert.ok(tags.length >= 22, `every screenshot on the page (${tags.length})`);
   for (const [tag, name] of tags) {
@@ -164,7 +165,7 @@ const phoneBlock = (sheet) => [...css(sheet).matchAll(/@media \(max-width: (\d+)
 test("labels: the App stamp keeps its drawn size (11-unit type = 11px) at every width", () => {
   const sheet = css("app.css");
   assert.doesNotMatch(sheet, /\.app-stamp \{[^}]*width: (?!160px)\d+px/, "no rule shrinks the stamp");
-  assert.match(read("src/app.html"), /<svg class="app-stamp" viewBox="0 0 160 44" width="160" height="44"/);
+  assert.match(source("app.html"), /<svg class="app-stamp" viewBox="0 0 160 44" width="160" height="44"/);
   assert.match(sheet, /\.app-stamp \{[^}]*font-size: 11px/);
 });
 

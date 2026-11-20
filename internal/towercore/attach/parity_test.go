@@ -1127,7 +1127,7 @@ func TestParityOnlyRetireDormantEndsAStationIdentity(t *testing.T) {
 			// arriving by another route.
 			n, err := s.ReapTerminal(now.Add(365 * 24 * time.Hour))
 			require.NoError(t, err)
-			require.Zero(t, n, "the terminal reap deleted a recoverable Station")
+			require.Empty(t, n, "the terminal reap deleted a recoverable Station")
 			still, ok, err := s.ByStation("st-gone")
 			require.NoError(t, err)
 			require.True(t, ok)
@@ -1136,17 +1136,24 @@ func TestParityOnlyRetireDormantEndsAStationIdentity(t *testing.T) {
 			// Nor does a horizon short of the dormant one.
 			n, err = s.RetireDormant(now.Add(-time.Second))
 			require.NoError(t, err)
-			require.Zero(t, n)
+			require.Empty(t, n)
 
 			// Past it, the identity ends - and now it reads terminal to everybody.
 			n, err = s.RetireDormant(now.Add(365 * 24 * time.Hour))
 			require.NoError(t, err)
-			require.Equal(t, int64(1), n)
+			// NAMED, not counted: the governance record writes one event per Station
+			// (governance_record.feature), so the sweep must say which ones it ended.
+			require.Equal(t, []Swept{{StationID: "st-gone", TowerID: tower}}, n)
 			dead, _, err := s.ByStation("st-gone")
 			require.NoError(t, err)
 			require.Equal(t, StateDetached, dead.State)
 			require.False(t, dead.Live())
 			require.False(t, dead.Recoverable())
+
+			// And the terminal reap that finally deletes it names it too.
+			reaped, err := s.ReapTerminal(now.Add(365 * 24 * time.Hour))
+			require.NoError(t, err)
+			require.Equal(t, []Swept{{StationID: "st-gone", TowerID: tower}}, reaped)
 
 			// And its keys are free again, which terminal has always meant.
 			_, ok, err = s.ByAssertionKey(dead.AssertionKey)

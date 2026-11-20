@@ -27,6 +27,9 @@ func (m model) compactHeader(w int) string {
 	brand := stBrand.Render("ROGER") + stTag.Render("·AI")
 	sep := stDim.Render(" · ")
 	hint := stDim.Render("m:expand")
+	if nh := m.navHint(); nh != "" {
+		hint = nh // the ←/→ section countdown takes the hint slot while it runs
+	}
 
 	var mid string
 	var narrower []string // shorter connected strips, tried in order before a hard cut
@@ -193,6 +196,7 @@ func (m model) compactOnAirLine(w int) string {
 	anyOnAir := false
 	var totReqs int64
 	var totEarn float64
+	waiting := false
 	for _, s := range live {
 		if s.Link() == agent.LinkOnAir {
 			anyOnAir = true
@@ -200,13 +204,18 @@ func (m model) compactOnAirLine(w int) string {
 		r, _ := s.Served()
 		totReqs += r
 		totEarn += s.Earnings()
+		waiting = waiting || !s.CoreAnswered()
+	}
+	served := fmt.Sprintf("%d", totReqs)
+	if waiting && totReqs == 0 {
+		served = "…"
 	}
 	badge := stRed.Render(glyphOnAir + " ON AIR")
 	if !anyOnAir {
 		badge = stEmber.Render(glyphOffAir + " RECONNECTING")
 	}
 	line := "  " + badge +
-		stDim.Render(fmt.Sprintf(" · sharing %d · %d served · ", len(live), totReqs)) +
+		stDim.Render(fmt.Sprintf(" · sharing %d · %s served · ", len(live), served)) +
 		stEmber.Render(dollars(totEarn)) +
 		stDim.Render(" · /share off")
 	return truncVisible(line, w)

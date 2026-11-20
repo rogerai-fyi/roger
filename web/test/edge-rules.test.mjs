@@ -26,8 +26,8 @@ const LEGACY = "rogerai.fyi";
 
 // A redirect must never swallow anything under /.well-known/. This is not hypothetical: the
 // www->apex rule once 301'd /.well-known/acme-challenge/... on www.rogerai.fm, so the
-// certificate authority could never read the token there and www sat unissued (DigitalOcean
-// reported DomainCertPendingValidation for hours) while the apex, which has no redirect,
+// certificate authority could never read the token there and www sat unissued (the host
+// reported the certificate pending validation for hours) while the apex, which has no redirect,
 // validated first try. The apple-app-site-association file next to it fails the same way for
 // iOS universal links. Any redirect we own has both failure modes at every renewal.
 const WELL_KNOWN_EXCLUSION =

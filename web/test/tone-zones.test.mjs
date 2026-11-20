@@ -10,12 +10,14 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { source } from "./_html.mjs";
 
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (p) => readFileSync(path.join(WEB, "dist", p), "utf8");
 before(() => execFileSync("node", ["build.mjs"], { cwd: WEB }));
 
-const zones = () => [...read("index.html").matchAll(/<div class="tone-zone" data-tone="ink"[^>]*>([\s\S]*?)<!-- \/tone-zone -->/g)].map((m) => m[1]);
+// the /tone-zone markers are comments: in the page's source, not in the built page
+const zones = () => [...source("index.html").matchAll(/<div class="tone-zone" data-tone="ink"[^>]*>([\s\S]*?)<!-- \/tone-zone -->/g)].map((m) => m[1]);
 
 test("three ink zones: the hero (the cover), the console + the band, then monetize + privacy + go", () => {
   const z = zones();
@@ -24,7 +26,7 @@ test("three ink zones: the hero (the cover), the console + the band, then moneti
   assert.match(z[1], /<section class="demo" id="demo">[\s\S]*<section class="market" id="market">/);
   assert.doesNotMatch(z[1], /id="company"/, "the company section is back on paper");
   assert.match(z[2], /id="monetize"[\s\S]*id="operator"[\s\S]*<section class="cta"( id="go")?>/);
-  const html = read("index.html");
+  const html = source("index.html");
   assert.match(html, /<div class="tone-zone" data-tone="ink">\s*<section class="hero">/, "the cover is an ink panel");
   assert.doesNotMatch(html, /data-onload|data-bloom/, "round 8: no load tune-in field, no bloom placement");
   assert.ok(html.indexOf('class="institution-strip"') > html.indexOf("<!-- /tone-zone -->"), "the paper strip divides the cover from zone 1");
@@ -80,7 +82,7 @@ test("zones are calm inset panels: rounded, inset from the page edge, nothing an
 test("no background field of any kind: the LED canvas and its script are gone", () => {
   assert.ok(!existsSync(path.join(WEB, "src/js/radiomap.js")), "radiomap.js deleted");
   for (const p of ["index.html", "models.html", "voices.html"]) {
-    const html = readFileSync(path.join(WEB, "src", p), "utf8");
+    const html = source(p);
     assert.doesNotMatch(html, /radiomap|blipmap|tone-field/, `${p}: nothing left of the fields`);
   }
   assert.doesNotMatch(read("styles/base.css"), /\.blipmap/);

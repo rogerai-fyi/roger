@@ -60,10 +60,11 @@ const toolCanaryMaxTokens = 64
 
 // toolsVerifiedTTL is the freshness window for a shared verified-tools field: a verified model
 // must be re-proven (a passing canary re-marks it) within this window or it ages out of the
-// union as UNDETERMINED. Set comfortably above the probe ceiling (15m) so a model probed on the
-// idle backoff stays fresh; it is the backstop for an authoritative host that dies WITHOUT a
-// regression (a real regression clears the field immediately via clearToolsVerified).
-const toolsVerifiedTTL = 45 * time.Minute
+// union as UNDETERMINED. Set above TWO probe ceilings (30m each since the 2026-11-15 budget
+// ruling), so one skipped, budget-refused or peer-run canary does not let a healthy model's mark
+// lapse; it is the backstop for an authoritative host that dies WITHOUT a regression (a real
+// regression clears the field immediately via clearToolsVerified).
+const toolsVerifiedTTL = 90 * time.Minute
 
 // toolsRefreshEvery throttles the served-traffic refresh of a verified model's shared field (see
 // markMeasured): a continuously-busy node that probeOnce keeps skipping still keeps its verified
@@ -79,15 +80,16 @@ const toolsRefreshEvery = 15 * time.Minute
 // property of a model plus its runtime: it changes when the operator changes their setup,
 // not minute to minute. Re-asserting it as often as liveness bought nothing.
 //
-// The number is bounded by toolsVerifiedTTL (45m): a verified model ages out of the union as
-// UNDETERMINED unless a passing canary re-marks it in that window. At 20m, with rounds landing
-// on the 15m ceiling, re-verification lands about every 30m - a 15m margin under the TTL, and
-// a busy node that probeOnce skips entirely is covered separately by the served-traffic
-// refresh (toolsRefreshEvery).
-//
-// A model that has NOT earned the bit is deliberately NOT throttled: it is probed every round
-// so it earns "tools" as promptly as it always did. Only re-proving a settled verdict slows.
+// Since the 2026-11-15 budget ruling a verified model is fully re-checked once a day
+// (toolReverifyEvery) and each passed canary re-asserts its mark in between; a busy node that
+// probeOnce skips is covered by the served-traffic refresh (toolsRefreshEvery). toolProbeEvery
+// is the first step of a not-yet-verified model's back-off (probe_accounting.feature R3).
 const toolProbeEvery = 20 * time.Minute
+
+// toolReverifyEvery is how often a model that holds the tools bit is fully re-checked: once a
+// day, with each passed canary re-asserting the mark in between (founder ruling 2026-11-15, the
+// 60-a-day check budget). toolProbeEvery remains the first step of an unverified model's back-off.
+const toolReverifyEvery = 24 * time.Hour
 
 // toolProbeDue reports whether the tool-call canary should run for this (node,model) now, and
 // stamps the attempt when it says yes.
@@ -98,16 +100,46 @@ func (b *broker) toolProbeDue(nodeID, model string, now time.Time) bool {
 	if b.toolProbeAt == nil {
 		b.toolProbeAt = map[string]time.Time{}
 	}
-	// Never earned the bit: probe at the full cadence so it can earn it.
-	if !b.toolsOK[key] {
+	// Never earned the bit: re-checked on a growing interval (probe_accounting.feature R3). A
+	// model that cannot do tool calls, an on-device phone model for one, used to be checked on
+	// every probe round for as long as it was online.
+	if !b.toolsOK[key] && !b.toolsMerged[key] {
+		if b.toolFails == nil {
+			b.toolFails = map[string]toolBackoffState{}
+		}
+		st := b.toolFails[key]
+		if st.streak > 0 && now.Sub(st.last) < toolBackoff(st.streak) {
+			return false
+		}
 		b.toolProbeAt[key] = now
-		return true
+		return true // the miss is counted when the check is sent (toolCheckSent), not when due
 	}
-	if last, ok := b.toolProbeAt[key]; ok && now.Sub(last) < toolProbeEvery {
+	if last, ok := b.toolProbeAt[key]; ok && now.Sub(last) < toolReverifyEvery {
 		return false
 	}
 	b.toolProbeAt[key] = now
 	return true
+}
+
+// toolBackoffKeep is how long a tool-call back-off outlives its last check: past a day's back-off,
+// so a node that reconnects continues where it was, and a node gone for good is forgotten.
+const toolBackoffKeep = 72 * time.Hour
+
+// toolBackoffState is a not-yet-verified model's tool-call back-off: checks in a row without a
+// pass, and when the last one ran.
+type toolBackoffState struct {
+	streak   int
+	last     time.Time
+	forgiven bool // its one forgiven transient miss is used (cleared by a pass)
+}
+
+// toolBackoff is the wait after n tool-call checks in a row without a pass: 20 minutes, doubled
+// each time up to 320, then a day from the sixth on (probe_accounting.feature R3).
+func toolBackoff(n int) time.Duration {
+	if n >= 6 {
+		return 24 * time.Hour
+	}
+	return toolProbeEvery << (n - 1)
 }
 
 // toolKey is the (node, model) verdict key for b.toolsOK. The verified bit is per-MODEL, not
@@ -262,6 +294,19 @@ func stripDeclaredTools(in []string) []string {
 // - the bug a per-instance monotonic map had). b.toolsOK stays this instance's OWN verdict,
 // which is the emission source ONLY in single-instance mode.
 func (b *broker) recordToolProbe(nodeID, model string, ok, transient, authoritative bool) {
+	if transient && !b.toolsVerifiedNow(nodeID, model) {
+		// A model still earning the bit counts the miss toward its back-off and waits it out
+		// (R3): pulling its next probe in here re-checked a model that never answers a tool
+		// call on every round, for as long as it was online. Its FIRST miss is forgiven, so a
+		// tool-capable model that was cold on its first check tries again next round.
+		key := toolKey(nodeID, model)
+		b.metricsMu.Lock()
+		if st := b.toolFails[key]; st.streak == 1 && !st.forgiven {
+			b.toolFails[key] = toolBackoffState{forgiven: true} // once per model, not every round
+		}
+		b.metricsMu.Unlock()
+		return
+	}
 	if transient {
 		// A non-verdict is not evidence: it never clears and never sets the bit. It must
 		// also not CONSUME the re-verification window. toolProbeDue stamps the attempt
@@ -296,6 +341,7 @@ func (b *broker) recordToolProbe(nodeID, model string, ok, transient, authoritat
 			b.toolsOK[key] = true
 			changed = true
 		}
+		delete(b.toolFails, key)  // a pass ends the back-off
 		b.toolsMerged[key] = true // reflect our own fresh verdict at once (the sync reconciles peers)
 	case authoritative:
 		if b.toolsOK[key] {
@@ -389,6 +435,14 @@ func (b *broker) probeToolCall(node protocol.NodeRegistration, model string, aut
 	if t == nil && !mi {
 		return
 	}
+	if !b.allowCheck(node.NodeID, "tools") { // the node's check budget (R4)
+		// Not sent, so not a check: the re-check window it stamped is given back.
+		b.metricsMu.Lock()
+		delete(b.toolProbeAt, toolKey(node.NodeID, model))
+		b.metricsMu.Unlock()
+		return
+	}
+	b.toolCheckSent(node.NodeID, model, time.Now())
 	nonce := newToolNonce() // fresh per probe: the model must echo it, defeating a canned reply
 	job := protocol.Job{ID: b.attemptID(protocol.NewRequestID(), 1), User: b.probePseudonym(node.NodeID), Body: toolCanaryBody(model, nonce)}
 
@@ -442,4 +496,29 @@ func (b *broker) applyToolVerdict(nodeID, model string, res protocol.JobResult, 
 	}
 	ok, _ := toolCallOK(res.Body, nonce)
 	b.recordToolProbe(nodeID, model, ok, false, authoritative)
+}
+
+// toolsVerifiedNow reports whether this instance holds the model's verified "tools" bit.
+func (b *broker) toolsVerifiedNow(nodeID, model string) bool {
+	b.metricsMu.Lock()
+	defer b.metricsMu.Unlock()
+	key := toolKey(nodeID, model)
+	return b.toolsOK[key] || b.toolsMerged[key] // the shared verdict counts after a restart
+}
+
+// toolCheckSent counts a tool-call check toward a not-yet-verified model's back-off once the budget
+// lets it go: a check that was due but never let go (a spent budget, no tunnel) is not a miss. One
+// let go that then fails to reach the node counts, as it costs the node's budget too.
+func (b *broker) toolCheckSent(nodeID, model string, now time.Time) {
+	key := toolKey(nodeID, model)
+	b.metricsMu.Lock()
+	defer b.metricsMu.Unlock()
+	if b.toolsOK[key] || b.toolsMerged[key] {
+		return
+	}
+	if b.toolFails == nil {
+		b.toolFails = map[string]toolBackoffState{}
+	}
+	st := b.toolFails[key]
+	b.toolFails[key] = toolBackoffState{streak: st.streak + 1, last: now, forgiven: st.forgiven}
 }

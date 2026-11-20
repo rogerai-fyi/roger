@@ -1,7 +1,7 @@
 {
  "broadcasts-agent-governance-identity.html": {
-  "sha": "093ef2742185c8400efd1491dbd9afd67567aab1dc9bcebb6db2f69abdf9c078",
-  "length": 8477,
+  "sha": "14054deb2144d7ee353abcb92aea47aeb33eac1cb0cd2e92c5e53d81d206edf4",
+  "length": 8196,
   "hrefs": [
    "/broadcasts.html",
    "/security.html",
@@ -18,8 +18,8 @@
   ]
  },
  "broadcasts-connect-bots-openai-api.html": {
-  "sha": "10bbcfc8d17e589e8efc35ca276206a9bad1e32896b43c2a469ede445ddd14d6",
-  "length": 6106,
+  "sha": "4c114c5a0dec45ad79bb9ac6b07df6ae06b504a6419f8fb1720c48feeb6fe57c",
+  "length": 5974,
   "hrefs": [
    "/broadcasts.html",
    "/broadcasts-share-gpu-earn.html",
@@ -28,8 +28,8 @@
   ]
  },
  "broadcasts-deepseek-mtp-gguf.html": {
-  "sha": "28e4e9c4edb777f0375221cd952b0c624d6bb0220c9d8f5747115aa63583a281",
-  "length": 6203,
+  "sha": "ad16e5b9476c0fb2909a1d0a0a065ee781836c679a9b33cb6f9b9daad8577e2f",
+  "length": 5936,
   "hrefs": [
    "/broadcasts.html",
    "https://github.com/rogerai-fyi/llama.cpp",
@@ -39,8 +39,8 @@
   ]
  },
  "broadcasts-free-chatgpt-alternative.html": {
-  "sha": "c74ba6306d20a7ed2d1cec87fb500f1ccd4248572fc01f0ce6d1708f1ef32f93",
-  "length": 3858,
+  "sha": "75bed510c05f0131c33f3622152dff7c2043a0fdc96355aef2e5aa09ad06c3b2",
+  "length": 3753,
   "hrefs": [
    "/broadcasts.html",
    "/broadcasts-run-local-llm.html",
@@ -50,8 +50,8 @@
   ]
  },
  "broadcasts-how-llms-work.html": {
-  "sha": "52f2fca0f5d218183d67424a1374c516b19358b90472dea5c0578991bea8a5c9",
-  "length": 12466,
+  "sha": "12b61da0b7235a4a6e3f86c6daceafaf6a9d4ffda88b9a4da938d4e8ff7ea189",
+  "length": 11764,
   "hrefs": [
    "/broadcasts.html",
    "/research-wave-family.html",
@@ -59,31 +59,31 @@
   ]
  },
  "broadcasts-how-rogerai-routes-models.html": {
-  "sha": "0639731a2df8df52a2c64a52d9308de6e07402eb08276803443d7270a3dc748f",
-  "length": 5928,
+  "sha": "cb07fd499013f7ef8b0699b4cf45e0e04899db794d4e3c45eb523784062a1c21",
+  "length": 5730,
   "hrefs": [
    "/broadcasts.html"
   ]
  },
  "broadcasts-independence-v5.html": {
-  "sha": "645cc854a0262e02e78c72934fc5012bceedd5b0680f0b2a92d1a0f274ace3ed",
-  "length": 3470,
+  "sha": "212cfd0536d478ad46ef630d0b18f239588a68627589ce8584440b6bbf6f812d",
+  "length": 3459,
   "hrefs": [
    "/broadcasts.html",
    "assets/broadcasts/independence-v5.mp4?v=3cd90196"
   ]
  },
  "broadcasts-jev-vs-wave.html": {
-  "sha": "020ea4c2686f820b564a108a0b27176727485e0ef1bd402b3e4ff924cd33b16a",
-  "length": 11409,
+  "sha": "27f37a99df61dd689785135ff2784e35d3e1b999f802f76a587509e2ad205252",
+  "length": 11197,
   "hrefs": [
    "/broadcasts.html",
    "/research-wave-family.html"
   ]
  },
  "broadcasts-llm-on-iphone.html": {
-  "sha": "ad463ecf16362fa01fe1df9c1dc6b11215f371eb8d592a478bf2b666b1db46e3",
-  "length": 5219,
+  "sha": "ebc175d5359c5097f9bf8424f661ee5c608221da81677b7af5dc747b497eeeca",
+  "length": 5093,
   "hrefs": [
    "/broadcasts.html",
    "/app.html",
@@ -93,8 +93,8 @@
   ]
  },
  "broadcasts-one-gpu-many-users.html": {
-  "sha": "85c6cbbee45ea1bb39828cd677ef790bb9690fe6e3aed01125fc924aca275d2a",
-  "length": 4889,
+  "sha": "3b9bcafed0ba53ee66d98da2cd5dfb03e3fea25bfa7f933c494960d58bd4eadb",
+  "length": 4816,
   "hrefs": [
    "/broadcasts.html",
    "/models.html",
@@ -102,8 +102,8 @@
   ]
  },
  "broadcasts-run-a-tower.html": {
-  "sha": "7e318bde16b15e7716290fb261ed83a92d502284488e4ba5f7d54f8e3759acef",
-  "length": 12321,
+  "sha": "24bd6a5c0e6b491e7c1e6832a2fdf6994e9ce9f7ce7e921e3207a95fd9eb833a",
+  "length": 12198,
   "hrefs": [
    "/broadcasts.html",
    "/payouts.html",
@@ -112,8 +112,8 @@
   ]
  },
  "broadcasts-run-local-llm.html": {
-  "sha": "177b3a9662c572a120c4c5e68a66fe92e807d7051822279b3a87e5ae8725a3b0",
-  "length": 4208,
+  "sha": "b2c8a82074af150d757dfe8082dc3250759f5d4ddc17f3f3386efcd9c3cebe47",
+  "length": 4039,
   "hrefs": [
    "/broadcasts.html",
    "/models.html",
@@ -123,8 +123,8 @@
   ]
  },
  "broadcasts-share-gpu-earn.html": {
-  "sha": "def782e2327908b3993efab6889e20f8907acad6a0426aec8394d3fb092f8141",
-  "length": 5130,
+  "sha": "0ef742c52e2fafb97f872b12ad90bc40c1c08a7b167518895afc4db3e3b81ba7",
+  "length": 5012,
   "hrefs": [
    "/broadcasts.html",
    "/models.html",
@@ -133,16 +133,16 @@
   ]
  },
  "broadcasts-sharing-your-gpu-is-safe.html": {
-  "sha": "9cd6ae2108c28cac50a7341b64ff242869967965c8453ebd4e969bc2e030de7a",
-  "length": 7437,
+  "sha": "6e91c3bdf0b89708d86816d66234cd01a5aa9fdd0718144d5c8786e6803bdbae",
+  "length": 7336,
   "hrefs": [
    "/broadcasts.html",
    "/security.html"
   ]
  },
  "broadcasts-vram-for-llm.html": {
-  "sha": "31dc888e3fd7012fa62d40b174b6599dfde80b8adaa835dc220c7435cf1fd690",
-  "length": 4123,
+  "sha": "68117a69e7d00d246319dc748d3653d01588cad5d1143b4b66b4a3b48aeabe96",
+  "length": 3906,
   "hrefs": [
    "/broadcasts.html",
    "/models.html",
@@ -151,16 +151,16 @@
   ]
  },
  "broadcasts-what-a-million-tokens-costs.html": {
-  "sha": "d967f669c1dfa53c1360682220bdd1fa6c4bb6a7fdac2ecbaf882fd162a1df57",
-  "length": 8577,
+  "sha": "68495c594b1f84fe61d9f282a821ea7a695e1338caa11f1e06bed200baeaa26d",
+  "length": 8244,
   "hrefs": [
    "/broadcasts.html",
    "/manual.html#rented"
   ]
  },
  "broadcasts.html": {
-  "sha": "6067e66c4aac55325bad26696839e5b07789862f4ece491f911cf3233368caa5",
-  "length": 4928,
+  "sha": "fd641ce1115dcb9fcd87dfdee7e4216c2bc08f298d9305b3fdbae086729a51d0",
+  "length": 4583,
   "hrefs": [
    "/broadcasts-how-llms-work.html",
    "/broadcasts-jev-vs-wave.html",
@@ -181,8 +181,8 @@
   ]
  },
  "research-hardware.html": {
-  "sha": "cdf730286dca07557d13371db7cfead9f4238cfc6f16b8531df1feeecca2c934",
-  "length": 8896,
+  "sha": "59e393f01a210034b855e23b4c420b94c1fa2ca653f0186d791e60ff5c968ff4",
+  "length": 8470,
   "hrefs": [
    "/research.html",
    "/research-models.html",
@@ -207,8 +207,8 @@
   ]
  },
  "research-industry.html": {
-  "sha": "a49005f9d6d27ac46579b9d958962c5c5e93a453c0fb59e6a851e58e7b1739b4",
-  "length": 8995,
+  "sha": "6a7f0073045d093cb1f9a2e1768d9c39cf316cc0128b289e3d4503785ac246ee",
+  "length": 8818,
   "hrefs": [
    "/research.html",
    "#market-oilgas",
@@ -236,8 +236,8 @@
   ]
  },
  "research-models.html": {
-  "sha": "5073ae09a575c9dd11304ac5600db2aad62951a9f11f5a653a7403f979d78dba",
-  "length": 6767,
+  "sha": "d8af7d820684d2b300005cb7316e106c413cbbf10b66b60239ede490f649cf74",
+  "length": 6418,
   "hrefs": [
    "/research.html",
    "/research-wave-pico.html",
@@ -256,8 +256,8 @@
   ]
  },
  "research-wave-family.html": {
-  "sha": "474dcdf7045acb551ac93822a9776eb12360878ab455bf648e4a0346441e954f",
-  "length": 17712,
+  "sha": "b68e57314c0de6c5095af9baa5624ae48d55a5131a6cd7c43af52f157c221e2d",
+  "length": 17303,
   "hrefs": [
    "/research.html",
    "#infinite",
@@ -270,8 +270,8 @@
   ]
  },
  "research-wave-nano.html": {
-  "sha": "3576ca5bf92cf129b2249f96a18d44668ec4e509d9c24a38a1ae228295a1afb1",
-  "length": 10085,
+  "sha": "ee79246676ceeaf43db1c8cb8a3c6d2931449cd5fd9339c176700013410b0fe0",
+  "length": 9859,
   "hrefs": [
    "/research-models.html",
    "#measured",
@@ -283,8 +283,8 @@
   ]
  },
  "research-wave-pico.html": {
-  "sha": "757fef1d76fb8b28d18c8ac333bf902acb6b95aaf4beafe2c3a614416393d130",
-  "length": 8509,
+  "sha": "01446530aef0d41c5547b1d7071c22340680d588805a37311da5db727f730a86",
+  "length": 8319,
   "hrefs": [
    "/research-models.html",
    "#run",
@@ -296,8 +296,8 @@
   ]
  },
  "research.html": {
-  "sha": "ffbc8f03d06fd52176eba6b356cb357294d470cbce3d3918352836b2778b9171",
-  "length": 5425,
+  "sha": "da6ad3030eedde7e609b306ac105931dae0079eae0eab40f9f165bf3f20c4d07",
+  "length": 5301,
   "hrefs": [
    "/research-models.html",
    "/research-wave-pico.html",

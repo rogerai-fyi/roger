@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // cf-edge.mjs - mirror the site's security headers + www->apex redirect to the Cloudflare
-// edge, because the host (DigitalOcean App Platform) does not read web/src/_headers or
-// web/src/_redirects (those are Cloudflare-Pages/Netlify conventions). See web/EDGE.md.
+// edge, because the origin host does not read web/src/_headers or web/src/_redirects
+// (those are Cloudflare-Pages/Netlify conventions). See web/EDGE.md.
 //
 // It reads the VALUES from web/src/_headers and web/src/_redirects (single source of truth,
 // so the edge never drifts from the repo) and writes two Cloudflare rulesets via the API:
@@ -208,14 +208,15 @@ export async function canonicalSiteReady(host, fetchImpl = fetch) {
   }
 }
 
-// The origin (App Platform static hosting) serves every asset with
-// `cache-control: public,max-age=10,s-maxage=86400` - browsers re-fetch EVERYTHING
-// after ten seconds, and a cold edge POP pulls each file from the origin. That is
+// The first static origin (2026-09) served every asset with
+// `cache-control: public,max-age=10,s-maxage=86400` - browsers re-fetched EVERYTHING
+// after ten seconds, and a cold edge POP pulled each file from the origin. That is
 // what made asset-heavy pages (research-hardware's ten card shots) feel slow.
 // build.mjs stamps every local js/styles/assets URL with a content hash (?v=<hash>),
 // so a referenced asset URL is immutable: this rule gives exactly those URLs a long
-// browser TTL and a real edge TTL. Un-versioned direct fetches keep the origin's
-// 10-second freshness, and HTML is untouched - a deploy still shows up immediately.
+// browser TTL and a real edge TTL. Un-versioned direct fetches keep whatever the origin
+// and the zone defaults give them, and HTML is untouched - a deploy still shows up
+// immediately.
 export function cacheRule(opts = {}) {
   const zone = opts.zone || ZONE;
   return {

@@ -4,6 +4,7 @@
 // The tuner's rules live in ONE module (js/taxonomy.js, window.RogerTaxonomy), so they are
 // RUN here in a node:vm sandbox rather than matched as source text; the page wiring and the
 // manual are checked against the built dist.
+import { pageBundle, PAGE_TAG } from "./_html.mjs";
 import { test, before } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -15,12 +16,13 @@ import vm from "node:vm";
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const DIST = path.join(WEB, "dist");
 const read = (p) => readFileSync(path.join(DIST, p), "utf8");
+const srcjs = (p) => readFileSync(path.join(WEB, "src", p), "utf8");   // a script as authored (shipped inside its page bundle)
 
 let RT;
 before(() => {
   execFileSync("node", ["build.mjs"], { cwd: WEB });
   const win = {};
-  vm.runInNewContext(read("js/taxonomy.js"), { window: win });
+  vm.runInNewContext(srcjs("js/taxonomy.js"), { window: win });
   RT = win.RogerTaxonomy;
 });
 
@@ -138,29 +140,23 @@ test("taxonomy text is escaped when rendered", () => {
 // ---------------------------------------------------------------- page wiring
 test("the models page loads the rules and offers the category filter", () => {
   const html = read("models.html");
-  const t = html.indexOf('<script src="js/taxonomy.js'), b = html.indexOf('<script src="js/bands.js');
-  assert.ok(t > 0 && b > 0 && t < b, "taxonomy.js loads before bands.js");
+  assert.match(html, PAGE_TAG("models"), "the models page loads its own bundle");
+  const order = pageBundle("models");
+  assert.ok(order.indexOf("taxonomy") >= 0 && order.indexOf("taxonomy") < order.indexOf("bands"), "taxonomy.js loads before bands.js");
   assert.match(html, /<span class="tuner__k">CATEGORY<\/span>\s*<select id="bandCat"/, "a Category select");
-  const js = read("js/bands.js");
+  const js = srcjs("js/bands.js");
   assert.match(js, /BROKER \+ "\/categories"/, "bands.js reads /categories");
   assert.match(js, /RT\.fromMarketRow\(m\)/, "the /market row maps its category fields");
   assert.match(js, /taxonomy_source: o\.taxonomy_source/, "each /discover station keeps its category fields");
 });
 
 test("the band detail carries the moderation note for a graded band", () => {
-  assert.match(read("js/bands.js"), /RogerAI still screens every request/);
+  assert.match(srcjs("js/bands.js"), /RogerAI still screens every request/);
 });
 
 // ---------------------------------------------------------------- web_sharing_view (@web)
-test("the console shows the category and says where to change it", () => {
-  // Models & pricing is per-model cards (spec reworded with founder OK, 2026-10-05).
-  const html = read("console.html"), js = read("js/console.js");
-  assert.match(js, /el\("span", "md-lbl", "Category"\)/, "each model card shows a Category line");
-  assert.match(html, /roger share --category/);
-  assert.match(html, /SHARE tab/);
-  assert.match(html, /local console/);
-  assert.match(js, /taxonomy_source === "declared" \? "" : "~"/, "a category not declared is marked as a guess");
-});
+// The console moved to the app (web/app/lib/console): its category surface is tested as
+// components in test/unit/categories.test.js.
 
 // ---------------------------------------------------------------- docs.feature
 test("the TUNE IN key table lists G (category) and U (curated)", () => {
@@ -191,49 +187,5 @@ test("the manual lists the categories, links the live list, and is honest", () =
 
 // ---------------------------------------------------------------- web_card_editor.feature
 // The card editor is page wiring over POST /provider/meta (whose behavior the broker suite,
-// owner_override_bdd_test.go, runs for real); these checks pin the wiring in the built script.
-test("each model card offers an Edit category control fed by /categories", () => {
-  const js = read("js/console.js");
-  assert.match(js, /el\("button", "ghost md-catedit", "Edit category"\)/, "an Edit category button");
-  assert.match(js, /fetch\(BROKER \+ "\/categories"/, "the editor reads the broker's category list");
-});
-
-test("saving and clearing go through /provider/meta with the owner's credentials", () => {
-  const js = read("js/console.js");
-  assert.match(js, /api\("\/provider\/meta", \{\s*method: "POST"/, "save POSTs /provider/meta through api() (credentials: include)");
-  assert.match(js, /function api\(path, opts\) \{[\s\S]*?opts\.credentials = "include"/, "api() sends the owner's credentials");
-  assert.match(js, /clear: true/, "clear POSTs clear: true");
-});
-
-test("a refused save shows the server's message in the card", () => {
-  assert.match(read("js/console.js"), /setState\(catState, "md-state--err", \(res\.j && res\.j\.error && res\.j\.error\.message\)/);
-});
-
-test("a category set on the web is labelled as such", () => {
-  assert.match(read("js/console.js"), /m\.meta_overridden\) catTxt \+= " · set on the web"/);
-});
-
-test("the console says the category can be changed here, or from the node", () => {
-  const html = read("console.html");
-  assert.match(html, /Edit category/);
-  assert.match(html, /roger share --category/);
-  assert.match(html, /SHARE tab/);
-  assert.match(html, /local console/);
-});
-
-test("the category editor builds its fields without innerHTML", () => {
-  const js = read("js/console.js");
-  const body = js.slice(js.indexOf("function catEditor("), js.indexOf("// end catEditor"));
-  assert.ok(body.length > 100, "the editor function exists");
-  assert.doesNotMatch(body, /innerHTML\s*=(?!\s*"")/, "no station text ever reaches innerHTML");
-});
-
-test("the editor's Save waits for the category list, and a failed list is not cached", () => {
-  // Regression (slice-5 review): an empty Save is a clear on the broker, so a Save clicked
-  // before the list loaded silently removed the owner's override.
-  const js = read("js/console.js");
-  const body = js.slice(js.indexOf("function catEditor("), js.indexOf("// end catEditor"));
-  assert.match(body, /save\.disabled = true;\s*\/\/ until the category list has loaded/, "Save starts disabled");
-  assert.match(body, /loadCatList\(\)\.then\(function \(list\) \{[\s\S]*?save\.disabled = !list\.length;/, "and is enabled once a list loads");
-  assert.match(js, /if \(!r\.ok\) return null;[\s\S]*?if \(d && d\.categories\) catList = d\.categories;/, "only a good list is cached");
-});
+// owner_override_bdd_test.go, runs for real). It lives in the app now; test/unit/categories.test.js
+// runs the editor against a fake broker instead of regexing the built script.

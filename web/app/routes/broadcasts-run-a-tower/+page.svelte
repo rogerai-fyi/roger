@@ -1,0 +1,400 @@
+<script>
+  // Run a RogerAI Tower and earn as a relay operator
+  // Ported from web/src/broadcasts-run-a-tower.html (2026-10-29); the copy is the legacy copy.
+  // A broadcast on the one post layout (lib/ui/BroadcastPost.svelte): the head and the header
+  // from `post`, the FAQ from post.faq (the page and the FAQPage schema from one list), the
+  // body as the post wrote it.
+  import BroadcastPost from "#lib/ui/BroadcastPost.svelte";
+  import Faq from "#lib/ui/Faq.svelte";
+  import Signoff from "#lib/ui/Signoff.svelte";
+  const post = {
+    slug: "broadcasts-run-a-tower",
+    number: "010",
+    title: "Run a RogerAI Tower and earn as a relay operator",
+    heading: "Run a Tower - and get paid for the carrying",
+    desc: "The Tower is a program you can run. What a Tower does, why the work crossing it stays sealed, what the 90/5/5 settlement pays a relay operator, how to run one as a private relay network for your own local models, and the exact commands to bring one up on Linux.",
+    dek: "Until now there were two jobs on this network: ask, or answer. There is a third one now. A Tower is the mast in the middle - it runs no model, is never handed a key to the traffic, and earns a cut of everything that crosses it. Or point the same binary inward and run a private relay network for your own local models, with nothing leaving the building.",
+    date: "2026-08-17",
+    dateLabel: {"text":"AUGUST 2026","rev":"2026.08"},
+    ogimage: "https://rogerai.fm/assets/broadcasts/tower-hero.png",
+    ogdesc: "A Tower carries sealed work between the people asking and the machines answering. It runs no model, is never handed a key to the traffic, and earns 5% of every request it carries - or runs standalone as your own private relay network.",
+    faq: [
+      {"q":"Do I need a GPU to run a Tower?","a":"No. A Tower runs no model and answers no prompt - it carries sealed work between consumers and the nodes that do answer. A modest Linux box with a stable address and an exposed port is the whole requirement."},
+      {"q":"What can a Tower operator see?","a":"Traffic shape, and nothing more: which station, how many bytes, when. The consumer seals the request to the serving node's session key, so the Tower queues ciphertext and the answer comes back sealed the same way. The key to the content is never handed to the Tower in either direction, which is why the guarantee does not rest on the operator's restraint."},
+      {"q":"How much does a Tower earn?","a":"5% of every settled request it carries, measured against the serving node's own listed price on Core's recount. The same request pays the node 90% and the platform 5%. Traffic through any one Tower is still early, so treat the figure as demand-driven rather than as a projection."},
+      {"q":"How and when do relay earnings pay out?","a":"On the same rail as serving earnings: a 30-day hold (10% reserved to day 90), a $25 minimum, Stripe Connect onboarding, and the same cash-out button on the payouts page. Relay earnings are listed separately as relaying rather than serving, but the money is identical."},
+      {"q":"Which platforms can run a Tower?","a":"Linux on amd64 or arm64, by design. A Tower is a long-running server process; macOS and Windows machines run the Station (serve a model) or the client instead."},
+      {"q":"Do I have to recruit nodes to attach to my Tower?","a":"You cannot, and that cuts both ways. Core, not the provider and not you, decides which Tower a node attaches to. Assignment is currently first-fit among live admitted Towers advertising a data-plane endpoint, with no weighting by load, health or distance, so a new Tower may sit idle while an established one takes attachments; locality-aware placement is designed and being built. roger-tower station revoke removes a node serving under you if you need it gone.","aHtml":"You cannot, and that cuts both ways. Core, not the provider and not you, decides which Tower a node attaches to. Assignment is currently first-fit among live admitted Towers advertising a data-plane endpoint, with no weighting by load, health or distance, so a new Tower may sit idle while an established one takes attachments; locality-aware placement is designed and being built. <code>roger-tower station revoke</code> removes a node serving under you if you need it gone."},
+      {"q":"Can I run a Tower privately, just for my own machines?","a":"Yes - initialize it with --mode standalone and it is a private relay network with its own trust root. It binds to loopback by default, performs no RogerAI discovery, advertisement or settlement, sends no telemetry and runs no update check, and its configuration refuses public-network and payout settings outright. The trade is that a standalone Tower earns nothing, by construction rather than by policy. A data directory is one mode for life; switching means initializing a new one.","aHtml":"Yes - initialize it with <code>--mode standalone</code> and it is a private relay network with its own trust root. It binds to loopback by default, performs no RogerAI discovery, advertisement or settlement, sends no telemetry and runs no update check, and its configuration refuses public-network and payout settings outright. The trade is that a standalone Tower earns nothing, by construction rather than by policy. A data directory is one mode for life; switching means initializing a new one."},
+      {"q":"Is there a stake, a token, or hardware to buy?","a":"No. There is nothing to buy and nothing to lock up. You install a binary, sign in with the account you already have, and enroll."},
+      {"q":"How do I know my Tower is actually carrying work?","a":"Run roger-tower probe --model NAME. It drives the entire sealed loop as a real consumer would, end to end through your own hub, so a green probe means the path works rather than that the process is up. roger-tower status shows admission state and attached nodes.","aHtml":"Run <code>roger-tower probe --model NAME</code>. It drives the entire sealed loop as a real consumer would, end to end through your own hub, so a green probe means the path works rather than that the process is up. <code>roger-tower status</code> shows admission state and attached nodes."},
+    ],
+  };
+</script>
+<BroadcastPost {...post} renderFaq={false} signoff={false}>
+<!-- Field-guide broadcast 010 (relay side). SEO/AEO format: Quick Answer + question-H2s +
+     FAQ schema + internal links to /tower, /manual#sTower, /payouts. Assets: a Flux relay-mast
+     hero (assets/broadcasts/tower-hero.png, arcs pulled onto #E0231C in post) plus two inline
+     theme-adaptive SVG diagrams - the sealed path, and the 90/5/5 settlement bar. Listed atop broadcasts.html.
+
+     HONESTY RAILS for anyone editing this page (features/web/broadcast_tower.feature pins them):
+       - the split is 70 node / 10 tower / 20 platform of the NODE'S OWN listed price;
+       - relay pay is real and on the same Stripe rail, but TRAFFIC through any one Tower is
+         early, so every earning sentence stays conditional on demand - never a projection;
+       - the end-to-end claim is about the OPERATOR-RUN Tower only (it holds no content key),
+         never about the broker in front of it. 
+     (the page's doc comment, from the legacy file; its sheets are the css: list above) -->
+
+
+      <!-- FIG. 1 breathes: a 6s seamless loop of the beacon's signal arcs, poster-matched to
+           the still frame so the first paint is the illustration either way. Anyone who asked
+           their system for less motion gets the still and the loop is never shown. -->
+      {@html `<style>
+        .figure .tw-hero__still{display:none}
+        @media (prefers-reduced-motion: reduce){
+          .figure .tw-hero__loop{display:none}
+          .figure .tw-hero__still{display:block}
+        }
+      </style>`}
+      <figure class="figure figure--plate" data-reveal>
+        <video class="tw-hero__loop" width="1280" height="560" autoplay muted loop playsinline preload="metadata"
+               poster="assets/broadcasts/tower-hero.webp"
+               aria-label="A steel lattice relay mast with a red beacon at its top, sending red signal arcs outward in a slow repeating pulse, with a machine on the ground to either side cabled to its base.">
+          <source src="assets/broadcasts/tower-loop.mp4" type="video/mp4" />
+        </video>
+        <img class="tw-hero__still" src="assets/broadcasts/tower-hero.webp" srcset="assets/broadcasts/tower-hero-800.webp 800w, assets/broadcasts/tower-hero.webp 1280w" sizes="(max-width: 1000px) 100vw, 960px" width="1280" height="560"
+             alt="A steel lattice relay mast with a red beacon at its top, red signal arcs radiating outward, with a machine on the ground to either side cabled to its base, drawn in the RogerAI operating-manual style." loading="lazy" />
+        <figcaption class="fig mono">FIG. 1 - THE MAST IN THE MIDDLE</figcaption>
+      </figure>
+
+      <!-- contents: the shared toc-tuner; its names repeat the section labels below -->
+      <nav class="toc-tuner" data-tuner aria-label="Sections">
+        <div class="wrap toc-tuner__band">
+        <div class="toc-tuner__readout" aria-hidden="true"></div>
+        <ol class="toc-tuner__scale">
+          <li><a class="toc-tuner__st" href="#s1"><b>§1</b><span class="toc-tuner__name">THE THIRD JOB</span></a></li>
+          <li><a class="toc-tuner__st" href="#s2"><b>§2</b><span class="toc-tuner__name">WHAT IT CAN SEE</span></a></li>
+          <li><a class="toc-tuner__st" href="#s3"><b>§3</b><span class="toc-tuner__name">THE MONEY</span></a></li>
+          <li><a class="toc-tuner__st" href="#s4"><b>§4</b><span class="toc-tuner__name">THE OTHER REASON</span></a></li>
+          <li><a class="toc-tuner__st" href="#s5"><b>§5</b><span class="toc-tuner__name">BRINGING ONE UP</span></a></li>
+          <li><a class="toc-tuner__st" href="#s6"><b>§6</b><span class="toc-tuner__name">WHY BOTHER</span></a></li>
+          <li><a class="toc-tuner__st" href="#s7"><b>§7</b><span class="toc-tuner__name">FAQ</span></a></li>
+        </ol>
+        <span class="toc-tuner__needle" aria-hidden="true"></span>
+        </div>
+      </nav>
+
+      <blockquote class="bc-answer" data-reveal>
+        <b>Quick answer.</b> A <b>Tower</b> is a relay you run on your own Linux box. Consumers submit
+        <b>sealed</b> work to its hub; providers' nodes poll that hub, serve the work, and seal the
+        answer back. The Tower is on that path twice and is handed a key to it neither time.
+        Every settled request
+        splits <b>90% to the serving node, 5% to you, 5% to the platform</b> - your 5% lands on
+        the same Stripe payout rail as any other earning. Or initialize the same binary
+        <b>standalone</b> and it becomes a private relay network for your own local models -
+        its own trust root, loopback by default, no RogerAI lookup, no telemetry, and no
+        earning either. Install it with
+        <code>curl -fsSL https://rogerai.fm/install.sh | ROGERAI_COMPONENT=tower sh</code>.
+      </blockquote>
+      <p class="bc-post__note mono" data-reveal><b>Updated September 2026:</b>
+        the split above improved to 90/5/5 when the platform fee dropped to 10% across the
+        network (it was 70/10/20 when this broadcast first aired). Stations and Towers both
+        earn from the same requests as before; the platform simply takes less.</p>
+
+
+      <div class="bc-post__body">
+
+        <p class="bc-post__lead" data-reveal>
+          A decentralized network has an awkward middle. Someone has to stand between the person
+          asking and the machine answering: hold the endpoint open, hand work to whoever has
+          capacity, and carry the answer back. On most networks that middle is one company's
+          server rack, and calling the result decentralized is a stretch. The Tower is our attempt
+          to make that middle something other people can own - and to pay them for it, because a
+          job nobody is paid to do is a job that quietly becomes ours again.
+        </p>
+
+        <section class="bc-sec" id="s1" data-reveal>
+          <span class="bc-sec__no">&sect;1 &middot; The third job</span>
+          <h2>What is a Tower, exactly?</h2>
+          <p>
+            A Tower extends the broker's data plane. It hosts the <b>hub</b>: the place consumers
+            submit sealed work to, and the place providers' nodes poll to pick that work up. A
+            provider does not have to do anything special to reach you, and increasingly will not
+            get to choose: a node registers with the broker the ordinary way, is probed and scored
+            the ordinary way, and the relay it serves through is Core's decision. Attaching
+            carries the node's keys, its model, and <b>its own</b> per-token price.
+          </p>
+          <p>
+            What a Tower is <i>not</i> is as important. It runs <b>no model</b> - there is no GPU
+            requirement, and a Tower never answers a prompt. It is not a proxy you point at your
+            own hardware; the nodes that attach are other people's. And it is not a validator,
+            a stake, or a token - there is nothing to buy and nothing to lock up. It is a relay
+            that carries sealed parcels and gets paid per parcel.
+          </p>
+          <ul class="bc-dial">
+            <li><b>Station</b> - someone's GPU, running a model, answering. Earns 90%.</li>
+            <li><b>Tower</b> - the relay carrying sealed work between them. Earns 5%.</li>
+            <li><b>Core</b> - authorizes the spend up front and settles the receipt afterwards. Keeps 5%.</li>
+          </ul>
+        </section>
+
+        <section class="bc-sec" id="s2" data-reveal>
+          <span class="bc-sec__no">&sect;2 &middot; What it can see</span>
+          <h2>What does a Tower see?</h2>
+          <p>
+            No, and that is a property of the design rather than a promise about our conduct. The
+            consumer authorizes the spend at Core, then seals the request to the <i>node's</i>
+            session key and hands the sealed bytes to your hub. Your Tower queues ciphertext. The
+            node polls, opens it, serves it, signs a receipt for the token counts, and seals the
+            answer straight back to the consumer. Your Tower carries that back too - still
+            ciphertext - and forwards the signed receipt to Core for settlement.
+          </p>
+          <p>
+            So a Tower operator sees traffic shape: which station, how many bytes, when. Not the
+            prompt, not the answer. It is <b>never handed a key to the content</b>. That
+            distinction is the whole guarantee: this is not a rule an operator is asked to keep,
+            it is a key they were never given, and only the second kind survives contact with
+            somebody who would rather not keep it. It is also why running a Tower carries less
+            exposure than running a station - you are not choosing to keep someone's words off
+            your disk, because they were never on it in a form you could keep.
+          </p>
+
+          <figure class="figure figure--plate figure--chart" data-reveal>
+            <div class="scroll-box scroll-box--diagram">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 300" role="img"
+                 aria-label="Flow diagram of the sealed path: the consumer authorizes at Core and seals the request to the node's key; the Tower queues the sealed bytes without a key to them; the node opens, serves, signs a receipt and seals the answer back through the Tower; Core settles the receipt 90/5/5.">
+              {@html `<style>
+                .t-box{fill:currentColor;opacity:.04}.t-stroke{stroke:currentColor;fill:none;opacity:.32}
+                .t-arrow{stroke:currentColor;opacity:.5;fill:none}.t-live{fill:var(--live)}
+                .t-seal{stroke:var(--live);fill:none;opacity:.85;stroke-dasharray:5 4}
+                .t-no{font-family:"JetBrains Mono",monospace;font-size:13px;letter-spacing:1px;fill:currentColor;opacity:.7}
+                .t-h{font-family:"JetBrains Mono",monospace;font-size:15px;font-weight:700;fill:currentColor}
+                .t-b{font-family:"JetBrains Mono",monospace;font-size:12.5px;fill:currentColor;opacity:.8}
+                .t-cap{font-family:"JetBrains Mono",monospace;font-size:13px;letter-spacing:2px;fill:currentColor;opacity:.7}
+                .t-dim{opacity:.7}
+              </style>`}
+              <text x="24" y="30" class="t-cap">FIG. 2 - THE SEALED PATH</text>
+              <line x1="24" y1="44" x2="796" y2="44" class="t-stroke"/>
+
+              <rect x="30" y="86" width="212" height="118" rx="10" class="t-box"/><rect x="30" y="86" width="212" height="118" rx="10" class="t-stroke"/>
+              <circle cx="52" cy="112" r="5" class="t-live"/><text x="66" y="117" class="t-no">CONSUMER</text>
+              <text x="48" y="150" class="t-h">seals the ask</text>
+              <text x="48" y="172" class="t-b">authorized at Core,</text>
+              <text x="48" y="190" class="t-b">sealed to the node's key</text>
+
+              <path d="M242 145 H286" class="t-seal"/><path d="M280 139 L288 145 L280 151" class="t-arrow"/>
+
+              <rect x="294" y="86" width="212" height="118" rx="10" class="t-box"/><rect x="294" y="86" width="212" height="118" rx="10" class="t-stroke"/>
+              <text x="312" y="117" class="t-no">YOUR TOWER</text>
+              <text x="312" y="150" class="t-h">carries it</text>
+              <text x="312" y="172" class="t-b">queues sealed bytes,</text>
+              <text x="312" y="190" class="t-b">holds no key to them</text>
+
+              <path d="M506 145 H550" class="t-seal"/><path d="M544 139 L552 145 L544 151" class="t-arrow"/>
+
+              <rect x="558" y="86" width="212" height="118" rx="10" class="t-box"/><rect x="558" y="86" width="212" height="118" rx="10" class="t-stroke"/>
+              <text x="576" y="117" class="t-no">STATION</text>
+              <text x="576" y="150" class="t-h">opens + serves</text>
+              <text x="576" y="172" class="t-b">signs the token receipt,</text>
+              <text x="576" y="190" class="t-b">seals the answer back</text>
+
+              <!-- the return leg runs BELOW its own label: the line sits at y=248 and the
+                   label's baseline at 236, so the text clears the dashed rule instead of
+                   being struck through by it. -->
+              <path d="M664 204 V248 H370" class="t-seal"/><path d="M376 242 L368 248 L376 254" class="t-arrow"/>
+              <path d="M294 248 H136 V204" class="t-seal"/><path d="M130 210 L136 202 L142 210" class="t-arrow"/>
+              <!-- ends before x=650: the return leg's vertical drop is at x=664 and would
+                   otherwise strike through the tail of this label. -->
+              <text x="296" y="236" class="t-b">the answer returns the same way - still sealed</text>
+
+              <text x="24" y="286" class="t-b t-dim">The dashed run is ciphertext end to end. Your Tower is on it twice and holds a key to it neither time.</text>
+            </svg>
+            </div>
+            <figcaption class="fig mono">FIG. 2 - Sealed at the consumer, opened only at the node. The relay is on the path, never holding the key.</figcaption>
+          </figure>
+        </section>
+
+        <section class="bc-sec" id="s3" data-reveal>
+          <span class="bc-sec__no">&sect;3 &middot; The money</span>
+          <h2>What does a Tower earn?</h2>
+          <p>
+            Ten percent of every request your Tower carries, settled. The number it is ten percent
+            <i>of</i> is the thing worth being precise about: it is the serving node's <b>own listed
+            price</b> for the tokens it actually served, as recounted and resolved by Core - not a
+            rate we set, and not a rate the node can inflate at settlement. The same request pays
+            the node 90% and leaves the platform 5%.
+          </p>
+
+          <figure class="figure figure--plate figure--chart" data-reveal>
+            <div class="scroll-box scroll-box--diagram">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 190" role="img"
+                 aria-label="Bar showing how one settled request divides: 90 percent to the serving node, 5 percent to the tower operator, 5 percent to the platform, all measured against the node's own listed price.">
+              {@html `<style>
+                .s-stroke{stroke:currentColor;fill:none;opacity:.32}
+                .s-node{fill:currentColor;opacity:.22}.s-tower{fill:var(--live)}.s-plat{fill:currentColor;opacity:.10}
+                .s-no{font-family:"JetBrains Mono",monospace;font-size:13px;letter-spacing:1px;fill:currentColor;opacity:.7}
+                .s-h{font-family:"JetBrains Mono",monospace;font-size:15px;font-weight:700;fill:currentColor}
+                .s-b{font-family:"JetBrains Mono",monospace;font-size:12.5px;fill:currentColor;opacity:.8}
+                .s-cap{font-family:"JetBrains Mono",monospace;font-size:13px;letter-spacing:2px;fill:currentColor;opacity:.7}
+                .s-sm{font-size:12px}.s-inv{fill:var(--paper)}
+                .s-hot{fill:var(--live-text);font-weight:700}
+                .s-dim{opacity:.7}
+              </style>`}
+              <text x="24" y="30" class="s-cap">FIG. 3 - ONE SETTLED REQUEST</text>
+              <line x1="24" y1="44" x2="796" y2="44" class="s-stroke"/>
+
+              <rect x="30" y="72" width="685" height="46" class="s-node"/>
+              <rect x="715" y="72" width="38"  height="46" class="s-tower"/>
+              <rect x="753" y="72" width="38" height="46" class="s-plat"/>
+              <rect x="30" y="72" width="761" height="46" class="s-stroke"/>
+
+              <text x="46"  y="101" class="s-h">90%  the node that served it</text>
+              <text x="716" y="101" class="s-h s-sm s-inv">5%</text>
+              <text x="756" y="101" class="s-h s-sm">5%</text>
+
+              <text x="46"  y="142" class="s-b">its own listed price, on Core's recount</text>
+              <text x="622" y="142" class="s-b s-hot">your Tower &rarr;</text>
+              <text x="742" y="142" class="s-b">platform</text>
+              <text x="24"  y="172" class="s-b s-dim">Measured against the node's price, not a house rate. A request that returns nothing usable settles at zero for everyone.</text>
+            </svg>
+            </div>
+            <figcaption class="fig mono">FIG. 3 - The relay's cut, and what it is a cut of.</figcaption>
+          </figure>
+
+          <p>
+            It pays out like everything else. Relay earnings ride the <b>same rail</b> a serving
+            node's do - the same 30-day hold with its 90-day reserve tail, the same $25 minimum, the same Stripe Connect
+            onboarding, the same cash-out button on your <a href="/payouts.html">payouts page</a>.
+            They are listed there separately as <i>relaying</i> rather than <i>serving</i>, which
+            is provenance only; the money is identical and comes out of the same balance.
+          </p>
+          <div class="man-note">
+            <span class="man-note__tag">be realistic</span>
+            <p>The mechanism is live end to end, but <b>traffic through any one Tower is early</b>,
+              and it is worth being exact about why rather than leaving you to guess. Two things
+              have to happen before a single request crosses your relay, and neither is something
+              you control:</p>
+            <ol class="bc-dial">
+              <li><b>Providers have to be on the relay fabric.</b> They no longer opt in - an
+                ordinary <code class="cmd-words"><span>roger</span> <span>share</span></code> offers a signed-in node to the fabric on its
+                own, and there is no flag to type. But it is best effort: a node with no
+                signed-in account, or one that cannot reach a relay, simply keeps serving the
+                ordinary way and never reaches you. So your traffic still depends on how much of
+                the fleet is both signed in and reachable, not on consumer demand alone.</li>
+              <li><b>Core has to send them to you.</b> A node does not choose its Tower - Core
+                assigns one, and today that assignment is <b>first-fit</b> among live, admitted
+                Towers advertising a data-plane endpoint, with no weighting by load, health or
+                distance. In practice an established Tower can absorb attachments while a newer
+                one waits. Locality- and load-aware placement is designed and being built; until
+                it lands, which Tower gets a given node is close to arbitrary.</li>
+            </ol>
+            <p>So: expect your relay figure to start at zero and to move with those two things
+              rather than with the day you installed. Run a Tower because you want this middle to
+              belong to more than one party; treat the 10% as upside on that, not as a
+              projection.</p>
+          </div>
+        </section>
+
+        <section class="bc-sec" id="s4" data-reveal>
+          <span class="bc-sec__no">&sect;4 &middot; The other reason</span>
+          <h2>Can I run one privately, for my own models?</h2>
+          <p>
+            Yes, and it is the mode that shipped first. A Tower is initialized as one of two
+            kinds, chosen once and never changed in place:
+          </p>
+          <ul class="bc-dial">
+            <li><b>joined</b> - a child relay of the public network. Core stays the admission,
+              routing, settlement and revocation authority, consumers are routed to you, and
+              this is the mode that earns the 10%.</li>
+            <li><b>standalone</b> - your own local network with <b>its own trust root</b>. It
+              performs no RogerAI discovery, settlement or advertisement, and that is structural
+              rather than a setting you could flip: a standalone Tower's config will not even
+              accept a public authority URL, an enrollment token, or a payout setting.</li>
+          </ul>
+          <p>
+            A standalone Tower is the answer to "I have four machines with models on them and I
+            want one endpoint in front of all of them, without any of this leaving the building."
+            It binds to loopback by default, performs no RogerAI DNS lookup, sends no telemetry
+            and runs no update check. <code>roger-tower login</code> refuses outright in this
+            mode, and says why: <i>this Tower is standalone and needs no account - nothing it
+            does leaves this machine</i>. Stations on a private network get reachability they do
+            not have on their own, and the whole thing is governed by your trust root rather
+            than ours.
+          </p>
+          <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">$</span> roger-tower init --dir /var/lib/roger-tower --mode standalone</pre></div>
+          <div class="man-note">
+            <span class="man-note__tag">the trade</span>
+            <b>Standalone earns nothing.</b> Not "not yet" - a private network has no settlement
+            path to RogerAI by construction, and its configuration rejects payout settings
+            outright. Pick <code>standalone</code> because you want a private relay for your own
+            hardware; pick <code>joined</code> because you want to carry public traffic and be
+            paid for it. One data directory is one mode for life: switching means initializing a
+            new one, and nothing is copied across.
+          </div>
+        </section>
+
+        <section class="bc-sec" id="s5" data-reveal>
+          <span class="bc-sec__no">&sect;5 &middot; Bringing one up</span>
+          <h2>What do I need, and what are the commands?</h2>
+          <p>
+            A Linux box with a stable address and a port you can expose - <b>amd64 or arm64</b>.
+            No GPU. A Tower is a long-running server process, which is exactly why it ships for
+            Linux only: macOS and Windows machines run the Station or the client, not a Tower.
+            Install it with the same one-liner as the client, with the Tower component selected:
+          </p>
+          <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">$</span> curl -fsSL https://rogerai.fm/install.sh | ROGERAI_COMPONENT=tower sh</pre></div>
+          <p>
+            The installer verifies the release checksum before it installs anything, and refuses
+            outright on macOS or Windows rather than leaving you a binary that cannot serve. Then
+            five commands take you from nothing to on air:
+          </p>
+          <div class="code-block"><pre><span class="code-block__prompt" aria-hidden="true">$</span> roger-tower login                     <span class="code-block__comment"># same account as the website - GitHub, Apple, or email</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> roger-tower init --dir /var/lib/roger-tower --mode joined   <span class="code-block__comment"># keys + local state (see &sect;4)</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> roger-tower doctor                    <span class="code-block__comment"># pre-flight: config, reachability, clock</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> roger-tower register                  <span class="code-block__comment"># enroll this Tower against the network</span>
+<span class="code-block__prompt" aria-hidden="true">$</span> roger-tower serve --hub :8444 --relay-public YOUR.HOST:8444</pre></div>
+          <p>
+            Enrolling is a signed act tied to your account, because putting a relay on the network
+            under your name is an account decision - that is what the <code>login</code> step is
+            for, and it is also what makes the 10% yours. You attach nobody by hand - and cannot:
+            Core decides which Tower each node lands on (see the note in &sect;3 for what that
+            means for a new Tower). From there,
+            <code>roger-tower status</code> shows admission state and attached nodes,
+            <code>roger-tower earnings</code> shows what you have carried,
+            <code>roger-tower probe --model NAME</code> drives the whole sealed loop as a consumer
+            to prove your Tower actually carries work, and <code>roger-tower station revoke</code>
+            is your kill switch for a node serving under you. A hardened systemd unit ships in the
+            repo under <code>packaging/tower/</code> - dynamic user, <code>ProtectSystem=strict</code>,
+            a dedicated state directory - so the relay comes back on boot.
+          </p>
+        </section>
+
+        <section class="bc-sec" id="s6" data-reveal>
+          <span class="bc-sec__no">&sect;6 &middot; Why bother</span>
+          <h2>Why does the network need other people's Towers?</h2>
+          <p>
+            Because the alternative is that we are the only road. Every local model somebody puts
+            on this network - the 3090 in a spare room, the Mac mini under a desk, the rack in a
+            university lab - is only reachable if something in the middle is holding the door open.
+            If that something is exclusively ours, then the interesting part of the network is
+            decentralized and the boring, load-bearing part is not, and the boring load-bearing
+            part is the one that fails politically rather than technically.
+          </p>
+          <p>
+            Towers spread that. More of them means more paths between the person asking and the
+            machine answering, in more places, under more names, on more jurisdictions' terms. It
+            also means the people keeping local models reachable are the people being paid to -
+            which is the only version of this that survives the day we stop subsidizing it.
+          </p>
+          <p>
+            The concept page is <a href="/tower.html">The Tower</a>, and the exact operator runbook
+            is <a href="/manual.html#sTower">&sect;T of the manual</a>.
+          </p>
+        </section>
+
+        <Faq no={7} items={post.faq} />
+
+        <Signoff lead={"<p>Put a mast on the network:</p>"} oslock="linux" label="Copy the Tower install command to clipboard">curl <span class="tok">-fsSL</span> <span class="tok">https://rogerai.fm/install.sh</span> <span class="tok">| ROGERAI_COMPONENT=tower sh</span></Signoff>
+
+      </div>
+</BroadcastPost>

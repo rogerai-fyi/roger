@@ -12,11 +12,12 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { source } from "./_html.mjs";
 
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PAGE = "broadcasts-what-a-million-tokens-costs.html";
 const read = (p) => readFileSync(path.join(WEB, "dist", p), "utf8");
-const src = (p) => readFileSync(path.join(WEB, "src", p), "utf8");
+const src = source;   // a page's source, legacy or app route (test/_html.mjs)
 
 before(() => execFileSync("node", ["build.mjs"], { cwd: WEB }));
 
@@ -134,7 +135,7 @@ test("economics: the chart is described for a reader who cannot see it", () => {
 });
 
 test("economics: it is registered for its own stylesheet", () => {
-  assert.match(src("../build.mjs"), new RegExp(`"${PAGE}"`), "the page has a CSS bundle");
+  assert.match(src(PAGE), /['"]broadcast-economics\.css['"]/, "the page lists its sheet (css: in its post object, on the shared layout)");
   assert.match(read(PAGE), /styles\/broadcast-economics\.css/, "and links it");
 });
 

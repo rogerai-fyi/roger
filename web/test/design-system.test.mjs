@@ -3,20 +3,22 @@
 // hard-coded colour or page-local copy of a shared behaviour slips in. Each rule has a
 // written exception list; an entry there is a known debt with its reason, never a
 // silent pass. Shrinking a list (or a budget) is always welcome; growing one needs a reason.
+import { runtimeScripts, RUNTIME_TAG } from "./_html.mjs";
 import { test, before } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { source, allPages, components, component } from "./_html.mjs";
 
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = path.join(WEB, "src");
-const read = (p) => readFileSync(path.join(SRC, p), "utf8");
+const read = source;  // a page's source, legacy or app route (test/_html.mjs)
 const dist = (p) => readFileSync(path.join(WEB, "dist", p), "utf8");
 const stripCss = (s) => s.replace(/\/\*[\s\S]*?\*\//g, "");
 const stripHtml = (s) => s.replace(/<!--[\s\S]*?-->/g, "");
-const PAGES = readdirSync(SRC).filter((f) => f.endsWith(".html")).sort();
+const PAGES = allPages();
 const SHEETS = readdirSync(path.join(SRC, "styles")).filter((f) => f.endsWith(".css")).sort();
 before(() => execFileSync("node", ["build.mjs"], { cwd: WEB }));
 
@@ -60,26 +62,29 @@ test("every page is assembled from the head, nav and footer partials", () => {
   for (const page of PAGES) {
     if (STUBS[page]) continue;
     const src = read(page);
-    for (const partial of ["head.html", "nav.html", "footer.html"]) {
-      assert.match(src, new RegExp(`<!--\\s*include:\\s*${partial.replace(".", "\\.")}`), `${page} includes ${partial}`);
+    if (/^layout: broadcast$/m.test(src) || /<BroadcastPost\b/.test(src)) continue;   // a broadcast: its layout (BroadcastPost, checked below) carries the chrome
+    // the app route: siteHead() for the head, the Nav and Footer components for the chrome
+    for (const [what, re] of [["the head (siteHead)", /\bsiteHead\(/], ["the nav (<Nav>)", /<Nav\b/], ["the footer (<Footer>)", /<Footer\b/]]) {
+      assert.match(src, re, `${page} is assembled from ${what}`);
     }
   }
+  const layout = component("BroadcastPost");
+  for (const re of [/\bsiteHead\(/, /<Nav\b/, /<Footer\b/]) assert.match(layout, re, "the post layout carries the chrome for every broadcast");
 });
 
-test("every page runs the shared page runtime from the site-js partial, never a hand-copied tail", () => {
-  const shared = ["lets-talk", "site", "session", "promo", "tuner", "scrub", "anchor-hold", "range-twin", "cycle"];
+test("every page runs the shared page runtime as the one bundle, never a hand-copied tail", () => {
+  const shared = runtimeScripts();
   for (const page of PAGES) {
     const src = stripHtml(read(page));
     for (const js of shared) {
-      assert.doesNotMatch(src, new RegExp(`<script src="js/${js}\\.js"`), `${page} loads js/${js}.js by hand; use <!-- include: site-js.html -->`);
+      assert.doesNotMatch(src, new RegExp(`<script src="js/${js}\\.js"`), `${page} loads js/${js}.js by hand; use { runtime: true } in its siteHead`);
     }
     if (STUBS[page] || OWN_RUNTIME[page]) continue;
-    assert.match(read(page), /<!--\s*include:\s*site-js\.html/, `${page} includes site-js.html`);
+    const onLayout = /^layout: broadcast$/m.test(read(page)) || /<BroadcastPost\b/.test(read(page));
+    assert.match(onLayout ? component("BroadcastPost") : read(page), /\{ runtime: true/, `${page} runs the shared runtime (scripts: [{ runtime: true }] in its siteHead${onLayout ? ", through the post layout" : ""})`);
     // ...so every component module ships with it, and a page gets a behaviour by markup alone
-    const built = dist(page);
-    for (const js of ["site", "tuner", "scrub", "anchor-hold", "range-twin", "cycle"]) {
-      assert.match(built, new RegExp(`<script src="js/${js}\\.js\\?v=`), `${page} ships js/${js}.js`);
-    }
+    assert.match(dist(page), RUNTIME_TAG, `${page} ships js/runtime.js`);
+    for (const js of ["site", "tuner", "scrub", "anchor-hold", "range-twin", "cycle"]) assert.ok(shared.includes(js), `the runtime bundle carries js/${js}.js`);
   }
 });
 
@@ -104,10 +109,10 @@ test("every page leads with the three shared layers, in order, before any page s
 });
 
 test("every stylesheet is loaded by some page (no orphan sheet)", () => {
-  const manifest = read("../build.mjs");
-  for (const sheet of SHEETS) {
-    assert.match(manifest, new RegExp(`"${sheet.replace(".", "\\.")}"`), `${sheet} is in build.mjs CSS_SHARED/CSS_BUNDLES`);
-  }
+  const linked = new Set();
+  for (const page of readdirSync(path.join(WEB, "dist")).filter((f) => f.endsWith(".html")))
+    for (const m of dist(page).matchAll(/<link rel="stylesheet" href="styles\/([\w-]+\.css)/g)) linked.add(m[1]);
+  for (const sheet of SHEETS) assert.ok(linked.has(sheet), `${sheet} is linked by no built page`);
 });
 
 test("tokens.css declares tokens only: custom properties and color-scheme, nothing else", () => {
@@ -206,10 +211,10 @@ test("colours are tokens: no new colour literal outside tokens.css", () => {
     const budget = HTML_COLOR_BUDGET[page] ?? 0;
     assert.ok(n <= budget, `${page} has ${n} inline colour literals (budget ${budget}); use a class and a token`);
   }
-  for (const partial of readdirSync(path.join(SRC, "_partials"))) {
-    const src = stripHtml(read(`_partials/${partial}`));
+  for (const name of components()) {
+    const src = stripHtml(component(name.replace(/\.svelte$/, "")));
     const inline = [...src.matchAll(/style="([^"]*)"/g)].map((m) => m[1]).join(";");
-    assert.doesNotMatch(inline, COLOR, `_partials/${partial} has an inline colour literal`);
+    assert.doesNotMatch(inline, COLOR, `app/lib/ui/${name} has an inline colour literal`);
   }
 });
 
@@ -457,14 +462,21 @@ test("no red glows: red rings and small lamps only, every lamp listed", () => {
 // scripts still copy on their own, with a different affordance; each is a known debt.
 const OWN_CLIPBOARD = {
   "site.js": "the shared copy tick",
-  "keys.js": "copies a one-time secret and relabels its button (keys page)",
-  "private.js": "copies a private station's share link (private console)",
   "playbox.js": "copies the deck's CLI line into the deck's own toast",
+  "keys/KeysApp.svelte": "copies a one-time secret and relabels its button (keys page)",
 };
 
 test("no page script re-implements a shared behaviour", () => {
   const js = readdirSync(path.join(SRC, "js")).filter((f) => f.endsWith(".js"));
   const HOOKS = { "[data-fold-narrow]": "site.js", "[data-tuner]": "tuner.js", "[data-scrub]": "scrub.js", "[data-anchor-hold]": "anchor-hold.js", "[data-copy-target]": "site.js", "[data-range-twin]": "range-twin.js", "[data-cycle]": "cycle.js" };
+  // the islands' components too (app/lib, outside the chrome in app/lib/ui)
+  const islands = readdirSync(path.join(WEB, "app", "lib"), { recursive: true }).filter((f) => f.endsWith(".svelte") && !f.startsWith("ui/"));
+  for (const f of islands) {
+    const src = readFileSync(path.join(WEB, "app", "lib", f), "utf8");
+    if (/navigator\.clipboard|execCommand\(["']copy/.test(src)) {
+      assert.ok(OWN_CLIPBOARD[f], `app/lib/${f} copies to the clipboard itself; use the shared copy tick ([data-copy-target])`);
+    }
+  }
   for (const f of js) {
     const src = read(`js/${f}`);
     if (/navigator\.clipboard|execCommand\(["']copy/.test(src)) {

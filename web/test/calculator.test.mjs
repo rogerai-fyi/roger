@@ -15,17 +15,19 @@
 // falsifiable claim on the one page whose argument is that we do not do that. The
 // consumer side asks what you pay today instead, which is also more accurate than
 // anything we could quote.
+import { pageBundle, PAGE_TAG } from "./_html.mjs";
 import { test, before } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { source, decodeMarkup } from "./_html.mjs";
 
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const REPO = path.join(WEB, "..");
 const read = (p) => readFileSync(path.join(WEB, "dist", p), "utf8");
-const src = (p) => readFileSync(path.join(WEB, "src", p), "utf8");
+const src = source;   // a page's source, legacy or app route (test/_html.mjs)
 const go = (...p) => readFileSync(path.join(REPO, ...p), "utf8");
 
 before(() => execFileSync("node", ["build.mjs"], { cwd: WEB }));
@@ -38,7 +40,8 @@ const section = () => read("pricing.html").match(/<section[^>]*id="calc"[\s\S]*?
 test("calculator: the pricing page carries it, with its own script", () => {
   const page = read("pricing.html");
   assert.ok(section(), "the pricing page has a calculator section");
-  assert.match(page, /js\/calc\.js/, "and loads the behavior");
+  assert.match(page, PAGE_TAG("pricing"), "and loads its own bundle");
+  assert.ok(pageBundle("pricing").includes("calc"), "which carries calc.js");
 });
 
 test("calculator: both sides are there - what you would earn, and what you pay now", () => {
@@ -233,7 +236,7 @@ test("calculator: the printed example is what the printed inputs actually produc
 // duplicate only showed up in a screenshot. Section numbers are a promise that the page
 // reads in order, so they are checked.
 test("calculator: the pricing page's sections are numbered once each, in order", () => {
-  const nums = [...read("pricing.html").matchAll(/&sect;(\d+) \/ [A-Z]/g)].map((m) => Number(m[1]));
+  const nums = [...decodeMarkup(read("pricing.html")).matchAll(/§(\d+) \/ [A-Z]/g)].map((m) => Number(m[1]));
   assert.ok(nums.length >= 6, `the page is numbered (${nums.length} sections)`);
   // §0 is the merged why argument (2026-09-02): the value opens the page before any number.
   assert.deepEqual(nums, nums.map((_, i) => i), "sections run 0..n with no repeat and no gap");

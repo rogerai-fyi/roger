@@ -34,7 +34,7 @@ func (s *docState) reset() error {
 	if err := yaml.Unmarshal(raw, &s.api); err != nil {
 		return fmt.Errorf("openapi.yaml does not parse: %w", err)
 	}
-	m, err := os.ReadFile("../../web/src/manual.html")
+	m, err := os.ReadFile("../../web/app/routes/manual/+page.svelte") // the manual is an app route (its source markup)
 	if err != nil {
 		return err
 	}
@@ -312,7 +312,7 @@ func (s *docState) routingSection() string {
 
 func (s *docState) manualHasRoutingSection() error {
 	if s.routingSection() == "" {
-		return fmt.Errorf("web/src/manual.html has no routing section (a heading starting with \"Routing\" or id=\"routing\")")
+		return fmt.Errorf("web/app/routes/manual/+page.svelte has no routing section (a heading starting with \"Routing\" or id=\"routing\")")
 	}
 	return nil
 }

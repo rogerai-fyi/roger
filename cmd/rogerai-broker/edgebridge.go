@@ -19,6 +19,7 @@ import (
 	"crypto/ed25519"
 	crand "crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"math"
@@ -588,10 +589,13 @@ func bridgedUsageChunk(g dispatch.EdgeGrant, rec protocol.UsageReceipt, cost flo
 // sealedDrive parameterizes one sealed submit: what rides in the envelope, how long the
 // drive may take, and what the acknowledgement claims was sent.
 type sealedDrive struct {
-	tag     string
-	body    []byte
-	timeout time.Duration
-	usageIn int64
+	// onDesignSkip, when set, hears that the endpoint was skipped as unreachable by design
+	// (the canary records it once on the governance record).
+	onDesignSkip func()
+	tag          string
+	body         []byte
+	timeout      time.Duration
+	usageIn      int64
 }
 
 // unstreamBody forces "stream":false and drops stream_options before a body is sealed to
@@ -647,22 +651,42 @@ func (b *broker) driveSealedF(grant dispatch.EdgeGrant, target dispatch.Target, 
 		log.Printf("%s: could not encode a submit for tower %s: %v", d.tag, target.TowerID, err)
 		return nil, "", ""
 	}
-	if verr := endpointNotPublic(context.Background(), endpoint, b.canaryVet); verr != nil {
-		log.Printf("%s: tower %s endpoint %s skipped: %v (unreachable by design, not a failure)",
-			d.tag, target.TowerID, endpoint, verr)
-		return nil, "", ""
-	}
-	base, httpc, err := towerhub.ReachVetted(endpoint, endpointPin, b.canaryVet)
-	if err != nil {
-		log.Printf("%s: tower %s advertises an unusable data plane: %v", d.tag, target.TowerID, err)
-		return nil, reputation.CanaryFail, ""
+	var base string
+	var httpc *http.Client
+	if ts := b.tower; ts != nil && ts.link.Pulls(target.TowerID) {
+		// THE TOWER PULLS (tower_pull_dispatch.feature): the submit rides its own link, so its
+		// hub's address - public, private or none Core can reach - plays no part here.
+		base, httpc = b.pullClient(target.TowerID)
+	} else {
+		if verr := endpointNotPublic(context.Background(), endpoint, b.canaryVet); verr != nil {
+			log.Printf("%s: tower %s endpoint %s skipped: %v (unreachable by design, not a failure)",
+				d.tag, target.TowerID, endpoint, verr)
+			if d.onDesignSkip != nil {
+				d.onDesignSkip()
+			}
+			return nil, "", ""
+		}
+		var err error
+		base, httpc, err = towerhub.ReachVetted(endpoint, endpointPin, b.canaryVet)
+		if err != nil {
+			log.Printf("%s: tower %s advertises an unusable data plane: %v", d.tag, target.TowerID, err)
+			return nil, reputation.CanaryFail, ""
+		}
 	}
 	hc := &towerhub.Client{BaseURL: base, HTTP: httpc}
 	ctx, cancel := context.WithTimeout(context.Background(), d.timeout)
 	defer cancel()
 	res, err := hc.SubmitJob(ctx, grant.Signed, sealedRaw)
+	if errors.Is(err, errPullUnavailable) {
+		// Core's own store failed the hand-over: not the Tower's fault, and nothing to count.
+		log.Printf("%s: tower %s skipped: %v", d.tag, target.TowerID, err)
+		return nil, "", ""
+	}
 	if isDesignSkip(err) {
 		log.Printf("%s: tower %s endpoint %s skipped at dial: %v", d.tag, target.TowerID, endpoint, err)
+		if d.onDesignSkip != nil {
+			d.onDesignSkip()
+		}
 		return nil, "", ""
 	}
 	if err != nil || res.Failure != "" || len(res.Envelope) == 0 || len(res.Receipt) == 0 {

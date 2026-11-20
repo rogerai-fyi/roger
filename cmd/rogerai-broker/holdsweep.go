@@ -60,7 +60,7 @@ func holdSweepInterval(ttl time.Duration) time.Duration {
 
 // releaseStaleHoldsSweep is the deploy-orphan backstop (modeled on recountHoldSweep /
 // nodeBanSweep): on a ticker it reclaims any relay pre-auth hold older than holdTTL - a hold
-// stranded because the relay's deferred release never ran when DO SIGKILLed the instance
+// stranded because the relay's deferred release never ran when the host SIGKILLed the instance
 // mid-redeploy. The store op is atomic + single-actor, so both instances may run it safely.
 // stop is the nil-in-production test seam (a nil channel case never fires).
 func (b *broker) releaseStaleHoldsSweep(stop <-chan struct{}) {

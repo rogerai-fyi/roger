@@ -3,6 +3,11 @@
 node.key
 web/node_modules/
 web/.next/
+web/.svelte-kit/
+web/app/.build/
+web/app/.islands/
+web/test-results/
+web/playwright-report/
 .DS_Store
 .env
 # Internal design/architecture docs: a separate PRIVATE repo

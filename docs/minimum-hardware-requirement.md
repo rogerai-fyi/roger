@@ -222,8 +222,14 @@ numbers in 4.5 are the founder's rather than mine.
 
 ## 5. The Tower is a different machine with different requirements
 
-A Tower needs no GPU and runs no model. Its requirements are a stable address, an exposed
-port, bandwidth, and a **synchronised clock** — and the last one is newly load-bearing.
+A Tower needs no GPU and runs no model. Its requirements are bandwidth, an outbound connection
+to Roger Core, and a **synchronised clock** — and the last one is newly load-bearing.
+
+Since 2026-11-14 a Tower pulls its work over its own outbound link, so it needs no public address
+and no inbound port to carry traffic (`features/tower/tower_pull_dispatch.feature`). The hub's
+address decides only which Stations can reach it: a public address and an open port serve
+Stations anywhere, while a home network address serves the Stations on that network
+(`features/tower/private_hub_placement.feature`).
 
 `roger tower doctor` now checks it, in two independent ways, because they answer different
 questions:

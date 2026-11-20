@@ -22,11 +22,12 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { allPages } from "./_html.mjs";
 
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = path.join(WEB, "src");
 const DIST = path.join(WEB, "dist");
-const PAGES = readdirSync(SRC).filter((f) => f.endsWith(".html")).sort();
+const PAGES = allPages();
 const page = (n) => readFileSync(path.join(DIST, n), "utf8");
 const css = (n) => readFileSync(path.join(SRC, "styles", n), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
 const js = (n) => readFileSync(path.join(SRC, "js", n), "utf8");
@@ -155,10 +156,13 @@ test("the account sub-nav links are 24px targets on every pointer, on every page
     assert.equal(links.length, 1, `${p}: one sub-nav`);
     assert.ok(/<a href="\/[a-z]+\.html">[A-Za-z ]+<\/a>/.test(links[0][1]), `${p}: the sub-nav is a row of links`);
     assert.doesNotMatch(links[0][1], />\s*-\s*</, `${p}: separators are CSS-drawn, never text between the links`);
+    assert.doesNotMatch(links[0][1], /<\/a><a /, `${p}: whitespace between the links (the drawn separator sits in it; an island's each block must write it)`);
     assert.match(h, /href="styles\/account-base\.css\?v=/, `${p}: account-base.css styles the sub-nav`);
   }
   // the fault state keeps the sub-nav in view (it is the page nav), so it must be a real target there too
   assert.match(c, /\.card\.is-fault > \*:not\(h1\)[^{]*:not\(\.acctsubnav\) \{ display: none; \}/);
+  // and it hides the "Signed in as -" subtitle (nothing to name when the feed failed)
+  assert.doesNotMatch(c.match(/\.card\.is-fault > [^{]+\{[^}]*\}/)[0], /:not\(\.sub\)/, "the .sub line is not exempt from the fault-state hiding");
 });
 
 /* ---- 7. focus you can see ------------------------------------------------------------- */

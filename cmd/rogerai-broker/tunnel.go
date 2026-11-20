@@ -3200,7 +3200,8 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 					return edgeCoinForTest()
 				}
 				d, t := edgeSideCapacity(directCap, towerCands[headModel], b.edgeRowCapacity)
-				return edgeCoin(routeSeed, d, t)
+				w := edgeSideWeight(towerCands[headModel], b.edgeRowCapacity, b.towerEdgeWeight)
+				return edgeCoinWeighted(routeSeed, d, t, w)
 			},
 			towers: towerCands,
 		}, now)

@@ -86,6 +86,11 @@ func (b *broker) RunCanary(towerID string) reputation.Outcome {
 		// there is nothing to canary - so nothing is recorded.
 		return ""
 	}
+	// A Tower-carried canary draws on the same budget as every other check of the node behind
+	// it (probe_accounting.feature R4); a spent budget skips it and records nothing.
+	if !b.allowCheck(row.NodeID, "tower") {
+		return ""
+	}
 	// Core is the consumer for a canary, so it holds an ephemeral consumer key - fresh per
 	// probe, so a canary is not tied to a standing account. The SAME key is bound into the
 	// grant and drives the request, so the acknowledgement (if the probe made one) would
@@ -122,7 +127,7 @@ func (b *broker) RunCanary(towerID string) reputation.Outcome {
 		return ""
 	}
 
-	outcome := b.driveSealedCanary(grant, target, endpoint, endpointPin, consumerKey, envPriv)
+	outcome, cause := b.driveSealedCanary(grant, target, endpoint, endpointPin, consumerKey, envPriv)
 	if outcome == "" {
 		// Core could not build the probe out of its own materials. Nobody is at fault but this
 		// process, and an aborted probe is not evidence about anybody - see driveSealedCanary.
@@ -141,12 +146,14 @@ func (b *broker) RunCanary(towerID string) reputation.Outcome {
 	// exactly why none of them may be moved to the Station on the Tower's say-so. The single
 	// exception is a probe that never reached the Tower at all (see driveSealedCanary).
 	b.recordOutcome(towerID, row.StationID, grant.AttemptID, outcome)
+	b.noteCanaryCause(towerID, row.StationID, outcome, cause)
 	// AND IN PROCESS, for placement. This map is not a duplicate of the ledger row above: it is
 	// this instance's own placement reading, deliberately kept out of b.trust and read on the
 	// authorize path with no store round trip - see edgeCanaryHealth for the whole argument.
 	// The DURABLE half is what the probe rotation and the Tower's verdict now read, so a peer's
 	// probes count and a restart forgets nothing that matters.
 	b.recordEdgeCanary(row.StationID, outcome)
+	b.recordTowerHealth(towerID, outcome)
 	b.evaluateTower(towerID)
 	return outcome
 }
@@ -242,12 +249,13 @@ const neverCanariedAge = 1000 * canaryInterval
 // The verdict is one of three things, and the third is new: an empty outcome means the probe
 // never happened and nothing is recorded about anybody, because the only thing that went wrong
 // was inside this process.
-func (b *broker) driveSealedCanary(grant dispatch.EdgeGrant, target dispatch.Target, endpoint, endpointPin string, consumerKey ed25519.PrivateKey, envPriv []byte) reputation.Outcome {
+func (b *broker) driveSealedCanary(grant dispatch.EdgeGrant, target dispatch.Target, endpoint, endpointPin string, consumerKey ed25519.PrivateKey, envPriv []byte) (reputation.Outcome, string) {
 	// The sealed loop itself is shared with the edge bridge (edgebridge.go): one proven
 	// drive, two callers - the canary judges the outcome, the bridge keeps the answer.
-	_, outcome := b.driveSealed(grant, target, endpoint, endpointPin, consumerKey, envPriv,
-		sealedDrive{tag: "canary", body: canaryBodyFor(grant.Model), timeout: canaryTimeout, usageIn: 0})
-	return outcome
+	_, outcome, cause := b.driveSealedF(grant, target, endpoint, endpointPin, consumerKey, envPriv,
+		sealedDrive{tag: "canary", body: canaryBodyFor(grant.Model), timeout: canaryTimeout, usageIn: 0,
+			onDesignSkip: func() { b.noteCanarySkip(target.TowerID, target.StationID) }})
+	return outcome, cause
 }
 
 // canaryTargetFor picks a routable Station with a data plane behind a specific Tower.
@@ -479,15 +487,21 @@ func (b *broker) towerCanarySweepOnce() {
 	if ts == nil || ts.routable == nil {
 		return
 	}
+	// One slot for the whole sweep: the hub checks and canaries below are one round, and a
+	// failing round counts once toward a Tower's streak even if it straddles a slot boundary.
+	start := time.Now()
+	b.sweepSlot.Store(healthSlot(start))
+	defer b.sweepSlot.Store(0)
+	// The Station-free hub check first: it needs no routable Station, so a listing failure
+	// below must not skip it.
+	b.towerHubCheckOnce(start)
 	towers, err := ts.routable.RoutableTowers(time.Now())
 	if err != nil {
 		log.Printf("canary sweep: could not list routable towers: %v", err)
 		return
 	}
 	for _, towerID := range towers {
-		if outcome := b.RunCanary(towerID); outcome == reputation.CanaryFail {
-			log.Printf("canary: tower %s failed", towerID)
-		}
+		b.RunCanary(towerID) // a failure is logged, with its Station, by noteCanary
 	}
 }
 

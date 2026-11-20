@@ -1,0 +1,145 @@
+<script>
+  // How to run a local LLM on your own GPU (free)
+  // Ported from web/src/broadcasts-run-local-llm.html (2026-10-29); the copy is the legacy copy.
+  // A broadcast on the one post layout (lib/ui/BroadcastPost.svelte): the head and the header
+  // from `post`, the FAQ from post.faq (the page and the FAQPage schema from one list), the
+  // body as the post wrote it.
+  import BroadcastPost from "#lib/ui/BroadcastPost.svelte";
+  import Faq from "#lib/ui/Faq.svelte";
+  import Signoff from "#lib/ui/Signoff.svelte";
+  const post = {
+    slug: "broadcasts-run-local-llm",
+    number: "002",
+    title: "How to run a local LLM on your own GPU (free)",
+    heading: "How to run a local LLM on your own GPU",
+    desc: "A plain-English guide to running a local LLM on your own GPU for free: what hardware you need, which open models to pick, how to use it from any OpenAI-compatible app, and how to tune in to a community GPU when yours isn't enough.",
+    dek: "You already own the compute. Here is the plain-English way to turn your GPU into a private, free AI endpoint - what you need, which models fit, and how to plug it into the apps you already use.",
+    date: "2026-07-05",
+    dateLabel: {"text":"JULY 2026","rev":"2026.07"},
+    ogimage: "https://rogerai.fm/og.png",
+    ogdesc: "What you need, which models your GPU can run, and how to use a local LLM from any OpenAI-compatible app - free, no subscription.",
+    faq: [
+      {"q":"Is running a local LLM really free?","a":"Yes. The runtimes and open models are free and open source; you only pay for the electricity your GPU already uses. There is no subscription or per-token charge."},
+      {"q":"What GPU do I need for a local LLM?","a":"Any GPU with 8 GB+ of VRAM runs a capable 7-8B model. 12-16 GB runs 13-14B comfortably; 24 GB runs ~32B or a fast 20B; 48 GB+ handles 70B-class or gpt-oss-120b quantized.","aHtml":"Any GPU with 8&nbsp;GB+ of VRAM runs a capable 7-8B model. 12-16&nbsp;GB runs 13-14B models comfortably; 24&nbsp;GB runs ~32B or a fast 20B; 48&nbsp;GB+ handles 70B-class or gpt-oss-120b quantized."},
+      {"q":"Can I run a local LLM without a GPU?","a":"You can run small models on CPU, but it is slow. A better option is to keep the same OpenAI-compatible workflow and tune in to a community GPU - free models are available on RogerAI."},
+      {"q":"How do I connect a local LLM to my apps?","a":"Point the app at your runtime's OpenAI-compatible URL (for example http://localhost:11434/v1) with any placeholder API key. Tools like aider, open-webui, and the OpenAI SDK need only that base-URL change.","aHtml":"Point the app at your runtime's OpenAI-compatible URL (e.g. <code>http://localhost:11434/v1</code>) with any placeholder API key. Tools like aider, open-webui, and the OpenAI SDK need only that base-URL change."},
+      {"q":"What is the best free local LLM right now?","a":"It depends on your VRAM: Qwen and Llama variants at 7-14B are excellent all-rounders, and gpt-oss (20B or 120B) is strong if you have the memory. Check the RogerAI model directory for what people are actually running.","aHtml":"It depends on your VRAM: Qwen and Llama variants at 7-14B are excellent all-rounders, and gpt-oss (20B / 120B) is strong if you have the memory. Check the <a href=\"/models.html\">model directory</a> for what people are actually running."},
+      {"q":"How do I run a bigger model than my GPU allows?","a":"Use a smaller quantization, or route the request to a bigger GPU without leaving your workflow: roger use <model> proxies to a community node over the same OpenAI API, so your app is unchanged.","aHtml":"Use a smaller quantization, or route the request to a bigger GPU without leaving your workflow: <code>roger use &lt;model&gt;</code> proxies to a community node over the same OpenAI API, so your app is unchanged."},
+    ],
+  };
+</script>
+<BroadcastPost {...post} renderFaq={false} signoff={false}>
+<!-- Field-guide broadcast. SEO/AEO format: Quick Answer + question-H2s + FAQ schema + internal
+     links to /models, /bands, the install command. and listed
+     at the top of broadcasts.html as BROADCAST 002. 
+     (the page's doc comment, from the legacy file; its sheets are the css: list above) -->
+
+
+      <!-- contents: the shared toc-tuner; its names repeat the section labels below -->
+      <nav class="toc-tuner" data-tuner aria-label="Sections">
+        <div class="wrap toc-tuner__band">
+        <div class="toc-tuner__readout" aria-hidden="true"></div>
+        <ol class="toc-tuner__scale">
+          <li><a class="toc-tuner__st" href="#s1"><b>§1</b><span class="toc-tuner__name">THE BASICS</span></a></li>
+          <li><a class="toc-tuner__st" href="#s2"><b>§2</b><span class="toc-tuner__name">THE FREE PATH</span></a></li>
+          <li><a class="toc-tuner__st" href="#s3"><b>§3</b><span class="toc-tuner__name">SIZING</span></a></li>
+          <li><a class="toc-tuner__st" href="#s4"><b>§4</b><span class="toc-tuner__name">WIRING IT UP</span></a></li>
+          <li><a class="toc-tuner__st" href="#s5"><b>§5</b><span class="toc-tuner__name">WHEN YOURS ISN'T ENOUGH</span></a></li>
+          <li><a class="toc-tuner__st" href="#s6"><b>§6</b><span class="toc-tuner__name">FAQ</span></a></li>
+        </ol>
+        <span class="toc-tuner__needle" aria-hidden="true"></span>
+        </div>
+      </nav>
+
+      <!-- QUICK ANSWER: 40-60 words, answered directly. AI engines pull this near-verbatim. -->
+      <blockquote class="bc-answer" data-reveal>
+        <b>Quick answer.</b> To run a local LLM on your own GPU, install a runtime (Ollama,
+        llama.cpp, or LM Studio), download an open model like gpt-oss, Qwen, or Llama, and point
+        any app at its OpenAI-compatible endpoint. A 12-16&nbsp;GB GPU comfortably runs a strong
+        7-14B model; for larger models, or to skip setup, tune in to a community GPU for free.
+      </blockquote>
+
+      <div class="bc-post__body">
+
+        <p class="bc-post__lead" data-reveal>
+          Running a large language model on your own machine means no subscription, no per-token
+          meter, and no prompts leaving your control. The tooling got easy in 2026: if you have a
+          gaming GPU, you can be chatting with an open model in a few minutes.
+        </p>
+
+        <section class="bc-sec" id="s1" data-reveal>
+          <span class="bc-sec__no">&sect;1 &middot; The basics</span>
+          <h2>What do you need to run a local LLM?</h2>
+          <p>
+            Three things: a <b>GPU with enough VRAM</b> (video memory is the real limit, not the
+            chip speed), a <b>runtime</b> that loads the model and speaks the OpenAI API, and an
+            <b>open-weights model</b> file. That is it - no cloud account, no key.
+          </p>
+          <ul class="bc-dial">
+            <li><b>GPU / VRAM.</b> 8&nbsp;GB runs a 7-8B model; 12-16&nbsp;GB runs 13-14B; 24&nbsp;GB runs ~32B or gpt-oss-20b; 48&nbsp;GB+ runs a 70B or gpt-oss-120b quantized.</li>
+            <li><b>Runtime.</b> <b>Ollama</b> (one-command, easiest), <b>LM Studio</b> (a friendly app), or <b>llama.cpp</b> (max control). All expose an OpenAI-compatible <code>/v1/chat/completions</code>.</li>
+            <li><b>Model.</b> Open weights you download once: gpt-oss, Qwen, Llama, Gemma, Mistral. Quantized (Q4/Q5) versions shrink VRAM with little quality loss.</li>
+          </ul>
+        </section>
+
+        <section class="bc-sec" id="s2" data-reveal>
+          <span class="bc-sec__no">&sect;2 &middot; The free path</span>
+          <h2>How do you run a local LLM for free?</h2>
+          <p>
+            Every piece above is free and open source. The fastest route with Ollama:
+          </p>
+          <ul class="bc-dial">
+            <li>Install the runtime, then pull a model: <code>ollama run qwen2.5:7b</code></li>
+            <li>It downloads once and drops you into a chat - fully offline after that.</li>
+            <li>Want a bigger brain? <code>ollama run gpt-oss:20b</code> if your VRAM allows.</li>
+          </ul>
+          <p>
+            The only cost is the electricity your GPU already draws. There is no token meter and
+            no monthly bill.
+          </p>
+        </section>
+
+        <section class="bc-sec" id="s3" data-reveal>
+          <span class="bc-sec__no">&sect;3 &middot; Sizing</span>
+          <h2>Which models can your GPU actually run?</h2>
+          <p>
+            Match the model's parameter count (and quantization) to your VRAM. As a rule of thumb
+            for a Q4 quant: budget roughly 0.6&nbsp;GB of VRAM per billion parameters, plus a couple
+            of GB for context. A 24&nbsp;GB card handles a 32B model or a fast 20B; a 12&nbsp;GB card
+            is happiest around 13-14B. See what real operators are actually serving on the
+            <a href="/models.html">RogerAI model directory</a> for live examples and prices.
+          </p>
+        </section>
+
+        <section class="bc-sec" id="s4" data-reveal>
+          <span class="bc-sec__no">&sect;4 &middot; Wiring it up</span>
+          <h2>How do you use your local model from other apps?</h2>
+          <p>
+            Because the runtime speaks the OpenAI API, almost any tool works. Point it at your
+            local endpoint (usually <code>http://localhost:11434/v1</code> for Ollama) with any
+            placeholder key. Coding assistants like <b>aider</b>, chat UIs like <b>open-webui</b>,
+            and your own code (the OpenAI SDK with a changed <code>base_url</code>) all just work -
+            no code changes beyond the URL.
+          </p>
+        </section>
+
+        <section class="bc-sec" id="s5" data-reveal>
+          <span class="bc-sec__no">&sect;5 &middot; When yours isn't enough</span>
+          <h2>What if your GPU is too small - or you have one to spare?</h2>
+          <p>
+            Two common cases, one tool. If your GPU can't fit the model you want, you can
+            <b>tune in to someone else's</b>: <code>roger use gpt-oss-120b</code> gives you a local
+            OpenAI-compatible proxy backed by a community GPU, with free models on the
+            <a href="/bands.html">band</a> right now. And if you have idle GPU, you can
+            <b>put it on the air</b> with <code>roger share</code> - free for the community, or
+            priced to earn. It is the same OpenAI endpoint, just backed by real hardware you or a
+            neighbor owns. The full walkthrough is in the <a href="/manual.html">operating manual</a>.
+          </p>
+        </section>
+
+        <Faq no={6} items={post.faq} />
+
+        <Signoff lead={"<p>Skip the setup or share your local model - install the set and tune in:</p>"}>curl <span class="tok">-fsSL</span> <span class="tok">https://rogerai.fm/install.sh</span> <span class="tok">| sh</span></Signoff>
+
+      </div>
+</BroadcastPost>

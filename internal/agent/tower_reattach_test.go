@@ -336,8 +336,12 @@ func TestANodeWhoseRelayMovesFollowsItToItsNewAddress(t *testing.T) {
 // is a bounded, visible, recoverable-by-Core state rather than a stranding, and it is the whole
 // of what this branch delivers for this case.
 //
-// Rehoming a live Station is section 6 of docs/relay-selection-design.md and it needs a
-// settle-time fence that does not exist yet. When it lands, THIS test is the one that changes.
+// Rehoming a live Station is section 6 of docs/relay-selection-design.md. It has since landed AT
+// CORE (2026-11-13, features/tower/station_mobility.feature): Core sets the Station dormant, so the
+// node's next attach falls through to placement and lands on a live Tower. This stub models a Core
+// without that, on purpose - it pins what the NODE does when Core cannot answer, which has not
+// changed. The real move is tested end to end in cmd/rogerai-broker/towermobility_test.go and on the
+// node in tower_move_test.go.
 func TestATowerThatStopsExistingIsNotRecoveredByReattaching(t *testing.T) {
 	fastReattach(t, time.Millisecond, 30*time.Second, 50*time.Millisecond, 100*time.Millisecond)
 

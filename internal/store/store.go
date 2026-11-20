@@ -78,6 +78,9 @@ type Store interface {
 	RecentByUser(user string, limit int) ([]Entry, error)
 	// RecentByNode returns a node's most-recent settled requests (newest first).
 	RecentByNode(node string, limit int) ([]Entry, error)
+	// ServedSince counts a node's settled requests from since (unix seconds) on: how many, their
+	// completion tokens, and the owner share they credited. Exact, however many there are.
+	ServedSince(node string, since int64) (served, tokens int64, earned float64, err error)
 	// EntriesByUser returns a user's settled requests within the [since,until) unix
 	// window (newest first). Powers the consumer time-series + savings rollups, which
 	// bucket the receipts by day/hour and model in the handler. Receipt-derived.
@@ -1780,6 +1783,19 @@ func (m *Mem) noteRelayReqLocked(rec protocol.UsageReceipt) {
 
 func (m *Mem) RecentByNode(node string, limit int) ([]Entry, error) {
 	return m.recent(func(e Entry) bool { return e.Node == node }, limit), nil
+}
+
+func (m *Mem) ServedSince(node string, since int64) (served, tokens int64, earned float64, err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, e := range m.entries {
+		if e.Node == node && e.TS >= since {
+			served++
+			tokens += int64(e.CompletionTokens)
+			earned += e.OwnerShare
+		}
+	}
+	return served, tokens, earned, nil
 }
 
 // windowed returns the entries matching pred whose ts is in [since,until), newest

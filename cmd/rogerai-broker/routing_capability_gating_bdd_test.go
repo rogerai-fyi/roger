@@ -149,7 +149,8 @@ func (s *cg1State) cg1Reset() error {
 // cg1Defaults pins the canary's shipped defaults. Moderation stays as the relay harness has
 // it (no classifier is reachable from a test); the capability gate does not depend on its mode.
 func (s *cg1State) cg1Defaults() error {
-	if toolsVerifiedTTL != 45*time.Minute || toolProbeEvery != 20*time.Minute {
+	// 90m since the 2026-11-15 budget ruling: above two 30m probe ceilings.
+	if toolsVerifiedTTL != 90*time.Minute || toolProbeEvery != 20*time.Minute {
 		return fmt.Errorf("tool-call canary defaults changed: ttl=%s every=%s", toolsVerifiedTTL, toolProbeEvery)
 	}
 	return nil

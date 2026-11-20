@@ -22,13 +22,14 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { allPages } from "./_html.mjs";
 
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = path.join(WEB, "src");
 const DIST = path.join(WEB, "dist");
 const css = (name) => readFileSync(path.join(SRC, "styles", name), "utf8");
 const page = (name) => readFileSync(path.join(DIST, name), "utf8");
-const BROADCASTS = readdirSync(SRC).filter((f) => /^broadcasts-.+\.html$/.test(f)).sort();
+const BROADCASTS = allPages().filter((f) => /^broadcasts-.+\.html$/.test(f));
 
 before(() => execFileSync("node", ["build.mjs"], { cwd: WEB }));
 

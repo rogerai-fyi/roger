@@ -59,6 +59,11 @@ running on the host and still ask before anything mutating.
 `roger use` (or the TUI's "tune in") exposes `http://127.0.0.1:4141/v1` with an API key - point
 any OpenAI-compatible tool at it.
 
+**Colors.** `roger config set theme light` gives the app a light page with dark text (`dark`, or
+`auto` to follow your terminal). `roger config set colorblind protan` switches to color-blind safe
+colors (`protan` and `deutan` turn the red highlights blue; `tritan` moves the blue info color to
+magenta). Both switch live in the app with `/theme` and `/colorblind`.
+
 ## Share your GPU (become a provider)
 
 The node **dials OUT** and long-polls the broker for jobs - no inbound ports, no tunnel

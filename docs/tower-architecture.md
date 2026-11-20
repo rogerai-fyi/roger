@@ -162,6 +162,25 @@ attempt ledger exists so that when compensation lands, *which attempt executed, 
 and what its one terminal outcome was* is a fact recorded before the money moves rather than
 something reconstructed from logs when somebody disputes it.
 
+### How work reaches a Tower now (2026-11-14)
+
+The request path above was written for an earlier transport. What runs today: Core seals each
+request to the Station and queues it for the Tower that carries that Station. The Tower picks it
+up by **pull**, over the outbound link it already holds, runs it through its own hub, and posts
+the sealed answer back the same way (`features/tower/tower_pull_dispatch.feature`). Nothing
+connects into a Tower, so no Tower needs a public address to carry traffic. Core makes the same
+hand-over it always made; only who opens the connection changed.
+
+The hub address a Tower advertises now only decides which Stations can reach the hub:
+
+- a **public** address serves Stations anywhere;
+- a **private** address (a home network) serves the Stations Core observes on that same network,
+  and is handed out only with a certificate pin (`features/tower/private_hub_placement.feature`);
+- a loopback address, or none, serves no Station.
+
+Remote Stations reaching a Tower with no public address, and public Towers relaying for the
+pairs that cannot connect directly, are the next two steps.
+
 ## Where each guarantee comes from
 
 | Property | What enforces it |

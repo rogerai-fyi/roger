@@ -4,6 +4,7 @@
 // tuning dial and a pinned stage from here; the founder retired the pinned
 // and sticky pieces ("i don't like the pinned thing on the top"), so nothing
 // on the page is pinned but the site nav. These tests pin both halves.
+import { runtimeScripts, RUNTIME_TAG } from "./_html.mjs";
 import { test, before } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -62,7 +63,8 @@ test("a page opened on #anchor stays on its target while late content above it l
 test("the homepage opts in to the hold by markup", () => {
   const html = dist("index.html");
   assert.match(html, /<main id="top"[^>]*\sdata-anchor-hold[\s>]/);
-  assert.match(html, /<script src="js\/anchor-hold\.js(\?v=[0-9a-f]+)?" defer><\/script>/);
+  assert.match(html, RUNTIME_TAG, "the runtime bundle ships");
+  assert.ok(runtimeScripts().includes("anchor-hold"), "and it carries anchor-hold.js");
 });
 
 test("sections land under the sticky nav, not behind it", () => {

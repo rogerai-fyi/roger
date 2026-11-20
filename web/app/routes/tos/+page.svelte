@@ -1,0 +1,384 @@
+<script>
+  // Terms of Service and Acceptable Use - RogerAI
+  // Ported from web/src/tos.html (2026-10-29); the copy is the legacy copy.
+  import { siteHead, CSS_SHARED, CSS_ACCOUNT } from "#lib/head.js";
+  import Footer from "#lib/ui/Footer.svelte";
+  import Nav from "#lib/ui/Nav.svelte";
+  const head = siteHead({
+    title: 'Terms of Service and Acceptable Use - RogerAI',
+    robots: "noindex",
+    canonical: 'https://rogerai.fm/tos.html',
+    css: [...CSS_SHARED, 'company.css'],
+    scripts: [{ runtime: true }],
+  });
+</script>
+<svelte:head>{@html head}</svelte:head>
+  <Nav variant='marketing' home='/' />
+  <!-- Marketing chrome and a calm reading column (2026-09-24 lift). Presentation
+       only: every sentence and link in <main> is the pre-lift text, pinned word for
+       word by test/company-lift.test.mjs. Any wording change is a legal change. -->
+  <main id="top" class="co-page legal">
+    <div class="wrap">
+    <header class="legal__head">
+    <div class="notice tint-panel">
+      <b>Read this</b> These Terms are written plainly and are a real, binding agreement when
+      you use RogerAI. The service, the site, and all model output are provided <b>"as is"</b>
+      with no warranty, and your use is at your own risk - the detail is in sections 2 and 3.
+      Nothing here is legal advice and these Terms are not a substitute for advice from your
+      own lawyer. If you have legal questions about your own use, consult your own counsel.
+    </div>
+    <h1>Terms of Service and Acceptable Use</h1>
+    <p class="sub">The agreement between you and RogerAI ("we", "us"). By using the site, the
+      CLI, the broker, or by going on air as an operator, you accept these Terms. If you do
+      not agree, do not use the service. Last updated 2026-09 (the operating entity is now RogerAI,&nbsp;Inc., a Delaware corporation).
+      Money, payout, dispute, and refund terms are in sections 7 to 10; metering,
+      billing-integrity, and anti-abuse terms are in section 11.</p>
+    </header>
+
+    <nav class="page-index tint-panel legal__index" aria-label="Sections">
+      <ol>
+        <li><a class="page-index__link" href="#what-rogerai-is">1. What RogerAI is</a></li>
+        <li><a class="page-index__link" href="#output-provided-as">2. Output is provided "as is" - no warranty</a></li>
+        <li><a class="page-index__link" href="#limitation-liability">3. Limitation of liability</a></li>
+        <li><a class="page-index__link" href="#responsibilities-indemnification">4. Your responsibilities and indemnification</a></li>
+        <li><a class="page-index__link" href="#acceptable-use-policy">5. Acceptable Use Policy</a></li>
+        <li><a class="page-index__link" href="#intellectual-property-dmca">6. Intellectual property and DMCA</a></li>
+        <li><a class="page-index__link" href="#money-wallet-top">7. Money: wallet, top-ups, and refunds</a></li>
+        <li><a class="page-index__link" href="#operator-earnings-platform">8. Operator earnings, the platform fee, and payouts</a></li>
+        <li><a class="page-index__link" href="#disputes-chargebacks-clawbacks">9. Disputes, chargebacks, and clawbacks</a></li>
+        <li><a class="page-index__link" href="#marketplace-roles-operators">10. Marketplace roles: operators and consumers</a></li>
+        <li><a class="page-index__link" href="#metering-billing-integrity">11. Metering, billing integrity, and anti-abuse</a></li>
+        <li><a class="page-index__link" href="#termination">12. Termination</a></li>
+        <li><a class="page-index__link" href="#data-deletion">13. Data and deletion</a></li>
+        <li><a class="page-index__link" href="#changes-these-terms">14. Changes to these Terms</a></li>
+        <li><a class="page-index__link" href="#governing-entity-law">15. Governing entity, law, and disputes</a></li>
+      </ol>
+    </nav>
+
+    <div class="legal__body">
+
+    <section class="legal__sec">
+      <h2 id="what-rogerai-is">1. What RogerAI is</h2>
+      <p>RogerAI is a marketplace and relay. It helps consumers discover self-hosted,
+        third-party "node" operators running large language models on their own hardware, and
+        it settles pay-per-token between the two sides. <b>We do not run the models that serve
+        your requests, and we do not produce the output.</b> Node operators are independent
+        third parties, not our employees or agents. We relay requests and responses, meter
+        usage, and settle payment; we do not control what a node returns.</p>
+      <p><b>Towers.</b> Some requests reach a node through an independent third-party
+        <b>Tower</b> - a relay operator who provides network reach and bandwidth so a node need
+        not connect to us directly. A Tower cannot read the content it relays. When your request
+        is served through a Tower, it is billed to your wallet exactly like any other request
+        (section 7), and the Tower operator earns a share of the request for the traffic they
+        carried, paid out of RogerAI's platform fee (section 8). <b>Tower-relayed inference requires a signed-in account</b> - see
+        section 7.</p>
+    </section>
+
+    <section class="legal__sec">
+      <h2 id="output-provided-as">2. Output is provided "as is" - no warranty</h2>
+      <p><b>This is important because we relay third-party output.</b> The service, the site,
+        the CLI, the broker, and all model output are provided <b>"as is" and "as
+        available", without warranties of any kind</b>, whether express, implied, or
+        statutory - including the implied warranties of merchantability, fitness for a
+        particular purpose, accuracy, and non-infringement. We do not warrant that output is
+        correct, complete, current, safe, lawful, or fit for any purpose. <b>Model output can
+        be wrong, biased, or harmful. You are responsible for reviewing and verifying any
+        output before you rely on it</b>, and for any decision you make based on it. RogerAI
+        does not endorse, adopt, or take responsibility for content produced by a node.</p>
+    </section>
+
+    <section class="legal__sec">
+      <h2 id="limitation-liability">3. Limitation of liability</h2>
+      <p>To the maximum extent permitted by law, RogerAI and its operators will not be liable
+        for any indirect, incidental, special, consequential, exemplary, or punitive damages,
+        or for any loss of profits, revenue, data, goodwill, or other intangible losses,
+        arising out of or relating to your use of (or inability to use) the service or any
+        model output - even if we have been advised of the possibility. To the maximum extent
+        permitted by law, our total aggregate liability for all claims relating to the service
+        is limited to the greater of (a) the amount you paid us for the service in the three
+        months before the event giving rise to the claim, or (b) USD 100. Some jurisdictions
+        do not allow certain limitations, so some of these may not apply to you.</p>
+    </section>
+
+    <section class="legal__sec">
+      <h2 id="responsibilities-indemnification">4. Your responsibilities and indemnification</h2>
+      <p>You are responsible for your use of the service, for everything you send through it,
+        and for complying with all laws that apply to you. You agree to <b>indemnify and hold
+        harmless</b> RogerAI and its operators from any claim, demand, loss, or expense
+        (including reasonable legal fees) arising from your use of the service, your content
+        or prompts, your output use, your breach of these Terms or the Acceptable Use Policy
+        below, or your violation of any law or third-party right. If you operate a node, you
+        are additionally responsible for the lawfulness of running your hardware and for the
+        output your node produces.</p>
+    </section>
+
+    <section class="legal__sec">
+      <h2 id="acceptable-use-policy">5. Acceptable Use Policy</h2>
+      <p>You must not use RogerAI - as a consumer or as an operator - to do, attempt, enable,
+        or encourage any of the following. Violations can result in immediate suspension or
+        termination, withheld or reversed payouts, and referral to law enforcement.</p>
+      <ul class="tos-list">
+        <li><b>Child sexual abuse material (CSAM) and child exploitation.</b> Zero tolerance.
+          Any apparent CSAM is reported to the appropriate authorities and the account is
+          terminated.</li>
+        <li><b>Illegal content or activity.</b> Anything unlawful where you or the operator
+          are, including transactions with sanctioned jurisdictions or parties.</li>
+        <li><b>Harassment, threats, and abuse.</b> Targeted harassment, threats of violence,
+          or content that incites or facilitates serious harm to others.</li>
+        <li><b>Malware and intrusion.</b> Creating or distributing malware, ransomware, or
+          exploits; phishing; or using the service to attack, scan, or gain unauthorized
+          access to any system.</li>
+        <li><b>Spam and abuse of the platform.</b> Bulk unsolicited messaging, fraud, fake
+          accounts, scraping that degrades the service, or evading rate limits, billing, or
+          metering.</li>
+        <li><b>Intellectual-property infringement.</b> Infringing copyright, trademark, trade
+          secret, or other IP rights (see DMCA below).</li>
+        <li><b>Privacy violations.</b> Collecting, exposing, or processing personal data
+          without a lawful basis, or using the service to surveil or dox people.</li>
+        <li><b>Attacks on the network or its anonymity.</b> Attempting to deanonymize
+          operators or consumers, to correlate pseudonyms to real identities, to subvert the
+          confidential tier or attestation, to forge lineage receipts, or to otherwise attack,
+          overload, or destabilize the network.</li>
+        <li><b>Content an operator has not opted into.</b> Operators may set their own
+          additional limits; respect them.</li>
+      </ul>
+      <p><b>Reporting.</b> If you encounter a violation, a misbehaving station, or content that
+        breaks this policy, report it: use the report control on the
+        <a href="/models.html">Models</a> directory (it posts to our broker), email
+        <a href="mailto:abuse@rogerai.fm">abuse@rogerai.fm</a>, or see the
+        <a href="/security.html">Security</a> page. We act on reports, and a station's record
+        follows it.</p>
+      <p><b>Pre-dispatch safety screen.</b> Before a prompt is relayed to a node, its text is
+        screened by a moderation model so we can refuse content this policy prohibits. That
+        screen is transient and runs in transit; how it handles prompt content is described in
+        the <a href="/privacy.html">Privacy</a> page. We may pause, refuse, or terminate on a
+        safety, sanctions, or fraud signal.</p>
+    </section>
+
+    <section class="legal__sec">
+      <h2 id="intellectual-property-dmca">6. Intellectual property and DMCA</h2>
+      <p>The RogerAI name, site, and software are ours or our licensors'; the software is made
+        available under the license stated in the repository (PolyForm Perimeter 1.0.0). You
+        keep whatever rights you have in your own prompts and content. We claim no ownership of
+        your prompts or of model output as between you and us; rights in output may depend on
+        applicable law and the underlying model's terms.</p>
+      <p>We respond to valid notices of claimed copyright infringement. Send a notice with the
+        information required by the DMCA (identify the work and the infringing material, your
+        contact details, a good-faith statement, and a statement under penalty of perjury) to
+        <a href="mailto:abuse@rogerai.fm">abuse@rogerai.fm</a>. We may remove material and
+        terminate repeat infringers.</p>
+    </section>
+
+    <section class="legal__sec">
+      <h2 id="money-wallet-top">7. Money: wallet, top-ups, and refunds</h2>
+      <p><b>How payment works.</b> RogerAI runs on a prepaid wallet of credits. You add credits
+        by topping up through <b>Stripe Checkout</b> with a card; one credit equals one US
+        dollar. As you send paid requests, the cost is metered per token and debited from your
+        wallet balance (see section 11). <b>Stripe is the payments provider and the regulated
+        money services business that moves the funds.</b> RogerAI never takes custody of your
+        money outside Stripe, and your card details never reach our servers - Stripe holds all
+        of that.</p>
+      <p><b>Credits are a prepaid balance, not a deposit or stored-value instrument.</b> Credits
+        have no cash value except to pay for usage on RogerAI, do not earn interest, are not
+        transferable between accounts, and are not redeemable for cash by a consumer.</p>
+      <p><b>Tower-relayed inference.</b> A request served through a Tower (section 1) is metered
+        and debited from your wallet on the same terms as any other request, and the same
+        automatic protections apply. Because this traffic is charged, <b>you must be signed in to
+        an account to use it</b>: signing in is where you accept these Terms, and an unauthenticated
+        key cannot be served or billed. When you are signed in and send such a request, you
+        authorize us to reserve and then charge your wallet for it.</p>
+      <p><b>Refund policy.</b> Top-ups buy a service that is delivered as you spend, so top-ups
+        are <b>generally non-refundable</b> once credited, except where a refund is required by
+        law or where we choose to grant one at our discretion. Two automatic protections still
+        apply in your favor: (a) a request that produces no usable generated output is not
+        charged at all, and any provisional charge for it is voided and returned to your wallet
+        (section 11); and (b) you keep your statutory chargeback and dispute rights with your
+        card issuer (section 9). If you believe you were charged in error, contact
+        <a href="mailto:billing@rogerai.fm">billing@rogerai.fm</a> before opening a card
+        dispute and we will try to resolve it. We may, at our discretion, refund an unspent
+        wallet balance to the original payment method, less any amount already spent, held, or
+        clawed back.</p>
+      <p><b>Promotional credits.</b> A new account may receive a one-time promotional starter
+        credit. Promotional credits are a courtesy, are not purchased, carry no cash value, are
+        never refundable or payable as cash, and may be expired, reduced, or withdrawn at any
+        time - including if we determine they were obtained through duplicate or abusive
+        accounts (section 11).</p>
+    </section>
+
+    <section class="legal__sec">
+      <h2 id="operator-earnings-platform">8. Operator earnings, the platform fee, and payouts</h2>
+      <p><b>The split.</b> When an operator's node serves a paid request, the operator earns
+        <b>90%</b> of the metered cost of that request and RogerAI retains <b>10%</b> as its
+        platform fee. The 90/10 split is applied to RogerAI's authoritative metered figure
+        (section 11). We may change the fee for future usage with notice; the fee in effect when
+        a request is served governs that request's earning.</p>
+      <p><b>Tower operators.</b> When a request is relayed to a node through a Tower (section 1),
+        the Tower operator earns a <b>revenue share of that request</b> - currently <b>5% of the
+        metered cost</b> - as compensation for the network reach and bandwidth they provided. This
+        share comes out of RogerAI's platform fee (RogerAI keeps <b>5%</b> of a relayed request
+        instead of 10%), not the serving node's <b>90%</b> earning or your metered cost: the
+        consumer pays the same and the node earns the same whether or not a Tower carried the
+        traffic. A Tower operator's earning moves through the same
+        lifecycle, hold, payout, and clawback rules as a node operator's, and requires the same
+        Stripe Connect onboarding and KYC before any payout. We may change the Tower revenue-share
+        rate for future usage with notice; the rate in effect when a request is served governs
+        that request's earning. Merely enrolling a Tower earns nothing - only relaying paid,
+        verified, funded traffic does.</p>
+      <p><b>Earnings lifecycle.</b> An earning moves through <b>accrued &rarr; held &rarr;
+        payable &rarr; paid</b>. Each earning's principal (90%) is <b>held for 30 days</b> from the request's
+        settlement before it becomes payable. <b>Why the hold exists:</b> a consumer card charge
+        can be disputed or reversed for up to roughly 120 days after it is made (longer on some
+        reason codes), and the platform is liable for that reversal (section 9). A <b>10%
+        reserve slice of each earning stays held until day 90</b>, covering the realistic
+        dispute tail; holding that slice means a reversed
+        charge can almost always be clawed back from a still-held earning <b>before the money has
+        left Stripe</b>, rather than chased from an operator after payout. We do not withhold a
+        separate rolling reserve; the hold is the reserve.</p>
+      <p><b>Payout terms.</b> Payouts run through <b>Stripe Connect</b> and require the operator
+        to complete <b>Stripe Connect onboarding and identity verification (KYC)</b> - the
+        transfers capability on the connected account must be active before any money moves out.
+        A payable balance must reach a <b>$25 minimum</b> before a payout can be requested, and
+        payable balances are released on a <b>monthly</b> batch. Payouts go only to the
+        operator's own KYC-verified connected account.</p>
+      <p><b>Who moves the money.</b> RogerAI uses Stripe Connect with separate charges and
+        transfers: consumers are charged by Stripe, and operator earnings are sent to operators
+        as Stripe Transfers to their connected accounts. <b>Stripe is the regulated money
+        services business and the entity that holds and transmits funds.</b> RogerAI is a
+        technology platform and marketplace that instructs Stripe; it is not a bank and is not
+        itself a money transmitter, and it does not hold customer funds. (See the founder/lawyer
+        note at the end - the money-transmission classification is a matter for counsel.)</p>
+      <p><b>Taxes are the operator's responsibility.</b> Operator earnings are income to the
+        operator. <b>You, the operator, are solely responsible for determining, reporting, and
+        paying any taxes on your earnings.</b> Depending on your jurisdiction and the amounts
+        involved, Stripe and/or RogerAI may be required to collect tax information from you and
+        to issue an information return (for example a US Form 1099) and report your earnings to
+        the relevant tax authority. You agree to provide the tax and identity information needed
+        to pay you and to meet these reporting obligations; we may withhold a payout until you
+        do.</p>
+    </section>
+
+    <section class="legal__sec">
+      <h2 id="disputes-chargebacks-clawbacks">9. Disputes, chargebacks, and clawbacks</h2>
+      <p><b>Your card rights.</b> Nothing in these Terms takes away the dispute or chargeback
+        rights you have with your card issuer. If you do not recognize a charge, you may dispute
+        it. We ask only that you contact <a href="mailto:billing@rogerai.fm">billing@rogerai.fm</a>
+        first so we can fix a genuine error directly.</p>
+      <p><b>Platform liability and clawback.</b> RogerAI is the merchant of record for card
+        charges and is liable to the card networks for chargebacks. When a consumer charge is
+        reversed, the credits it funded are reversed from the consumer's wallet, and the earnings
+        that charge funded are <b>clawed back from the operator</b>: first from the operator's
+        still-held or payable earnings, and, if the earning has already been paid out, by a
+        <b>Stripe Transfer Reversal</b> against the operator's connected account. Any disputed
+        amount that cannot be recovered from the responsible operator's earnings is a loss the
+        platform absorbs rather than charging it to unrelated operators.</p>
+      <p><b>Fraudulent usage and earnings can be voided.</b> Usage or earnings that we determine
+        are fraudulent, abusive, wash, self-dealing, or otherwise in breach of these Terms or the
+        Acceptable Use Policy may be <b>voided</b>, and any payout tied to them withheld or
+        reversed, even after the hold has cleared - this ties to the anti-abuse terms in section
+        11. We may pause payouts or accounts on a sanctions, fraud, or dispute-risk signal.</p>
+    </section>
+
+    <section class="legal__sec">
+      <h2 id="marketplace-roles-operators">10. Marketplace roles: operators and consumers</h2>
+      <p><b>If you operate a node, you agree to:</b> serve requests honestly and as advertised;
+        accept that RogerAI's independent token metering is authoritative for both what a consumer
+        is charged and what you earn (section 11); price within the platform's published ceilings;
+        not run abusive, wash, or self-dealing traffic; and take responsibility for the lawfulness
+        of running your hardware and for the output your node produces. You are an independent
+        third party, not an employee or agent of RogerAI. RogerAI does not guarantee you any volume
+        of requests or any level of earnings.</p>
+      <p><b>If you are a consumer, you understand that:</b> you pay per token for what you use; the
+        models are run by independent third-party operators, not by RogerAI; <b>RogerAI does not
+        guarantee that any particular operator, model, station, or uptime will be available</b>, and
+        an operator can go offline at any time; and you are responsible for your prompts, for your
+        use of the output, and for verifying output before relying on it (sections 2 and 4).</p>
+      <p><b>Content-blind, pseudonymous marketplace.</b> RogerAI relays and settles between the two
+        sides without reading the content of settled requests, and identities on the network are
+        pseudonymous. Operators do not learn a consumer's real identity from a request, and
+        consumers do not learn an operator's, beyond what each chooses to publish. How prompt
+        content and identity are handled is described in the <a href="/privacy.html">Privacy</a>
+        page; the integrity and anti-abuse controls in section 11 operate on token counts and
+        integrity signals, not on message content.</p>
+    </section>
+
+    <section class="legal__sec">
+      <h2 id="metering-billing-integrity">11. Metering, billing integrity, and anti-abuse</h2>
+      <p><b>How usage is measured.</b> RogerAI independently measures the token utilization of
+        every request - both the input you send and the output a node returns - using its own
+        measurement tools. <b>RogerAI's measurement is authoritative.</b> A node's self-reported
+        counts are advisory. Where a node's reported counts differ from RogerAI's measurement,
+        we adjust the billed usage, the cost charged to the consumer, and the operator's
+        earnings to RogerAI's measured figure - resolved to the platform's benefit, billed and
+        earned on the lesser of the two counts on each of input and output. We log every such
+        discrepancy for audit and quality.</p>
+      <p><b>No charge for non-generated output.</b> A request that produces no usable generated
+        output - an error response, an empty response, or an otherwise unfulfilled completion -
+        is not charged to the consumer. Any provisional or pre-authorized charge is voided and
+        refunded in full, and no operator earning accrues for it, regardless of the input the
+        request consumed.</p>
+      <p><b>Anti-abuse.</b> You must not attempt to inflate token counts, misreport input
+        against output, extract value without delivering usable output, run wash or self-dealing
+        traffic, or otherwise game the platform's pricing, earnings, or metrics. These are
+        violations of the Acceptable Use Policy. On detection we may issue a warning; withhold
+        or void the affected usage and earnings; suspend payouts; and suspend or ban the account
+        and its operator. <b>A ban attaches to the operator's account and KYC payout identity,
+        not merely to a single node identifier</b>, and it propagates to current and future
+        nodes operated under that identity. We make the supporting evidence - signed receipts
+        and our own measurements - available to the affected user.</p>
+      <p><b>Reservation of rights.</b> RogerAI reserves the right to void fraudulent or anomalous
+        usage and earnings, to withhold or reverse payouts tied to them, and to refuse, pause,
+        or terminate service for abuse. Consistent with our privacy posture, the broker remains
+        content-blind for this purpose: integrity enforcement relies on token counts and
+        integrity signals, not on the content of your messages. See the
+        <a href="/privacy.html">Privacy</a> page for how prompt content is handled.</p>
+    </section>
+
+    <section class="legal__sec">
+      <h2 id="termination">12. Termination</h2>
+      <p>You may stop using the service at any time and delete your account from the
+        <a href="/account.html">Account</a> page. We may suspend or terminate access - with or
+        without notice where the law allows - for a breach of these Terms or the Acceptable
+        Use Policy, for a safety/sanctions/fraud signal, or to comply with law. Provisions
+        that by their nature should survive termination (warranty disclaimer, limitation of
+        liability, indemnification, IP, governing law) survive.</p>
+    </section>
+
+    <section class="legal__sec">
+      <h2 id="data-deletion">13. Data and deletion</h2>
+      <p>You can export your data and delete your account from the
+        <a href="/account.html">Account</a> page. Deletion is a soft delete that anonymizes your
+        identity - your GitHub id, your Apple identifier, your login, your name and your email
+        address are removed or scrambled, and no sign-in route can reach the account again - but
+        retains
+        de-identified financial records for a legal retention window of up to 7 years, as required
+        by tax and anti-money-laundering rules. Account deletion is blocked while you hold a wallet
+        balance, unpaid earnings, or an open dispute. See the <a href="/privacy.html">Privacy</a>
+        page for what we collect and how prompt content is handled.</p>
+    </section>
+
+    <section class="legal__sec">
+      <h2 id="changes-these-terms">14. Changes to these Terms</h2>
+      <p>We may update these Terms as the service evolves. Material changes
+        will be reflected by an updated date at the top. Continuing to use the service after a
+        change means you accept the updated Terms.</p>
+    </section>
+
+    <section class="legal__sec">
+      <h2 id="governing-entity-law">15. Governing entity, law, and disputes</h2>
+      <p><b>Who you are contracting with.</b> The RogerAI service is operated by
+        <b>RogerAI,&nbsp;Inc., a Delaware corporation</b>, operating from Orange County,
+        California, USA ("RogerAI", "we", "us").
+        References in these Terms to RogerAI mean that entity and its operators.</p>
+      <p>These Terms are governed by the laws of <b>the State of California, USA</b>,
+        without regard to conflict-of-laws rules. The parties will first try to resolve any
+        dispute informally by contacting <a href="mailto:legal@rogerai.fm">legal@rogerai.fm</a>.
+        Disputes that cannot be resolved informally will be brought in the state or federal
+        courts located in <b>Orange County, California, USA</b>, unless applicable law gives
+        you a non-waivable right to another forum.</p>
+    </section>
+
+    <p class="fine"><a href="/privacy.html">Privacy</a> - <a href="/security.html">Security</a> - <a href="/account.html">Account</a> - <a href="/payouts.html">Payouts</a></p>
+    </div>
+    </div>
+  </main>
+  <Footer anchors='/' />

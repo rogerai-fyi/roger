@@ -57,7 +57,8 @@ test("new browser surfaces use the branded broker while the CSP permits both com
 });
 
 test("new public remote links use rogerai.fm and the mobile association remains direct", () => {
-  const remote = readFileSync(path.join(SRC, "js/r.js"), "utf8");
+  // the link handler is an island over the one broker client (app/lib/api.js)
+  const remote = readFileSync(path.join(SRC, "..", "app", "lib", "api.js"), "utf8");
   assert.match(remote, /https:\/\/broker\.rogerai\.fm/);
   const association = readFileSync(path.join(SRC, ".well-known/apple-app-site-association"), "utf8");
   const parsed = JSON.parse(association);

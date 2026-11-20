@@ -1,0 +1,52 @@
+name: web
+# The site's own suite, the way make web-gate runs it locally: the guard suite over the built
+# site and the sources (node:test), the islands' component tests (vitest), then the browser
+# flows (Playwright, Chromium) over the built site. Runs on every push and pull request that
+# touches web/ (or this workflow), so a page can never regress its copy, its weight budget,
+# its a11y or honesty guards, or an island's behavior without the check going red.
+on:
+  push:
+    paths:
+      - "web/**"
+      - ".github/workflows/web.yml"
+  pull_request:
+    paths:
+      - "web/**"
+      - ".github/workflows/web.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: web-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: toolchain (pinned devDependencies)
+        run: npm ci --no-audit --no-fund
+      # the guard suite builds the site itself (test/*.test.mjs call build.mjs), then vitest
+      - name: guards + component tests
+        run: npm test
+      - name: browser
+        run: npx playwright install --with-deps chromium
+      - name: browser flows
+        run: npm run test:e2e
+      - name: keep the report when a flow fails
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: web/playwright-report
+          retention-days: 7

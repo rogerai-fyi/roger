@@ -12,6 +12,7 @@ const DIST = path.join(WEB, "dist");
 before(() => execFileSync("node", ["build.mjs"], { cwd: WEB }));
 
 function walk(dir, exts) {
+  if (/\/app\/\.(build|islands|svelte-kit)$|\/node_modules$/.test(dir)) return [];
   const out = [];
   for (const name of readdirSync(dir)) {
     const p = path.join(dir, name);
@@ -35,8 +36,10 @@ function walk(dir, exts) {
 // character, and only checking one is how a rule like this quietly stops working.
 const EM = /—|&mdash;/;
 
+const APP = path.join(WEB, "app");
 test("no em dash anywhere in the site source", () => {
-  const files = walk(SRC, new Set([".html", ".css", ".js", ".md", ".json", ".svg", ".txt"]));
+  const files = [...walk(SRC, new Set([".html", ".css", ".js", ".md", ".json", ".svg", ".txt"])),
+    ...walk(APP, new Set([".html", ".css", ".js", ".md", ".json", ".svg", ".txt", ".svelte"]))];
   const bad = [];
   for (const f of files) {
     const body = readFileSync(f, "utf8");
@@ -51,8 +54,11 @@ test("no em dash anywhere in the site source", () => {
 // The built output is what people actually receive, and it includes files that are
 // copied rather than templated - the .md notes under assets/ ship publicly and were the
 // last place em dashes survived, precisely because nobody thinks of them as "the site".
+// _app/ (component stylesheets) and js/islands/ (island bundles) are built from app/ source
+// swept above plus the vendored Svelte runtime, which is not our copy.
 test("no em dash anywhere in the built site", () => {
-  const files = walk(DIST, new Set([".html", ".css", ".js", ".md", ".txt"]));
+  const files = walk(DIST, new Set([".html", ".css", ".js", ".md", ".txt"]))
+    .filter((f) => !/\/dist\/(_app|js\/islands)\//.test(f));
   const bad = [];
   for (const f of files) {
     const body = readFileSync(f, "utf8");

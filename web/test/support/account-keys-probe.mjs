@@ -1,4 +1,4 @@
-// account-keys-probe: runs the keys page's account-keys module (src/js/account-keys.js) in node
+// account-keys-probe: runs the keys page's account-keys module (app/lib/keys/accountKeys.js) in node
 // against a real broker, for the Go scenarios in features/auth/key_guardrails.feature
 // (cmd/rogerai-broker/key_web_bdd_test.go). It is not a test of its own and is not in the
 // web suite's glob. The browser's cookie jar and Origin are the two things node lacks, so the
@@ -7,12 +7,7 @@
 //   node account-keys-probe.mjs list   -> { ids, html }      the section's rows
 //   node account-keys-probe.mjs mint   -> { secret, html }   the one-time reveal
 //   node account-keys-probe.mjs flow   -> { secret, calls }  list, mint, edit x2, revoke
-import { readFileSync } from "node:fs";
-
-const src = readFileSync(new URL("../../src/js/account-keys.js", import.meta.url), "utf8");
-const mod = { exports: {} };
-new Function("module", "window", src)(mod, undefined);
-const A = mod.exports;
+import * as A from "../../app/lib/keys/accountKeys.js";
 
 const { BROKER, COOKIE, ORIGIN } = process.env;
 const calls = [];

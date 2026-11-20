@@ -86,6 +86,8 @@ type broker struct {
 	localPollAt map[string]time.Time
 	// cancels is the job-cancel fallback used ONLY without a shared store (jobcancel.go).
 	cancels cancelLocal
+	// pulls is the single-instance fallback for Tower pull dispatch (towerpull.go).
+	pulls pullLocal
 	// localJobs marks the jobs THIS instance handed to a local poller because the shared store
 	// was down, so their result and stream chunks are read back in memory rather than routed
 	// through the store (storeoutage.go). Per-request and per-instance by nature: the job never
@@ -191,6 +193,31 @@ type broker struct {
 	// totalLat is each node's total-latency EWMA in ms (totallatency.go), guarded by metricsMu;
 	// merged from the shared store on the sync loop when one is wired.
 	totalLat map[string]float64
+	// moveStreaks and towerObsAt are the mobility pass's in-memory state (towermobility.go):
+	// each Station's run of fresh observations and the last health sample counted per Tower,
+	// under moveMu. Held by the instance that owns the Tower's link, never shared.
+	// houseOwners caches whether a Tower owner's login is a house account (towerplacement.go).
+	houseMu     sync.Mutex
+	houseOwners map[string]houseOwnerEntry
+	// stageCache is each Tower's trust stage for stageCacheTTL (towerstage.go), under stageMu.
+	stageMu     sync.Mutex
+	stageFlight singleflight.Group
+	stageGen    map[string]uint64 // bumped by every write that can change a stage
+	stageCache  map[string]cachedStage
+	// absentSince is when each Tower's absence from the live set began, as this instance knows
+	// it (towermobility.go), under moveMu.
+	absentSince   map[string]time.Time
+	mobilitySince time.Time // when this process's mobility pass first ran
+	moveMu        sync.Mutex
+	moveStreaks   map[string]moveStreak
+	towerObsAt    map[string]time.Time
+	// sweepSlot is the health slot of the canary sweep running now (0 = none), so its hub
+	// checks and canaries count as one round (towerhubcheck.go).
+	sweepSlot atomic.Int64
+	// hubCheckAt is when this instance last hub-checked each Tower (towerhubcheck.go), under
+	// hubCheckMu.
+	hubCheckMu sync.Mutex
+	hubCheckAt map[string]time.Time
 	// netTable is the operator's network-to-continent table (netcontinent.go); nil = none.
 	// netTableErr is why a configured table was refused ("" = none).
 	netTable    *netTable
@@ -212,6 +239,23 @@ type broker struct {
 	// the verdict itself: the verdict says what we believe, this says when we last checked.
 	// Guarded by metricsMu. Keyed by toolKey(node, model).
 	toolProbeAt map[string]time.Time
+	// toolFails is the tool-call back-off of a model that has not earned "tools": how many
+	// checks in a row went without a pass, and when the last one ran (probe_accounting.feature
+	// R3). Kept across a node's prune and re-register. Guarded by metricsMu, keyed by toolKey.
+	toolFails map[string]toolBackoffState
+	// checkMu guards the single-instance check budget and the probe-sharing state below.
+	checkMu sync.Mutex
+	// checkTimes is this instance's own window of checks sent per node, the budget when no
+	// shared store answers (probe_accounting.feature R4).
+	checkTimes map[string][]time.Time
+	// probeLost is when this instance last lost a node's probe lease to a peer; probeApplied
+	// is the newest peer result it has taken for the node (unix ms). R2.
+	probeLost    map[string]time.Time
+	probeApplied map[string]int64
+	// ageCheckAt rate-limits looking up an ageing node's shared reading (takeAgeingReadings).
+	ageCheckAt map[string]time.Time
+	// servedReadAt throttles a node's read of its own record when no shared store answers.
+	servedReadAt map[string]time.Time
 	// toolsMerged is the cross-instance UNION of verified (node,model) tool-call bits, refreshed
 	// from the shared store on the sync loop (syncToolsVerified) - the EMISSION source in
 	// multi-instance mode. Keeping it a merged snapshot (not the raw shared read) keeps the hot
@@ -293,7 +337,7 @@ type broker struct {
 	recount   recountConfig // L1 independent token re-count (`rogerai-broker tokenizer`)
 	probe     probeConfig   // active canary + latency probe
 
-	// shared is the optional cross-instance state layer (DO Valkey via
+	// shared is the optional cross-instance state layer (a managed Valkey via
 	// ROGERAI_REDIS_URL). nil = the default + the fallback: purely in-memory, ZERO
 	// behavior change. When set, the SAFE state is mirrored to Valkey so multiple
 	// broker instances share it: the anon/concierge rate-limit buckets and node
@@ -321,7 +365,7 @@ type broker struct {
 	// provider long-polling a PEER instance, and the result/stream flows back over the
 	// Valkey bus to this (originating) instance, which relays it to the waiting consumer.
 	// It is gated behind ROGERAI_MULTI_INSTANCE=1 AND requires a wired shared backend
-	// (ROGERAI_REDIS_URL); UNSET (the default + the DO single-instance deploy) leaves it
+	// (ROGERAI_REDIS_URL); UNSET (the default + a single-instance deploy) leaves it
 	// false and EVERY relay/poll/stream path uses the in-memory channels EXACTLY as
 	// today (byte-for-byte, zero allocation). When true, the relay dispatch, the poll,
 	// the non-stream result, and the SSE stream all additionally go over the bus so the
@@ -352,6 +396,14 @@ type broker struct {
 	// Random per process - reset-on-restart is fine (a crashed instance's stale field
 	// ages out via inflightTTL). Empty when multi-instance is off.
 	instanceID string
+
+	// towerRefusals paces refused-Tower-request logging and recording, and towerLinkState
+	// spares heartbeats a database read (towergov.go).
+	towerRefusals  refusalLimiter
+	towerLinkState linkStateCache
+	towerGovFail   pacer
+	towerLogPace   logPacer
+	towerAdmitted  admittedSet
 
 	// stats are the low-overhead, lock-free MULTI-INSTANCE dispatch counters (local vs.
 	// cross-instance bus dispatch, no-poller, and bus errors) surfaced read-only on the
@@ -483,7 +535,7 @@ type broker struct {
 	recountHoldDays int
 
 	// holdTTL bounds how long a relay pre-auth hold may live before the backstop sweep
-	// (releaseStaleHoldsSweep) reclaims it: a hold stranded because DO SIGKILLed the
+	// (releaseStaleHoldsSweep) reclaims it: a hold stranded because the host SIGKILLed the
 	// instance mid-redeploy before its deferred ReleaseHoldFor could run. Must exceed the
 	// longest legitimate relay (a 300s stream) with margin so a live relay is never
 	// reclaimed. Env ROGERAI_HOLD_TTL (default 10m). <=0 disables the sweep.
@@ -621,7 +673,7 @@ func main() {
 	seed := flag.Float64("seed-credits", 100.0, "starting credits per new user (until Stripe)")
 	lock := flag.Duration("price-lock", 24*time.Hour, "how long a quoted price is honored per user+node+model")
 	flag.Parse()
-	// DO App Platform sets $PORT; bind all interfaces there.
+	// A platform host sets $PORT; bind all interfaces there.
 	a := *addr
 	if p := os.Getenv("PORT"); p != "" {
 		a = "0.0.0.0:" + p
@@ -699,16 +751,18 @@ func runServe(ln net.Listener, fee, seed float64, lock time.Duration, stop <-cha
 		if b.probe.enabled() {
 			go b.proberLoop(stop)
 		}
-		go b.reattestSweep(stop)          // drop verified-confidential status that has lapsed its re-attest cadence
-		go b.recountHoldSweep(stop)       // auto-expire recount holds past the review window (operator recourse)
-		go b.nodeBanSweep(stop)           // auto-lift report-origin node suspensions past the review window (reversible bans)
-		go b.reportRetentionSweep(stop)   // bound rogerai.reports: an UNAUTHENTICATED public write endpoint onto durable storage that nothing ever deleted from
-		go b.towerInviteSweep(stop)       // delete expired unredeemed Station invitations (consumed ones answer retries)
-		go b.towerCanarySweep(stop)       // probe each Tower with a data plane; a Tower serving nothing is caught here
-		go b.reversalRetrySweep(stop)     // re-attempt failed Stripe transfer-reversals (silent-money-leak guard)
-		go b.pruneStaleNodesSweep(stop)   // remove long-dead node registrations (old hostname ids that never re-register)
-		go b.refPriceSync(stop)           // refresh same-model external reference prices for the buyer-facing $-tier
-		go b.releaseStaleHoldsSweep(stop) // reclaim relay pre-auth holds stranded by a SIGKILLed redeploy (deploy-orphan backstop)
+		go b.reattestSweep(stop)                        // drop verified-confidential status that has lapsed its re-attest cadence
+		go b.recountHoldSweep(stop)                     // auto-expire recount holds past the review window (operator recourse)
+		go b.nodeBanSweep(stop)                         // auto-lift report-origin node suspensions past the review window (reversible bans)
+		go b.reportRetentionSweep(stop)                 // bound rogerai.reports: an UNAUTHENTICATED public write endpoint onto durable storage that nothing ever deleted from
+		go b.towerInviteSweep(stop)                     // delete expired unredeemed Station invitations (consumed ones answer retries)
+		go b.towerGovSweep(stop, towerGovSweepInterval) // governance record: Towers gone quiet, lapsed leases, pending refusal counts
+		go b.towerMobility(stop, towerMobilityInterval) // move idle Stations to better Towers (station_mobility.feature)
+		go b.towerCanarySweep(stop)                     // probe each Tower with a data plane; a Tower serving nothing is caught here
+		go b.reversalRetrySweep(stop)                   // re-attempt failed Stripe transfer-reversals (silent-money-leak guard)
+		go b.pruneStaleNodesSweep(stop)                 // remove long-dead node registrations (old hostname ids that never re-register)
+		go b.refPriceSync(stop)                         // refresh same-model external reference prices for the buyer-facing $-tier
+		go b.releaseStaleHoldsSweep(stop)               // reclaim relay pre-auth holds stranded by a SIGKILLed redeploy (deploy-orphan backstop)
 	})
 	go b.alertCheckerLoop(stop)    // page the founder (ADMIN_EMAIL) on state-derived ops conditions (0-providers, db/valkey down, CSAM SLA); no-op when ADMIN_EMAIL is unset
 	b.scr.start(b.scr.cfg.workers) // off-path content screening workers (async mode only; a no-op in sync/off)
@@ -743,7 +797,7 @@ func runServe(ln net.Listener, fee, seed float64, lock time.Duration, stop <-cha
 		IdleTimeout:       120 * time.Second,
 		MaxHeaderBytes:    1 << 16, // 64 KiB
 	}
-	// GRACEFUL DRAIN (deploy-orphan fix, part 1). On SIGTERM (a DO rolling redeploy) - or a
+	// GRACEFUL DRAIN (deploy-orphan fix, part 1). On SIGTERM (a rolling redeploy) - or a
 	// closed stop in tests - call srv.Shutdown so in-flight relays RETURN (running their
 	// deferred ReleaseHoldFor / Finalize) before the process exits, instead of being killed
 	// mid-flight with their consumer holds stranded. We MUST wait for Shutdown to finish
@@ -1038,7 +1092,7 @@ func (b *broker) wireShared(ss sharedStore) {
 	// Valkey backend (the only place jobs/results/chunks can rendezvous across
 	// instances), so it is only ever enabled when b.shared is non-nil. Unset = the
 	// in-memory single-instance fast-path, byte-for-byte unchanged. PROD runs it ON
-	// (.do/app.yaml: instance_count:2 + ROGERAI_MULTI_INSTANCE=1, reconciled in P1-4).
+	// (ROGERAI_MULTI_INSTANCE=1 on every instance, reconciled in P1-4).
 	if multiInstanceEnabled() {
 		b.multiInstance = true
 		b.dispatchMode = dispatchModeFromEnv()
@@ -1053,7 +1107,7 @@ func (b *broker) wireShared(ss sharedStore) {
 		// Best-effort: a shared-store hiccup just defers presence to the next tick.
 		_ = b.shared.markInstance(b.instanceID, time.Now())
 		// Tag EVERY log line with this instance's id so logs from the 2+ instances
-		// (interleaved in the aggregated DO log stream) are attributable at a glance -
+		// (interleaved in the aggregated log stream) are attributable at a glance -
 		// the team no longer has to guess which instance emitted a relay/bus line. This
 		// is gated on multi-instance, so the single-instance log format is unchanged.
 		log.SetPrefix("[" + b.instanceID + "] ")
@@ -1128,6 +1182,7 @@ func (b *broker) routes() *http.ServeMux {
 	mux.HandleFunc("/nodes/register", b.register)
 	mux.HandleFunc("/nodes/challenge", b.attestChallenge) // TEE attestation nonce (anti-replay binding)
 	mux.HandleFunc("/nodes/heartbeat", b.heartbeat)
+	mux.HandleFunc("/nodes/served", b.nodeServed)    // a node's own record of what it served and earned
 	mux.HandleFunc("/agent/cancels", b.agentCancels) // cancel-capable nodes long-poll for jobs to stop
 	mux.HandleFunc("/agent/poll", b.agentPoll)       // node dials out, long-polls for jobs
 	mux.HandleFunc("/agent/result", b.agentResult)   // node posts the served result
@@ -1248,6 +1303,10 @@ func (b *broker) routes() *http.ServeMux {
 //     in the audio handler is already bounded (non-blocking semaphore, 3s local /
 //     bus dispatch, the 90s result select), so nothing here can pin a connection.
 //   - /concierge - the public Ping chat may wait on an upstream model.
+//   - /tower/work/pull - a Tower's held pull (features/tower/tower_pull_dispatch.feature), held up
+//     to 25s like the node poll; it bounds itself (pullHold).
+//   - /tower/work/answer - a Tower's answer, up to tens of megabytes from a home uplink; it sets
+//     its own read deadline (pullAnswerRead) once the caller's key is checked.
 //
 // Every OTHER route is non-streaming and gets bounded by http.TimeoutHandler.
 var streamRoutes = map[string]bool{
@@ -1259,6 +1318,8 @@ var streamRoutes = map[string]bool{
 	"/v1/audio/speech":         true,
 	"/v1/audio/transcriptions": true,
 	"/concierge":               true,
+	"/tower/work/pull":         true,
+	"/tower/work/answer":       true,
 }
 
 // nonStreamTimeout is the response deadline applied to every NON-streaming route. It

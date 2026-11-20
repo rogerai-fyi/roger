@@ -127,7 +127,41 @@ func (m model) welcomePick(key string) (tea.Model, tea.Cmd) {
 func lookMono() bool { return lipgloss.ColorProfile() == termenv.Ascii }
 
 func lookStyle(c look.RGB) lipgloss.Style {
-	return lipgloss.NewStyle().Foreground(lipgloss.Color(c.Hex()))
+	return lipgloss.NewStyle().Foreground(lookColor(c))
+}
+
+// lookLight is each look color's partner on a light page. The look palette is drawn for
+// the warm ink ground; on paper its light inks would vanish (Paper and Ink sit near
+// 1.1:1 and 1.4:1 there), so a light arm takes the TUI's own ink ramp instead: the
+// brightest ink becomes the darkest, and the key cap turns into a dark cap with a
+// light letter.
+var lookLight = map[look.RGB]string{
+	look.Paper:  cInk.Light,
+	look.Ink:    cBody.Light,
+	look.Muted:  cDim.Light,
+	look.Ash:    "#827F75",
+	look.Dim:    cFaint.Light,
+	look.Ground: cDeck.Light,
+}
+
+// lookLamps are the look's lamp hues and the palette slots they share a meaning with.
+var lookLamps = map[look.RGB]paletteSlot{look.Live: cLive, look.Signal: cSignal, look.Glow: cDialGlow, look.Dial: cDial}
+
+// lookColor is a look color as the TUI paints it. On a dark ground with the full board
+// it is exactly the look's own value. On a light page it takes its lookLight partner,
+// and the lamp hues (Live, Signal, Glow, Dial) follow the color-blind board like every
+// other lamp in the TUI, so [3] EDGE agrees with the status line and the manual.
+func lookColor(c look.RGB) lipgloss.TerminalColor {
+	if slot, ok := lookLamps[c]; ok {
+		if colorblindMode != "off" {
+			return slot
+		}
+		return lipgloss.AdaptiveColor{Light: slot.Light, Dark: c.Hex()}
+	}
+	if light, ok := lookLight[c]; ok {
+		return lipgloss.AdaptiveColor{Light: light, Dark: c.Hex()}
+	}
+	return lipgloss.Color(c.Hex())
 }
 
 // lookKeyCap is a key as a paper cap, or [k] with no color.
@@ -135,8 +169,8 @@ func lookKeyCap(k string, mono bool) string {
 	if mono {
 		return look.KeyCap(k, true)
 	}
-	return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(look.Ground.Hex())).
-		Background(lipgloss.Color(look.Paper.Hex())).Render(look.KeyCap(k, false))
+	return lipgloss.NewStyle().Bold(true).Foreground(lookColor(look.Ground)).
+		Background(lookColor(look.Paper)).Render(look.KeyCap(k, false))
 }
 
 // lookActionBar is the action bar at a screen's foot: keys in paper, labels muted.

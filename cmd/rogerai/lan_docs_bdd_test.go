@@ -17,7 +17,7 @@ import (
 
 // manualSection is the plain text of the manual section with the given id.
 func manualSection(id string) (string, error) {
-	b, err := os.ReadFile("../../web/src/manual.html")
+	b, err := os.ReadFile("../../web/app/routes/manual/+page.svelte") // the manual is an app route (its source markup)
 	if err != nil {
 		return "", err
 	}

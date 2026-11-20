@@ -14,9 +14,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { source } from "./_html.mjs";
 
 const SRC = path.join(path.dirname(fileURLToPath(import.meta.url)), "../src");
-const read = (p) => readFileSync(path.join(SRC, p), "utf8");
+const read = source;  // a page's source, legacy or app route (test/_html.mjs)
 const login = read("login.html");
 
 test("login: a 'Continue with Apple' link beside GitHub, pointing at the broker web flow", () => {

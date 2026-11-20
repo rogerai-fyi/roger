@@ -2,8 +2,23 @@
 
 The brief: a **super-minimal, white, no-build static site** for a CLI tool - a
 curl-install hero, an animated terminal demo, and a quiet animated "radio map"
-background. Hosted on **DigitalOcean App Platform** behind a **Cloudflare**
-CDN/DNS proxy - *not* Cloudflare Pages (see the Deploy section + `EDGE.md`).
+background. Served as plain files from a static origin behind an edge proxy (see the
+Deploy section + `EDGE.md`).
+
+## 2026-10: SvelteKit, prerendered
+
+The decision below stood for a year and the site it produced is the one this build still
+emits. What changed in October 2026 is how the pages are WRITTEN: 56 hand-written HTML
+files, each pulling chrome from include markers, became routes of one SvelteKit app, with
+the chrome as components, the head as one function, the broker client in one module and
+the data-file facts behind one resolver. Every signed-in page is a Svelte island (its card a
+component tree under `app/lib/<page>/`, its behavior a vitest file), the nine scripts
+every page ran ship as one module with `fmt.js` (`app/runtime.js`, built to `js/runtime.js`),
+and a page's own scripts as one more (`app/pages/<page>.js`). The
+output is the same static tree (every route prerendered, nothing hydrates through
+SvelteKit), on the same host, under the same edge CSP, inside the same weight budgets. The plan and
+the spike numbers are in the private planning notes. The rest of this file is the original decision, kept because the
+runtime story (Canvas2D, no animation libraries, self-hosted fonts) is unchanged.
 
 ## The decision: hand-written vanilla, no framework, no bundler
 
@@ -33,21 +48,12 @@ with a tiny footprint, no shader/program setup, and trivially respects
 
 ## Files
 
-```
-web/
-├─ index.html          One page. Hero (curl box) · terminal demo · what-it-is ·
-│                       how-it-works · monetize · CTA · footer.
-├─ install.sh          Real POSIX installer piped from the hero curl.
-├─ styles/
-│  ├─ tokens.css        Design tokens (colors, type, spacing, motion) - source of truth.
-│  └─ site.css          All layout & components. Consumes tokens.css.
-├─ js/
-│  ├─ radiomap.js       Canvas2D blip-map background (grid · blips · ripples · beams).
-│  ├─ terminal.js       Hand-built TUI replay (run → browse → tune in → endpoint+key).
-│  └─ site.js           Nav state, scroll-reveal, copy-on-click, OS hint, earn sparkline.
-├─ TECH.md              This file.
-└─ README.md            Overview + run/deploy.
-```
+The tree is in [`README.md`](README.md) (Layout): the routes and components under `app/`,
+the static tree under `src/` (`styles/` is `tokens.css` -> `base.css` -> `components.css` ->
+a sheet per page; `js/` holds the scripts the bundles carry, with `terminal.js` the hand-built
+TUI replay and `site.js` the nav state, scroll-reveal and copy-on-click), `build.mjs`, and the
+guards under `test/` and `e2e/`. `src/install.sh` is the real POSIX installer the hero `curl`
+pipes, copied to the output root.
 
 No dependencies are bundled. The fonts (Space Grotesk + JetBrains Mono, SIL OFL)
 are self-hosted in `src/assets/fonts` (`scripts/vendor-fonts.mjs`), so a page makes
@@ -65,34 +71,30 @@ no icon fonts, no JS libs.
   screen readers get the gist without parsing animated text.
 - Copy-on-click works with the async Clipboard API and falls back to `execCommand`.
 
-## Run it locally (no build)
+## Run it locally
 
 ```sh
-cd web
-python3 -m http.server 5173
-# → http://localhost:5173
+make site-serve      # node web/build.mjs, then http.server on http://localhost:5173
 ```
 
-Or just open `index.html` directly (fonts/canvas behave best when served).
+or, from `web/`, `node build.mjs && python3 -m http.server -d dist 5173`. The pages are
+routes, so there is no file to open directly: the build writes `dist/`, and that is the site.
 
-## Deploy (DigitalOcean App Platform + Cloudflare edge)
+## Deploy
 
-The site is **not** on Cloudflare Pages. Two layers:
+Two layers:
 
-**Host / origin - DigitalOcean App Platform.** One app spec
-([`../.do/app.yaml`](../.do/app.yaml)) defines both the `broker` service and the
-`site` static site; both `deploy_on_push: true` on `main`. At deploy time DO runs
-the build (`build_command: node web/build.mjs`, `output_dir: web/dist`) and serves
-the result from DO Spaces.
+**Origin - a static host.** Merging to `main` deploys the site: the host runs the build in
+`web/` (`npm install && npm run build`, on Node 22, the floor `package.json` sets) and serves
+`dist/` as plain files, with `404.html` as the error page. Nothing else is asked of it, so
+any static host will do. CI builds with a newer Node, so a change to the build has to pass
+on Node 22 as well.
 
-**Edge - Cloudflare (CDN/DNS proxy).** The apex and the `broker.` subdomain are
-proxied by Cloudflare in front of the DO origin - visible as `x-do-app-origin` +
-`server: cloudflare` in the live response headers. Because DO static hosting can't
-emit custom response headers, the security headers in
-[`src/_headers`](src/_headers) and the `www -> apex` redirect in
-[`src/_redirects`](src/_redirects) live as Cloudflare **Transform / Redirect
-Rules**, not as files the host reads. The exact rules + an apply script are in
-**[`EDGE.md`](EDGE.md)**.
+**Edge - a CDN/DNS proxy.** The site's hostnames (the apex and `www.`) sit behind it. The
+origin does not read [`src/_headers`](src/_headers) or [`src/_redirects`](src/_redirects)
+(Cloudflare-Pages/Netlify conventions), so the security headers and the `www -> apex`
+redirect are applied at the edge as rules, with those two files as the source of truth for
+the values. The exact rules + an apply script are in **[`EDGE.md`](EDGE.md)**.
 
 Because `install.sh` is copied to the output root, it is served at
 `https://rogerai.fm/install.sh` - exactly what the hero `curl` pipes to.

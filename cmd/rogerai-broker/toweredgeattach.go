@@ -39,8 +39,10 @@ import (
 	"time"
 
 	"rogerai.fm/roger/v7/internal/protocol"
+	"rogerai.fm/roger/v7/internal/towercore/admit"
 	"rogerai.fm/roger/v7/internal/towercore/attach"
 	"rogerai.fm/roger/v7/internal/towercore/link"
+	"rogerai.fm/roger/v7/internal/towercore/placement"
 )
 
 // newHubToken mints the bearer token a self-attached node USED to present to its tower's hub.
@@ -80,10 +82,19 @@ func (b *broker) towerEdgeAttach(w http.ResponseWriter, r *http.Request) {
 	}
 	corsCreds(w, r)
 	body := readTowerBody(r)
+	// Every refusal below is logged with its reason class (governance_record.feature): the
+	// answer is captured on the way out rather than threaded through each branch.
+	cw := &statusCapture{ResponseWriter: w}
+	w = cw
+	who := "unsigned"
+	defer func() { b.logAttachRefused(cw, who) }()
 
 	// The signed-in account. Same resolution as every tower operator surface: the request's
 	// signature must verify and its pubkey must be bound to a non-anonymized account.
 	owner, ok := b.towerOperator(r, body)
+	if ok {
+		who = "operator:" + owner
+	}
 	if !ok {
 		// THE TIGHT PER-IP BUCKET, ON THE WAY OUT - the same treatment /tower/edge/authorize
 		// got when it was found bare, on the same condition and for the same reason. An
@@ -168,6 +179,16 @@ func (b *broker) towerEdgeAttach(w http.ResponseWriter, r *http.Request) {
 		// (byte tariff / free). Band-checked below - the same public band every offer obeys.
 		PriceInMicros  int64 `json:"price_in_micros"`
 		PriceOutMicros int64 `json:"price_out_micros"`
+		// UnreachableTower names the Tower whose hub this node could not reach, on the attach it
+		// makes after giving up on that hub. It only ever moves this Station off that Tower.
+		UnreachableTower string `json:"unreachable_tower"`
+		UnreachablePin   string `json:"unreachable_pin"`
+		UnreachableHub   string `json:"unreachable_endpoint"`
+		// Nudge declares that this node understands the re-attach nudge on its cancel
+		// long-poll, so Core may move it to a better Tower while it is idle
+		// (station_mobility.feature). An older node does not send it and is moved only when its
+		// Tower is gone or failing.
+		Nudge bool `json:"nudge"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		jsonErr(w, http.StatusBadRequest, "invalid JSON body")
@@ -414,6 +435,56 @@ func (b *broker) towerEdgeAttach(w http.ResponseWriter, r *http.Request) {
 		// and it needs a settle-time fence that does not exist yet. What is owed here is an
 		// honest, retryable answer, which is what this is: the node's re-attach loop backs off
 		// and asks again, and the operator is told once rather than never.
+		// Where it attaches from, and whether it can hear a nudge, are refreshed on every
+		// attach, this one included (placement_locality.feature).
+		loc := b.addrLocality(clientIP(r))
+		b.recordStationFacts(prior.StationID, loc, req.Nudge)
+		// A HUB THE STATION CANNOT REACH is not named to it again: it is kept off that Tower for a
+		// day, and the mobility pass moves it (private_hub_placement.feature). A node can only
+		// ever move itself this way.
+		// Only for a PRIVATE hub, which Core cannot dial to see for itself, and only while the
+		// Tower's own link is up: a Tower that restarts takes its hub down for everyone, and that
+		// is not this Station failing to reach it.
+		// And only when it can help: a pin the node holds that is not the Tower's current one is a
+		// certificate the Tower rotated (the answer below hands over the new pin), and a Station
+		// with nowhere else to go is answered as before rather than told to wait out the day.
+		if tw := prior.Origin.TowerID; req.UnreachableTower != "" && req.UnreachableTower == tw &&
+			ts.link.HubClass(tw) == placement.HubPrivate && ts.link.Live(tw) {
+			plane, has := ts.link.RelayPlane(tw)
+			now := time.Now()
+			excl := b.avoidFor(prior.StationID, now)
+			excl[tw] = true
+			// Nor inside a paused move (one that came back because the node missed its window):
+			// the mobility pass will not move it then, so a 503 would only lock it out.
+			_, paused, _ := ts.mobility.Skip(prior.StationID)
+			// And only while the Tower is up for everyone else: holding its pulls, which a running
+			// Tower does every few seconds, so a Tower that crashed is not this Station's fault.
+			// The node must have held the Tower's current address and pin, too: anything else is
+			// the Tower having moved or rotated, answered below with what it advertises now.
+			if _, elsewhere := b.chooseFrom(b.placementSnapshot(), prior.Owner, loc, excl, "", nil); has &&
+				req.UnreachablePin == plane.TLSSPKI && req.UnreachableHub == plane.Endpoint &&
+				elsewhere && !now.Before(paused) && b.pulledRecently(tw) {
+				if err := ts.mobility.SetAvoid(prior.StationID, tw, now.Add(unreachableAvoidFor)); err != nil {
+					b.towerGovUnavailable(err)
+				}
+				jsonErr(w, http.StatusServiceUnavailable,
+					"this node cannot reach its tower and is being moved - try again shortly")
+				return
+			}
+		}
+		// A PRIVATE HUB IS NAMED ONLY ON ITS OWN NETWORK, on this answer as on a fresh one
+		// (private_hub_placement.feature). A Station whose known network now differs from the
+		// Tower's known one is told to try again; the network just recorded above is what the
+		// mobility pass moves it on (left_network), under the pacing every move follows. An
+		// unmeasured network on either side is not evidence it left.
+		if ts.link.HubClass(prior.Origin.TowerID) == placement.HubPrivate {
+			if towerLoc, known := ts.link.Locality(prior.Origin.TowerID); known && towerLoc.Home != "" &&
+				loc.Home != "" && !placement.SameHome(loc, towerLoc) {
+				jsonErr(w, http.StatusServiceUnavailable,
+					"this node is no longer on its tower's network and is being moved - try again shortly")
+				return
+			}
+		}
 		plane, has := ts.link.RelayPlane(prior.Origin.TowerID)
 		if !has {
 			jsonErr(w, http.StatusServiceUnavailable,
@@ -440,24 +511,29 @@ func (b *broker) towerEdgeAttach(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// CORE ASSIGNS THE TOWER: the first live, admitted tower advertising a data-plane
-	// endpoint. (LiveTowers reflects this instance's link sessions - the instance holding the
-	// links is the one that can answer; matchmaking beyond first-fit is a later refinement.)
-	var towerID string
-	var plane link.RelayPlane
-	for _, tw := range ts.link.LiveTowers() {
-		if !ts.registry.MayTakeWork(tw) {
-			continue
-		}
-		if p, has := ts.link.RelayPlane(tw); has && p.Endpoint != "" {
-			towerID, plane = tw, p
-			break
-		}
+	// CORE ASSIGNS THE TOWER: the best eligible Tower in the fleet, ranked by health, then
+	// locality, then load, with house Stations on house Towers (towerplacement.go,
+	// features/tower/placement_ranking.feature). The Station's locality is the address this
+	// request came from, never what the node says about itself.
+	stationLoc := b.addrLocality(clientIP(r))
+	// A Station in the middle of a move goes to the Tower the move chose, if it is still
+	// eligible, and never back to the one it is leaving unless that is the only one left.
+	mv, moving, exclude := b.moveOnReattach(derivedStationID, time.Now())
+	choice, placedOK := b.placeStationPrefer(ownerPubkey, stationLoc, exclude, mv.To)
+	if !placedOK && moving {
+		delete(exclude, mv.From)
+		choice, placedOK = b.placeStationPrefer(ownerPubkey, stationLoc, exclude, "")
 	}
-	if towerID == "" {
+	if !placedOK && len(exclude) > 0 {
+		// A skip keeps a Station off one Tower for an hour, but never leaves it with none: when
+		// nothing else can take it, the skipped Tower may.
+		choice, placedOK = b.placeStationPrefer(ownerPubkey, stationLoc, nil, "")
+	}
+	if !placedOK {
 		jsonErr(w, http.StatusServiceUnavailable, "no tower can host this node right now - try again shortly")
 		return
 	}
+	towerID, plane := choice.towerID, choice.plane
 
 	// The internal invitation: minted and redeemed in this one call. The secret exists only
 	// on this stack; the cap and one-use guarantees are the store's, unchanged.
@@ -525,6 +601,15 @@ func (b *broker) towerEdgeAttach(w http.ResponseWriter, r *http.Request) {
 		log.Printf("self-attach: could not promote %s out of quarantine: %v", at.StationID, perr)
 	} else {
 		at.State = attach.StateActive
+	}
+
+	b.towerEvent(admit.Event{TowerID: towerID, Kind: evStationAttached, Actor: "operator:" + owner,
+		Detail: map[string]any{"station": at.StationID, "quarantine": at.State == attach.StateQuarantine}})
+	choice.detail["station"] = at.StationID
+	b.towerEvent(admit.Event{TowerID: towerID, Kind: evStationPlaced, Actor: admit.ActorSystem, Detail: choice.detail})
+	b.recordStationFacts(at.StationID, stationLoc, req.Nudge)
+	if moving {
+		b.finishMoveOnReattach(mv, at.StationID, towerID, at.Epoch)
 	}
 
 	// The node is routable NOW: publish its row (merged with the tower's leaf rows) so

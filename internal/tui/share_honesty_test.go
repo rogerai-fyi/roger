@@ -8,6 +8,7 @@ package tui
 // larger - was not on screen at all, and the $0.27 was not money in the first place.
 
 import (
+	"io"
 	"rogerai.fm/roger/v7/internal/agent"
 	"strings"
 	"testing"
@@ -42,39 +43,30 @@ func TestSharePriceCellStaysTerseWithoutAnInputPrice(t *testing.T) {
 	}
 }
 
-// The column must NOT claim to be earnings.
-//
-// Session.Earnings() is a node-local tally computed from the node's OWN price card;
-// the node never learns what the broker charged. Consuming your own node is $0 by
-// design, so a rig serving its owner accrues a number here while the ledger stays at
-// zero - which is exactly what happened ($0.27 shown, $0.00 payable and $0.00 held).
-func TestShareColumnDoesNotClaimToBeEarnings(t *testing.T) {
+// The column is Core's credit, and says so: EARNED is the owner share Core recorded for this
+// share's settled requests (probe_accounting.feature), not a node-local tally at list price,
+// which is what the old AT LIST header warned about.
+func TestShareColumnIsCoresCreditedShare(t *testing.T) {
 	srv := fakeBroker(t)
 	m := NewWithHooks(srv.URL, "tester", nil, Hooks{})
 	m.setShareRows(freeRows(2))
 	m.width, m.height = 140, 30
 	v := stripANSI(m.shareView(140))
-
-	if strings.Contains(v, "EARNINGS") {
-		t.Error("the SHARE table still heads this column EARNINGS - it is a node-local " +
-			"tally at list price, and self-use traffic makes it diverge from the ledger")
-	}
-	if !strings.Contains(v, "AT LIST") {
-		t.Error("the column has no honest header")
+	if !strings.Contains(v, "EARNED") || strings.Contains(v, "AT LIST") {
+		t.Errorf("the SHARE table does not head Core's credit EARNED:\n%s", v)
 	}
 }
 
-// And the operator must be told where real money is, beside the number rather than
-// buried in docs - otherwise the rename just moves the confusion.
+// And the operator is told what the number is and where the money is, beside the number.
 func TestShareSaysWhereRealMoneyLives(t *testing.T) {
 	srv := fakeBroker(t)
 	m := NewWithHooks(srv.URL, "tester", nil, Hooks{})
 	m.setShareRows(freeRows(2))
 	m.width, m.height = 140, 30
-	// one row live, so the AT LIST column is populated and the note applies
+	// one row live, so the EARNED column is populated and the note applies
 	m.shares = map[string]*agent.Session{m.shareRows[0].model: {}}
 	v := stripANSI(m.shareView(140))
-	for _, want := range []string{"not settled money", "roger payout"} {
+	for _, want := range []string{"Core credited", "after the hold", "roger payout"} {
 		if !strings.Contains(v, want) {
 			t.Errorf("the settlement note is missing %q", want)
 		}
@@ -91,14 +83,14 @@ func TestNoSettlementNoteWhenNothingIsOnAir(t *testing.T) {
 	m := NewWithHooks(srv.URL, "tester", nil, Hooks{})
 	m.setShareRows(freeRows(2))
 	m.width, m.height = 140, 30
-	if strings.Contains(stripANSI(m.shareView(140)), "not settled money") {
+	if strings.Contains(stripANSI(m.shareView(140)), "Core credited") {
 		t.Error("the settlement note shows with nothing on air")
 	}
 }
 
 // HIDDEN IS NOT DISCARDED.
 //
-// Keeping broker canaries out of SERVED / OUT TOK / AT LIST is right - they are unbilled
+// Keeping broker canaries out of SERVED / OUT TOK / EARNED is right - they are unbilled
 // work nobody asked for. But removing them WITHOUT SAYING SO trades one confusion for
 // another: a rig visibly busy while reporting almost nothing served, and no way to learn
 // where the work went. The numbers stay clean; the account of them appears beside.
@@ -110,12 +102,13 @@ func TestTheShareViewSaysWhatTheUnbilledWorkWas(t *testing.T) {
 
 	sess := &agent.Session{}
 	for i := 0; i < 3; i++ {
-		sess.RecordProbeForTest(17)
+		sess.RecordHandledForTest(17)
 	}
+	sess.SetCoreForTest(0, 0, 0, true) // Core's record: nothing served
 	m.shares = map[string]*agent.Session{m.shareRows[0].model: sess}
 
 	v := stripANSI(m.shareView(140))
-	if !strings.Contains(v, "3 broker checks") {
+	if !strings.Contains(v, "3 unbilled jobs") {
 		t.Errorf("the canary work is invisible: a busy rig reporting nothing served has no "+
 			"way to explain itself.\n%s", v)
 	}
@@ -133,7 +126,7 @@ func TestNoProbeLineWhenNothingHasBeenProbed(t *testing.T) {
 	m.width, m.height = 140, 30
 	m.shares = map[string]*agent.Session{m.shareRows[0].model: {}}
 
-	if strings.Contains(stripANSI(m.shareView(140)), "broker checks") {
+	if strings.Contains(stripANSI(m.shareView(140)), "unbilled jobs") {
 		t.Error("an unprobed station still reported broker checks")
 	}
 }
@@ -142,16 +135,63 @@ func TestNoProbeLineWhenNothingHasBeenProbed(t *testing.T) {
 // are separate in agent.Session precisely so this cannot happen by accident.
 func TestProbesAreReportedBesideTheNumbersNotInsideThem(t *testing.T) {
 	sess := &agent.Session{}
-	sess.RecordProbeForTest(17)
-	sess.RecordProbeForTest(17)
+	sess.RecordHandledForTest(17)
+	sess.RecordHandledForTest(17)
+	sess.RecordHandledForTest(10)
+	sess.SetCoreForTest(1, 10, 0.5, true) // Core: one request served
 
-	if reqs, toks := sess.Served(); reqs != 0 || toks != 0 {
-		t.Fatalf("probes leaked into SERVED/OUT TOK: %d reqs, %d tok", reqs, toks)
+	if reqs, toks := sess.Served(); reqs != 1 || toks != 10 {
+		t.Fatalf("SERVED/OUT TOK = %d/%d, want Core's 1/10", reqs, toks)
 	}
-	if sess.Earnings() != 0 {
-		t.Fatalf("probes accrued value: %v", sess.Earnings())
+	if sess.Earnings() != 0.5 {
+		t.Fatalf("earned %v, want Core's 0.5", sess.Earnings())
 	}
 	if pr, pt := sess.ProbeStats(); pr != 2 || pt != 34 {
-		t.Fatalf("probe tally = %d/%d, want 2/34", pr, pt)
+		t.Fatalf("network checks = %d/%d, want 2/34", pr, pt)
+	}
+}
+
+// Until Core answers, the table shows "…", never the rig's own count; a record Core could not
+// refresh is said to be not current, and claims no checks.
+func TestTheShareViewShowsCoresRecordOnly(t *testing.T) {
+	srv := fakeBroker(t)
+	m := NewWithHooks(srv.URL, "tester", nil, Hooks{})
+	m.setShareRows(freeRows(2))
+	m.width, m.height = 140, 30
+	sess := &agent.Session{}
+	for i := 0; i < 4; i++ {
+		sess.RecordHandledForTest(17)
+	}
+	m.shares = map[string]*agent.Session{m.shareRows[0].model: sess}
+	v := stripANSI(m.shareView(140))
+	if !strings.Contains(v, "…") || strings.Contains(v, "unbilled jobs") {
+		t.Errorf("before Core answered the table must show … and no checks:\n%s", v)
+	}
+	if d := stripANSI(m.shareRowDetail(m.shareRows[0], sess)); !strings.Contains(d, "waiting for Core") {
+		t.Errorf("the detail line does not say it is waiting for Core: %s", d)
+	}
+	sess.SetCoreForTest(2, 20, 0, false)
+	v = stripANSI(m.shareView(140))
+	if !strings.Contains(v, "not current") || strings.Contains(v, "unbilled jobs") {
+		t.Errorf("a stale record must be said to be not current and claim no checks:\n%s", v)
+	}
+}
+
+// A LAN share has no Core: the table shows its own count, never "…", and no "not current" note.
+func TestALANShareShowsItsOwnCountInTheTable(t *testing.T) {
+	srv := fakeBroker(t)
+	m := NewWithHooks(srv.URL, "tester", nil, Hooks{})
+	m.setShareRows(freeRows(2))
+	m.width, m.height = 140, 30
+	sess := agent.StartLAN(agent.Config{NodeID: "n-lan", Model: m.shareRows[0].model}, nil, nil, io.Discard)
+	defer sess.Stop()
+	sess.RecordHandledForTest(17)
+	m.shares = map[string]*agent.Session{m.shareRows[0].model: sess}
+	v := stripANSI(m.shareView(140))
+	if strings.Contains(v, "…") || strings.Contains(v, "waiting for Core") || strings.Contains(v, "not current") {
+		t.Errorf("a LAN share waits for a Core it does not have:\n%s", v)
+	}
+	if d := stripANSI(m.shareRowDetail(m.shareRows[0], sess)); strings.Contains(d, "waiting for Core") {
+		t.Errorf("the LAN detail line waits for Core: %s", d)
 	}
 }

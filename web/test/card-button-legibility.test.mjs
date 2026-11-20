@@ -4,10 +4,10 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { source } from "./_html.mjs";
 
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = path.join(WEB, "src");
-const source = (p) => readFileSync(path.join(SRC, p), "utf8");
 
 before(() => execFileSync("node", ["build.mjs"], { cwd: WEB }));
 

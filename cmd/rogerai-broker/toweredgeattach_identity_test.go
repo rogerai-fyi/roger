@@ -75,7 +75,7 @@ func TestAReapedStationIdCannotBeSquatted(t *testing.T) {
 	require.True(t, moved)
 	reaped, err := b.tower.stationStore.ReapTerminal(time.Now().Add(terminalAttachmentHorizon))
 	require.NoError(t, err)
-	require.Equal(t, int64(1), reaped, "the reaper must actually have deleted the row")
+	require.Len(t, reaped, 1, "the reaper must actually have deleted the row")
 	_, stillThere, err := b.tower.stations.Station(attached.StationID)
 	require.NoError(t, err)
 	require.False(t, stillThere, "the id is genuinely free, which is what makes this reachable")

@@ -1,6 +1,5 @@
-# Security headers - SOURCE OF TRUTH for the values, but NOT applied by hosting. The site
-# runs on DigitalOcean App Platform, which does NOT read this Cloudflare-Pages/Netlify-style
-# file (confirmed: none of these are on the live response). They are mirrored to the
+# Security headers - SOURCE OF TRUTH for the values, but NOT applied by hosting. The origin
+# host does not read this Cloudflare-Pages/Netlify-style file. They are mirrored to the
 # Cloudflare edge as a Response-Header Transform Rule by web/scripts/cf-edge.mjs, which reads
 # THIS file so the two never drift - see web/EDGE.md. Edit a value here, then re-run that
 # script. (The per-path Content-Type blocks below are likewise advisory on this stack.)

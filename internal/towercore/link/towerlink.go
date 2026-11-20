@@ -25,9 +25,11 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"slices"
 	"sync"
 	"time"
 
+	"rogerai.fm/roger/v7/internal/towercore/placement"
 	"rogerai.fm/roger/v7/internal/towerhub"
 )
 
@@ -43,6 +45,11 @@ const (
 	CapIntegrity    = "frame-integrity-v1"
 	CapInnerSession = "inner-station-session-v1"
 )
+
+// CapPull is the optional capability of a Tower that pulls its work over this link instead of
+// being dialed (features/tower/tower_pull_dispatch.feature). Optional: an older Tower without it
+// still opens, and is dialed as before.
+const CapPull = "pull-work-v1"
 
 // minVersion is the signed protocol floor. A Tower below it is refused rather than
 // admitted-and-ignored: admitting software we will not talk to leaves an operator
@@ -160,6 +167,18 @@ type session struct {
 	// relay is the data plane the Tower advertised in its Hello - address and hub certificate
 	// pin - kept so the fleet projection can stamp both onto routable rows.
 	relay RelayPlane
+	// locality is where Core measured the hub to be (placement_locality.feature), set by
+	// SetLocality once Core has resolved the hub; localityKnown says it has been.
+	locality      placement.Locality
+	localityKnown bool
+	// linkLoc is the locality of the address the link connected from: its continent cross-checks
+	// every later measurement of the hub, and for a private hub it IS the Tower's locality.
+	linkLoc   placement.Locality
+	linkKnown bool
+	// pull says the Tower offered CapPull: Core queues its work for it to pull.
+	pull bool
+	// hubClass is what kind of address the hub advertises, as Core resolved it.
+	hubClass placement.HubClass
 }
 
 type head struct {
@@ -290,7 +309,8 @@ func (s *Sessions) Open(h Hello, certTowerID string) (Accepted, error) {
 	}
 	now := s.now()
 	s.byID[id] = &session{towerID: h.TowerID, version: version, opened: now, lastSeen: now,
-		relay: RelayPlane{Endpoint: h.RelayEndpoint, TLSSPKI: h.RelayTLSSPKI}}
+		relay: RelayPlane{Endpoint: h.RelayEndpoint, TLSSPKI: h.RelayTLSSPKI},
+		pull:  slices.Contains(h.Capabilities, CapPull)}
 	s.byTower[h.TowerID] = id
 	s.mirrorPutLocked(h.TowerID, id)
 
@@ -350,6 +370,153 @@ func (s *Sessions) RelayPlane(towerID string) (RelayPlane, bool) {
 		return RelayPlane{}, false
 	}
 	return rec.Relay, true
+}
+
+// SetLocality records where Core measured a Tower's hub to be, for the session it measured.
+// An answer for a session that has since been replaced is dropped (false): a new session
+// recomputes from scratch, and no value from an old one survives.
+func (s *Sessions) SetLocality(towerID, sessionID string, l placement.Locality) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.byTower[towerID] != sessionID {
+		return false
+	}
+	sess, ok := s.byID[sessionID]
+	if !ok {
+		return false
+	}
+	sess.locality, sess.localityKnown = l, true
+	s.mirrorPutLocked(towerID, sessionID)
+	return true
+}
+
+// SetLinkContinent records only the continent the link connected from.
+func (s *Sessions) SetLinkContinent(towerID, sessionID, continent string) bool {
+	return s.SetLinkLocality(towerID, sessionID, placement.Locality{Continent: continent})
+}
+
+// SetLinkLocality records the locality of the address the link connected from, for the session
+// it came from; an answer for a replaced session is dropped.
+func (s *Sessions) SetLinkLocality(towerID, sessionID string, l placement.Locality) bool {
+	return s.updateLocked(towerID, sessionID, func(sess *session) { sess.linkLoc, sess.linkKnown = l, true })
+}
+
+// SetHubClass records what kind of address the session's hub advertises.
+func (s *Sessions) SetHubClass(towerID, sessionID string, c placement.HubClass) bool {
+	return s.updateLocked(towerID, sessionID, func(sess *session) { sess.hubClass = c })
+}
+
+// SetPull records whether the Tower's current session pulls its work. A Tower that holds a pull
+// pulls, whatever an older instance recorded when it opened the session.
+func (s *Sessions) SetPull(towerID, sessionID string, pull bool) bool {
+	return s.updateLocked(towerID, sessionID, func(sess *session) { sess.pull = pull })
+}
+
+// updateLocked applies set to the Tower's current session, if it is sessionID, and mirrors it.
+func (s *Sessions) updateLocked(towerID, sessionID string, set func(*session)) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.byTower[towerID] != sessionID {
+		return false
+	}
+	sess, ok := s.byID[sessionID]
+	if !ok {
+		return false
+	}
+	set(sess)
+	s.mirrorPutLocked(towerID, sessionID)
+	return true
+}
+
+// view reads one value of the Tower's current session, from this instance or else a fresh
+// mirror record; ok is false when neither has the Tower.
+func view[T any](s *Sessions, towerID string, local func(*session) T, remote func(Record) T) (T, bool) {
+	s.mu.RLock()
+	if id, ok := s.byTower[towerID]; ok {
+		if sess, ok := s.byID[id]; ok {
+			v := local(sess)
+			s.mu.RUnlock()
+			return v, true
+		}
+	}
+	s.mu.RUnlock()
+	var zero T
+	if s.cfg.Mirror == nil {
+		return zero, false
+	}
+	rec, there, err := s.cfg.Mirror.Get(towerID)
+	if err != nil || !there || !s.fresh(rec.LastSeen) {
+		return zero, false
+	}
+	return remote(rec), true
+}
+
+// LinkContinent is the continent the Tower's current link connected from ("" = unknown).
+func (s *Sessions) LinkContinent(towerID string) string {
+	l, _ := s.LinkLocality(towerID)
+	return l.Continent
+}
+
+// LinkLocality is the locality of the address the Tower's current link connected from, and
+// whether it has been recorded.
+func (s *Sessions) LinkLocality(towerID string) (placement.Locality, bool) {
+	type lk struct {
+		l placement.Locality
+		k bool
+	}
+	v, _ := view(s, towerID, func(x *session) lk { return lk{x.linkLoc, x.linkKnown} },
+		func(r Record) lk { return lk{r.Link, r.LinkKnown} })
+	return v.l, v.k
+}
+
+// Pulls reports whether the Tower's current session takes its work by pull.
+func (s *Sessions) Pulls(towerID string) bool {
+	v, _ := view(s, towerID, func(x *session) bool { return x.pull }, func(r Record) bool { return r.Pull })
+	return v
+}
+
+// HubClass is what kind of address the Tower's current hub advertises (HubNone = unmeasured).
+func (s *Sessions) HubClass(towerID string) placement.HubClass {
+	v, _ := view(s, towerID, func(x *session) placement.HubClass { return x.hubClass },
+		func(r Record) placement.HubClass { return r.HubClass })
+	return v
+}
+
+// Freshness is how long a session survives without a heartbeat - the link's own window.
+func (s *Sessions) Freshness() time.Duration { return s.cfg.Freshness }
+
+// HoldsLocally reports whether THIS instance holds a fresh session for the Tower: the one
+// instance that should run per-Tower work such as the hub check, so it is done once.
+func (s *Sessions) HoldsLocally(towerID string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	id, ok := s.byTower[towerID]
+	if !ok {
+		return false
+	}
+	sess, ok := s.byID[id]
+	return ok && s.freshLocked(sess.lastSeen)
+}
+
+// Locality is a Tower's measured locality and whether it has been measured, from this
+// instance's session or else the mirror.
+func (s *Sessions) Locality(towerID string) (placement.Locality, bool) {
+	s.mu.RLock()
+	if id, ok := s.byTower[towerID]; ok {
+		if sess, ok := s.byID[id]; ok && sess.localityKnown {
+			s.mu.RUnlock()
+			return sess.locality, true
+		}
+	}
+	s.mu.RUnlock()
+	if s.cfg.Mirror == nil {
+		return placement.Locality{}, false
+	}
+	rec, there, err := s.cfg.Mirror.Get(towerID)
+	if err != nil || !there || !rec.LocalityKnown {
+		return placement.Locality{}, false
+	}
+	return rec.Locality, true
 }
 
 // Adopt reports whether a session id may be claimed. It exists so a replayed session id is
@@ -445,6 +612,38 @@ func (s *Sessions) Heartbeat(sessionID, towerID string) error {
 	return nil
 }
 
+// Bound checks that sessionID is the Tower's current, fresh session, adopting it from the
+// shared record as Heartbeat does, but without counting as a heartbeat: no write to the shared
+// record. Pulled work and its answers are bound to the session; liveness stays with heartbeats,
+// so a Tower carrying many jobs does not turn each one into a write to the shared store.
+func (s *Sessions) Bound(sessionID, towerID string) error {
+	if sessionID == "" {
+		return ErrNoSession
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sess, ok := s.byID[sessionID]
+	if !ok {
+		sess, ok = s.adoptLocked(sessionID, towerID)
+	}
+	if !ok || sess.towerID != towerID {
+		return ErrNoSession
+	}
+	if !s.freshLocked(sess.lastSeen) {
+		// This instance's copy only advances on heartbeats that reach it; the Tower may have been
+		// heartbeating the other instance all along. The shared record decides - a read, no write.
+		if s.cfg.Mirror == nil {
+			return ErrNoSession
+		}
+		rec, there, err := s.cfg.Mirror.Get(towerID)
+		if err != nil || !there || rec.SessionID != sessionID || !s.freshLocked(rec.LastSeen) {
+			return ErrNoSession
+		}
+		sess.lastSeen = rec.LastSeen
+	}
+	return nil
+}
+
 // adoptLocked recreates a session this instance never held, from the shared record. The
 // session id must match exactly: the record was written by a peer only after the Tower's
 // signed request was authenticated there.
@@ -460,7 +659,8 @@ func (s *Sessions) adoptLocked(sessionID, towerID string) (*session, bool) {
 		return nil, false
 	}
 	sess := &session{towerID: towerID, version: rec.Version, opened: rec.LastSeen,
-		lastSeen: s.now(), relay: rec.Relay}
+		lastSeen: s.now(), relay: rec.Relay, locality: rec.Locality, localityKnown: rec.LocalityKnown,
+		linkLoc: rec.Link, linkKnown: rec.LinkKnown, pull: rec.Pull, hubClass: rec.HubClass}
 	if prev, exists := s.byTower[towerID]; exists {
 		delete(s.byID, prev)
 	}
@@ -482,6 +682,8 @@ func (s *Sessions) mirrorPutLocked(towerID, sessionID string) {
 	}
 	_ = s.cfg.Mirror.Put(towerID, Record{
 		SessionID: sessionID, Version: sess.version, LastSeen: s.now(), Relay: sess.relay,
+		Locality: sess.locality, LocalityKnown: sess.localityKnown, Link: sess.linkLoc, LinkKnown: sess.linkKnown,
+		Pull: sess.pull, HubClass: sess.hubClass,
 	})
 }
 
@@ -498,25 +700,56 @@ func (s *Sessions) fresh(seen time.Time) bool {
 }
 
 // Close ends a session deliberately. An operator who drains on purpose leaves routing at
-// once rather than waiting out the freshness window.
-func (s *Sessions) Close(sessionID, towerID string) {
+// once rather than waiting out the freshness window. It reports whether it ended the
+// Tower's CURRENT session, here or through the shared record: a close naming a superseded
+// or unknown session ends nothing, and the governance record must not say otherwise.
+func (s *Sessions) Close(sessionID, towerID string) bool {
 	s.mu.Lock()
+	ended := false
 	sess, held := s.byID[sessionID]
 	if held && sess.towerID == towerID {
 		delete(s.byID, sessionID)
 		if s.byTower[towerID] == sessionID {
 			delete(s.byTower, towerID)
+			ended = true
 		}
 	}
 	s.mu.Unlock()
 	if s.cfg.Mirror == nil {
-		return
+		return ended
 	}
+	// WITH A SHARED VIEW, ONLY THE SHARED VIEW SAYS WHAT WAS CURRENT. This instance's map
+	// can still hold a session another instance has since superseded, so its answer above
+	// is discarded: the close ended the Tower's session only if the shared record named it.
+	//
 	// The close may land on an instance that never held the session - at two instances,
 	// half of them do. The mirror's compare-and-delete is what makes the close reach
 	// every instance while a superseded session id still buys nothing: it only removes a
 	// row that names EXACTLY this session, which only the authenticated Tower was told.
+	// An unreadable shared view falls back to this instance's answer, so a real close of a
+	// session held here is still recorded rather than logged as ending nothing.
+	if rec, there, err := s.cfg.Mirror.Get(towerID); err == nil {
+		ended = there && rec.SessionID == sessionID
+	}
 	_ = s.cfg.Mirror.Del(towerID, sessionID)
+	return ended
+}
+
+// Current names the Tower's current session, here or in the shared record.
+// With a shared view configured, the shared view is the authority (a local copy may be one
+// another instance superseded or closed); an unreadable shared view answers "none".
+func (s *Sessions) Current(towerID string) (string, bool) {
+	if s.cfg.Mirror != nil {
+		rec, there, err := s.cfg.Mirror.Get(towerID)
+		if err != nil || !there || rec.SessionID == "" {
+			return "", false
+		}
+		return rec.SessionID, true
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	id, ok := s.byTower[towerID]
+	return id, ok
 }
 
 // Live answers the question routing asks on every request. A map read and nothing else:
@@ -552,6 +785,13 @@ func (s *Sessions) Live(towerID string) bool {
 
 // LiveTowers lists every Tower currently eligible to receive work.
 func (s *Sessions) LiveTowers() []string {
+	out, _ := s.LiveTowersChecked()
+	return out
+}
+
+// LiveTowersChecked is LiveTowers plus whether the fleet-wide half could be read: on a mirror
+// error the list is only what this instance holds, and the error says so.
+func (s *Sessions) LiveTowersChecked() ([]string, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	seen := map[string]bool{}
@@ -564,16 +804,19 @@ func (s *Sessions) LiveTowers() []string {
 	}
 	// Plus every fresh record a peer instance holds. A mirror error leaves the local set:
 	// what this instance can actually see.
-	if s.cfg.Mirror != nil {
-		if all, err := s.cfg.Mirror.All(); err == nil {
-			for towerID, rec := range all {
-				if !seen[towerID] && s.freshLocked(rec.LastSeen) {
-					out = append(out, towerID)
-				}
-			}
+	if s.cfg.Mirror == nil {
+		return out, nil
+	}
+	all, err := s.cfg.Mirror.All()
+	if err != nil {
+		return out, err
+	}
+	for towerID, rec := range all {
+		if !seen[towerID] && s.freshLocked(rec.LastSeen) {
+			out = append(out, towerID)
 		}
 	}
-	return out
+	return out, nil
 }
 
 // Count is how many sessions are held, live or not. Used by the reaper and by tests.
@@ -613,4 +856,49 @@ func newSessionID() (string, error) {
 		return "", err
 	}
 	return "sess-" + hex.EncodeToString(raw), nil
+}
+
+// LastSeen reports when Core last heard from a Tower: this instance's session or the shared
+// mirror, whichever is newer. It is for the governance record and the admin view; liveness
+// decisions use Live, which also applies the freshness window.
+func (s *Sessions) LastSeen(towerID string) (time.Time, bool) {
+	var seen time.Time
+	s.mu.Lock()
+	if id, ok := s.byTower[towerID]; ok {
+		if sess, ok := s.byID[id]; ok {
+			seen = sess.lastSeen
+		}
+	}
+	s.mu.Unlock()
+	if s.cfg.Mirror != nil {
+		if rec, there, err := s.cfg.Mirror.Get(towerID); err == nil && there && rec.LastSeen.After(seen) {
+			seen = rec.LastSeen
+		}
+	}
+	return seen, !seen.IsZero()
+}
+
+// LastSeenChecked is LastSeen that reports a mirror read failure instead of answering from
+// this instance alone. Anything that writes a permanent record from the answer - "this
+// Tower went quiet" - must use it: an instance that cannot read the shared view does not
+// know, and unknown is not gone.
+func (s *Sessions) LastSeenChecked(towerID string) (time.Time, bool, error) {
+	var seen time.Time
+	s.mu.Lock()
+	if id, ok := s.byTower[towerID]; ok {
+		if sess, ok := s.byID[id]; ok {
+			seen = sess.lastSeen
+		}
+	}
+	s.mu.Unlock()
+	if s.cfg.Mirror != nil {
+		rec, there, err := s.cfg.Mirror.Get(towerID)
+		if err != nil {
+			return time.Time{}, false, err
+		}
+		if there && rec.LastSeen.After(seen) {
+			seen = rec.LastSeen
+		}
+	}
+	return seen, !seen.IsZero(), nil
 }

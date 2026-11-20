@@ -55,13 +55,13 @@ func paramsContradicted(o protocol.ModelOffer) bool {
 
 // verifiedFresh is trust_min "verified": a passed, completed, model-consistent canary
 // (verifiedServing) whose measurement is inside the probe freshness window the score already
-// uses (probeConfig.measurementStale, the probe ceiling). With no ceiling there is no window.
+// uses (probeConfig.measurementStale, the freshness window). With no ceiling there is no window.
 // Callers hold b.metricsMu.
 func (b *broker) verifiedFreshLocked(nodeID string, tq trustState, now time.Time) bool {
 	if !tq.verifiedServing() || b.organicContradictsLocked(nodeID, tq) {
 		return false
 	}
-	if b.probeMinLapsedLocked(nodeID, now, b.probe.ceiling) {
+	if b.probeMinLapsedLocked(nodeID, now, b.probe.freshFor()) {
 		return false // a declared probe minimum never extends the mark past the normal window
 	}
 	if b.probe.ceiling <= 0 {

@@ -121,6 +121,9 @@ type hubOptions struct {
 	// altogether. Note that ON is not the same as "a token opens a queue": a Station that has
 	// signed to this hub refuses its own token from then on (internal/towerhub/nodeauth.go).
 	AllowLegacyBearer bool
+	// session is the link's current session id, which pulled work is bound to. Set by
+	// serveJoined; nil means no pulls (a hub run on its own, as tests do).
+	session *sessionBox
 }
 
 // tlsWanted reports whether this hub should terminate TLS. A certificate implies it, so an
@@ -514,10 +517,18 @@ func runHubInBackground(st *tower.State, opt hubOptions, out io.Writer, stop <-c
 		}
 	}()
 
+	// THE PULLS: Core hands this hub its work over the link instead of dialing it, whenever the
+	// hub is advertised (that is when the session offers link.CapPull).
+	waitPulls := func() {}
+	if opt.session != nil && opt.Advertised != "" {
+		waitPulls = runPulls(st, mux, opt.session, out, stop)
+	}
+
 	return func() {
 		<-serveDone
 		<-refreshDone
 		<-courierDone
+		waitPulls()
 	}, nil
 }
 

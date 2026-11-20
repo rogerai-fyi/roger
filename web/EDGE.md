@@ -1,26 +1,22 @@
 # EDGE - Cloudflare rules for the RogerAI site
 
-The site is hosted on **DigitalOcean App Platform** (origin) behind a **Cloudflare**
-CDN/DNS proxy. It is **not** Cloudflare Pages. You can confirm the shape from the live
-response headers:
+The site is served from a static origin behind a **Cloudflare** CDN/DNS proxy. It is
+**not** Cloudflare Pages. You can confirm the edge from the live response headers:
 
 ```sh
-curl -sSI https://rogerai.fm/ | grep -iE 'server|x-do-app-origin|cf-ray'
-# server: cloudflare         <- Cloudflare proxy in front
-# x-do-app-origin: <uuid>    <- DigitalOcean App Platform origin
+curl -sSI https://rogerai.fm/ | grep -iE 'server|cf-ray|content-security-policy'
+# server: cloudflare                 <- the Cloudflare proxy in front
 # cf-ray: ...
+# content-security-policy: ...       <- set at the edge by the rules below
 ```
 
-Because DO App Platform static sites can't emit custom response headers, the two
-Cloudflare-Pages-style files in the repo are **not honored by the host**:
+The origin does not read the two Cloudflare-Pages-style files in the repo:
 
 - [`src/_headers`](src/_headers)   - the security headers (CSP, HSTS, X-Frame-Options, ...)
 - [`src/_redirects`](src/_redirects) - the `www -> apex` 301
 
-As of this writing **none** of those security headers are on the live response, and
-`https://www.rogerai.fm/` returns `200` instead of a `301`. The fix is to mirror both to
-the Cloudflare edge. The repo files stay the **source of truth**; the script below reads them
-so the edge never drifts.
+So both are mirrored to the Cloudflare edge as rules. The repo files stay the **source of
+truth**; the script below reads them so the edge never drifts.
 
 ---
 

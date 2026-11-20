@@ -804,7 +804,7 @@ func (s *nf2State) onAirAgedVerified(name, model string) error {
 	if s.b.probe.ceiling <= 0 {
 		s.b.probe.ceiling = defaultProbeCeiling
 	}
-	aged := time.Now().Add(-s.b.probe.ceiling - time.Minute)
+	aged := time.Now().Add(-s.b.probe.freshFor() - time.Minute)
 	ps.lastMeasured = aged
 	ps.lastProbe = aged
 	s.b.metricsMu.Unlock()

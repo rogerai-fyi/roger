@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { source } from "./_html.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "../..");
@@ -10,7 +11,7 @@ const read = (name) => fs.readFileSync(path.join(root, name), "utf8");
 
 test("provider copy separates auto-detection from protocol compatibility", () => {
   const readme = read("README.md");
-  const sharePage = read("web/src/broadcasts-share-gpu-earn.html");
+  const sharePage = source("broadcasts-share-gpu-earn.html");
 
   for (const text of [readme, sharePage]) {
     assert.match(text, /Unsloth Studio/);

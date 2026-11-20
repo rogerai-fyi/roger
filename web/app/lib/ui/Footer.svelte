@@ -1,0 +1,111 @@
+<script>
+  // The ONE shared footer (legacy: _partials/footer.html). anchors = prefix for the
+  // homepage #section links ("" on the homepage, "/" elsewhere).
+  import Brand from "./Brand.svelte";
+  import Orange3d from "./Orange3d.svelte";
+  import LetsTalk from "./LetsTalk.svelte";
+  let { anchors = "" } = $props();
+</script>
+<footer class="footer">
+  <div class="wrap footer__inner">
+    <Brand as="footer" />
+    <nav class="footer__links" aria-label="Footer">
+      <div class="footer__group">
+        <small class="footer__heading">Product</small>
+        <a href="/models.html">Models</a>
+        <a href="/pricing.html">Pricing</a>
+        <a href="/integrations.html">Integrations</a>
+        <a href="/playbox.html">Playbox</a>
+        <a href="/app.html">App</a>
+        <a href="/tower.html">Tower</a>
+        <a href="/voices.html">Voices</a>
+        <a href="{anchors}#spec">Spec</a>
+        <a href="{anchors}#monetize">Monetize</a>
+      </div>
+      <div class="footer__group">
+        <small class="footer__heading">Research</small>
+        <a href="/research.html">Research</a>
+        <a href="/research-models.html">Models &amp; status</a>
+        <a href="/research-wave-pico.html">Wave Pico</a>
+        <a href="/research-wave-nano.html">Wave Nano</a>
+        <a href="/research-wave-family.html">Wave family</a>
+        <a href="/research-hardware.html">Hardware</a>
+        <a href="/research-industry.html">Industrial</a>
+      </div>
+      <div class="footer__group">
+        <small class="footer__heading">Account</small>
+        <a href="/login.html">Log in</a>
+        <a href="/dashboard.html">Dashboard</a>
+        <a href="/console.html">Console</a>
+        <a href="/keys.html">API keys</a>
+        <a href="/account.html">Account</a>
+      </div>
+      <div class="footer__group">
+        <small class="footer__heading">Company</small>
+        <a href="/company.html">Company</a>
+        <a href="/careers.html">Careers</a>
+        <a href="/faq.html">FAQ</a>
+        <a data-lets-talk aria-expanded="false" href="mailto:labs@rogerai.fm?subject=Hello%20from%20the%20website">Let&rsquo;s talk</a>
+        <a href="/manual.html">Manual</a>
+        <a href="https://github.com/rogerai-fyi/roger">GitHub</a>
+        <a href="https://github.com/rogerai-fyi/roger/releases">Releases</a>
+      </div>
+      <div class="footer__group">
+        <small class="footer__heading">Community</small>
+        <a href="/broadcasts.html">Broadcasts</a>
+        <a class="footer__discord" href="https://discord.gg/P3CfGkHHwN" target="_blank" rel="noopener noreferrer">
+          <svg class="footer__discord-icon" viewBox="0 0 24 18" width="16" height="12" fill="currentColor" aria-hidden="true" focusable="false">
+            <path d="M20.317 1.492A19.79 19.79 0 0 0 15.43 0c-.21.375-.456.88-.625 1.282a18.27 18.27 0 0 0-5.61 0A12.6 12.6 0 0 0 8.563 0 19.74 19.74 0 0 0 3.677 1.492C.533 6.17-.32 10.73.106 15.225a19.9 19.9 0 0 0 6.073 3.04c.488-.665.922-1.37 1.296-2.112a12.95 12.95 0 0 1-2.043-.973c.172-.126.34-.257.501-.391a14.2 14.2 0 0 0 12.135 0c.164.137.331.268.501.391-.652.382-1.34.708-2.045.974.375.74.81 1.446 1.297 2.111a19.88 19.88 0 0 0 6.073-3.04c.5-5.222-.853-9.74-3.591-13.733ZM8.02 12.46c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.954-2.42 2.157-2.42 1.21 0 2.176 1.097 2.157 2.42 0 1.334-.954 2.419-2.157 2.419Zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.42 2.157-2.42 1.21 0 2.176 1.097 2.157 2.42 0 1.334-.946 2.419-2.157 2.419Z"/>
+          </svg>
+          <span>Discord</span>
+        </a>
+      </div>
+      <div class="footer__group">
+        <small class="footer__heading">Legal</small>
+        <a href="/tos.html">Terms</a>
+        <a href="/privacy.html">Privacy</a>
+        <a href="/security.html">Security</a>
+        <a href="mailto:abuse@rogerai.fm">Report abuse</a>
+      </div>
+    </nav>
+  </div>
+
+  <div class="wrap upgrade">
+    <button class="upgrade__toggle" id="upgradeToggle" type="button"
+            aria-expanded="false" aria-controls="upgradePanel">
+      <span class="upgrade__caret" aria-hidden="true"></span>
+      How to upgrade
+    </button>
+    <div class="upgrade__panel" id="upgradePanel" hidden>
+      <p class="upgrade__lead mono">Already on air? Pull the latest:</p>
+      <button class="upgrade__cmd" id="upgradeCmd1" type="button" data-copy-target
+              aria-label="Copy upgrade command to clipboard">
+        <span class="upgrade__prompt" aria-hidden="true">$</span>
+        <code>roger upgrade</code>
+        <span class="upgrade__copy" aria-hidden="true">copy</span>
+      </button>
+      <p class="upgrade__lead mono">Or re-run the installer (it upgrades in place):</p>
+      <button class="upgrade__cmd" id="upgradeCmd2" type="button" data-copy-target
+              aria-label="Copy install command to clipboard">
+        <span class="upgrade__prompt" aria-hidden="true">$</span>
+        <code>curl -fsSL https://rogerai.fm/install.sh | sh</code>
+        <span class="upgrade__copy" aria-hidden="true">copy</span>
+      </button>
+    </div>
+  </div>
+
+  <p class="wrap footer__colophon mono">SET rogerai - REV 2026.06 - OpenAI-compatible - PolyForm Perimeter 1.0.0</p>
+  <p class="wrap footer__colophon mono">◉ broadcasting live from Orange County, California <Orange3d id="oc" /></p>
+
+  <div class="wrap footer__bar">
+    <small>&copy; 2026 RogerAI,&nbsp;Inc., a Delaware corporation · built on real machines</small>
+    <span class="footer__status">
+      <span class="livedot"><span class="livedot__ring"></span><span class="livedot__core"></span></span>
+      the band is open · roger that
+    </span>
+  </div>
+</footer>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<LetsTalk />

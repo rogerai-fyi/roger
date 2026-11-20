@@ -51,8 +51,13 @@ type RowView struct {
 	Served       int64   `json:"served"`
 	OutTokens    int64   `json:"out_tokens"`
 	Earnings     float64 `json:"earnings"`
-	Node         string  `json:"node,omitempty"`
-	BandDisplay  string  `json:"band_display,omitempty"`
+	// CoreAnswered / CoreCurrent say what Served, OutTokens and Earnings are: Core's record of
+	// this share (features/serving/probe_accounting.feature), not yet given, or the last numbers
+	// Core gave while it cannot be read. A reader shows "…" or "not current" rather than a zero.
+	CoreAnswered bool   `json:"core_answered"`
+	CoreCurrent  bool   `json:"core_current"`
+	Node         string `json:"node,omitempty"`
+	BandDisplay  string `json:"band_display,omitempty"`
 	// Probes / ProbeTokens are the broker's own canary traffic, carried SEPARATELY from
 	// Served/OutTokens rather than folded into them. The broker probes a station to keep
 	// its reachability and speed figures honest, and that work is unbilled - so counting
@@ -141,6 +146,7 @@ func (c *Controller) Snapshot() Snapshot {
 			reqs, toks := sess.Served()
 			rv.Served, rv.OutTokens = reqs, toks
 			rv.Earnings = sess.Earnings()
+			rv.CoreAnswered, rv.CoreCurrent = sess.CoreAnswered(), sess.CoreCurrent()
 			rv.Probes, rv.ProbeTokens = sess.ProbeStats()
 			snap.Totals.Probes += rv.Probes
 			rv.Node = sess.Node()

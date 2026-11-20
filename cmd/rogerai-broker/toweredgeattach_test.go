@@ -42,6 +42,9 @@ func liveEdgeTowerSession(t *testing.T, b *broker, srv *httptest.Server, login, 
 	op := signedInOperator(t, b, login)
 	lt := enrolledTower(t, b, op.login)
 	require.NoError(t, b.tower.registry.Transition(lt.id, admit.StateActive))
+	// Established, so the trust ramp's caps (towerstage.go) do not bound tests written about
+	// everything else; a ramp test sets the stage it is about with setStage.
+	setStage(t, b, lt.id, stageEstablished)
 	var acc link.Accepted
 	code, raw := lt.call(t, srv, "/tower/session", jsonOf(t, link.Hello{
 		Network: link.PublicNetwork, Versions: []int{1}, TowerID: lt.id,

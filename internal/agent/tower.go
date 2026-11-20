@@ -35,6 +35,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/ed25519"
+	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -42,8 +43,11 @@ import (
 	"io"
 	"math"
 	randv2 "math/rand/v2"
+	"net"
 	"net/http"
 	"path/filepath"
+	"rogerai.fm/roger/v7/internal/netpriv"
+	"strings"
 	"sync"
 	"time"
 
@@ -142,12 +146,40 @@ func microsPerDollarPer1M(price float64) int64 {
 // the fact that nothing authenticates the hub's ANSWERS. The second return value exists so the
 // node can still say so, because "unencrypted" remains true of a relay whose operator has not
 // turned TLS on, and the operator is owed the sentence.
+//
+// AN UNPINNED HUB GIVEN BY NAME is dialed through towerhub.ReachVetted: the name's resolved
+// addresses are checked at the socket, every dial, and a private one is refused, because a
+// private hub reaches a Station only with its pin (private_hub_placement.feature). A literal
+// private address without a pin is refused earlier, at attach (privateHubUnpinned).
 func hubBaseURL(endpoint, pin string, hc *http.Client) (base string, client *http.Client, plaintext bool, err error) {
-	base, client, err = towerhub.Reach(endpoint, pin, hc)
+	if pin == "" && hubIsName(endpoint) {
+		base, client, err = towerhub.ReachVetted(endpoint, "", func(ip net.IP) error { return unpinnedHubVet(ip) })
+		if err == nil && hc != nil {
+			client.Timeout = hc.Timeout
+		}
+	} else {
+		base, client, err = towerhub.Reach(endpoint, pin, hc)
+	}
 	if err != nil {
 		return "", nil, false, err
 	}
 	return base, client, pin == "", nil
+}
+
+// hubIsName reports an endpoint whose host is a name rather than an address.
+func hubIsName(endpoint string) bool {
+	host, _, err := net.SplitHostPort(endpoint)
+	return err == nil && net.ParseIP(host) == nil
+}
+
+// unpinnedHubVet refuses a private address (RFC 1918, ULA, CGNAT) for an unpinned hub; loopback
+// is the same-machine rig and passes, as at attach. A variable so a test can stand in for DNS.
+var unpinnedHubVet = func(ip net.IP) error {
+	switch netpriv.Classify(ip) {
+	case netpriv.Private, netpriv.ULA, netpriv.CGNAT:
+		return fmt.Errorf("%s is a private address, and a private hub needs a certificate pin from Roger Core", ip)
+	}
+	return nil
 }
 
 // ErrPrivateShareNeverRelays refuses to put a PRIVATE band on the public relay fabric.
@@ -521,6 +553,31 @@ func staleAdvertisement(err error) bool {
 	return true
 }
 
+// hubOutOfReach reports a hub failure that is this Station not reaching the hub at all: a dial
+// (refused, no route, timed out), DNS, or TLS failure - the pin not matching, a certificate that
+// does not verify, something at that address that does not speak TLS, a handshake alert, or a
+// handshake that timed out. (A carrier NAT can put a stranger's device, a printer say, at the
+// address the Station dials.) A hub that answered over TLS, with any status, or a connection that
+// broke after the handshake, was reached.
+func hubOutOfReach(err error) bool {
+	var op *net.OpError
+	var dns *net.DNSError
+	var cert *tls.CertificateVerificationError
+	var rec tls.RecordHeaderError
+	var ne net.Error
+	switch {
+	case errors.Is(err, towerhub.ErrHubCertificateUnpinned):
+		return true
+	case errors.As(err, &op) && (op.Op == "dial" || op.Op == "remote error"):
+		return true
+	case errors.As(err, &dns), errors.As(err, &cert), errors.As(err, &rec):
+		return true
+	case errors.As(err, &ne) && ne.Timeout() && strings.Contains(err.Error(), "TLS handshake timeout"):
+		return true
+	}
+	return false
+}
+
 // hubFailureStreak decides when a relay has STOPPED BEING A RELAY, as opposed to having a bad
 // minute. One error cannot draw that line and a clock must not: see the block comment above.
 //
@@ -618,6 +675,14 @@ func waitFor(ctx context.Context, d time.Duration) bool {
 // identity under dir, the offer from cfg (model/modality/prices), the request signed with the
 // node's account-bound key. Idempotent on retry with the same identity.
 func AttachTower(cfg Config, priv ed25519.PrivateKey, dir string) (*station.Station, TowerAttachment, error) {
+	return attachTowerAvoiding(cfg, priv, dir, TowerAttachment{})
+}
+
+// attachTowerAvoiding is AttachTower after this node gave up on a Tower's hub: unreachable names
+// that Tower and pin the certificate pin the node was using, so Core can tell a hub out of this
+// Station's reach (moved off it) from a certificate the Tower rotated (the new pin handed back)
+// (private_hub_placement.feature). It only ever moves this Station.
+func attachTowerAvoiding(cfg Config, priv ed25519.PrivateKey, dir string, gaveUp TowerAttachment) (*station.Station, TowerAttachment, error) {
 	// A PRIVATE BAND IS NEVER ATTACHED. Structural, at the network act, so the guarantee does not
 	// depend on which branch of a caller happens to reach here. See ErrPrivateShareNeverRelays.
 	if cfg.Private {
@@ -649,7 +714,7 @@ func AttachTower(cfg Config, priv ed25519.PrivateKey, dir string) (*station.Stat
 	if modality == "" {
 		modality = "chat"
 	}
-	body, err := json.Marshal(map[string]any{
+	fields := map[string]any{
 		// THE JOIN. This is the same node id `roger share` registers, heartbeats and is
 		// probed under. Sending it is what lets Core rank this station by measured health
 		// instead of guessing: reliability, TTFT and TPS are all recorded against the broker
@@ -664,7 +729,15 @@ func AttachTower(cfg Config, priv ed25519.PrivateKey, dir string) (*station.Stat
 		"modality":         modality,
 		"price_in_micros":  microsPerDollarPer1M(cfg.PriceIn),
 		"price_out_micros": microsPerDollarPer1M(cfg.PriceOut),
-	})
+		// This node understands the re-attach nudge on its cancel poll (tower_move.go), so
+		// Core may move it to a better relay while it is idle.
+		"nudge": true,
+	}
+	if gaveUp.TowerID != "" {
+		fields["unreachable_tower"], fields["unreachable_pin"] = gaveUp.TowerID, gaveUp.EndpointTLSSPKI
+		fields["unreachable_endpoint"] = gaveUp.Endpoint
+	}
+	body, err := json.Marshal(fields)
 	if err != nil {
 		return nil, TowerAttachment{}, err
 	}
@@ -719,6 +792,13 @@ func AttachTower(cfg Config, priv ed25519.PrivateKey, dir string) (*station.Stat
 	// not a security property. Signed hub polls have not shipped in a tagged release, so
 	// nothing in the field is stranded by this - but a Core older than the fingerprint is, and
 	// the deployment order was already written down: Core, then Towers, then nodes.
+	// A PRIVATE HUB COMES WITH A PIN OR NOT AT ALL (private_hub_placement.feature). A private
+	// address is somewhere on this machine's own network; dialing one without a certificate to
+	// check would hand this node's signed polls to whatever answers there.
+	if privateHubUnpinned(at.Endpoint, at.EndpointTLSSPKI) {
+		return nil, TowerAttachment{}, errors.New("attach named a private hub address with no " +
+			"certificate pin; this node dials a private hub only when it can check what answers")
+	}
 	if at.TowerKeyHash == "" {
 		return nil, TowerAttachment{}, errors.New(
 			"attach answered without the relay's identity fingerprint (tower_key_hash): this node " +
@@ -727,6 +807,28 @@ func AttachTower(cfg Config, priv ed25519.PrivateKey, dir string) (*station.Stat
 				"updated before the towers and nodes that talk to it")
 	}
 	return st, at, nil
+}
+
+// privateHubUnpinned reports a hub endpoint at a private address (RFC 1918, ULA, CGNAT) handed
+// out without a certificate pin. Loopback is a same-machine test rig Core never hands out and is
+// left to the pin rules the hub client already applies.
+func privateHubUnpinned(endpoint, pin string) bool {
+	if pin != "" {
+		return false
+	}
+	host, _, err := net.SplitHostPort(endpoint)
+	if err != nil {
+		return false
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	switch netpriv.Classify(ip) {
+	case netpriv.Private, netpriv.ULA, netpriv.CGNAT:
+		return true
+	}
+	return false
 }
 
 // fetchCoreKeys pins Roger Core's grant-signing key AND its envelope key, from Core itself.
@@ -847,12 +949,17 @@ func ServeTower(ctx context.Context, cfg Config, priv ed25519.PrivateKey, dir st
 		consecutive         int
 		firstTries          int
 		gen                 int
+		movedFrom, movedWhy string
+		gaveUp              TowerAttachment // the attachment whose hub this node last gave up on
 	)
 	for {
 		if ctx.Err() != nil {
 			return nil
 		}
-		st, at, err := AttachTower(cfg, priv, dir)
+		st, at, err := attachTowerAvoiding(cfg, priv, dir, gaveUp)
+		if err == nil {
+			gaveUp = TowerAttachment{}
+		}
 		if err != nil {
 			if gen == 0 {
 				// THE FIRST ATTACH IS RETRIED NOW, A FEW TIMES, AND THAT IS A CHANGE OF MIND.
@@ -924,12 +1031,30 @@ func ServeTower(ctx context.Context, cfg Config, priv ed25519.PrivateKey, dir st
 				Transcripts: station.NewTranscripts(0, 0),
 			}
 		}
+		if movedFrom != "" {
+			notice.notify(errors.New(movedNotice(movedFrom, at.TowerID, movedWhy)))
+			movedFrom, movedWhy = "", ""
+		}
 		started := time.Now()
 		terr := serveTowerTenancy(ctx, cfg, at, exec, coreEnvKey, out, notice)
 		switch {
 		case ctx.Err() != nil:
 			return nil
+		case errors.Is(terr, errMoved):
+			// Core asked: attach again now, with no backoff - this is a placement, not a failure.
+			// The operator is told where it landed once the attach answers.
+			var me movedError
+			errors.As(terr, &me)
+			movedFrom, movedWhy = at.TowerID, me.reason
+			consecutive = 0
+			gen++
+			continue
 		case errors.Is(terr, errHubStanding):
+			// Said on the next attach (which Tower, at which address, with which pin), only for a hub
+			// out of this Station's reach: a hub that answers with errors is not unreachable.
+			if hubOutOfReach(terr) {
+				gaveUp = at
+			}
 			// terr ITSELF, not errors.Unwrap(terr). A `fmt.Errorf("%w: %w", ...)` has an
 			// `Unwrap() []error`, not an `Unwrap() error`, so errors.Unwrap returns NIL on it and
 			// the cause would have been formatted as "%!w(<nil>)" - an operator handed a rendering
@@ -1008,9 +1133,11 @@ func serveTowerTenancy(ctx context.Context, cfg Config, at TowerAttachment,
 	// THE TENANCY'S SOCKETS GO WITH THE TENANCY. A pinned link gets a transport of its own (see
 	// towerhub.Reach), and its idle connections are long-poll connections to a hub this node is
 	// about to stop believing in; leaving them pooled would keep an outage's worth of sockets open
-	// against a relay that has been replaced. An UNPINNED link is left alone deliberately: it has
-	// no transport of its own, so it is sharing http.DefaultTransport with the ordinary share's
-	// broker poll, and closing that would reach into a plane this one has no business touching.
+	// against a relay that has been replaced. An unpinned hub given by NAME has one of its own too
+	// (the vetted dial in hubBaseURL) and is closed the same way. An unpinned ADDRESS is left alone
+	// deliberately: it has no transport of its own, so it is sharing http.DefaultTransport with
+	// the ordinary share's broker poll, and closing that would reach into a plane this one has no
+	// business touching.
 	defer func() {
 		if tr, ok := hubHTTP.Transport.(*http.Transport); ok && tr != nil {
 			tr.CloseIdleConnections()
@@ -1101,10 +1228,32 @@ func serveTowerTenancy(ctx context.Context, cfg Config, at TowerAttachment,
 	if workers <= 0 {
 		workers = 2
 	}
+	// A move: Core's nudge ends this tenancy once the work in flight has finished, so the
+	// node attaches again and is placed where Core chose.
+	gate := gateFor(cfg.NodeID)
+	moved := make(chan string, 1)
+	go func() {
+		for {
+			select {
+			case <-tctx.Done():
+				return
+			case n := <-nudgeChan(cfg.NodeID):
+				if !n.fresh(time.Now()) || !gate.allow() || !gate.waitIdle(tctx, nudgeExpiry-time.Since(n.at)) {
+					continue
+				}
+				select {
+				case moved <- n.reason:
+					cancel()
+				default:
+				}
+				return
+			}
+		}
+	}()
 	done := make(chan error, workers)
 	for i := 0; i < workers; i++ {
 		go func() {
-			done <- towerhub.ServeLoop(tctx, client, at.StationID, sealedExec{exec}, func(err error) {
+			done <- towerhub.ServeLoop(tctx, client, at.StationID, gatedExec{sealedExec{exec}, gate}, func(err error) {
 				// EVERY worker error is weighed for whether this relay is finished, BEFORE it is
 				// classified for the operator - because the two questions have different answers.
 				// A pin mismatch is both loud and terminal; a dial that is refused is neither loud
@@ -1175,6 +1324,11 @@ func serveTowerTenancy(ctx context.Context, cfg Config, at TowerAttachment,
 	select {
 	case serr := <-standing:
 		return fmt.Errorf("%w: %w", errHubStanding, serr)
+	default:
+	}
+	select {
+	case reason := <-moved:
+		return movedError{reason: reason}
 	default:
 	}
 	if errors.Is(first, context.Canceled) {

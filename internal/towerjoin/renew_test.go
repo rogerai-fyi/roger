@@ -11,18 +11,25 @@ package towerjoin
 // being CALLED - not just the ones that check it computes the right thing.
 
 import (
+	"bytes"
+	"crypto/ed25519"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/hex"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"rogerai.fm/roger/v7/internal/protocol"
 )
 
 // renewingCore answers the two renewal routes with a freshly issued credential.
@@ -466,4 +473,57 @@ func TestARefusedRenewalPostIsReported(t *testing.T) {
 	require.NoError(t, Register(st, Account{Login: "alice"}))
 	_, err := RenewIfDue(st, time.Now().Add(48*time.Hour))
 	require.Error(t, err)
+}
+
+// THE RENEWAL MUST BE SIGNED BY THE TOWER, NOT BY THE OPERATOR. Core authenticates both
+// renewal routes exactly like the link: the request's signing key must be the identity key
+// Core admitted for that Tower id. The first build signed them with the operator's account
+// key, so Core refused every renewal with a silent 403, and every joined Tower lapsed 24
+// hours after enrolling. Found by the first outside operator (2026-11-13). The stub Core
+// above never looked at the signature, which is how 15 renewal tests stayed green.
+func TestRenewalIsSignedByTheTowersOwnIdentityKey(t *testing.T) {
+	t.Setenv("ROGER_CONFIG_DIR", t.TempDir())
+	c, mux := newStubCoreMux(t)
+	st := joinedTower(t)
+	identity, err := st.IdentityKey()
+	require.NoError(t, err)
+	want := hex.EncodeToString(identity.Public().(ed25519.PublicKey))
+
+	var signers sync.Map // path -> pubkey hex that signed it
+	checked := func(path string, next http.HandlerFunc) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			body, _ := io.ReadAll(r.Body)
+			ts, _ := strconv.ParseInt(r.Header.Get(protocol.HeaderTS), 10, 64)
+			pub := r.Header.Get(protocol.HeaderPubkey)
+			if _, ok := protocol.VerifyRequest(pub, r.Header.Get(protocol.HeaderSig), ts,
+				r.Method, r.URL.Path, body); !ok {
+				pub = "bad-signature"
+			}
+			signers.Store(path, pub)
+			if pub != want {
+				http.Error(w, `{"error":{"message":"renewing requires the Tower's own signed request"}}`,
+					http.StatusForbidden)
+				return
+			}
+			r.Body = io.NopCloser(bytes.NewReader(body))
+			next(w, r)
+		}
+	}
+	inner := http.NewServeMux()
+	renewingCore(t, c, inner, 48*time.Hour)
+	for _, p := range []string{"/tower/renew/challenge", "/tower/renew"} {
+		mux.HandleFunc(p, checked(p, inner.ServeHTTP))
+	}
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	t.Setenv("ROGER_BROKER", srv.URL)
+	require.NoError(t, Register(st, Account{Login: "alice"}))
+
+	did, err := RenewIfDue(st, time.Now().Add(48*time.Hour))
+	require.NoError(t, err)
+	require.True(t, did)
+	for _, p := range []string{"/tower/renew/challenge", "/tower/renew"} {
+		got, _ := signers.Load(p)
+		require.Equal(t, want, got, "%s must be signed by the Tower's identity key", p)
+	}
 }

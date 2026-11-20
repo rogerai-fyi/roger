@@ -42,7 +42,7 @@ var historicalAccounts = map[string]bool{
 func TestNoDocTeachesTheRemovedTowerFlag(t *testing.T) {
 	root := filepath.Join("..", "..")
 	var offenders []string
-	for _, dir := range []string{"docs", "packaging", "features", "web/src"} {
+	for _, dir := range []string{"docs", "packaging", "features", "web/src", "web/app"} {
 		err := filepath.Walk(filepath.Join(root, dir), func(path string, info os.FileInfo, err error) error {
 			if err != nil || info.IsDir() {
 				return err

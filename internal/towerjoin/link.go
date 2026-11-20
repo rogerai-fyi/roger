@@ -23,6 +23,7 @@ package towerjoin
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -37,6 +38,7 @@ import (
 	"rogerai.fm/roger/v7/internal/tower"
 	"rogerai.fm/roger/v7/internal/towercore/inv"
 	"rogerai.fm/roger/v7/internal/towercore/link"
+	"rogerai.fm/roger/v7/internal/towerhub"
 	"rogerai.fm/roger/v7/internal/towerobj"
 )
 
@@ -94,7 +96,7 @@ func OpenSession(st *tower.State, head Head, relay link.RelayPlane) (Session, er
 		// Both are integrity properties rather than features, and Core refuses a session
 		// without them: without the first a modified frame is indistinguishable from an
 		// honest one, and without the second Core's traffic would be readable by us.
-		Capabilities:  []string{link.CapIntegrity, link.CapInnerSession},
+		Capabilities:  sessionCaps(relay),
 		HeadRevision:  head.Revision,
 		HeadHash:      head.Hash,
 		RelayEndpoint: relay.Endpoint,
@@ -115,6 +117,17 @@ func OpenSession(st *tower.State, head Head, relay link.RelayPlane) (Session, er
 		Freshness:         time.Duration(acc.FreshnessSeconds) * time.Second,
 		NeedFullInventory: acc.NeedFullInventory,
 	}, nil
+}
+
+// sessionCaps is what this Tower offers: the two mandatory integrity capabilities, plus pull
+// whenever it serves a hub (features/tower/tower_pull_dispatch.feature) - a Tower with a hub
+// takes its work over this link instead of waiting to be dialed.
+func sessionCaps(relay link.RelayPlane) []string {
+	caps := []string{link.CapIntegrity, link.CapInnerSession}
+	if relay.Endpoint != "" {
+		caps = append(caps, link.CapPull)
+	}
+	return caps
 }
 
 // Heartbeat tells Core we are still here. The frame IS the liveness signal; losing one is
@@ -235,6 +248,18 @@ func towerPost(st *tower.State, path string, body []byte, out any) error {
 // "nothing to do" (204) apart from "here is your work" (200). Folding that into towerPost
 // would make every other caller carry a status they have no use for.
 func towerPostStatus(st *tower.State, path string, body []byte, out any, client *http.Client) (int, error) {
+	return towerPostLimit(context.Background(), st, path, body, out, client, 1<<20)
+}
+
+// towerPostLimit is towerPostStatus reading at most limit bytes of the answer: pulled work
+// carries sealed requests far larger than any control-plane reply.
+func towerPostLimit(ctx context.Context, st *tower.State, path string, body []byte, out any, client *http.Client, limit int64) (int, error) {
+	return towerPostAs(ctx, st, path, body, false, out, client, limit)
+}
+
+// towerPostAs is towerPostLimit that, with digest, signs the body's digest (sent in
+// towerhub.AnswerDigestHeader) instead of the body, for a route Core authenticates before reading.
+func towerPostAs(ctx context.Context, st *tower.State, path string, body []byte, digest bool, out any, client *http.Client, limit int64) (int, error) {
 	// HubNodes delivers node bearer tokens over this channel and tower<->Core calls delivers
 	// certificate trust - so the transport guard applies to every tower<->Core call, here at
 	// the single entry point (audit M-3).
@@ -245,12 +270,21 @@ func towerPostStatus(st *tower.State, path string, body []byte, out any, client 
 	if err != nil {
 		return 0, fmt.Errorf("this Tower's identity key is unreadable: %w", err)
 	}
-	req, err := http.NewRequest(http.MethodPost, brokerBase()+path, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, brokerBase()+path, bytes.NewReader(body))
 	if err != nil {
 		return 0, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	pub, ts, sig := protocol.SignRequest(identity, http.MethodPost, path, body)
+	// Core verifies the signature over the PATH alone; a query (the answer route's tower_id and
+	// work) rides beside it and is checked against the signer and the answer's body.
+	signedPath, _, _ := strings.Cut(path, "?")
+	signedOver := body
+	if digest {
+		d := towerhub.AnswerDigest(body)
+		req.Header.Set(towerhub.AnswerDigestHeader, d)
+		signedOver = []byte(d)
+	}
+	pub, ts, sig := protocol.SignRequest(identity, http.MethodPost, signedPath, signedOver)
 	req.Header.Set(protocol.HeaderPubkey, pub)
 	req.Header.Set(protocol.HeaderTS, strconv.FormatInt(ts, 10))
 	req.Header.Set(protocol.HeaderSig, sig)
@@ -264,7 +298,7 @@ func towerPostStatus(st *tower.State, path string, body []byte, out any, client 
 		return 0, fmt.Errorf("%w: %v", ErrUnreachable, err)
 	}
 	defer resp.Body.Close()
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, limit))
 
 	switch {
 	case resp.StatusCode == http.StatusConflict:

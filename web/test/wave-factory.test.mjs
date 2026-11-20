@@ -4,14 +4,16 @@
 // matter most are the honesty ones: what Pico and Nano say has to come out of
 // the committed bench export - including their misses - while the plant itself
 // (cookies, coins, bands, wear) is game simulation and says so on the surface.
+import { pageBundle } from "./_html.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { source } from "./_html.mjs";
 
 const SRC = path.join(path.dirname(fileURLToPath(import.meta.url)), "../src");
-const read = (p) => readFileSync(path.join(SRC, p), "utf8");
+const read = source;  // a page's source, legacy or app route (test/_html.mjs)
 const html = read("playbox.html").replace(/\s+/g, " ");
 const js = read("js/wave-factory.js");
 const css = read("styles/wave-factory.css");
@@ -33,7 +35,7 @@ function loadHook() {
 test("factory: it is a third deck of its own", () => {
   assert.match(html, /id="pgModeFactory"[^>]+aria-controls="pgFactoryView"/);
   assert.match(html, /id="pgFactoryView"[^>]+aria-labelledby="pgModeFactory"/);
-  assert.match(html, /js\/wave-factory\.js/);
+  assert.ok(pageBundle("playbox").includes("wave-factory"), "the Playbox bundle carries wave-factory.js");
   assert.match(css, /--tier-pico/, "the deck carries the Spectrum hues, scoped to itself");
 });
 
@@ -892,7 +894,7 @@ test("v28: the robot voice is retired from every player-facing string", () => {
   // when you get tired of guessing." surviving on the PAGE (playbox.html) after
   // the in-game pass - salesy needling is the same offense as robot doctrine.
   // The lock now sweeps the page surface too, and retires the needling register.
-  const page = readFileSync(path.join(SRC, "playbox.html"), "utf8");
+  const page = source("playbox.html");
   for (const phrase of [
     "the ladder ends with a person",
     "that is what the children are for",

@@ -19,15 +19,17 @@ import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import vm from "node:vm";
+import { source, decodeMarkup, component } from "./_html.mjs";
+import { runtimeScripts, RUNTIME_TAG } from "./_html.mjs";
 
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
-const src = (p) => readFileSync(path.join(WEB, "src", p), "utf8");
+const src = source;   // a page's source, legacy or app route (test/_html.mjs)
 const dist = (p) => readFileSync(path.join(WEB, "dist", p), "utf8");
 const WORDS = ["decentralized", "specialized", "industrialized"];
 
 before(() => execFileSync("node", ["build.mjs"], { cwd: WEB }));
 
-const h1 = () => dist("index.html").match(/<h1 class="hero__title"[\s\S]*?<\/h1>/)?.[0] || "";
+const h1 = () => decodeMarkup(dist("index.html")).match(/<h1 class="hero__title"[\s\S]*?<\/h1>/)?.[0] || "";
 const heroWord = () => h1().match(/<span class="([^"]*\bcycle-word\b[^"]*)"([^>]*)>([^<]*)<\/span>/);
 const attr = (attrs, name) => attrs.match(new RegExp(`\\s${name}="([^"]*)"`))?.[1];
 
@@ -45,7 +47,7 @@ test("the headline ships the canonical word in HTML, with the cycle list in foun
   assert.equal(attr(attrs, "data-cycle-store"), "hero-word", "load rotation is opted in");
   assert.equal(attr(attrs, "data-cycle-fit"), ".hero__line", "the tail closes up by transform");
   const text1 = h1().replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
-  assert.match(text1, /world&rsquo;s decentralized Models \. In under 30 seconds\./);
+  assert.match(text1, /world’s decentralized Models \. In under 30 seconds\./);
 });
 
 test("the word list lives in one place: no script and no other page carries it", () => {
@@ -62,7 +64,7 @@ test("the word list lives in one place: no script and no other page carries it",
 });
 
 test("the nav and the headline share one cycler: same module, same CSS component", () => {
-  const nav = src("_partials/nav.html");
+  const nav = component("Nav");
   const a = nav.match(/<a class="nav__link"[^>]*aria-label="[^"]*"[^>]*>\s*<span class="carrier cycle-word nav__app-word" data-cycle="App\|TUI\|WebUI" data-cycle-hrefs="\/app\.html\|\/app\.html#cli\|\/app\.html#webui">App<\/span><\/a>/);
   assert.ok(a, "the App item is a .cycle-word with its words and hrefs in markup");
   const site = src("js/site.js");
@@ -72,8 +74,9 @@ test("the nav and the headline share one cycler: same module, same CSS component
   for (const f of readdirSync(path.join(WEB, "src/js")).filter((x) => x.endsWith(".js") && x !== "cycle.js")) {
     assert.ok(!src(`js/${f}`).includes("[data-cycle"), `js/${f} handles [data-cycle], which belongs to cycle.js`);
   }
-  assert.match(src("_partials/site-js.html"), /<script src="js\/cycle\.js" defer><\/script>/, "it ships with the page runtime");
-  assert.match(dist("index.html"), /<script src="js\/cycle\.js\?v=[0-9a-f]+" defer><\/script>/);
+  assert.ok(runtimeScripts().includes("cycle"), "it ships with the page runtime (app/runtime.js)");
+  assert.match(dist("index.html"), RUNTIME_TAG);
+  assert.ok(runtimeScripts().includes("cycle"), "the runtime bundle carries cycle.js");
   const comp = src("styles/components.css");
   assert.match(comp, /\.cycle-word \{[^}]*display: inline-block/, "the component lives in components.css");
   assert.match(comp, /\.cycle-word\.is-out \{/);

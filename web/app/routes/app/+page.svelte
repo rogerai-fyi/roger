@@ -1,0 +1,560 @@
+<script>
+  // The App - RogerAI for iPhone, iPad & Mac
+  // Ported from web/src/app.html (2026-10-29); the copy is the legacy copy.
+  import { siteHead, CSS_SHARED, CSS_ACCOUNT } from "#lib/head.js";
+  import Footer from "#lib/ui/Footer.svelte";
+  import InstallBox from "#lib/ui/InstallBox.svelte";
+  import Nav from "#lib/ui/Nav.svelte";
+  import OnAir from "#lib/ui/OnAir.svelte";
+  import Rail from "#lib/ui/Rail.svelte";
+  const head = siteHead({
+    title: 'The App - RogerAI for iPhone, iPad & Mac',
+    desc: 'RogerAI is live on the App Store - a two-way radio for AI on iPhone, iPad and Apple-silicon Macs. Tune into open models on real GPUs, talk hands-free, run agent tools that ask first, share your own on-device models and earn, and pay only for the tokens you use. Free; start anonymous.',
+    og: { type: 'website', title: 'RogerAI for iPhone, iPad & Mac - the band, in your pocket', desc: 'Live on the App Store: tune into open models on real GPUs, talk hands-free, run agent tools that ask first, and pay only for the tokens you use. Free; start anonymous.', url: 'https://rogerai.fm/app.html', image: 'https://rogerai.fm/assets/app/og-app.png' },
+    css: [...CSS_SHARED, 'app.css'],
+    scripts: [{ runtime: true }],
+  });
+</script>
+<svelte:head>{@html head}</svelte:head>
+  <!-- running head: this page is one bound document -->
+  <Rail head='RogerAI · The Handheld' rev='Rev. 2026.07 · ((•))' orange />
+
+  <!-- ============================ NAV ============================ -->
+  <Nav variant='marketing' home='/' current='app' />
+
+  <main id="top" data-lift>
+
+  <!-- ============================ HERO ============================ -->
+  <!-- The old standing-by plate lived here until 2026-07: the transmitter is
+       warm now - RogerAI shipped on the App Store 2026-07-09. Every screenshot
+       on this page is the REAL app (self-hosted; CSP allows img-src 'self'). -->
+  <section class="app-hero">
+    <div class="wrap app-hero__inner">
+
+      <div class="app-hero__copy">
+        <span class="hero__eyebrow" data-reveal>
+          <OnAir />
+          <span class="hero__callsign">THE HANDHELD</span>
+          <span class="hero__sep" aria-hidden="true">·</span>
+          now on the App Store
+        </span>
+
+        <h1 class="bands-hero__title" data-reveal data-reveal-delay="60">
+          The band, <span class="app-hero__op">in&nbsp;your&nbsp;pocket</span>.
+        </h1>
+
+        <p class="app-hero__sub" data-reveal data-reveal-delay="120">
+          RogerAI for iPhone, iPad and Mac is <b>live</b> - a two-way radio for AI.
+          Tune into open models running on real GPUs, talk instead of type, and pay
+          only for the tokens you use. <b>Start anonymous</b>: no account needed for
+          on-device and free stations. And since v1.2 the handheld transmits too:
+          <b>put your own device on the air</b> - share the models on it, free or at
+          a rate that earns.
+        </p>
+
+        <div class="app-hero__cta" data-reveal data-reveal-delay="180">
+          <a class="app-badge" href="https://apps.apple.com/us/app/rogerai-fm/id6785743752"
+             target="_blank" rel="noopener noreferrer">
+            <img src="assets/app/appstore-badge.svg" alt="Download RogerAI on the App Store"
+                 width="180" height="60" />
+          </a>
+          <span class="app-hero__meta mono">FREE · iOS 17+ · iPHONE, iPAD &amp; APPLE-SILICON MACS · 39&nbsp;MB</span>
+        </div>
+
+        <!-- The page's own section menu. Same row every other top-level page uses
+             for this (.research-actions / .research-button in base.css - see
+             tower.html, company.html, models.html); nothing new invented here.
+             Three destinations, because the station now has three sets: the
+             handheld this page is about, the terminal app, and the browser console. -->
+        <div class="research-actions research-actions--lead research-actions--jump" data-reveal data-reveal-delay="210">
+          <a class="research-button" href="#tunein">The app <span aria-hidden="true">&darr;</span></a>
+          <a class="research-button" href="#cli">The TUI <span aria-hidden="true">&darr;</span></a>
+          <a class="research-button" href="#webui">The WebUI <span aria-hidden="true">&darr;</span></a>
+        </div>
+      </div>
+
+      <!-- the desk set + the handheld, one composition -->
+      <div class="app-hero__stage" data-reveal data-reveal-delay="240">
+        <span class="fig" aria-hidden="true">FIG. 1 - ONE STATION, EVERY SET</span>
+        <div class="app-hero__devices">
+          <!-- rubber-stamp certification: every plate on this page is the real app -->
+          <svg class="app-stamp" viewBox="0 0 160 44" width="160" height="44" aria-hidden="true" focusable="false">
+            <rect x="1.5" y="1.5" width="157" height="41" rx="5" fill="none" stroke="currentColor" stroke-width="2.5" />
+            <text x="80" y="19" text-anchor="middle">REAL APP</text>
+            <text x="80" y="34" text-anchor="middle">SHIPPED 2026.07</text>
+          </svg>
+          <span class="app-shot app-shot--mac app-hero__mac">
+            <img src="assets/app/mac-tunein.webp"
+                 srcset="assets/app/mac-tunein-640.webp 640w, assets/app/mac-tunein.webp 1280w" sizes="(max-width: 860px) 92vw, 720px"
+                 alt="The RogerAI Mac app: the Tune In room with the two-way-radio hero art and a private on-device station"
+                 width="1280" height="800" />
+          </span>
+          <span class="app-shot app-shot--phone app-hero__phone">
+            <img src="assets/app/iphone-tunein-private.webp"
+                 srcset="assets/app/iphone-tunein-private-400.webp 400w, assets/app/iphone-tunein-private.webp 780w" sizes="(max-width: 560px) 45vw, (max-width: 860px) 340px, 300px"
+                 alt="The RogerAI iPhone app tuned to the on-device Apple station - free and private, messages never leave the device"
+                 width="780" height="1688" />
+          </span>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ============================ CONTENTS ============================
+       The page's sections on the site's tuning scale (components.css .toc-tuner),
+       named from their own labels. It replaced a page-local dial rule on every
+       section: the needle now rests on the section in view. Never pinned. -->
+  <nav class="toc-tuner" data-tuner aria-label="Sections">
+    <div class="wrap toc-tuner__band">
+    <div class="toc-tuner__readout" aria-hidden="true"></div>
+    <ol class="toc-tuner__scale">
+      <li><a class="toc-tuner__st" href="#tunein"><b>§1</b><span class="toc-tuner__name">TUNE IN</span></a></li>
+      <li><a class="toc-tuner__st" href="#onair"><b>§2</b><span class="toc-tuner__name">ON AIR</span></a></li>
+      <li><a class="toc-tuner__st" href="#band"><b>§3</b><span class="toc-tuner__name">THE BAND</span></a></li>
+      <li><a class="toc-tuner__st" href="#routing"><b>§4</b><span class="toc-tuner__name">ROUTING</span></a></li>
+      <li><a class="toc-tuner__st" href="#operator"><b>§5</b><span class="toc-tuner__name">THE OPERATOR</span></a></li>
+      <li><a class="toc-tuner__st" href="#connect"><b>§6</b><span class="toc-tuner__name">CONNECT</span></a></li>
+      <li><a class="toc-tuner__st" href="#mac"><b>§7</b><span class="toc-tuner__name">THE DESK SET</span></a></li>
+      <li><a class="toc-tuner__st" href="#spec-sheet"><b>§8</b><span class="toc-tuner__name">THE SPEC SHEET</span></a></li>
+      <li><a class="toc-tuner__st" href="#cli"><b>§9</b><span class="toc-tuner__name">THE TERMINAL APP</span></a></li>
+      <li><a class="toc-tuner__st" href="#webui"><b>§10</b><span class="toc-tuner__name">THE BROWSER CONSOLE</span></a></li>
+      <li><a class="toc-tuner__st" href="#install"><b>§11</b><span class="toc-tuner__name">INSTALL</span></a></li>
+    </ol>
+    <span class="toc-tuner__needle" aria-hidden="true"></span>
+    </div>
+  </nav>
+
+
+  <!-- ============================ §1 TUNE IN ============================ -->
+  <section class="section app-feature" id="tunein">
+    <div class="wrap app-feature__grid">
+      <div class="app-feature__copy" data-reveal>
+        <span class="sectionno">§1 / TUNE IN · LIVE</span>
+        <h2>Talk to real machines.</h2>
+        <p>
+          Chat with powerful open models on stations run by real operators - plus
+          <b>Apple&nbsp;Intelligence on device</b>: free, private, replies never leave
+          your phone. Keep multiple conversations, send a photo on vision-capable
+          stations, and select or copy any part of a reply.
+        </p>
+        <ul class="app-feature__list mono">
+          <li><svg class="app-ico" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><rect x="3.5" y="7" width="9" height="6.5" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" fill="none" stroke="currentColor" stroke-width="1.5"/></svg> on-device replies never leave the phone</li>
+          <li><svg class="app-ico" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M8.6 1.8 14 7.2a1.4 1.4 0 0 1 0 2L9.2 14a1.4 1.4 0 0 1-2 0L1.8 8.6V3.2A1.4 1.4 0 0 1 3.2 1.8Z" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="5.4" cy="5.4" r="1.1" fill="currentColor"/></svg> free stations show <b>$0/M</b> tokens</li>
+          <li><svg class="app-ico" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><rect x="1.8" y="4.2" width="12.4" height="9" rx="1.4" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M5.5 4.2 6.8 2.4h2.4l1.3 1.8" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="8" cy="8.6" r="2.4" fill="none" stroke="currentColor" stroke-width="1.5"/></svg> photos in, on vision-capable stations</li>
+        </ul>
+      </div>
+      <div class="app-feature__media app-feature__media--pair" data-reveal data-reveal-delay="80">
+        <span class="app-shot app-shot--phone">
+          <span class="fig">FIG. 2 - ON DEVICE, PRIVATE</span>
+          <img src="assets/app/iphone-tunein-private.webp"
+                 srcset="assets/app/iphone-tunein-private-400.webp 400w, assets/app/iphone-tunein-private.webp 780w" sizes="(max-width: 560px) 45vw, (max-width: 860px) 340px, 300px"
+               alt="Tune In on iPhone: tuned to the on-device Apple station with try-asking prompts"
+               width="780" height="1688" loading="lazy" />
+        </span>
+        <span class="app-shot app-shot--phone">
+          <span class="fig">FIG. 3 - A FREE STATION</span>
+          <img src="assets/app/iphone-tunein-free.webp"
+                 srcset="assets/app/iphone-tunein-free-400.webp 400w, assets/app/iphone-tunein-free.webp 780w" sizes="(max-width: 560px) 45vw, (max-width: 860px) 340px, 300px"
+               alt="Tune In on iPhone: tuned to gpt-oss-20b, a free station on the band"
+               width="780" height="1688" loading="lazy" />
+        </span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================ §2 ON AIR (v1.2) ============================
+       The 1.2 headline: the handheld is a TRANSMITTER now. Facts from the live
+       App Store listing (What's New, v1.2, 2026-08-27) - keep this plate in step
+       with the listing when the app ships a new version. Plate style (no
+       screenshot yet; add a FIG when a real capture of the On Air screen lands
+       in assets/app/). -->
+  <div class="tone-zone" data-tone="ink">
+  <section class="section app-spec" id="onair">
+    <div class="wrap">
+      <div class="section__head section__head--left" data-reveal>
+        <span class="sectionno">§2 / ON AIR · NEW IN 1.2</span>
+        <h2>Your device is a transmitter now.</h2>
+      </div>
+      <p data-reveal>Sharing is no longer a desktop privilege. Put a model on the band
+        straight from your Mac, iPhone, or iPad - a local server you already run, the
+        on-device model, or one you download in the app - free, or at a rate that
+        earns. Same 90% split as any other station.</p>
+      <dl class="app-spec__plate mono" data-reveal data-reveal-delay="80">
+        <div class="app-spec__row"><dt>share from</dt><dd>Ollama · LM Studio · Osaurus · llama.cpp · Apple&nbsp;Intelligence &middot; or an MLX model downloaded in-app</dd></div>
+        <div class="app-spec__row"><dt>on iPhone &amp; iPad</dt><dd>compact MLX models download, run, and share - fully private</dd></div>
+        <div class="app-spec__row"><dt>many at once</dt><dd>up to four models on air per device - earning and free tiers side by side; the Mac also fronts your local servers</dd></div>
+        <div class="app-spec__row"><dt>private bands</dt><dd>share on a hidden frequency only people with your code can tune into</dd></div>
+        <div class="app-spec__row"><dt>on air screen</dt><dd>a live broadcast view, with a Dim mode to keep serving cool and quiet</dd></div>
+        <div class="app-spec__row"><dt>offline</dt><dd>a downloaded model tunes locally with no signal at all</dd></div>
+        <div class="app-spec__row"><dt>the phone first</dt><dd>sharing pauses itself when the battery runs low or the device runs hot</dd></div>
+      </dl>
+    </div>
+  </section>
+  </div><!-- /tone-zone -->
+
+  <!-- ============================ §3 THE BAND ============================ -->
+  <section class="section app-feature app-feature--flip" id="band">
+    <div class="wrap app-feature__grid">
+      <div class="app-feature__copy" data-reveal>
+        <span class="sectionno">§3 / THE BAND · THE MARKET</span>
+        <h2>Pick your station by the numbers.</h2>
+        <p>
+          The Band is a <b>live marketplace</b> of stations with real prices and real
+          speeds - the same roster as <code class="inline">roger band</code> and the
+          <a href="/models.html">Models board</a>. Many stations are free; paid ones
+          show <b>$/M</b> up front, so you pick the cheapest or the fastest for the job.
+          Tap a station to tune in and start chatting.
+        </p>
+      </div>
+      <div class="app-feature__media app-feature__media--pair" data-reveal data-reveal-delay="80">
+        <span class="app-shot app-shot--phone">
+          <span class="fig">FIG. 4 - THE ROSTER, LIVE</span>
+          <img src="assets/app/iphone-band.webp"
+                 srcset="assets/app/iphone-band-400.webp 400w, assets/app/iphone-band.webp 780w" sizes="(max-width: 560px) 55vw, (max-width: 860px) 340px, 300px"
+               alt="The Band on iPhone: a live station list with per-model prices, speeds and FREE tags"
+               width="780" height="1688" loading="lazy" />
+        </span>
+        <span class="app-shot app-shot--mac">
+          <span class="fig">FIG. 5 - SAME BAND, BIG SCREEN</span>
+          <img src="assets/app/mac-band.webp"
+                 srcset="assets/app/mac-band-640.webp 640w, assets/app/mac-band.webp 1280w" sizes="(max-width: 860px) 92vw, 560px"
+               alt="The Band on the Mac: the same live station roster on the desk set"
+               width="1280" height="800" loading="lazy" />
+        </span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================ §4 TUNE THE DIAL ============================ -->
+  <section class="section app-feature" id="routing">
+    <div class="wrap app-feature__grid">
+      <div class="app-feature__copy" data-reveal>
+        <span class="sectionno">§4 / ROUTING · YOUR MARGINS</span>
+        <h2>Tune the dial. Roger obeys.</h2>
+        <p>
+          Set a max price per million, a minimum speed in tokens per second, or flip
+          <b>Confidential&nbsp;◆</b> - then routing only picks stations inside your
+          margins. Confidential routes go exclusively to nodes that pass <b>real TEE
+          hardware attestation</b>, so the operator can't read your prompts.
+        </p>
+        <ul class="app-feature__list mono">
+          <li><svg class="app-ico" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M2 12.5a6.5 6.5 0 0 1 12 0" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 12.5 11.2 7" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="8" cy="12.5" r="1.2" fill="currentColor"/></svg> max price /1M · min speed t/s</li>
+          <li><svg class="app-ico" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M8 1.8 13.5 4v4.2c0 3.2-2.3 5.3-5.5 6.2-3.2-.9-5.5-3-5.5-6.2V4Z" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 5.4 10.2 8 8 10.6 5.8 8Z" fill="none" stroke="currentColor" stroke-width="1.3"/></svg> confidential ◆ = TEE-attested only</li>
+        </ul>
+      </div>
+      <div class="app-feature__media app-feature__media--pair" data-reveal data-reveal-delay="80">
+        <span class="app-shot app-shot--phone app-shot--crop">
+          <span class="fig">FIG. 6 - THE TUNE SHEET</span>
+          <img src="assets/app/iphone-tune-routing.webp"
+                 srcset="assets/app/iphone-tune-routing-400.webp 400w, assets/app/iphone-tune-routing.webp 780w" sizes="(max-width: 560px) 55vw, (max-width: 860px) 340px, 300px"
+               alt="The Tune sheet on iPhone: Confidential TEE-attested-only toggle, max price per million and min speed"
+               width="780" height="1688" loading="lazy" />
+        </span>
+        <span class="app-shot app-shot--mac">
+          <span class="fig">FIG. 7 - CONFIDENTIAL, ON AIR</span>
+          <img src="assets/app/mac-confidential.webp"
+                 srcset="assets/app/mac-confidential-640.webp 640w, assets/app/mac-confidential.webp 1280w" sizes="(max-width: 860px) 92vw, 560px"
+               alt="RogerAI on the Mac tuned to a free station with confidential routing - the operator can't read your prompts"
+               width="1280" height="800" loading="lazy" />
+        </span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================ §5 THE OPERATOR ============================ -->
+  <section class="section app-feature app-feature--flip" id="operator">
+    <div class="wrap app-feature__grid">
+      <div class="app-feature__copy" data-reveal>
+        <span class="sectionno">§5 / THE OPERATOR · AGENT TOOLS</span>
+        <h2>An agent, when you want one.</h2>
+        <p>
+          Turn on agent tools and the chat can take <b>real actions</b>: open an app or
+          link, run one of your Shortcuts, read a web page, check your calendar, jot a
+          note. <b>Every action asks first</b> and shows exactly what it will do.
+        </p>
+        <p>
+          You can talk instead of type. Dictate your message, have replies read aloud, or
+          go full <b>hands-free</b>: a two-way radio that listens for your next question.
+        </p>
+      </div>
+      <div class="app-feature__media app-feature__media--trio" data-reveal data-reveal-delay="80">
+        <span class="app-shot app-shot--phone">
+          <span class="fig">FIG. 8 - THE TOOL BENCH</span>
+          <img src="assets/app/iphone-operator-tools.webp"
+                 srcset="assets/app/iphone-operator-tools-400.webp 400w, assets/app/iphone-operator-tools.webp 780w" sizes="(max-width: 560px) 45vw, (max-width: 860px) 340px, 300px"
+               alt="Operator settings on iPhone: per-tool toggles for opening links, running Shortcuts, reading web pages, calendar and clipboard"
+               width="780" height="1688" loading="lazy" />
+        </span>
+        <span class="app-shot app-shot--phone">
+          <span class="fig">FIG. 9 - AN ACTION, ANNOUNCED</span>
+          <img src="assets/app/iphone-agent-action.webp"
+                 srcset="assets/app/iphone-agent-action-400.webp 400w, assets/app/iphone-agent-action.webp 780w" sizes="(max-width: 560px) 45vw, (max-width: 860px) 340px, 300px"
+               alt="A chat on iPhone where the agent opens the Songkick app to find concerts - the action is shown before it runs"
+               width="780" height="1688" loading="lazy" />
+        </span>
+        <span class="app-shot app-shot--phone">
+          <span class="fig">FIG. 10 - HANDS-FREE</span>
+          <img src="assets/app/iphone-operator-voice.webp"
+                 srcset="assets/app/iphone-operator-voice-400.webp 400w, assets/app/iphone-operator-voice.webp 780w" sizes="(max-width: 560px) 45vw, (max-width: 860px) 340px, 300px"
+               alt="Voice settings on iPhone: read replies aloud and a hands-free two-way mode, plus reminders and scratch-note tools"
+               width="780" height="1688" loading="lazy" />
+        </span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================ §6 CONNECT ============================ -->
+  <section class="section app-feature" id="connect">
+    <div class="wrap app-feature__grid">
+      <div class="app-feature__copy" data-reveal>
+        <span class="sectionno">§6 / CONNECT · USE IT ANYWHERE</span>
+        <h2>Your endpoint works everywhere.</h2>
+        <p>
+          Mint a key and paste RogerAI into <b>any OpenAI-compatible app</b> - a chat
+          app you like, Cursor and AI editors, Raycast, Python, plain
+          <code class="inline">curl</code>. Copy the base URL on your phone and it's on
+          your Mac through Universal Clipboard. <b>Your tokens, your station.</b>
+        </p>
+      </div>
+      <div class="app-feature__media app-feature__media--pair" data-reveal data-reveal-delay="80">
+        <span class="app-shot app-shot--phone">
+          <span class="fig">FIG. 11 - MINT A KEY</span>
+          <img src="assets/app/iphone-connect.webp"
+                 srcset="assets/app/iphone-connect-400.webp 400w, assets/app/iphone-connect.webp 780w" sizes="(max-width: 560px) 45vw, (max-width: 860px) 340px, 300px"
+               alt="Connect on iPhone: the broker base URL, a Mint-a-key button and step-by-step recipes for chat apps and editors"
+               width="780" height="1688" loading="lazy" />
+        </span>
+        <span class="app-shot app-shot--mac">
+          <span class="fig">FIG. 12 - THE SAME KEY, ON THE DESK</span>
+          <img src="assets/app/mac-connect.webp"
+                 srcset="assets/app/mac-connect-640.webp 640w, assets/app/mac-connect.webp 1280w" sizes="(max-width: 860px) 92vw, 560px"
+               alt="Connect on the Mac: the same endpoint recipes for chat apps, Cursor, Raycast and Python"
+               width="1280" height="800" loading="lazy" />
+        </span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================ §7 THE DESK SET ============================ -->
+  <section class="section app-desk" id="mac">
+    <div class="wrap">
+      <div class="section__head section__head--left" data-reveal>
+        <span class="sectionno">§7 / THE DESK SET · MACOS</span>
+        <h2>Native on the Mac.</h2>
+        <p>
+          The same app, built for Apple silicon - not a wrapped website. Sidebar,
+          keyboard, the whole band on the big screen. One download covers iPhone,
+          iPad and Mac.
+        </p>
+      </div>
+      <div class="app-desk__stage" data-reveal data-reveal-delay="80">
+        <span class="app-shot app-shot--mac">
+          <span class="fig">FIG. 13 - THE DESK SET, ON AIR</span>
+          <img src="assets/app/mac-tunein.webp"
+                 srcset="assets/app/mac-tunein-640.webp 640w, assets/app/mac-tunein.webp 1280w" sizes="(max-width: 860px) 92vw, 960px"
+               alt="RogerAI on the Mac, full width: the Tune In room with the two-way-radio hero art, sidebar and a private on-device station"
+               width="1280" height="800" loading="lazy" />
+        </span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================ §8 SPEC SHEET ============================ -->
+  <section class="section app-spec" id="spec-sheet">
+    <div class="wrap">
+      <div class="section__head section__head--left" data-reveal>
+        <span class="sectionno">§8 / THE SPEC SHEET</span>
+        <h2>Read the plate.</h2>
+      </div>
+      <dl class="app-spec__plate mono" data-reveal data-reveal-delay="80">
+        <div class="app-spec__row"><dt>price</dt><dd>free download · pay per token · optional monthly cap, so it never surprises you</dd></div>
+        <div class="app-spec__row"><dt>requires</dt><dd>iOS 17+ · iPadOS 17+ · macOS on Apple silicon</dd></div>
+        <div class="app-spec__row"><dt>size</dt><dd>39 MB on the wire</dd></div>
+        <div class="app-spec__row"><dt>account</dt><dd>none to start - on-device and free stations are anonymous</dd></div>
+        <div class="app-spec__row"><dt>privacy</dt><dd>on-device replies never leave the phone · confidential ◆ routes TEE-attested only</dd></div>
+        <div class="app-spec__row"><dt>callsign</dt><dd>broadcasting live from Orange County, California</dd></div>
+      </dl>
+    </div>
+  </section>
+
+  <div class="tone-zone" data-tone="ink">
+  <!-- ==================== §9 THE TERMINAL APP (roger) ====================
+       The desktop pair, deliberately SMALLER than the handheld's six plates:
+       one section each, one rotating figure each. They are an honourable
+       mention on the app page, not a second product pitch - the manual (§1,
+       §10) is where the terminal app is documented.
+       Every plate is a REAL capture of the shipped binary (2026-08-23). The
+       account line in the terminal header carries the operator's e-mail; it is
+       redacted in the exported plate, not cropped away, so the header still
+       reads as the header it is. -->
+  <section class="section app-feature" id="cli">
+    <div class="wrap app-feature__grid">
+      <div class="app-feature__copy" data-reveal>
+        <span class="sectionno">§9 / THE TERMINAL APP · roger</span>
+        <h2>The whole band, in a terminal.</h2>
+        <p>
+          <code class="inline">roger</code> is the dial: one binary, <b>a local harness
+          for local models</b>. Browse the band, tune into a station, open a channel and
+          talk. It also finds the models already on your machine and puts them on air
+          when you say so.
+        </p>
+        <p>
+          <b>[0]</b> is the agent, a small tool-capable operator that reads files and runs
+          the commands you confirm. <b>[?]</b> prints every key, and the
+          <a href="/manual.html#s2">manual</a> has the rest. Same wallet, same caps, same
+          station list as the console.
+        </p>
+      </div>
+      <div class="app-feature__media" data-reveal data-reveal-delay="80">
+        <div class="app-rot">
+          <span class="fig">FIG. 14 - THE DIAL · FOUR SCREENS</span>
+          <div class="app-rot__stack">
+            <figure class="app-tile" style="--i:0">
+              <figcaption class="app-tile__bar mono">roger · [1] tune in</figcaption>
+              <img src="assets/app/tui-band.webp"
+                 srcset="assets/app/tui-band-640.webp 640w, assets/app/tui-band.webp 1200w" sizes="(max-width: 860px) 92vw, 560px"
+                   alt="The terminal app on the TUNE IN screen: the band listed with price per million, context, tokens per second and signal bars, and an ON AIR panel showing the five models this station is sharing"
+                   width="1200" height="750" loading="lazy" />
+            </figure>
+            <figure class="app-tile" style="--i:1">
+              <figcaption class="app-tile__bar mono">roger · [0] agent</figcaption>
+              <img src="assets/app/tui-agent.webp"
+                 srcset="assets/app/tui-agent-640.webp 640w, assets/app/tui-agent.webp 1200w" sizes="(max-width: 860px) 92vw, 560px"
+                   alt="The terminal app on the AGENT screen: the agent answers a question about a code directory using read-only listings, with its tool calls and session token counts shown"
+                   width="1200" height="750" loading="lazy" />
+            </figure>
+            <figure class="app-tile" style="--i:2">
+              <figcaption class="app-tile__bar mono">roger · [2] share</figcaption>
+              <img src="assets/app/tui-share.webp"
+                 srcset="assets/app/tui-share-640.webp 640w, assets/app/tui-share.webp 1200w" sizes="(max-width: 860px) 92vw, 560px"
+                   alt="The terminal app on the SHARE screen: the provider table of 27 detected local models, each ON-AIR or OFF-AIR with its price, requests served, output tokens and earnings"
+                   width="1200" height="750" loading="lazy" />
+            </figure>
+            <figure class="app-tile" style="--i:3">
+              <figcaption class="app-tile__bar mono">roger · [?] help</figcaption>
+              <img src="assets/app/tui-help.webp"
+                 srcset="assets/app/tui-help-640.webp 640w, assets/app/tui-help.webp 1200w" sizes="(max-width: 860px) 92vw, 560px"
+                   alt="The terminal app's help screen: the start-here key map and the full command list, from slash search and slash connect to slash limits and slash confidential"
+                   width="1200" height="750" loading="lazy" />
+            </figure>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== §10 THE BROWSER CONSOLE (roger webui) ==================== -->
+  <section class="section app-feature app-feature--flip" id="webui">
+    <div class="wrap app-feature__grid">
+      <div class="app-feature__copy" data-reveal>
+        <span class="sectionno">§10 / THE BROWSER CONSOLE · roger webui</span>
+        <h2>Same station, wider window.</h2>
+        <p>
+          <code class="inline">roger webui</code> opens the same radio in a browser tab:
+          <b>BROWSE</b>, <b>CHAT</b>, <b>SHARE</b>, <b>SETTINGS</b>, <b>ACCOUNT</b>.
+          <b>One store, two windows</b> - a spend cap you set here is the cap the terminal
+          enforces, and the other way round.
+        </p>
+        <p>
+          BROWSE is where a browser earns its keep: the whole band as a table, with price,
+          signal, tokens per second and time to first token beside each other - more
+          columns than 80 will hold. The console's agent runs <b>read-only tools only</b>,
+          by design.
+        </p>
+      </div>
+      <div class="app-feature__media" data-reveal data-reveal-delay="80">
+        <div class="app-rot">
+          <span class="fig">FIG. 15 - THE CONSOLE · FOUR TABS</span>
+          <div class="app-rot__stack">
+            <figure class="app-tile" style="--i:0">
+              <figcaption class="app-tile__bar mono">roger webui · browse</figcaption>
+              <img src="assets/app/webui-browse.webp"
+                 srcset="assets/app/webui-browse-640.webp 640w, assets/app/webui-browse.webp 1200w" sizes="(max-width: 860px) 92vw, 560px"
+                   alt="The browser console on the BROWSE tab: every model on air across the open market as a read-only table of model, node, price, signal, tokens per second and time to first token"
+                   width="1200" height="750" loading="lazy" />
+            </figure>
+            <figure class="app-tile" style="--i:1">
+              <figcaption class="app-tile__bar mono">roger webui · share</figcaption>
+              <img src="assets/app/webui-share.webp"
+                 srcset="assets/app/webui-share-640.webp 640w, assets/app/webui-share.webp 1200w" sizes="(max-width: 860px) 92vw, 560px"
+                   alt="The browser console on the SHARE tab: this station's models with a quantisation variant column, on-air status, price, requests served, output tokens and earnings, each row with take-off-air, make-private and price controls"
+                   width="1200" height="750" loading="lazy" />
+            </figure>
+            <figure class="app-tile" style="--i:2">
+              <figcaption class="app-tile__bar mono">roger webui · settings</figcaption>
+              <img src="assets/app/webui-settings.webp"
+                 srcset="assets/app/webui-settings-640.webp 640w, assets/app/webui-settings.webp 1200w" sizes="(max-width: 860px) 92vw, 560px"
+                   alt="The browser console on the SETTINGS tab, headed the same settings the terminal edits, one store two windows: a private band with its masked frequency code, and per-band spend limits in max price per million and minimum tokens per second"
+                   width="1200" height="750" loading="lazy" />
+            </figure>
+            <figure class="app-tile" style="--i:3">
+              <figcaption class="app-tile__bar mono">roger webui · account</figcaption>
+              <img src="assets/app/webui-account.webp"
+                 srcset="assets/app/webui-account-640.webp 640w, assets/app/webui-account.webp 1200w" sizes="(max-width: 860px) 92vw, 560px"
+                   alt="The browser console on the ACCOUNT tab: wallet balance, top-up and monthly cap controls, the signed-in session, payout status, and a form for creating a free grant key"
+                   width="1200" height="750" loading="lazy" />
+            </figure>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== §11 INSTALL (the roger binary) ====================
+       §9 and §10 show the terminal and the browser console but never how to GET
+       roger; this is that step, right before the mobile CTA. Same install__box
+       copy-button the homepage uses - the component is styled site-wide in
+       base.css and site.js wires copy-to-clipboard for every .install__box, so
+       no page-specific JS is needed. -->
+  <section class="section app-install" id="install">
+    <div class="wrap">
+      <div class="app-install__inner" data-reveal>
+        <span class="sectionno">§11 / INSTALL · roger</span>
+        <h2>Get <code class="inline">roger</code> on your machine.</h2>
+        <p class="install__lead">One binary for macOS, Linux and Windows. It finds the models
+          already on your machine, puts them on air if you want, and tunes you into everyone
+          else&rsquo;s - the terminal (§9) and the browser console (§10) are the same
+          <code class="inline">roger</code>.</p>
+        <InstallBox id='installCmdApp'>curl -fsSL https://rogerai.fm/install.sh | sh</InstallBox>
+        <div class="install__meta">
+          <span data-alt-note>On Windows (PowerShell): <code class="inline">irm https://rogerai.fm/install.ps1 | iex</code></span>
+        </div>
+        <div class="install__meta">
+          <a class="install__alt" href="https://github.com/rogerai-fyi/roger/releases">or download a binary &rarr;</a>
+        </div>
+      </div>
+    </div>
+  </section>
+  </div><!-- /tone-zone -->
+
+  <!-- ============================ CLOSING CTA ============================ -->
+  <section class="section app-cta">
+    <div class="wrap app-cta__inner" data-reveal>
+      <!-- brandlocked Flux art (local ComfyUI, one-red rule enforced); the dark
+           variant is the polarity-preserving --dim remap, swapped in CSS so only
+           the active theme's file loads. Decorative - the copy carries the message. -->
+      <div class="app-cta__art" role="img"
+           aria-label="A hand holds the handheld two-way radio; the transmission tower's red beacon glows on the horizon"></div>
+      <OnAir />
+      <h2 class="app-cta__title">Pick up the <span class="app-hero__op">handheld</span>.</h2>
+      <p class="app-cta__sub">Free on the App Store. The band is open.</p>
+      <a class="app-badge app-badge--lg" href="https://apps.apple.com/us/app/rogerai-fm/id6785743752"
+         target="_blank" rel="noopener noreferrer">
+        <img src="assets/app/appstore-badge.svg" alt="Download RogerAI on the App Store"
+             width="200" height="67" loading="lazy" />
+      </a>
+      <p class="app-cta__url mono">apps.apple.com/us/app/rogerai-fm</p>
+    </div>
+  </section>
+
+  </main>
+
+  <!-- Structured data: the shipped App Store listing (inert JSON-LD data, not an
+       executable script, so the strict CSP allows it without a hash - same as the
+       site-wide Organization block in head.html). No aggregateRating: the listing
+       has no ratings yet and we never fabricate. -->
+  {@html `<script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"RogerAI","alternateName":["RogerAI.fm App","RogerAI.fyi"],"url":"https://rogerai.fm/app.html","downloadUrl":"https://apps.apple.com/us/app/rogerai-fm/id6785743752","installUrl":"https://apps.apple.com/us/app/rogerai-fm/id6785743752","operatingSystem":"iOS 17.0+, iPadOS 17.0+, macOS (Apple silicon)","applicationCategory":"UtilitiesApplication","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"datePublished":"2026-07-09","publisher":{"@id":"https://rogerai.fm/#org"},"description":"A two-way radio for AI: tune into open models running on real GPUs, talk hands-free, run agent tools that ask first, and pay only for the tokens you use. Since v1.2 you can share the models on your own device - free or at a rate that earns. Start anonymous - no account needed for on-device and free stations."}</script>`}
+
+  <!-- ============================ FOOTER ============================ -->
+  <Footer anchors='/' />

@@ -95,7 +95,7 @@ for (const page of PAGES) {
     const esc = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     // a question is allowed where it is a heading: an h2/h3, or a FAQ term heading its own answer
     const bad = prose(html).filter((b) => /\?/.test(b)).filter((b) => !new RegExp("(<h[23]>|<dt><b>)\\s*" + esc(b.slice(0, 30))).test(html))
-      .filter((b) => !/^FIG\. |^"[^"]*\?"/.test(b));   // a quoted question inside a myth card is a quote, not the page asking
+      .filter((b) => !/^FIG\. |^["“][^"”]*\?["”]/.test(b));   // a quoted question inside a myth card is a quote, not the page asking
     assert.deepEqual(bad, [], "rhetorical questions in body copy");
   });
 }

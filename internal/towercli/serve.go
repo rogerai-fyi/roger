@@ -111,6 +111,7 @@ func serveJoined(st *tower.State, out io.Writer, relayPublic string, hub hubOpti
 	// to and self-attached roger share nodes poll. Started before the link so a consumer's
 	// very first submit after we advertise has somewhere to land; fails fast if Core's grant
 	// key cannot be fetched.
+	hub.session = &sessionBox{}
 	if hub.Addr != "" {
 		waitForHub, herr := runHubInBackground(st, hub, out, stopped)
 		if herr != nil {
@@ -124,7 +125,7 @@ func serveJoined(st *tower.State, out io.Writer, relayPublic string, hub hubOpti
 	// an operator who did nothing wrong. It runs independently of the link for the same
 	// reason the relay does: a control-plane blip must not also cost the credential.
 	go towerjoin.KeepRenewed(st, out, stopped, realTicker)
-	err := runLink(st, out, stopped, realTicker, relay)
+	err := runLinkWith(st, out, stopped, realTicker, relay, hub.session)
 	// THE LINK RETURNING WINDS EVERYTHING DOWN, error or not. Without this, a serve whose
 	// link failed at startup - not registered, wrong mode - HUNG forever: the deferred
 	// relay-wait was waiting on a stop signal only ctrl-c could send, over a loop whose
@@ -147,6 +148,11 @@ func realTicker(d time.Duration) (<-chan time.Time, func()) {
 
 // runLink is the link loop proper: open, push, heartbeat, re-open on refusal, drain on exit.
 func runLink(st *tower.State, out io.Writer, stop <-chan struct{}, ticker func(time.Duration) (<-chan time.Time, func()), relay link.RelayPlane) error {
+	return runLinkWith(st, out, stop, ticker, relay, nil)
+}
+
+// runLinkWith is runLink publishing each session id to box, which the pulls are bound to.
+func runLinkWith(st *tower.State, out io.Writer, stop <-chan struct{}, ticker func(time.Duration) (<-chan time.Time, func()), relay link.RelayPlane, box *sessionBox) error {
 	if st.Mode != tower.ModeJoined {
 		return errStandaloneCannotServeJoined
 	}
@@ -161,6 +167,7 @@ func runLink(st *tower.State, out io.Writer, stop <-chan struct{}, ticker func(t
 		return err
 	}
 	fmt.Fprintf(out, "linked to RogerAI as %s (session %s)\n", sess.TowerID, sess.SessionID)
+	box.set(sess.SessionID)
 
 	// Push once up front. Core told us whether it needs everything; today we only ever have
 	// everything, because deltas need a fleet that changes and we have no Stations yet.
@@ -233,6 +240,7 @@ func runLink(st *tower.State, out io.Writer, stop <-chan struct{}, ticker func(t
 			if err != nil {
 				return err
 			}
+			box.set(sess.SessionID)
 			announceState(out, &lastState, sess.State)
 			if sess.NeedFullInventory {
 				revision, head, err = pushInventory(st, out, revision, head)
@@ -558,16 +566,41 @@ func cmdServeJoined(args []string, out io.Writer) error {
 			}
 		}
 	}
-	// The PUBLIC address is what Core hands to consumers and self-attaching nodes, and the
-	// listen address is very often not it - ":8444" is not dialable by anyone. A hub with no
-	// public address still serves whoever was told about it some other way, but Core will
-	// not route anyone new here, and the operator should know that is what they asked for.
+	// The address Core hands to self-attaching nodes is often not the listen address - ":8444"
+	// is not dialable by anyone. With no --relay-public the hub is advertised at this machine's
+	// own address, because work now reaches the Tower by pull over its link and a hub on a home
+	// network serves the Stations on that network (private_hub_placement.feature).
 	if *relayPublic != "" && *hubAddr == "" {
 		return fmt.Errorf("--relay-public advertises a data plane, but no --hub is serving one")
 	}
 	if *hubAddr != "" && *relayPublic == "" {
-		fmt.Fprint(out, "NOTE: the hub has no --relay-public address, so Roger Core will not "+
-			"route edge consumers or self-attaching nodes to this Tower.\n")
+		resolved, note, aerr := resolveAdvertised(*hubAddr)
+		if aerr != nil {
+			return fmt.Errorf("the hub could not be advertised at this machine's own address (%v) - pass --relay-public", aerr)
+		}
+		*relayPublic = resolved
+		if note != "" {
+			fmt.Fprintln(out, note)
+		}
+		// Who that address can serve, said the same way as for an address the operator typed.
+		if host, _, herr := net.SplitHostPort(resolved); herr == nil {
+			if ip := net.ParseIP(host); ip != nil {
+				if tier := classifyAdvertised(host, []net.IP{ip}, false); tier != "" && !strings.Contains(note, tier) {
+					fmt.Fprintln(out, tier)
+				}
+			}
+		}
+		if advertisedPrivate(resolved) && !*hubTLSOn && *hubCert == "" {
+			// A private hub is handed to Stations only with a certificate pin, so the hub this
+			// command chose the address for gets one. An operator who typed the address keeps
+			// their own choice and is told what it costs, below.
+			*hubTLSOn = true
+			fmt.Fprintln(out, "hub: TLS turned on - a hub at a private address is handed to Stations only with a certificate pin")
+		}
+	}
+	if advertisedPrivate(*relayPublic) && !*hubTLSOn && *hubCert == "" {
+		fmt.Fprintln(out, "NOTE: a private hub needs --hub-tls. Roger Core places no Station on a private "+
+			"address it cannot hand out with a certificate pin.")
 	}
 	if !*legacyBearer {
 		fmt.Fprint(out, "hub: pre-signature bearer tokens are REFUSED on this tower - a node "+
@@ -678,32 +711,55 @@ var lookupIPFn = net.DefaultResolver.LookupIP
 // loopback is a same-machine test rig, a private address is the home-lab LAN tier, and a
 // public one says nothing because nothing needs saying.
 func classifyAdvertised(host string, ips []net.IP, named bool) string {
-	loop, private := false, false
+	loop, private, linkLocal := false, false, false
 	shown := ips[0].String()
 	for _, ip := range ips {
 		// One rule (internal/netpriv), the same classes `roger lan add` uses: link-local is
-		// local but not routable, so it lands in the LAN tier like RFC 1918 and ULA.
+		// local but not routable, so it is named as local and said to be unusable.
 		switch netpriv.Classify(ip) {
 		case netpriv.Loopback:
 			loop = true
-		case netpriv.Private, netpriv.ULA, netpriv.LinkLocal:
+		case netpriv.LinkLocal:
+			linkLocal = true
+		case netpriv.Private, netpriv.ULA, netpriv.CGNAT:
 			private = true
 		}
 	}
 	switch {
 	case loop:
-		return "relay-public is loopback: only THIS machine can reach the hub. " +
-			"Fine for testing; the public network (and Core's canary) cannot reach it."
+		return "relay-public is loopback: only THIS machine can reach the hub, so Roger Core places " +
+			"no Station here. Advertise this machine's LAN address instead."
+	case linkLocal:
+		return fmt.Sprintf("relay-public %s is a LOCAL network address, but a link-local one: Roger "+
+			"Core hands no Station a link-local address. Advertise this machine's LAN address instead.", host)
 	case private && named:
-		return fmt.Sprintf("relay-public %q resolves to %s - a LOCAL network address. Devices on "+
-			"your LAN can reach the hub; the public network (and Core's canary) cannot. "+
+		return fmt.Sprintf("relay-public %q resolves to %s - a LOCAL network address. Stations on "+
+			"this network will be placed here; Stations elsewhere need a public address for now. "+
 			"Note: every device dialing the hub must resolve %q itself - if the name lives only "+
 			"in this machine's hosts file, advertise %s instead.", host, shown, host, shown)
 	case private:
-		return fmt.Sprintf("relay-public %s is a LOCAL network address. Devices on your LAN can "+
-			"reach the hub; the public network (and Core's canary) cannot.", host)
+		return fmt.Sprintf("relay-public %s is a LOCAL network address. Stations on this network "+
+			"will be placed here; Stations elsewhere need a public address for now.", host)
 	}
 	return ""
+}
+
+// advertisedPrivate reports an advertised hub at a private address (RFC 1918, ULA, CGNAT) - the
+// kind Roger Core hands out only with a certificate pin. Names are judged by Core, not here.
+func advertisedPrivate(endpoint string) bool {
+	host, _, err := net.SplitHostPort(endpoint)
+	if err != nil {
+		return false
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	switch netpriv.Classify(ip) {
+	case netpriv.Private, netpriv.ULA, netpriv.CGNAT:
+		return true
+	}
+	return false
 }
 
 // outboundIPFn is outboundIP behind a seam, so the wildcard rules are tested on any machine,

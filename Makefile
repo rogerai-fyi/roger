@@ -26,10 +26,10 @@ beta:
 	CGO_ENABLED=0 go build -trimpath -ldflags "-s -w $(VERSION_LDFLAGS)" -o bin/roger-$(VERSION) ./cmd/rogerai
 	@echo "built bin/roger-$(VERSION)"
 
-# Build the marketing + account site: resolve the shared chrome partials
-# (web/src/_partials/{head,brand,nav,footer}.html) into every page and copy
-# assets, writing the static tree to web/dist/. Same command DO App Platform
-# runs (build_command). To change the logo, edit web/src/_partials/brand.html.
+# Build the marketing + account site: render every route of the app (the shared
+# chrome in web/app/lib/ui: Nav, Footer, Brand, ...) and copy assets, writing the
+# static tree to web/dist/. The same command the host's build step runs. To change
+# the logo, edit web/app/lib/ui/Brand.svelte.
 site:
 	node web/build.mjs
 
@@ -181,7 +181,8 @@ verify-gate:
 # smoke package crawls that same dist for dead internal links and version drift.
 .PHONY: web-gate
 web-gate:
-	@cd web && npm test
+	@cd web && (test -x node_modules/.bin/vitest || npm ci --no-audit --no-fund) && npm test
+	@cd web && if [ -d "$$HOME/.cache/ms-playwright" ]; then npm run test:e2e; else echo "[web-gate] browser flows skipped: no Playwright browser (npx playwright install chromium)"; fi
 	@go test ./test/smoke/
 	@echo "[web-gate] OK - web suite + built-link crawl"
 

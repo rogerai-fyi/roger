@@ -161,17 +161,17 @@
     totals.appendChild(document.createTextNode(" · "));
     totals.appendChild(el("span", null, fmtInt(t.out_tokens) + " out tok"));
     totals.appendChild(document.createTextNode(" · "));
-    totals.appendChild(el("span", null, fmtUSD(t.earnings) + " at list"));
+    totals.appendChild(el("span", null, fmtUSD(t.earnings) + " earned"));
     totals.appendChild(document.createTextNode(" · "));
     totals.appendChild(el("span", "muted", window.RogerConsoleLAN.costLine(s)));
-    // A PROBE IS NOT TRAFFIC, and the console has to say so in the same words the terminal
-    // uses. The requests/tokens above exclude the broker's canaries; reporting them beside
-    // rather than not at all is what keeps a busy rig explicable. Shown only when there are
-    // any - a printed zero would read as a measurement.
+    // Requests, tokens and earned are Core's record of each share (probe_accounting.feature):
+    // Core's checks look like customers to the node, so only Core can keep them out. What the
+    // rigs handled beyond that is said beside it, in the terminal's words. Shown only when
+    // there are any - a printed zero would read as a measurement.
     if (t.probes > 0) {
       totals.appendChild(document.createTextNode(" · "));
       totals.appendChild(el("span", "muted",
-        "plus " + fmtInt(t.probes) + " unbilled broker checks"));
+        "plus " + fmtInt(t.probes) + " unbilled jobs (RogerAI Core's checks, or work that did not settle)"));
     }
 
     show($("share-login-warn"), !s.logged_in);
@@ -282,9 +282,15 @@
     if (row.scheduled) tds[3].appendChild(el("span", "sched", " · sched"));
 
     // --- counters ---
-    tds[4].textContent = fmtInt(row.served);
-    tds[5].textContent = fmtInt(row.out_tokens);
-    tds[6].textContent = fmtUSD(row.earnings);
+    // Core's record: "…" until Core first answers, and marked while it cannot be read.
+    if (row.on_air && !row.core_answered) {
+      tds[4].textContent = tds[5].textContent = tds[6].textContent = "…";
+    } else {
+      var stale = row.on_air && !row.core_current ? " (not current)" : "";
+      tds[4].textContent = fmtInt(row.served) + stale;
+      tds[5].textContent = fmtInt(row.out_tokens);
+      tds[6].textContent = fmtUSD(row.earnings);
+    }
 
     // --- category: the declaration, else the guess marked "~", else a dash ---
     tds[7].textContent = catLabel(row);

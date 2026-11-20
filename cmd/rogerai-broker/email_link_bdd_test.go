@@ -8,7 +8,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"regexp"
 	"rogerai.fm/roger/v7/internal/bddrun"
 	"strings"
@@ -70,13 +69,9 @@ func TestEmailLinkBDD(t *testing.T) {
 			// cheap: they are in-memory; node suites run once per step but are tiny).
 			sc.Step(`^.*$`, func() error {
 				for _, name := range perScenario[idx] {
-					if strings.HasSuffix(name, ".mjs") {
-						node, err := exec.LookPath("node")
-						if err != nil {
-							return godog.ErrSkip
-						}
-						if out, err := exec.Command(node, "--test", "../../"+name).CombinedOutput(); err != nil {
-							return fmt.Errorf("%s failed:\n%s", name, out)
+					if strings.HasPrefix(name, "web/") {
+						if err := webSpecsPass(name); err != nil {
+							return err
 						}
 						continue
 					}

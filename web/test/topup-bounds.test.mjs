@@ -10,11 +10,12 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { source, allPages, hasPageSource } from "./_html.mjs";
 
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const REPO = path.join(WEB, "..");
 const read = (p) => readFileSync(path.join(WEB, "dist", p), "utf8");
-const src = (p) => readFileSync(path.join(WEB, "src", p), "utf8");
+const src = source;   // a page's source, legacy or app route (test/_html.mjs)
 
 before(() => execFileSync("node", ["build.mjs"], { cwd: WEB }));
 
@@ -54,18 +55,38 @@ test("topup bounds: the billing input allows exactly the range the broker allows
   assert.match(input, /step="0\.01"/, "the input accepts the cents the broker accepts");
 });
 
-test("topup bounds: the billing click handler guards both ends and whole cents", () => {
-  // Scoped to the CLICK HANDLER, not the file. Two things bit earlier versions of this
-  // test: a bare includes() is satisfied by a comment naming the number, and the same
-  // comparison also appears in reflect(), which only paints a label - so a file-wide
-  // match stayed green with the guard that actually stops the request deleted.
-  const js = src("js/billing.js");
-  const handler = js.match(/on\("topup", "click", function \(\) \{[\s\S]*?\n      \}\);/)?.[0];
-  assert.ok(handler, "the top-up click handler is there");
-  assert.match(handler, new RegExp(`usd < ${bound(goConst("MinTopupUSD"))}`), "the floor is a guard");
-  assert.match(handler, new RegExp(`usd > ${bound(goConst("MaxTopupUSD"))}`), "the ceiling is a guard");
-  assert.match(handler, /Math\.round\(usd \* 100\)\) > 1e-6/, "and a sub-cent amount is refused");
-  assert.doesNotMatch(handler, /Math\.round\(usd \* 100\) \/ 100/, "and none of them is rounded away");
+// The billing island keeps the rules in ONE module (app/lib/billing/topup.js): the bounds as
+// numbers, check() as the guard that stops the request, label() as the button copy. The
+// component imports them and restates nothing (its input's min/max are the same constants).
+const TOPUP_JS = readFileSync(path.join(WEB, "app", "lib", "billing", "topup.js"), "utf8");
+const topup = await import("../app/lib/billing/topup.js");
+
+test("topup bounds: the billing island's bounds are the broker's, stated once as numbers", () => {
+  assert.equal(topup.MIN_USD, goConst("MinTopupUSD"), "the floor is MinTopupUSD");
+  assert.equal(topup.MAX_USD, goConst("MaxTopupUSD"), "the ceiling is MaxTopupUSD");
+  const comp = readFileSync(path.join(WEB, "app", "lib", "billing", "TopUp.svelte"), "utf8");
+  assert.match(comp, /import \{ MIN_USD, MAX_USD, check, label \} from "\.\/topup\.js"/, "the component takes the rules from the module");
+  assert.match(comp, /min=\{MIN_USD\} max=\{MAX_USD\}/, "the input's range is the same two constants");
+  assert.doesNotMatch(comp, new RegExp(bound(goConst("MaxTopupUSD"))), "the component writes no ceiling of its own");
+});
+
+test("topup bounds: the billing guard refuses both ends and sub-cent amounts, and rounds none of them away", () => {
+  // Scoped to check(), the guard that stops the request, not the file: a bare includes() is
+  // satisfied by a comment naming the number, and the same comparison also appears in
+  // label(), which only paints a button.
+  const guard = TOPUP_JS.match(/export function check\(usd\) \{[\s\S]*?\n\}/)?.[0];
+  assert.ok(guard, "check() is there");
+  assert.match(guard, /usd < MIN_USD/, "the floor is a guard");
+  assert.match(guard, /usd > MAX_USD/, "the ceiling is a guard");
+  assert.match(guard, /Math\.round\(usd \* 100\)\) > 1e-6/, "and a sub-cent amount is refused");
+  assert.doesNotMatch(guard, /Math\.round\(usd \* 100\) \/ 100/, "and none of them is rounded away");
+  // and it behaves so, at the exact edges
+  const min = goConst("MinTopupUSD"), max = goConst("MaxTopupUSD");
+  assert.equal(topup.check(min).ok, true);
+  assert.equal(topup.check(max).ok, true);
+  assert.equal(topup.check(min - 0.01).ok, false);
+  assert.equal(topup.check(max + 0.01).ok, false);
+  assert.equal(topup.check(min + 0.005).ok, false, "a sub-cent amount is refused, not rounded");
 });
 
 test("topup bounds: the local console guards the same three things", () => {
@@ -236,8 +257,9 @@ test("topup bounds: every user-facing minimum is the current minimum", () => {
   // other end: three surfaces print "$1" as a literal and would have gone on promising
   // it. Go writes the floor as a whole dollar, and so do the surfaces.
   const floor = money(goConst("MinTopupUSD")); // "1"
+  // the island says it from the constant: what the refusal reads for an amount under it
+  assert.equal(topup.check(0).msg, `enter an amount of $${floor} or more`, "the billing island states the floor to a person");
   const surfaces = {
-    "js/billing.js": src("js/billing.js"),
     "webui console.js": readFileSync(path.join(REPO, "internal", "webui", "assets", "console.js"), "utf8"),
   };
   for (const [name, js] of Object.entries(surfaces)) {
@@ -283,8 +305,8 @@ test("topup bounds: every user-facing minimum is the current minimum", () => {
   // _partials included: a minimum stated in a partial appears on every built page and
   // would be checked on none.
   const pages = [
-    ...readdirSync(path.join(WEB, "src")).filter((f) => f.endsWith(".html")),
-    ...readdirSync(path.join(WEB, "src", "_partials")).filter((f) => f.endsWith(".html")).map((f) => `_partials/${f}`),
+    ...allPages(),
+    ...readdirSync(path.join(WEB, "app", "lib", "ui")).filter((f) => f.endsWith(".svelte")).map((f) => `../app/lib/ui/${f}`),
   ];
   const seen = {};
   for (const page of pages) {
@@ -330,8 +352,10 @@ test("topup bounds: every user-facing minimum is the current minimum", () => {
 // states the cap to a person has to state the current one.
 test("topup bounds: every user-facing maximum is the current maximum", () => {
   const cap = money(goConst("MaxTopupUSD")); // "999,999.99"
+  // the island says it from the constant, in the refusal and on the button's line
+  assert.equal(topup.check(1e9).msg, `the maximum top-up is $${cap}`, "the billing refusal states the cap");
+  assert.equal(topup.label(1e9, (v) => v).note, `The maximum top-up is $${cap}.`, "the billing label states the cap");
   const surfaces = {
-    "js/billing.js": src("js/billing.js"),
     "webui console.js": readFileSync(path.join(REPO, "internal", "webui", "assets", "console.js"), "utf8"),
   };
   for (const [name, js] of Object.entries(surfaces)) {
@@ -344,15 +368,17 @@ test("topup bounds: every user-facing maximum is the current maximum", () => {
   }
 });
 
-// reflect() paints the button and does not stop anything, but it decides which of the
+// label() paints the button and does not stop anything, but it decides which of the
 // three labels the reader sees, so its ceiling has to be the real one too.
 test("topup bounds: the button label branches on the same ceiling", () => {
-  const reflect = src("js/billing.js").match(/function reflect\(\)[\s\S]*?\n      \}/)?.[0];
-  assert.ok(reflect, "reflect() is there");
-  assert.match(reflect, new RegExp(`usd <= ${bound(goConst("MaxTopupUSD"))}`),
-    "the accept branch uses the real ceiling");
-  assert.match(reflect, new RegExp(`usd > ${bound(goConst("MaxTopupUSD"))}`),
-    "and so does the over-the-cap branch");
-  const floors = reflect.match(new RegExp(`usd >= ${bound(goConst("MinTopupUSD"))}`, "g")) || [];
-  assert.equal(floors.length, 2, "both label branches gate on the real floor");
+  const lab = TOPUP_JS.match(/export function label\(usd, cr\) \{[\s\S]*?\n\}/)?.[0];
+  assert.ok(lab, "label() is there");
+  assert.match(lab, /usd <= MAX_USD/, "the accept branch uses the real ceiling");
+  assert.match(lab, /usd > MAX_USD/, "and so does the over-the-cap branch");
+  assert.equal((lab.match(/usd >= MIN_USD/g) || []).length, 2, "both label branches gate on the real floor");
+  // and the label never promises an amount the guard would refuse
+  const id = (v) => "$" + v.toFixed(2);
+  assert.equal(topup.label(goConst("MinTopupUSD") + 0.005, id).button, "Add money", "a sub-cent amount is not relabelled rounded");
+  assert.equal(topup.label(goConst("MaxTopupUSD") + 1, id).button, "Add money");
+  assert.equal(topup.label(goConst("MaxTopupUSD"), id).button, "Add " + id(goConst("MaxTopupUSD")));
 });

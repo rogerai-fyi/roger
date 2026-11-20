@@ -592,6 +592,31 @@ func (p *PGStore) SetState(stationID, state string) (bool, error) {
 	return n > 0, nil
 }
 
+func (p *PGStore) DormantForMove(stationID, towerID string, epoch int64) (bool, error) {
+	res, err := p.db.Exec(`UPDATE rogerai.station_attachments SET state='dormant'
+	                        WHERE station_id=$1 AND origin_tower=$2 AND epoch=$3
+	                          AND state IN ('quarantine','active')`, stationID, towerID, epoch)
+	if err != nil {
+		return false, pgwrap("dormant for move", err)
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
+func (p *PGStore) UndoMove(stationID, towerID string, epoch int64, state string) (bool, error) {
+	if state != StateQuarantine && state != StateActive {
+		return false, reject(errors.New("a move is undone into a serving state only"))
+	}
+	res, err := p.db.Exec(`UPDATE rogerai.station_attachments SET state=$4
+	                        WHERE station_id=$1 AND origin_tower=$2 AND epoch=$3 AND state='dormant'`,
+		stationID, towerID, epoch, state)
+	if err != nil {
+		return false, pgwrap("undo move", err)
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
 // CountLiveAttachments counts an owner's attached Stations in the states that carry work.
 func (p *PGStore) CountLiveAttachments(owner string) (int, error) {
 	var n int
@@ -644,25 +669,40 @@ func (p *PGStore) ByTower(towerID string) ([]Attachment, error) {
 //
 // Fleet-wide rather than per Tower: this is the pass that ends an identity, and it belongs
 // beside the other irreversible housekeeping rather than inside the per-Tower publish loop.
-func (p *PGStore) RetireDormant(before time.Time) (int64, error) {
-	res, err := p.db.Exec(`UPDATE rogerai.station_attachments
+func (p *PGStore) RetireDormant(before time.Time) ([]Swept, error) {
+	return p.swept("retire dormant attachments", `UPDATE rogerai.station_attachments
 		   SET state = $2
 		 WHERE state = 'dormant'
-		   AND COALESCE(last_routable, attached_at) < $1`, before.UTC(), StateDetached)
+		   AND COALESCE(last_routable, attached_at) < $1
+		RETURNING station_id, origin_tower`, before.UTC(), StateDetached)
+}
+
+// swept runs a sweep statement that RETURNs (station_id, origin_tower) and names the rows.
+func (p *PGStore) swept(op, q string, args ...any) ([]Swept, error) {
+	rows, err := p.db.Query(q, args...)
 	if err != nil {
-		return 0, pgwrap("retire dormant attachments", err)
+		return nil, pgwrap(op, err)
 	}
-	n, _ := res.RowsAffected()
-	return n, nil
+	defer rows.Close()
+	var out []Swept
+	for rows.Next() {
+		var s Swept
+		if err := rows.Scan(&s.StationID, &s.TowerID); err != nil {
+			return nil, pgwrap(op, err)
+		}
+		out = append(out, s)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, pgwrap(op, err)
+	}
+	sortSwept(out)
+	return out, nil
 }
 
 // ReapTerminal deletes revoked/detached attachments attached before the horizon (see the
 // Store interface for why terminal rows cannot be kept forever).
-func (p *PGStore) ReapTerminal(before time.Time) (int64, error) {
-	res, err := p.db.Exec(`DELETE FROM rogerai.station_attachments
-		WHERE state IN ('revoked','detached') AND attached_at <= $1`, before.UTC())
-	if err != nil {
-		return 0, pgwrap("reap terminal attachments", err)
-	}
-	return res.RowsAffected()
+func (p *PGStore) ReapTerminal(before time.Time) ([]Swept, error) {
+	return p.swept("reap terminal attachments", `DELETE FROM rogerai.station_attachments
+		WHERE state IN ('revoked','detached') AND attached_at <= $1
+		RETURNING station_id, origin_tower`, before.UTC())
 }

@@ -273,3 +273,26 @@ func TestEpochFromIgnoresWhatItShould(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, got, "a consumer signs nothing, so it has no epoch to be wrong about")
 }
+
+// Review finding: a vetted transport kept the environment's proxy, so the vet saw the proxy's
+// address and the proxy resolved the hub unvetted (and a proxy on a LAN address refused every
+// hub). A vetted dial goes direct; the vet sees the hub.
+func TestAVettedDialNeverGoesThroughAProxy(t *testing.T) {
+	t.Setenv("HTTP_PROXY", "http://203.0.113.200:3128")
+	t.Setenv("HTTPS_PROXY", "http://203.0.113.200:3128")
+	var vetted []string
+	_, hc, err := ReachVetted("localhost:9", "", func(ip net.IP) error {
+		vetted = append(vetted, ip.String())
+		return errors.New("stop here")
+	})
+	require.NoError(t, err)
+	tr := hc.Transport.(*http.Transport)
+	require.Nil(t, tr.Proxy, "a vetted transport must not use a proxy")
+	req, _ := http.NewRequest(http.MethodGet, "http://localhost:9/", nil)
+	_, err = hc.Do(req)
+	require.ErrorContains(t, err, "refusing to dial")
+	require.NotEmpty(t, vetted)
+	for _, ip := range vetted {
+		require.True(t, net.ParseIP(ip).IsLoopback(), "the vet saw %s, not the hub", ip)
+	}
+}

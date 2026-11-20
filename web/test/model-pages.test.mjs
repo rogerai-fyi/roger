@@ -22,6 +22,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { resolveCardTokens, loadModelCards } from "../scripts/model-cards.mjs";
 import { resolveWaveTokens, loadWaveStatus } from "../scripts/wave-status.mjs";
+import { source, hasPageSource } from "./_html.mjs";
 
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = path.join(WEB, "src");
@@ -33,7 +34,7 @@ before(() => execFileSync("node", ["build.mjs"], { cwd: WEB }));
 const cards = () => JSON.parse(readFileSync(DATA, "utf8"));
 const status = () => JSON.parse(readFileSync(path.join(SRC, "data", "wave-status.json"), "utf8"));
 const dist = (p) => readFileSync(path.join(DIST, p), "utf8");
-const src = (p) => readFileSync(path.join(SRC, p), "utf8");
+const src = source;   // a page's source, legacy or app route (test/_html.mjs)
 const noComments = (s) => s.replace(/<!--[\s\S]*?-->/g, "");
 const decode = (s) => s.replace(/&nbsp;/g, " ").replace(/&rsquo;|&lsquo;/g, "'").replace(/&ldquo;|&rdquo;/g, '"')
   .replace(/&ndash;/g, "\u2013").replace(/&middot;/g, "\u00b7").replace(/&plusmn;/g, "\u00b1")
@@ -93,7 +94,7 @@ test("cards: the data file is build input only and never ships", () => {
 test("cards: every model has a page that exists and is linked where model content lives", () => {
   const nav = noComments(dist("index.html")).match(/<div class="nav__panel" id="navResearchPanel"[\s\S]*?<\/div>/)?.[0] || "";
   for (const m of cards().models) {
-    assert.ok(existsSync(path.join(SRC, m.page)), `${m.page} exists`);
+    assert.ok(hasPageSource(m.page), `${m.page} exists`);
     assert.match(nav, new RegExp(`href="/${m.page}"`), `${m.page} is in the Research menu`);
     assert.match(main("research-models.html"), new RegExp(`href="/${m.page}"`), `Models and status links ${m.page}`);
     assert.match(main("research-wave-family.html"), new RegExp(`href="/${m.page}"`), `the Wave family page links ${m.page}`);
@@ -187,8 +188,8 @@ test("pages: both model pages build as research pages with their own title, desc
 
 test("pages: the mesh explainer and the wildfire watch are shared partials, written once", () => {
   for (const p of Object.values(PAGES)) {
-    assert.match(src(p), /<!-- include: wave-mesh\.html/, `${p} includes the mesh explainer`);
-    assert.match(src(p), /<!-- include: wave-firewatch\.html/, `${p} includes the wildfire watch`);
+    assert.match(src(p), /<WaveMesh /, `${p} includes the mesh explainer (the shared component)`);
+    assert.match(src(p), /<WaveFirewatch /, `${p} includes the wildfire watch (the shared component)`);
     assert.doesNotMatch(noComments(src(p)), /T13/, `${p} does not carry its own copy of the mesh questions`);
     assert.match(sectionHtml(p, "mesh"), /T13/, `${p} renders the mesh questions`);
   }
@@ -250,7 +251,7 @@ function blockAt(html, at) {
 test("fire: every fire number sits in a block that says simulator-internal", () => {
   for (const p of Object.values(PAGES)) {
     const html = main(p);
-    const at = [...html.matchAll(/data-fire=""/g)].map((m) => m.index);
+    const at = [...html.matchAll(/data-fire(?:="")?[\s>]/g)].map((m) => m.index);
     assert.ok(at.length >= 2, `${p} shows its fire adapter numbers`);
     for (const i of at) assert.match(visible(blockAt(html, i)), /simulator-internal/i, `${p}: a fire number without simulator-internal`);
   }
