@@ -213,6 +213,9 @@ test("pages: the measured footnote lists every R-number the page cites, with its
   }
 });
 
+const CREDIT_RE = /<p class="wm-credit"[^>]*>[\s\S]*?<\/p>/g;
+const withoutCredit = (html) => html.replace(CREDIT_RE, " ");
+
 const BANNED = [
   [/hugging\s?face/i, "Hugging Face"],
   [/\b(first|novel|unprecedented)\b|state[- ]of[- ]the[- ]art/i, "first / novel / state of the art"],
@@ -228,7 +231,9 @@ const BANNED = [
 test("pages: no outward-copy rule is broken on a model page", () => {
   for (const p of Object.values(PAGES)) {
     const head = noComments(dist(p)).match(/<title>[\s\S]*?<\/title>|<meta name="description"[^>]*>|<meta property="og:[^>]*>/g).join(" ");
-    const text = visible(main(p)) + " " + head;
+    // The one exception is the data credit the vision module's licence requires: it names its
+    // source by design, in its own block, and is held by its own test below.
+    const text = visible(withoutCredit(main(p))) + " " + head;
     for (const [re, what] of BANNED) assert.doesNotMatch(text, re, `${p}: ${what}`);
     assert.doesNotMatch(main(p), /huggingface\.co/i, `${p}: no Hugging Face link`);
   }
@@ -309,14 +314,63 @@ test("served: what a page says is served is exactly what the status file says", 
   for (const p of Object.values(PAGES)) assert.doesNotMatch(visible(main(p)), /\bv\d+[a-z]?\b/, `${p}: no build version named`);
 });
 
-test("nano: the vision module is a section of the Nano page, single frames, with R.F65", () => {
-  const vl = visible(sectionHtml(PAGES.nano, "vision"));
+test("nano: the vision module is a section of the Nano page, single frames, the fire build R.F75, one seed", () => {
+  const vl = visible(withoutCredit(sectionHtml(PAGES.nano, "vision")));
   assert.match(vl, /Nano-VL/);
   assert.match(vl, /single frames/i);
   assert.match(vl, /persistence/i);
   assert.match(vl, /per-camera baseline/i);
-  assert.match(vl, /R\.F65/);
+  assert.match(vl, /R\.F75/);
+  assert.doesNotMatch(vl, /R\.F65/, "the seed-1 module's reads are superseded by the fire build");
+  assert.match(vl, /one seed/i, "a single-seed read says so");
+  assert.match(vl, /detector detects/i, "the module confirms and describes; the detector detects");
   assert.doesNotMatch(vl, /\b(installed|deployed|running)\b/i);
+});
+
+test("nano: the vision module carries the data credit and the licence note, and names its source nowhere else", () => {
+  const html = sectionHtml(PAGES.nano, "vision");
+  const credit = (html.match(CREDIT_RE) || []).map(visible);
+  assert.equal(credit.length, 1, "one credit block, in the vision section");
+  assert.match(credit[0], /Data courtesy of HPWREN, University of California San Diego/);
+  assert.match(credit[0], /CC BY-NC 4\.0/);
+  assert.match(credit[0], /Commercial Use Permission/);
+  assert.match(credit[0], /not intended for decision-making/i);
+  assert.match(credit[0], /fire-decision adapter uses no HPWREN data/i);
+  assert.equal((main(PAGES.nano).match(CREDIT_RE) || []).length, 1, "the credit appears once on the page");
+});
+
+test("nano: the card is the release build's, nothing left from the superseded build", () => {
+  const nano = cards().models.find((m) => m.id === "nano");
+  for (const it of nano.measured) assert.ok(!["R.381", "R.382", "R.F65"].includes(it.ref), `nano.${it.id} still cites ${it.ref}`);
+  for (const l of nano.limits) assert.ok(!["R.381", "R.382"].includes(l.ref), `a limit still cites ${l.ref}`);
+  for (const k of ["t01", "t02", "t05", "general", "gate-accept", "gate-precision", "gate-coverage", "gate-oos", "leak", "dup", "mesh", "t11"]) {
+    const it = nano.measured.find((x) => x.id === k);
+    assert.ok(it, `nano.${k}`);
+    assert.equal(it.ref, "R.384", `nano.${k} is the release build's read`);
+  }
+  assert.doesNotMatch(visible(main(PAGES.nano)), /under its (pre-registered )?floor/i, "the release build clears every floor");
+});
+
+test("nano: the release parts are described by role, with no served name but the base's", () => {
+  const text = visible(main(PAGES.nano));
+  const parts = visible(main(PAGES.nano).match(/<ul class="wm-list wm-list--parts">[\s\S]*?<\/ul>/)?.[0] || "");
+  for (const role of [/chat/i, /fire sensor-reading adapter/i, /fire-decision controller adapter/i, /vision fire-confirm module/i]) {
+    assert.match(parts, role, `the parts list names ${role}`);
+  }
+  assert.doesNotMatch(text, /wave-nano-(?!1\.45b\b)[a-z]/i, "no roster name that is not final");
+});
+
+test("nano: the fire-decision adapter says simulator-internal plus one installed stream, and the limits say it too", () => {
+  const adapter = visible(sectionHtml(PAGES.nano, "adapter"));
+  assert.match(adapter, /fire-decision/i);
+  assert.match(adapter, /simulator-internal plus one installed stream/i);
+  assert.match(visible(sectionHtml(PAGES.nano, "limits")), /simulator-internal plus one installed stream/i);
+  const html = sectionHtml(PAGES.nano, "adapter");
+  const decision = html.slice(html.indexOf('id="decision"'));
+  assert.ok(decision.length > 200, "the fire-decision block exists");
+  for (const m of decision.matchAll(/data-fire=""/g)) {
+    assert.match(visible(blockAt(decision, m.index)), /simulator-internal plus one installed stream/i, "a fire-decision number without its scope");
+  }
 });
 
 test("nano: the conversation skill is on the Nano page", () => {

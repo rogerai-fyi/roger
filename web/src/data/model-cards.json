@@ -249,7 +249,6 @@
       "author": "RogerAI Labs",
       "builds": "GGUF",
       "vlName": "Wave Nano-VL",
-      "vlSize": "1.56B",
       "purpose": [
         "Everything Wave Pico does: one telemetry channel in, the instrument fault or the process state out, behind the same kind of calibrated escalation gate.",
         "Conversation, general questions, SQL and short technical writing, in a plain chat format.",
@@ -283,8 +282,8 @@
       ],
       "limits": [
         {
-          "text": "Classifier reading (T11a) is 2.6 points under its pre-registered floor.",
-          "ref": "R.381"
+          "text": "General knowledge is weak at this size, 48.2 on our general macro. Do not use it as a reference.",
+          "ref": "R.384"
         },
         {
           "text": "On the public small-model suite (MMLU, GSM8K, HellaSwag, IFEval and the rest) it is last in its size class on every task and at chance on MMLU and GSM8K. The industrial numbers above are where it leads; general knowledge, arithmetic and free-form instruction following are not.",
@@ -295,17 +294,29 @@
           "ref": "R.462"
         },
         {
-          "text": "Sizing arithmetic and tool-plan JSON are new skills still being trained in.",
-          "ref": "R.382"
+          "text": "Sizing arithmetic without the calculator tool reads 17 to 20. The fire-decision adapter calls the calculator instead.",
+          "ref": "R.448"
+        },
+        {
+          "text": "On real camera ticks, a camera margin that was over the line and fell below it over-alarms about 10% of the time, a tick shape the training set never held. A retrain that covers it is in training.",
+          "ref": "R.459"
+        },
+        {
+          "text": "On real single camera ticks the misses are right decisions with an incomplete missing list, when the temperature feed is null.",
+          "ref": "R.454"
+        },
+        {
+          "text": "The fire-decision adapter reads a tick by position. The caller writes every tick in one fixed key order before it asks.",
+          "ref": "R.452"
         },
         {
           "text": "The vision module reads single frames. The full watch design adds persistence and a per-camera baseline on top."
         },
         {
-          "text": "The vision numbers are on held-out frames from camera networks like the ones it learned on. On another network's cameras it does not carry over yet."
+          "text": "The vision numbers are on held-out frames from the camera networks it learned on, from one training seed."
         },
         {
-          "text": "Fire numbers are simulator-internal until a site has recorded months of its own normal days."
+          "text": "Every fire number is simulator-internal plus one installed stream. No site has recorded months of its own normal days yet."
         },
         {
           "text": "The MLX build for Apple Silicon is owed."
@@ -315,45 +326,70 @@
         {
           "id": "t01",
           "label": "Fault identification",
-          "value": "72.8",
-          "num": 72.8,
+          "value": "72.7",
+          "num": 72.7,
           "unit": "macro-F1",
-          "ref": "R.381",
-          "date": "2026-10-19"
+          "ref": "R.384",
+          "date": "2026-10-21"
         },
         {
           "id": "t02",
           "label": "Process state",
-          "value": "75.9",
-          "num": 75.9,
+          "value": "74.0",
+          "num": 74.0,
           "unit": "macro-F1",
-          "ref": "R.381",
-          "date": "2026-10-19"
+          "ref": "R.384",
+          "date": "2026-10-21"
+        },
+        {
+          "id": "t05",
+          "label": "Tag truthfulness",
+          "value": "48.1",
+          "num": 48.1,
+          "unit": "macro-F1",
+          "ref": "R.384",
+          "date": "2026-10-21"
         },
         {
           "id": "general",
           "label": "General knowledge",
-          "value": "48.1",
-          "num": 48.1,
+          "value": "48.2",
+          "num": 48.2,
           "unit": "macro",
-          "ref": "R.381",
-          "date": "2026-10-19"
+          "ref": "R.384",
+          "date": "2026-10-21"
         },
         {
           "id": "gate-accept",
           "label": "Real work the gate accepts",
-          "value": "52.6%",
-          "num": 52.6,
-          "ref": "R.381",
-          "date": "2026-10-19"
+          "value": "54.8%",
+          "num": 54.8,
+          "ref": "R.384",
+          "date": "2026-10-21"
         },
         {
           "id": "gate-precision",
           "label": "Precision when it answers",
-          "value": "96.7%",
-          "num": 96.7,
-          "ref": "R.381",
-          "date": "2026-10-19"
+          "value": "96.5%",
+          "num": 96.5,
+          "ref": "R.384",
+          "date": "2026-10-21"
+        },
+        {
+          "id": "gate-coverage",
+          "label": "Gate worst-class coverage",
+          "value": "93.0%",
+          "num": 93.0,
+          "ref": "R.384",
+          "date": "2026-10-21"
+        },
+        {
+          "id": "gate-oos",
+          "label": "Out-of-scope items the gate refuses",
+          "value": "100% of 480",
+          "num": 100,
+          "ref": "R.384",
+          "date": "2026-10-21"
         },
         {
           "id": "leak",
@@ -361,8 +397,8 @@
           "value": "0.0%",
           "num": 0,
           "better": "lower",
-          "ref": "R.381",
-          "date": "2026-10-19"
+          "ref": "R.384",
+          "date": "2026-10-21"
         },
         {
           "id": "dup",
@@ -370,71 +406,81 @@
           "value": "1.3%",
           "num": 1.3,
           "better": "lower",
-          "ref": "R.381",
-          "date": "2026-10-19"
+          "ref": "R.384",
+          "date": "2026-10-21"
         },
         {
           "id": "mesh",
           "label": "IEB-Mesh fleet reading",
-          "value": "95.6",
-          "num": 95.6,
+          "value": "95.5",
+          "num": 95.5,
           "unit": "macro",
-          "ref": "R.381",
-          "date": "2026-10-19"
+          "ref": "R.384",
+          "date": "2026-10-21"
         },
         {
           "id": "t11",
           "label": "Classifier reading, T11a / T11b",
-          "value": "67.4 / 100",
-          "num": 67.4,
-          "ref": "R.381",
-          "date": "2026-10-19"
+          "value": "70.1 / 100",
+          "num": 70.1,
+          "ref": "R.384",
+          "date": "2026-10-21"
         },
         {
           "id": "gguf",
-          "label": "GGUF builds, Q4_K_M to f16",
-          "value": "0.83&ndash;2.9 GB",
-          "lo": 0.83,
-          "hi": 2.9,
-          "ref": "R.381",
-          "date": "2026-10-19"
+          "label": "GGUF files on disk, Q4_K_M to f16",
+          "value": "874&ndash;2,899 MB",
+          "lo": 0.874,
+          "hi": 2.899,
+          "ref": "R.384",
+          "date": "2026-10-21"
         },
         {
-          "id": "gguf-agree",
-          "label": "f16, Q6_K and Q5_K_M against the reference on the stock server, frozen subset",
-          "value": "item for item",
-          "ref": "R.381",
-          "date": "2026-10-19"
-        },
-        {
-          "id": "fire-gated",
-          "label": "Fire adapter, threat call / escalation, gated configurations",
+          "id": "fire-full",
+          "label": "Fire sensor-reading adapter, threat call / escalation, full sensor suite and without a camera",
           "value": "100 / 100",
           "num": 100,
           "fire": true,
-          "ref": "R.381",
-          "date": "2026-10-19"
+          "ref": "R.384",
+          "date": "2026-10-21"
+        },
+        {
+          "id": "fire-chem",
+          "label": "Fire sensor-reading adapter, threat call / escalation, chemistry and thermal only",
+          "value": "100 / 99.4",
+          "num": 99.4,
+          "fire": true,
+          "ref": "R.384",
+          "date": "2026-10-21"
         },
         {
           "id": "fire-gate",
-          "label": "Fire adapter gate lines passing",
+          "label": "Fire sensor-reading adapter, conformal gate lines passing in every gated configuration",
           "value": "7 of 7",
           "num": 100,
           "fire": true,
-          "ref": "R.381",
-          "date": "2026-10-19"
+          "ref": "R.384",
+          "date": "2026-10-21"
+        },
+        {
+          "id": "fire-routed",
+          "label": "Fire sensor-reading adapter routed through the stock server, threat / escalation / source class / wind alignment / regime",
+          "value": "100 / 100 / 94.2 / 100 / 79.4",
+          "fire": true,
+          "ref": "R.384",
+          "date": "2026-10-21"
         },
         {
           "id": "fire-off",
-          "label": "Fire adapter switched off, through the stock server",
+          "label": "Fire sensor-reading adapter switched off, through the stock server",
           "value": "chance",
           "fire": true,
-          "ref": "R.381",
-          "date": "2026-10-19"
+          "ref": "R.384",
+          "date": "2026-10-21"
         },
         {
           "id": "t17",
-          "label": "T17 fire-site rollup, state / action / deciding input / inconsistency, read on the previous Instruct build",
+          "label": "T17 fire-site rollup, state / action / deciding input / inconsistency, read on an earlier Instruct build",
           "value": "99.0 / 82.5 / 80.0 / 50.0",
           "num": 99.0,
           "fire": true,
@@ -467,52 +513,194 @@
           "date": "2026-10-18"
         },
         {
+          "id": "fd-fusion",
+          "label": "Fire-decision adapter, fusion of camera, chemistry and wind",
+          "value": "99.7",
+          "num": 99.7,
+          "fire": true,
+          "ref": "R.448",
+          "date": "2026-11-07"
+        },
+        {
+          "id": "fd-plans",
+          "label": "Fire-decision adapter, tool plans",
+          "value": "100.0",
+          "num": 100.0,
+          "fire": true,
+          "ref": "R.448",
+          "date": "2026-11-07"
+        },
+        {
+          "id": "fd-calc",
+          "label": "Fire-decision adapter, calculator tool calls",
+          "value": "97.0",
+          "num": 97.0,
+          "fire": true,
+          "ref": "R.448",
+          "date": "2026-11-07"
+        },
+        {
+          "id": "fd-missing",
+          "label": "Fire-decision adapter, missing inputs named",
+          "value": "99.6",
+          "num": 99.6,
+          "fire": true,
+          "ref": "R.448",
+          "date": "2026-11-07"
+        },
+        {
+          "id": "fd-override",
+          "label": "Fire-decision adapter, override requests",
+          "value": "100.0",
+          "num": 100.0,
+          "fire": true,
+          "ref": "R.448",
+          "date": "2026-11-07"
+        },
+        {
+          "id": "fd-unsafe",
+          "label": "Fire-decision adapter, requests it should refuse that it complied with",
+          "value": "0 of 97",
+          "num": 0,
+          "better": "lower",
+          "fire": true,
+          "ref": "R.448",
+          "date": "2026-11-07"
+        },
+        {
+          "id": "fd-handoff",
+          "label": "Fire-decision adapter, acknowledgement handoff",
+          "value": "97.9",
+          "num": 97.9,
+          "fire": true,
+          "ref": "R.448",
+          "date": "2026-11-07"
+        },
+        {
+          "id": "fd-macro",
+          "label": "Fire-decision adapter, macro over seven families",
+          "value": "87.7",
+          "num": 87.7,
+          "fire": true,
+          "ref": "R.448",
+          "date": "2026-11-07"
+        },
+        {
+          "id": "fd-served",
+          "label": "Fire-decision adapter served on Q6_K / Q5_K_M / Q4_K_M, macro",
+          "value": "87.6 / 86.9 / 86.5",
+          "fire": true,
+          "ref": "R.448",
+          "date": "2026-11-07"
+        },
+        {
+          "id": "fd-edges",
+          "label": "Fire-decision adapter decision edges, PM2.5 line / camera persistence",
+          "value": "150 / 0.71",
+          "fire": true,
+          "ref": "R.448",
+          "date": "2026-11-07"
+        },
+        {
+          "id": "fd-sizing",
+          "label": "Fire-decision adapter, sizing arithmetic without the calculator tool",
+          "value": "17 to 20",
+          "fire": true,
+          "ref": "R.448",
+          "date": "2026-11-07"
+        },
+        {
+          "id": "fd-real-steady",
+          "label": "Fire-decision adapter on real camera ticks, persistent / quiet",
+          "value": "100 / 100",
+          "num": 100,
+          "fire": true,
+          "ref": "R.453",
+          "date": "2026-11-07"
+        },
+        {
+          "id": "fd-real-single",
+          "label": "Fire-decision adapter on real camera ticks, a single camera tick, strict",
+          "value": "84.3",
+          "num": 84.3,
+          "fire": true,
+          "ref": "R.453",
+          "date": "2026-11-07"
+        },
+        {
+          "id": "fd-real-falling",
+          "label": "Fire-decision adapter on real camera ticks, a margin that fell below the line, over-alarms",
+          "value": "about 10%",
+          "num": 10,
+          "better": "lower",
+          "fire": true,
+          "ref": "R.453",
+          "date": "2026-11-07"
+        },
+        {
           "id": "vl-auc",
-          "label": "Nano-VL smoke reading, AUC over three seeds",
-          "value": "0.930 &plusmn; 0.009",
-          "lo": 0.921,
-          "hi": 0.939,
-          "ref": "R.F65",
-          "date": "2026-10-20"
+          "label": "Nano-VL smoke reading, held-out wide-area camera tiles, AUC, read in float32",
+          "value": "0.917",
+          "lo": 0.917,
+          "hi": 0.917,
+          "ref": "R.F75",
+          "date": "2026-10-25"
         },
         {
           "id": "vl-fa",
-          "label": "Nano-VL false alarms on empty frames at the field recall bar",
-          "value": "12.4 &plusmn; 1.7%",
-          "lo": 10.7,
-          "hi": 14.1,
+          "label": "Nano-VL false alarms on empty frames, wide-area tiles",
+          "value": "3.7%",
+          "lo": 3.7,
+          "hi": 3.7,
           "better": "lower",
-          "ref": "R.F65",
-          "date": "2026-10-20"
+          "ref": "R.F75",
+          "date": "2026-10-25"
         },
         {
-          "id": "vl-frames",
-          "label": "Nano-VL held-out frames, read in float32",
-          "value": "1,129 frames from 84 cameras",
-          "ref": "R.F65",
-          "date": "2026-10-20"
+          "id": "vl-full",
+          "label": "Nano-VL smoke reading, one full wide-area frame, AUC",
+          "value": "0.88",
+          "ref": "R.F75",
+          "date": "2026-10-25"
+        },
+        {
+          "id": "vl-second",
+          "label": "Nano-VL smoke reading, a second camera network&rsquo;s validation frames, AUC",
+          "value": "0.963",
+          "lo": 0.963,
+          "hi": 0.963,
+          "ref": "R.F75",
+          "date": "2026-10-25"
+        },
+        {
+          "id": "vl-confirm",
+          "label": "Nano-VL as the confirmer on the camera detector&rsquo;s proposed crop, AUC",
+          "value": "0.906",
+          "lo": 0.906,
+          "hi": 0.906,
+          "ref": "R.F75",
+          "date": "2026-10-25"
+        },
+        {
+          "id": "vl-pair",
+          "label": "Camera detector plus Nano-VL confirmer, AUC and false alarms",
+          "value": "0.923 at 7.0%",
+          "ref": "R.F75",
+          "date": "2026-10-25"
+        },
+        {
+          "id": "vl-det",
+          "label": "Camera detector alone, false alarms at the same recall",
+          "value": "9.2%",
+          "ref": "R.F75",
+          "date": "2026-10-25"
         },
         {
           "id": "vl-served",
-          "label": "Nano-VL served through our llama.cpp branch, correlation with the reference",
-          "value": "0.992",
-          "ref": "R.F65",
-          "date": "2026-10-20"
-        },
-        {
-          "id": "vl-text",
-          "label": "Nano-VL telemetry reading kept, sealed fault identification",
-          "value": "70.8",
-          "num": 70.8,
-          "ref": "R.F65",
-          "date": "2026-10-20"
-        },
-        {
-          "id": "new-skills",
-          "label": "Sizing arithmetic and tool-plan JSON, this build",
-          "value": "0 of 100",
-          "ref": "R.382",
-          "date": "2026-10-20"
+          "label": "Nano-VL served through our llama.cpp branch, AUC, second network / wide-area full frame",
+          "value": "0.969 / 0.887",
+          "ref": "R.F75",
+          "date": "2026-10-25"
         },
         {
           "id": "std-macro",
@@ -615,6 +803,25 @@
           "hi": 52.2,
           "ref": "R.462",
           "date": "2026-11-10"
+        }
+      ],
+      "vlCredit": "Data credit. The vision module and the camera smoke detector it works with were trained in part on HPWREN archived data (CC BY-NC 4.0; commercial use under HPWREN&rsquo;s no-fee Commercial Use Permission, registration filed by RogerAI). Data courtesy of HPWREN, University of California San Diego. FIgLib: Dewangan et al. (2022), Remote Sensing 14(4), 1007. HPWREN data are not intended for decision-making. The fire-decision adapter uses no HPWREN data.",
+      "parts": [
+        {
+          "title": "Chat.",
+          "text": "The base model on its own: telemetry, the fleet, the fire-site rollup, and conversation."
+        },
+        {
+          "title": "Fire sensor-reading adapter.",
+          "text": "Routed per request. Reads a fire site&rsquo;s sensor frame: threat call, escalation, source, wind alignment and regime."
+        },
+        {
+          "title": "Fire-decision controller adapter.",
+          "text": "Routed per request. Gives the site controller its decision from camera, chemistry and wind, plans its tool calls, names missing inputs, answers override requests, and steps back once a person acknowledges."
+        },
+        {
+          "title": "Vision fire-confirm module.",
+          "text": "Nano-VL. After the camera detector alarms, it confirms smoke on the frame and describes it."
         }
       ]
     }
