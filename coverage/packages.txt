@@ -1,8 +1,8 @@
  100.0%  rogerai.fm/roger/v7/cmd/roger-tower
  100.0%  rogerai.fm/roger/v7/cmd/roger-tower-local
-  91.0%  rogerai.fm/roger/v7/cmd/rogerai
+  91.1%  rogerai.fm/roger/v7/cmd/rogerai
   91.4%  rogerai.fm/roger/v7/cmd/rogerai-broker
-  91.6%  rogerai.fm/roger/v7/internal/agent
+  91.5%  rogerai.fm/roger/v7/internal/agent
   90.3%  rogerai.fm/roger/v7/internal/audio
   93.2%  rogerai.fm/roger/v7/internal/bddrun
   96.7%  rogerai.fm/roger/v7/internal/brief
