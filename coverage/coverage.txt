@@ -502,7 +502,7 @@ rogerai.fm/roger/v7/cmd/rogerai/edgetrouble.go:34:			cmdEdgeTrouble				91.7%
 rogerai.fm/roger/v7/cmd/rogerai/edgetrouble.go:69:			edgePrintTroubleFeed			100.0%
 rogerai.fm/roger/v7/cmd/rogerai/edgetrouble.go:185:			edgeWatchTrouble			86.4%
 rogerai.fm/roger/v7/cmd/rogerai/filelock.go:20:				fileLockConfig				90.0%
-rogerai.fm/roger/v7/cmd/rogerai/filelock.go:67:				staleLock				87.5%
+rogerai.fm/roger/v7/cmd/rogerai/filelock.go:67:				staleLock				100.0%
 rogerai.fm/roger/v7/cmd/rogerai/filelock.go:85:				takeOverStaleLock			100.0%
 rogerai.fm/roger/v7/cmd/rogerai/filelock.go:102:			lockToken				100.0%
 rogerai.fm/roger/v7/cmd/rogerai/grant.go:20:				cmdGrant				100.0%
