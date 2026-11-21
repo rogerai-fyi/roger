@@ -762,11 +762,19 @@ func (s *discState) verifiedNodeAtOneAddress(name string) error {
 
 func (s *discState) attackerAtDifferentAddress() error {
 	victim := s.peers[s.subject]
-	victim.stop() // the real node is off the air; only the attacker is talking
 	// The attacker holds its own key and a certificate this authority really signed -
 	// for ITSELF. It advertises the victim's id and account, truthfully fingerprinting
 	// its own certificate so there is no fingerprint mismatch to catch it on.
+	//
+	// Built BEFORE the victim stops: while both listeners are open they cannot share a port.
+	// Stopping the victim first freed its port, and under load the attacker's listener could
+	// be handed the same one - the "different address" of this scenario was then the same
+	// address, which is honestly reported as a mismatch, not a collision.
 	att := s.truthfulPeer("attacker", "acct-1", []string{"serve"}, s.ca)
+	victim.stop() // the real node is off the air; only the attacker is talking
+	if att.ip.Equal(victim.ip) && att.port == victim.port {
+		return fmt.Errorf("the attacker landed on the victim's address %s:%d", victim.ip, victim.port)
+	}
 	att.advert.NodeID = victim.id
 	att.advert.Account = "acct-1"
 	s.advertise(att)
