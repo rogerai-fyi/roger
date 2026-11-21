@@ -21,7 +21,7 @@ require (
 	github.com/redis/go-redis/v9 v9.21.0
 	github.com/rivo/uniseg v0.4.7
 	github.com/stretchr/testify v1.11.1
-	github.com/thebanri/limoni v0.9.2
+	github.com/thebanri/limoni v0.16.0
 	github.com/tiktoken-go/tokenizer v0.6.1
 	golang.org/x/crypto v0.55.0
 	golang.org/x/net v0.57.0
