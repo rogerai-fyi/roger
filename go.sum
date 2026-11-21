@@ -152,8 +152,8 @@ github.com/stretchr/testify v1.8.1/go.mod h1:w2LPCIKwWwSfY2zedu0+kehJoqGctiVI29o
 github.com/stretchr/testify v1.8.2/go.mod h1:w2LPCIKwWwSfY2zedu0+kehJoqGctiVI29o6fzry7u4=
 github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu7U=
 github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD981Nm4B6U=
-github.com/thebanri/limoni v0.9.2 h1:XnnDXgOcGZ+ypIlnA6eFIML6ZupKn9ba+VJ4xXONT+4=
-github.com/thebanri/limoni v0.9.2/go.mod h1:aHH0MYLRJrv8GBKn0HPI68H3KSTdgu6MHqBfkvXWZVA=
+github.com/thebanri/limoni v0.16.0 h1:Tk+HjU8ODUWIg7/gjyHbeW0VmYfwXPWf6Dj9AaCgTmQ=
+github.com/thebanri/limoni v0.16.0/go.mod h1:aHH0MYLRJrv8GBKn0HPI68H3KSTdgu6MHqBfkvXWZVA=
 github.com/tiktoken-go/tokenizer v0.6.1 h1:iuhZJUEYY4Fn5vYbDX0Clgqzus8w8rM410YbovUzyLM=
 github.com/tiktoken-go/tokenizer v0.6.1/go.mod h1:6UCYI/DtOallbmL7sSy30p6YQv60qNyU/4aVigPOx6w=
 github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e h1:JVG44RsyaB9T2KIHavMF/ppJZNG9ZpyihvCd0w101no=
