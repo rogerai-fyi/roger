@@ -29,7 +29,8 @@ jobs:
     # assert against production as it exists BEFORE the change merges - a page that
     # first ships in the PR is guaranteed 404, and the gate would block the very
     # change that satisfies it.
-    if: github.event_name != 'pull_request'
+    # Scheduled runs happen on the public repo only, so they are not run twice.
+    if: github.event_name != 'pull_request' && (github.event_name != 'schedule' || github.repository == 'rogerai-fyi/roger')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

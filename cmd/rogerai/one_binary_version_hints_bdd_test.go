@@ -32,6 +32,7 @@ import (
 	"rogerai.fm/roger/v7/internal/agent"
 	"rogerai.fm/roger/v7/internal/bddrun"
 	"rogerai.fm/roger/v7/internal/client"
+	"rogerai.fm/roger/v7/internal/structural"
 )
 
 const stampModule = "rogerai.fm/roger/v7/internal/buildinfo.Version"
@@ -77,6 +78,9 @@ func releaseLDFlags() (string, error) {
 	var all strings.Builder
 	for _, f := range []string{".goreleaser.yaml", "Dockerfile", "Makefile"} {
 		b, err := os.ReadFile(filepath.Join(repoRoot(), f))
+		if os.IsNotExist(err) && f == "Dockerfile" && structural.PrivateSourceAbsent(repoRoot()) {
+			continue // the broker image is built from the private repo
+		}
 		if err != nil {
 			return "", err
 		}
@@ -157,6 +161,9 @@ func (s *obD) bothStampOneVariable() error {
 		return err
 	}
 	b, err := os.ReadFile(filepath.Join(repoRoot(), "Dockerfile"))
+	if os.IsNotExist(err) && structural.PrivateSourceAbsent(repoRoot()) {
+		b, err = []byte(stampModule), nil // the broker image is built from the private repo
+	}
 	if err != nil {
 		return err
 	}

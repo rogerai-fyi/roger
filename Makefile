@@ -13,7 +13,8 @@ VERSION ?=
 VERSION_LDFLAGS := $(if $(VERSION),-X rogerai.fm/roger/v7/internal/buildinfo.Version=$(VERSION),)
 
 build:
-	go build -ldflags "$(VERSION_LDFLAGS)" -o bin/rogerai-broker ./cmd/rogerai-broker
+	# The broker source is in the private repo; the public export has no cmd/rogerai-broker.
+	if [ -d cmd/rogerai-broker ]; then go build -ldflags "$(VERSION_LDFLAGS)" -o bin/rogerai-broker ./cmd/rogerai-broker; fi
 	go build -ldflags "$(VERSION_LDFLAGS)" -o bin/roger ./cmd/rogerai
 	ln -sf roger bin/rogerai          # back-compat alias: the command is `roger`, `rogerai` still works
 	go build -o bin/roger-tower ./cmd/roger-tower              # one-release shim: hands off to roger
@@ -249,6 +250,7 @@ release:
 	@command -v sha256sum >/dev/null 2>&1 && (cd bin && sha256sum roger-* > checksums.txt && echo "wrote bin/checksums.txt") || true
 
 demo: build
+	@test -d cmd/rogerai-broker || { echo "make demo runs the broker, whose source is in the private repo"; exit 1; }
 	@bash scripts/demo.sh
 
 kill:

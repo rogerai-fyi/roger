@@ -155,7 +155,9 @@ func TestEdgeAlertNamesThePhoneAsTheSinkAndSendsATestCall(t *testing.T) {
 	out, code = edgeRun(t, "edge", "alert", "test", "gentle-ibex-14")
 	require.Equal(t, 0, code, out)
 	require.Contains(t, out, "test call")
-	feed, err := edgeAlertLog().Feed(time.Time{}, now.Add(time.Second), func(id string) string { return map[string]string{"n_ibex": "gentle-ibex-14"}[id] })
+	// The test call is stamped by the wall clock (edgealert.go), not the pinned render clock,
+	// so the window ends at the wall clock: under a loaded run the call lands after now+1s.
+	feed, err := edgeAlertLog().Feed(time.Time{}, time.Now().Add(time.Second), func(id string) string { return map[string]string{"n_ibex": "gentle-ibex-14"}[id] })
 	require.NoError(t, err)
 	tests := 0
 	for _, tr := range feed.Transitions {

@@ -110,16 +110,21 @@ signed receipts, never prompts). It's an OpenAI-compatible relay - see the serve
 ## Run it locally
 
 ```
-make build
-make demo     # broker + a node + a request, end to end (needs a local OpenAI endpoint)
+make build    # roger, plus the roger-tower shims
 go test ./...
 ```
 
 ## Docs
 
-- [BROKER-SPEC.md](BROKER-SPEC.md) - the open broker spec (anyone can self-host/federate)
-- `cmd/rogerai-broker/openapi.yaml` - OpenAPI 3.1 (also served at `/openapi.yaml`)
-- [VERIFICATION.md](VERIFICATION.md) · [PRIVACY.md](PRIVACY.md) · [DEPLOY.md](DEPLOY.md) · [STRIPE.md](STRIPE.md)
+- [The operating manual](https://rogerai.fm/manual.html) - every command, flag and screen
+- [OpenAPI 3.1](https://broker.rogerai.fm/openapi.yaml) - the broker's API, as served
+- [PRIVACY.md](PRIVACY.md) · [LICENSING.md](LICENSING.md)
+
+## Contributing
+
+Development happens in a private repository, and this one is published from it on every
+merge. Pull requests here are welcome: we bring them into the main source with your
+authorship kept, then close them here once the change is published.
 
 ## License
 
@@ -129,5 +134,5 @@ Two licenses, side by side ([LICENSING.md](LICENSING.md) has the exact file list
   Anyone can implement a compatible node, or verify what they were charged, without asking.
   An interoperability surface only counts as open if it is actually open.
 - **Everything else is [PolyForm Perimeter 1.0.0](LICENSE)** - source-available, free for any
-  non-competing use. You can self-host your own broker for your own community; you can't run
-  it as a competing commercial marketplace service. See the LICENSE for the exact grant.
+  non-competing use. You can run your own Tower for your own community (`roger tower`); you
+  can't run a competing commercial marketplace service. See the LICENSE for the exact grant.

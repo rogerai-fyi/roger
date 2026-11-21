@@ -16,6 +16,10 @@ jobs:
   # must pass on the tagged commit before any binary is built (v4.15.0 shipped while the
   # gate was red on main - this closes that hole).
   gate:
+    # Releases are cut on the public repo (rogerai-fyi/roger), from the exported tree: the
+    # binaries are built from public source and the installers download from its releases.
+    # A v* tag in the private source repo must not publish anything there.
+    if: github.repository == 'rogerai-fyi/roger'
     runs-on: ubuntu-latest
     env:
       GOTOOLCHAIN: local

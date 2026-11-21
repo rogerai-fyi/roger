@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"rogerai.fm/roger/v7/internal/structural"
 )
 
 // TestBrokerAndClientShareOneFallbackVersion keeps the binaries' UN-STAMPED version in step,
@@ -24,6 +26,9 @@ func TestBrokerAndClientShareOneFallbackVersion(t *testing.T) {
 	own := regexp.MustCompile(`(?m)^(?:const|var)\s+[Vv]ersion\s*=\s*"`)
 	for _, f := range []string{filepath.Join("cmd", "rogerai", "main.go"), filepath.Join("cmd", "rogerai-broker", "main.go")} {
 		b, err := os.ReadFile(filepath.Join(root, f))
+		if os.IsNotExist(err) && f == filepath.FromSlash(structural.BrokerDir+"/main.go") && structural.PrivateSourceAbsent(root) {
+			continue // the public export: the broker source is in the private repo
+		}
 		if err != nil {
 			t.Fatalf("read %s: %v", f, err)
 		}

@@ -20,6 +20,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"rogerai.fm/roger/v7/internal/structural"
 )
 
 const mod = "rogerai.fm/roger/v7"
@@ -89,6 +91,9 @@ func TestTheDocDescribesPackagesThatExist(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(".", f[0])); err == nil {
 			named++
 			continue
+		}
+		if structural.PrivateSourceAbsent("../..") {
+			continue // the public export leaves the broker-only Core packages out
 		}
 		entries, derr := os.ReadDir(".")
 		require.NoError(t, derr)

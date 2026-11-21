@@ -35,6 +35,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"rogerai.fm/roger/v7/internal/structural"
 )
 
 const (
@@ -67,6 +69,9 @@ func TestTheBuildStatusMatchesWhatTheCodeClaims(t *testing.T) {
 			n := refs[base]
 			switch status {
 			case statusBuilt, statusPartial:
+				if n == 0 && structural.PrivateSourceAbsent("../..") {
+					t.Skip("the code that implements this spec is in the private repo")
+				}
 				require.NotZero(t, n,
 					"%s says %s, but no code carries `Contract: features/tower/%s`.\n"+
 						"Either the status is wishful, or the implementation exists and does not "+

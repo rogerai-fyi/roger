@@ -24,6 +24,8 @@ permissions:
 
 jobs:
   check:
+    # Scheduled probes run on the public repo only, so they are not run twice.
+    if: ${{ github.event_name != 'schedule' || github.repository == 'rogerai-fyi/roger' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

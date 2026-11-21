@@ -48,6 +48,7 @@ import (
 	"regexp"
 	"rogerai.fm/roger/v7/internal/bddrun"
 	"rogerai.fm/roger/v7/internal/netbind"
+	"rogerai.fm/roger/v7/internal/structural"
 	"strconv"
 	"strings"
 	"sync"
@@ -67,6 +68,16 @@ var (
 	rfRogerBin  string
 	rfBuildErr  error
 )
+
+// rfNeedsBroker skips a suite whose scenarios run roger against a real broker binary: in the
+// public export the broker source is not there to build. Called at the top of each suite,
+// never from a scenario (a skip there would end the parent test from a subtest).
+func rfNeedsBroker(t *testing.T) {
+	t.Helper()
+	if structural.PrivateSourceAbsent("../..") {
+		t.Skip("these scenarios run roger against a real broker, whose source is in the private repo")
+	}
+}
 
 func rfBuild(t *testing.T) {
 	rfBuildOnce.Do(func() {
@@ -1219,6 +1230,7 @@ func (s *rfState) configUnchanged() error {
 // ── runner ─────────────────────────────────────────────────────────────────────────────
 
 func TestRoutingFlagsPins(t *testing.T) {
+	rfNeedsBroker(t)
 	if testing.Short() {
 		t.Skip("builds and runs the real broker + roger binaries")
 	}

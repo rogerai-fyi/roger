@@ -2505,10 +2505,12 @@ func cf4Suite(t *testing.T, name, path string) {
 }
 
 func TestRoutingFlagsCLIBDD(t *testing.T) {
+	rfNeedsBroker(t)
 	cf4Suite(t, "features/cli/routing_flags.feature", "../../features/cli/routing_flags.feature")
 }
 
 func TestRoutingProfilesCLIBDD(t *testing.T) {
+	rfNeedsBroker(t)
 	cf4Suite(t, "features/cli/profiles.feature", "../../features/cli/profiles.feature")
 }
 
